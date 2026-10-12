@@ -28,10 +28,17 @@
     "skipLibCheck": true,
     "forceConsistentCasingInFileNames": true,
 
-    /* 路径别名：跨域引用走 @/，避免 ../../.. 相对路径地狱 */
-    "baseUrl": ".",
+    /* 路径别名：跨域引用走 @/，避免 ../../.. 相对路径地狱。
+       Vite 侧对应 vite.config.ts 的 resolve.alias，两处必须一致，否则
+       「tsc 过了但构建找不到模块」。
+
+       ⚠️ 这里**故意不写 baseUrl**。`baseUrl` 已被 TypeScript 标记弃用
+       （TS 6.0 起报弃用、TS 7.0 起停止支持），而它从 TS 4.1 起就不再是
+       `paths` 的必要条件了 —— 不写 baseUrl 时，`paths` 里的值按
+       **tsconfig.json 所在目录**解析，所以写成 "./src/*"。
+       加上 baseUrl 换来的只是多一行会被删掉的配置。 */
     "paths": {
-      "@/*": ["src/*"]
+      "@/*": ["./src/*"]
     }
   },
   "include": ["src", "vite.config.ts"]
