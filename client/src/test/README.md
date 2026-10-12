@@ -64,7 +64,7 @@ npm run dev
 | `basic_hit` | 基础命中 | 一只分裂怪 + 一只肉盾，空地。一枪一个 / 子弹穿透 / 顿帧 / 闪屏 |
 | `splitter_chain` | 分裂链 | 三只一代 = 33 杀。第 5 杀闪屏、出生间隔、`ledger` 归零 |
 | `tank_grind` | 肉盾磨血 | 肉盾 + 带 160px 缺口的墙。帧伤 tick、音效限频、音高、减速、绕路 |
-| `swarm_stress` | 压力场 | 150+ 只怪铺满场。`queue` 排空、`ai near/far` 比例、`frame` 不停 |
+| `swarm_stress` | 压力场 | 150+ 只怪铺满场。`queue` 排空、`moving` 不掉、`ai near/far` 比例、`frame` 不停。**默认那批是第三代 —— 不打爆了也不分裂，设计如此**；按 `G` 换成第一代就能看分裂链 |
 
 ## 二、操作
 
@@ -127,6 +127,8 @@ cp src/test/arenas/_ArenaTemplate.ts src/test/arenas/我的场子.ts   # 1. 复�
 | `fps` | 掉帧会让一帧内的物理补步变多 —— 帧伤次数、AI 次数都会跟着变 |
 | `frame` | **不涨 = 物理世界空了**。`World.update()` 第一句是 `bodies.size === 0` 就 return，一个 body 都没有时 `WORLD_STEP` 不再触发，敌人系统**静默假死** |
 | `enemies alive / pool` | `alive` 掉到 0 而 `pool` 还停在高位 = 有人 `park()` 了却没还回池子 |
+| `moving` | **一只都不动（行尾会标 ⚠️）= 速度意图没落到物理体上。** 读的是物理体速度而不是 `velIntent`，所以「AI 算得好好的、怪却不动」这种 bug 只有这个数看得出来。密集刷怪时它会比 `alive` 少最多 8（当帧刚出生的要下一帧才被算进来），**别拿两个数相等当判据** |
+| `world bodies / steps` | `bodies` 是 0 或世界被暂停 = 和 `frame` 不涨是同一件事，但这两行能区分是哪一种 |
 | `queue` | 一直涨 = 出生队列在漏（同帧几百只怪挤进物理世界）；一上来就是 0 = 队列被绕过了 |
 | `ai near / far` | 两个数差不多大 = 降频没生效，远处那批怪的 AI 结果每帧都在被算然后丢掉 |
 | `ledger pairs` | **停手之后该回到 0。** 只涨不落 = 有人忘了 `releaseBullet()` / `releaseMelee()`，那种泄漏**没有任何报错** |
