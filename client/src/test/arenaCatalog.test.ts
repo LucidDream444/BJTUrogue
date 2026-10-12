@@ -61,6 +61,17 @@ describe('arenaIdFromPath', () => {
   it('没有扩展名也不炸', () => {
     expect(arenaIdFromPath('./arenas/plain')).toBe('plain')
   })
+
+  it('域文件夹**不进 id** —— 场子按域分了文件夹，id 还是光秃秃的文件名', () => {
+    // 这是刻意的取舍，不是漏了：`?arena=tank_grind` 要短、要好念，
+    // 而「每个域一个文件夹」是给人看的组织方式，不是给 URL 用的命名空间。
+    // 代价是文件名必须全局唯一 —— 由下面 buildRegistry 那条「id 重复」守着。
+    expect(arenaIdFromPath('./arenas/D3/tank_grind.ts')).toBe('tank_grind')
+    expect(arenaIdFromPath('./arenas/D3/basic_hit.ts')).toBe('basic_hit')
+    expect(arenaIdFromPath('src/test/arenas/D1/weapon_swing.ts')).toBe('weapon_swing')
+    // 再深一层也照样只取最后一段（`registry.ts` 的 glob 用的是 `**`）
+    expect(arenaIdFromPath('./arenas/D3/deep/x.ts')).toBe('x')
+  })
 })
 
 describe('isCataloguedId', () => {
@@ -141,16 +152,68 @@ describe('buildRegistry', () => {
   })
 
   it('id 重复要抛', () => {
-    // 正常情况下不可能（文件名唯一），但 `import.meta.glob` 的 glob
-    // 换个写法就可能同时收到 `./arenas/x.ts` 和 `./arenas/x.tsx` ——
-    // 两者的 id 都是 `x`。那时候菜单里会出现两个同名项，点哪个都对，
-    // 与其猜不如炸。
+    // `import.meta.glob` 的 glob 换个写法就可能同时收到 `./arenas/x.ts`
+    // 和 `./arenas/x.tsx` —— 两者的 id 都是 `x`。那时候菜单里会出现两个同名项，
+    // 点哪个都对，与其猜不如炸。
     expect(() =>
       buildRegistry({
         './arenas/x.ts': fakeModule(),
         './arenas/x.tsx': fakeModule(),
       }),
     ).toThrow(/重复/)
+  })
+
+  it('id 重复的报错要**把两个文件都印出来**', () => {
+    // ⚠️ 这条是给「场子按域分文件夹」配的。
+    //
+    // id 取的是文件名、不含文件夹，所以**两个域各写一个同名文件是很容易发生的**
+    // （`basic_hit` 这种名字 D1 也很有可能选）。只说「id 重复：basic_hit」的话，
+    // 撞车的人会去翻自己的文件夹 —— 而冲突在**别人的**文件夹里，他会找不到，
+    // 然后开始怀疑这条报错是不是误报。报错说不清位置，等于没说。
+    // 抛出来的那条消息里，两个路径**都要在**。（不断言先后顺序 ——
+    // 那是 `Object.keys().sort()` 的实现细节，钉住它只会让这条测试白白变脆。）
+    let message = ''
+    try {
+      buildRegistry({
+        './arenas/D3/basic_hit.ts': fakeModule(),
+        './arenas/D1/basic_hit.ts': fakeModule(),
+      })
+    } catch (err) {
+      message = err instanceof Error ? err.message : String(err)
+    }
+    expect(message).toContain('重复')
+    expect(message).toContain('./arenas/D3/basic_hit.ts')
+    expect(message).toContain('./arenas/D1/basic_hit.ts')
+  })
+
+  it('每个条目都带着自己的来源路径（报错和排查要用）', () => {
+    const reg = buildRegistry({ './arenas/D3/tank_grind.ts': fakeModule() })
+    expect(reg[0]!.path).toBe('./arenas/D3/tank_grind.ts')
+  })
+
+  it('不同文件夹下的**不同**文件名互不干扰，且菜单里按域聚在一起', () => {
+    // 分文件夹的正面效果：D1 和 D3 各写各的，只要名字不一样就井水不犯河水。
+    //
+    // ⚠️ 排的是**路径**不是 id，所以顺序是「先文件夹、后文件名」——
+    // 于是每个域的场子在菜单里**天然是挨着的**（D1 的都在一起，D3 的都在后面），
+    // 不需要额外做分组。下面那个预期值按路径顺序写，就是在钉这个性质。
+    const reg = buildRegistry({
+      './arenas/D3/tank_grind.ts': fakeModule(),
+      './arenas/D1/weapon_swing.ts': fakeModule(),
+      './arenas/D3/basic_hit.ts': fakeModule(),
+    })
+    expect(reg.map((e) => e.id)).toEqual(['weapon_swing', 'basic_hit', 'tank_grind'])
+  })
+
+  it('下划线前缀在子文件夹里同样生效（放非场子文件的出口）', () => {
+    // `registry.ts` 会抓子文件夹里的每个 `.ts`，所以「我这层想放个 helpers.ts」
+    // 必须有出口 —— 就是 `_` 前缀。不生效的话，那个文件会在**别人**打开测试页时
+    // 把整个菜单炸掉，而报错写着别人的名字。
+    const reg = buildRegistry({
+      './arenas/D3/_helpers.ts': { add: () => 1 },
+      './arenas/D3/tank_grind.ts': fakeModule(),
+    })
+    expect(reg.map((e) => e.id)).toEqual(['tank_grind'])
   })
 
   it('空目录给空数组，不抛', () => {

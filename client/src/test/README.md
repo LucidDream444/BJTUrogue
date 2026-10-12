@@ -4,8 +4,8 @@
 > 你的 AI 助手如果不知道这套约定，它会按自己的习惯把测试代码散在域目录里、
 > 会去改 `main.ts`、会为了让自己的场子能跑而改别人的文件。
 > **在这份仓库里用 AI 之前，先把这一页丢给它。**
-> 一句话版本：**「测试场都在 `client/src/test/`，抄 `arenas/_ArenaTemplate.ts`，
-> 不要改 `main.ts`，不要碰 `registry.ts` 之外的文件。」**
+> 一句话版本：**「测试场都在 `client/src/test/arenas/` 下**你自己的域文件夹**里，
+> 抄 `arenas/_ArenaTemplate.ts`，不要改 `main.ts`，不要改任何别的文件。」**
 
 ## 〇、把下面这段整个复制给你的 AI 助手
 
@@ -16,9 +16,16 @@
 我们要加/改一个白箱测试场。测试场的全部约定在 client/src/test/README.md，也要读。
 
 硬性要求，请严格遵守：
-1. 测试场一律放在 client/src/test/arenas/ 下，一个文件一个场子。
+1. 测试场一律放在 client/src/test/arenas/ 下、**你自己那个域文件夹里**，
+   一个文件一个场子。**先建自己的文件夹**：arenas/D1/、arenas/D2/、arenas/D3/、
+   arenas/D4/（一人一个，别往别人的文件夹里放，也别放在 arenas/ 顶层）。
    做法是复制 client/src/test/arenas/_ArenaTemplate.ts（模板文件名带下划线，
-   不进菜单），去掉文件名开头的下划线再改。
+   不进菜单），放进你自己的文件夹、去掉文件名开头的下划线，再改。
+   ⚠️ 文件名要**全局唯一**（跨文件夹也算）：id 取的是文件名、不含文件夹，
+   两个域各有一个 basic_hit.ts 会当场报错。名字带点域色彩（d1_weapon_swing）就不会撞。
+   ⚠️ 想在自己文件夹里放**不是场子**的 .ts（工具函数、假数据、类型），
+   文件名加下划线开头（_helpers.ts）。不加的话它会被当成一个场子、
+   因为「没有导出 arena」把**所有人**打开测试页时都炸掉。
 2. 不要改 main.ts、不要改 index.html、不要改任何其他域的文件。
    新场子靠 registry.ts 里的 import.meta.glob 自动注册，不需要你来注册。
 3. 场子继承 client/src/test/ArenaBase.ts 的 ArenaBase，只实现三个方法：
@@ -28,7 +35,10 @@
 5. 一切数值（血量、速度、伤害、冷却）都从配置表读，不许写死在代码里
    （client/public/config/*.json，通过 ctx.bundle / ctx.tune 拿）。
    这是项目红线，写死等于每改一次平衡就要重新构建。
-6. 不要 import 别的域的内部实现，跨域只走事件总线（ctx.bus）。
+6. 不要 import 别人的域的内部实现，跨域只走事件总线（ctx.bus）。
+   **你自己那个域可以**（D1 的场子可以 import domains/combat，D2 的可以 import
+   domains/procgen……）—— 这一条由 architecture.test.ts 按**文件夹名**检查：
+   arenas/D3/ 下的场子只许碰 domains/enemies。别的域一律走总线。
 7. 写完把这几条跑一遍并确保干净：
    cd client && npm run typecheck && npm test -- --run && npm run lint
 8. 但这三条全绿**不等于场子能跑** —— 测试场里绝大部分失败是运行时的，静态检查看不见。
@@ -57,7 +67,7 @@ npm run dev
 - **测试场：<http://localhost:5173/test.html>**
 - 直接进某个场子：<http://localhost:5173/test.html?arena=tank_grind>
 
-现在是哪几个场子：
+现在是哪几个场子（都在 `arenas/D3/` 里）：
 
 | id | 名字 | 看什么 |
 |---|---|---|
@@ -65,6 +75,29 @@ npm run dev
 | `splitter_chain` | 分裂链 | 三只一代 = 33 杀。第 5 杀闪屏、出生间隔、`ledger` 归零 |
 | `tank_grind` | 肉盾磨血 | 肉盾 + 带 160px 缺口的墙。帧伤 tick、音效限频、音高、减速、绕路 |
 | `swarm_stress` | 压力场 | 150+ 只怪铺满场。`queue` 排空、`moving` 不掉、`ai near/far` 比例、`frame` 不停。**默认那批是第三代 —— 不打爆了也不分裂，设计如此**；按 `G` 换成第一代就能看分裂链 |
+
+### 场子按域分文件夹：`arenas/D1/` `arenas/D2/` `arenas/D3/` `arenas/D4/`
+
+**一人一个文件夹，放自己的场子。** 底座和模板是共用的，在 `arenas/` 顶层和 `test/` 顶层；
+场子本身各自归各自。
+
+```
+src/test/
+├── ArenaBase.ts  Hud.ts  DummyPlayer.ts  DebugGun.ts  ArenaMenu.ts
+├── registry.ts  arenaCatalog.ts          ← 自动收场子，加场子不用改这里
+└── arenas/
+    ├── _ArenaTemplate.ts                 ← 共用模板（下划线开头，不进菜单）
+    └── D3/                               ← D3 的场子
+        ├── basic_hit.ts  splitter_chain.ts  tank_grind.ts  swarm_stress.ts
+        └── （D1 / D2 / D4 各建自己的）
+```
+
+文件夹**只影响谁的东西在哪儿，不影响 URL**：id 取的是文件名，
+所以 `arenas/D3/tank_grind.ts` 还是 `?arena=tank_grind`，
+菜单里的顺序也是按文件夹排的（同一个域的场子天然挨在一起）。
+
+⚠️ 代价是**文件名要全局唯一**，跨文件夹也算 —— 撞了会当场抛，
+并且把两个文件的路径都印出来（见 `arenaCatalog.test.ts` 里那条用例）。
 
 ## 二、操作
 
@@ -86,7 +119,9 @@ npm run dev
 ## 三、加一个自己的场子（三步，不用改别人的文件）
 
 ```bash
-cp src/test/arenas/_ArenaTemplate.ts src/test/arenas/我的场子.ts   # 1. 复制，去掉文件名的下划线
+cd client
+mkdir -p src/test/arenas/D1                                   # 1. 建自己的域文件夹（D1/D2/D3/D4）
+cp src/test/arenas/_ArenaTemplate.ts src/test/arenas/D1/我的场子.ts   #    复制进去，去掉文件名的下划线
 ```
 
 2. 打开它，改 `configure()`（开局刷什么、有没有墙）、可选的两个钩子、以及底部的
@@ -94,14 +129,21 @@ cp src/test/arenas/_ArenaTemplate.ts src/test/arenas/我的场子.ts   # 1. 复�
 3. 刷新 `/test.html`。**它已经在菜单里了。**
 
 不需要注册、不需要 import 任何东西、不需要改 `main.ts`、不需要改 `registry.ts`。
-`registry.ts` 用 `import.meta.glob` 自动收 `arenas/` 下的每个 `.ts`。
+`registry.ts` 用 `import.meta.glob` 自动收 `arenas/` **及其子文件夹**里的每个 `.ts`。
 
-**文件名以 `_` 开头的不进菜单** —— 所以模板自己不会出现在里面。
+**文件夹名就是域（`D1`/`D2`/`D3`/`D4`）**，架构测试按它对账：`arenas/D1/` 里的场子
+只许 import `domains/combat`，`arenas/D3/` 的只许 import `domains/enemies`，以此类推。
+**新建一个域文件夹就必须在 `architecture.test.ts` 的 `ARENA_FOLDER_DOMAINS` 表里加一行**
+—— 否则那条测试会红，而且会告诉你缺的是哪个文件夹。
+
+**文件名以 `_` 开头的不进菜单** —— 所以模板自己不会出现在里面，
+你自己的 `_helpers.ts` 也不会。
 
 ### 三条硬要求（`AGENTS.md` §五）
 
-1. **所有测试场都在 `client/src/test/`**，不许散到各域目录里。
-   理由不是洁癖：五个域各写各的，散着放的话，别人找自己场子的时候会先撞见一堆不认识的文件。
+1. **所有测试场都在 `client/src/test/` 下、按域分的文件夹里**，不许散到各域目录里。
+   理由不是洁癖：五个域各写各的，散着放的话，别人找自己场子的时候会先撞见一堆不认识的文件；
+   不按域分的话，两边的场子混在一个名字空间里（见 §一「场子按域分文件夹」）。
 2. **加一个场子不许改任何别的文件**（包括 `main.ts`）。
    这条会由 `architecture.test.ts` 守护：`src/test/` 之外的代码 import 测试场会测试失败。
 3. **测试场绝不能变成产品的运行时依赖。**

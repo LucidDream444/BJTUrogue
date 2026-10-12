@@ -26,13 +26,30 @@ export const MENU_SCENE_KEY = 'ArenaMenu'
  * 所以 `_ArenaTemplate.ts` 是模板，玩家永远看不到它。
  * 用前缀而不是「一个要手工维护的忽略列表」：加模板的人只要记得加下划线，
  * 而忽略列表是**加新场子时要想起去改**的东西 —— 那种约定一定会漂。
+ *
+ * ## 它同时是「我的文件夹里想放非场子文件」的唯一出口
+ *
+ * `registry.ts` 会抓 `arenas/` **及其所有子文件夹**里的每个 `.ts` ——
+ * 也就是说**你文件夹里的每个 `.ts` 都会被当成一个场子**，
+ * 没有 `arena` 导出就当众抛异常。要在自己文件夹里放工具函数 / 假数据 / 类型文件，
+ * 文件名加 `_` 开头即可（`_helpers.ts`）。
+ *
+ * 不这么做的话，那个文件会在**别人**打开测试页时把整个菜单炸掉 ——
+ * 报错还写着别人的名字。
  */
 export const TEMPLATE_PREFIX = '_'
 
 /** 一个场子在目录里的样子 */
 export interface ArenaEntry extends ArenaDefinition {
-  /** 等于文件名去掉扩展名，也是 `?arena=` 的值。**全局唯一** */
+  /** 等于文件名去掉扩展名，也是 `?arena=` 的值。**全局唯一**（见 `arenaIdFromPath`） */
   id: string
+  /**
+   * 来源文件（`glob` 给的那个 key，例如 `./arenas/D3/tank_grind.ts`）。
+   *
+   * 留着是为了**报错时能指名道姓**：id 重复要说清是哪两个文件撞了
+   * （见 `buildRegistry`）。报错说不清位置的话，人会去猜，猜错一次就不信这条报了。
+   */
+  path: string
 }
 
 /** 场子模块必须有的导出。没导出或导出错了会在 `buildRegistry` 里当场炸。 */
@@ -41,10 +58,21 @@ export interface ArenaModule {
 }
 
 /**
- * `arenas/tank_grind.ts` → `tank_grind`。
+ * `arenas/D3/tank_grind.ts` → `tank_grind`。
  *
- * 只取最后一段再剥扩展名，所以 `./arenas/foo.ts` / `/abs/arenas/foo.ts` /
- * `../test/arenas/foo.ts` 都给 `foo` —— **不假设 glob 会给出哪种前缀**。
+ * 只取**最后一段**再剥扩展名，所以 `./arenas/foo.ts` / `/abs/arenas/foo.ts` /
+ * `../test/arenas/D3/foo.ts` 都给 `foo` —— 既不假设 glob 会给出哪种前缀，
+ * 也不把域文件夹编进 id。
+ *
+ * ## ⚠️ 代价：文件名必须**全局唯一**，跨域也算
+ *
+ * id 里没有文件夹，所以 `arenas/D1/basic_hit.ts` 和 `arenas/D3/basic_hit.ts`
+ * 会撞成同一个 id。这是**刻意选的**：`?arena=tank_grind` 这种短链接好用，
+ * 而「加域前缀」会让每个已有链接都变长、还得记住自己那一长串。
+ * 撞了不会静默 —— `buildRegistry` 当场抛，并且把**两个文件**都印出来。
+ *
+ * 顺带：`?arena=` 的值也就是**文件名**，所以给场子起名时挑个带域色彩的
+ * （`d1_weapon_swing` 而不是 `test`），撞不上别人。
  */
 export function arenaIdFromPath(path: string): string {
   const slash = Math.max(path.lastIndexOf('/'), path.lastIndexOf('\\'))
@@ -93,13 +121,20 @@ export function buildRegistry(modules: Record<string, unknown>): ArenaEntry[] {
       throw new Error(`[test] ${path} 的 \`arena.scene\` 不是一个场景类`)
     }
 
-    entries.push({ id, displayName, description, scene })
+    entries.push({ id, path, displayName, description, scene })
   }
 
-  const seen = new Set<string>()
+  // id 就是文件名，而场子按域分文件夹之后，**两个域各写一个同名文件是很容易发生的**
+  // （`basic_hit` 这种名字 D1 也很有可能选）。所以这条报错必须把**两个路径**都印出来：
+  // 只说「id 重复：basic_hit」的话，出事的那个人的第一反应是去翻自己的文件，
+  // 而冲突在**别人的文件夹**里 —— 他会找不到，然后把这条报错当成误报。
+  const seenAt = new Map<string, string>()
   for (const e of entries) {
-    if (seen.has(e.id)) throw new Error(`[test] 场子 id 重复：${e.id}`)
-    seen.add(e.id)
+    const before = seenAt.get(e.id)
+    if (before !== undefined) {
+      throw new Error(`[test] 场子 id 重复：${e.id}\n  两个文件：${before}\n            ${e.path}\n  换个文件名即可 —— id 取的是文件名（不含文件夹），见 arenaCatalog.ts`)
+    }
+    seenAt.set(e.id, e.path)
   }
 
   return entries

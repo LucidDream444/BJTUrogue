@@ -33,8 +33,8 @@
  * 顺带验证了 `queue` 会自己排空而不是丢怪。
  */
 
-import type { ArenaConfig, ArenaDefinition, ArenaContext } from '../ArenaBase'
-import { ArenaBase, WORLD_HEIGHT, WORLD_WIDTH } from '../ArenaBase'
+import type { ArenaConfig, ArenaDefinition, ArenaContext } from '../../ArenaBase'
+import { ArenaBase, WORLD_HEIGHT, WORLD_WIDTH } from '../../ArenaBase'
 
 /** 三只一代分散摆开，**不要靠太近**：靠太近时它们的分离力会互相挤，看不出主动追击 */
 const HORNS = [
