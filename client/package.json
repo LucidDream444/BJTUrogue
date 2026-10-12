@@ -1,0 +1,35 @@
+{
+  "name": "bjtu-rogue",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "《课后勇者：异次元校园》— 2D 俯视角轻量化地牢闯关游戏（客户端）",
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "dev": "vite",
+    "build": "tsc --noEmit && vite build",
+    "preview": "vite preview",
+    "test": "vitest",
+    "test:run": "vitest run",
+    "typecheck": "tsc --noEmit",
+    "lint": "eslint .",
+    "lint:fix": "eslint . --fix",
+    "format": "prettier --write .",
+    "format:check": "prettier --check ."
+  },
+  "dependencies": {
+    "phaser": "3.90.0"
+  },
+  "devDependencies": {
+    "@eslint/js": "9.39.5",
+    "@types/node": "20.19.43",
+    "eslint": "9.39.5",
+    "prettier": "3.9.10",
+    "typescript": "5.9.3",
+    "typescript-eslint": "8.71.1",
+    "vite": "5.4.21",
+    "vitest": "2.1.9"
+  }
+}

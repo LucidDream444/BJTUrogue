@@ -1,0 +1,50 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no" />
+    <title>测试场 — 课后勇者：异次元校园</title>
+    <style>
+      html,
+      body {
+        margin: 0;
+        padding: 0;
+        width: 100%;
+        height: 100%;
+        overflow: hidden;
+        background: #0b0b10;
+        color: #d8d8e0;
+        font-family: system-ui, -apple-system, 'Segoe UI', 'Microsoft YaHei', sans-serif;
+      }
+
+      #game-root {
+        width: 100%;
+        height: 100%;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+      }
+
+      #game-root canvas {
+        display: block;
+      }
+    </style>
+  </head>
+  <body>
+    <!--
+      测试场入口。**和 index.html 是两个独立产物**（见 src/test/README.md）：
+
+      - `index.html` → `src/main.ts` → 游戏本体
+      - `test.html`  → `src/test/launcherMain.ts` → 白箱测试场
+
+      分开的目的不是「整齐」，是**让测试场的代码不进产品的产物**。
+      写在 `main.ts` 里按 URL 参数分支也能用，但只要那个分支被改错一次，
+      测试场就会跟着发到线上。
+
+      启动方式：`npm run dev` 然后打开 /test.html
+      想直接进某个场子：/test.html?arena=tank_grind
+    -->
+    <div id="game-root"></div>
+    <script type="module" src="/src/test/launcherMain.ts"></script>
+  </body>
+</html>
