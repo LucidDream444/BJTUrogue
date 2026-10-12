@@ -31,6 +31,15 @@
 6. 不要 import 别的域的内部实现，跨域只走事件总线（ctx.bus）。
 7. 写完把这几条跑一遍并确保干净：
    cd client && npm run typecheck && npm test -- --run && npm run lint
+8. 但这三条全绿**不等于场子能跑** —— 测试场里绝大部分失败是运行时的，静态检查看不见。
+   所以最后必须真的打开一次 http://localhost:5173/test.html?arena=<你写的场子id>，
+   先确认 HUD 第一行 frame 在涨。没有图形界面就按 README 第九节用 headless 截图。
+   **报告结果时要说清是「跑过了」还是「只跑了静态检查」，不要把后者说成前者。**
+9. 美术资源：测试场里一个都不许加（见第 4 条）。真要加美术是各域自己的事，规则在
+   AGENTS.md 第六节 + client/public/assets/README.md：图片/音效统一放
+   client/public/assets/ 下按目录分层，代码里不许出现硬编码路径或 texture key，
+   一切经 client/src/core/assetManifest.ts 的 ASSETS 清单引用
+   （imageUrl() / audioUrls() 拼相对路径）。
 
 在这个基础上，帮我做一个测试场：<在这里写你想要什么>
 ````
