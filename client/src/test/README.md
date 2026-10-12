@@ -192,3 +192,36 @@ npm run lint
 `architecture.test.ts` 会检查几条约定（资产路径、`core/` 不能依赖域、纯逻辑不能碰 Phaser、
 测试场不能漏进产品产物……）。**它报错的时候不要改它**，那是约定被违反了。
 唯一的例外是那个「文件级豁免清单」——加豁免要同时改那张表，这正是它的作用。
+
+### ⚠️ 但上面三条全绿，**不代表场子能跑**
+
+这是真发生过的：`typecheck` / `lint` / `test` / `build` 四条**全过**，而打开浏览器是一片漆黑 ——
+配置表根本没加载上，场子在建起来的第三行就抛异常死了。
+
+原因值得记住：**测试场里绝大部分失败是运行时的，而静态检查看不见运行时。**
+`world` 是不是在步、`WORLD_STEP` 有没有人订阅、`preload` 有没有真的把表取回来、
+场景是不是在 `create()` 第二条就死了 —— 这些只有跑起来才知道。
+
+所以**最后一步必须是「真的打开一次」**：
+
+```bash
+cd client && npm run dev
+# 然后浏览器打开 http://localhost:5173/test.html?arena=你的场子id
+```
+
+**先看 HUD 第一行 `frame` 有没有在涨**，再看后面几行。`frame` 不动 = 物理世界空了，
+后面所有读数都别信（原因见第五节）。
+
+没有浏览器界面的环境（CI、只能跑命令行的 AI 助手）可以这样截图，存成 png 再看：
+
+```bash
+# Windows
+"/c/Program Files (x86)/Microsoft/Edge/Application/msedge.exe" \
+  --headless=new --disable-gpu --no-sandbox --window-size=1280,720 \
+  --virtual-time-budget=12000 \
+  --screenshot=shot.png "http://localhost:5173/test.html?arena=你的场子id"
+```
+
+> 用 `--virtual-time-budget` 截出来的图里 `fps` 会显示 0、`frame`/`steps` 只有个位数 ——
+> 那是虚拟时钟下 `requestAnimationFrame` 本来就只跑了几次，**不是掉帧**。看的是
+> 「这些数**有没有在动**」，不是它们的绝对值。

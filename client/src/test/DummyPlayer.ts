@@ -56,8 +56,15 @@ export class DummyPlayer implements TickTarget {
   private graceUntilMs = 0
   /** 永久无敌开关（`I` 键）。和 `graceMs` 分开：一个是一次性的，一个是常驻的 */
   private invulnerable = false
-  /** 上一次真的挨到的时刻，用来做受击闪白 */
-  private lastHitAtMs = 0
+  /**
+   * 上一次真的挨到的时刻，用来做受击闪白。
+   *
+   * ⚠️ 初值必须是 `-Infinity` 而不能是 `0`：逻辑时钟从 0 起算，写 `0` 的话
+   * **开局的头 200ms 恒满足 `nowMs - 0 < 200`** —— 玩家一出生就是红的，
+   * 而 HUD 上 `hits 0 / taken 0` 明明白白。调试的人看到「红的 + 没挨打」，
+   * 只会去怀疑染色逻辑，而问题在初值。
+   */
+  private lastHitAtMs = Number.NEGATIVE_INFINITY
 
   private readonly scene: Phaser.Scene
   private readonly sprite: Phaser.Physics.Arcade.Sprite
@@ -252,6 +259,7 @@ export class DummyPlayer implements TickTarget {
     this.hp = this.maxHp
     this.hitCount = 0
     this.damageTaken = 0
+    this.lastHitAtMs = Number.NEGATIVE_INFINITY // 否则「挨打后 200ms 内按 R」会被下一帧重新染红
     this.graceUntilMs = this.nowMs + this.graceMs
     this.sprite.clearTint()
   }

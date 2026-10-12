@@ -38,6 +38,7 @@ export class Hud {
   private player: DummyPlayer | null = null
   private gun: DebugGun | null = null
   private juice: JuiceDirector | null = null
+  private scene: Phaser.Scene | null = null
 
   private accMs = 0
   private fps = 0
@@ -77,8 +78,11 @@ export class Hud {
       ].join('\n'),
     )
 
+    // 横向居中、纵向**贴着标题下沿**（`update()` 里每帧摆正）。
+    // 写死一个 y 曾经让提示压在标题第二行上 —— 标题是两三行还是四行取决于场子，
+    // 常量 y 猜不对，所以改成问 `title.height` 要位置。
     this.notice = scene.add
-      .text(scene.scale.width / 2, PAD + LINE * 1.6, '', {
+      .text(scene.scale.width / 2, PAD, '', {
         fontFamily: 'monospace',
         fontSize: '20px',
         color: '#ffd166',
@@ -101,12 +105,14 @@ export class Hud {
    * 用对象参数而不是四个位置参数：**将来加一个依赖不会让调用点的参数错位**。
    */
   bind(deps: {
+    scene: Phaser.Scene
     enemies: EnemySystem
     clock: GameClock
     player: DummyPlayer
     gun: DebugGun
     juice: JuiceDirector
   }): void {
+    this.scene = deps.scene
     this.enemies = deps.enemies
     this.clock = deps.clock
     this.player = deps.player
@@ -115,9 +121,9 @@ export class Hud {
   }
 
   setTitle(name: string, description: string): void {
+    // 纵向位置由 `update()` 每帧按 `title.height` 顺下来，这里**不摆 y** ——
+    // 摆的话就是第二个真值来源，两边迟早对不上。
     this.title.setText(`${name}\n${description}`)
-    // 标题两行，正文往下挪一点，免得压在一起
-    this.lines.setY(PAD + LINE * 3.4)
   }
 
   update(deltaMs: number): void {
@@ -134,11 +140,32 @@ export class Hud {
     const p = this.player
     const g = this.gun
     const j = this.juice
-    if (!e || !c || !p || !g || !j) return
+    const s = this.scene
+    if (!e || !c || !p || !g || !j || !s) return
+
+    // 布局每帧摆正，而不是在构造时算一次：`launcherMain` 用的是 `Scale.RESIZE`，
+    // 改窗口大小之后写死的 y 会把提示条留在半空中。
+    // 放这里而不是挂 `scale.on('resize')`：挂监听要配一套解绑逻辑（`destroy()` 时漏了
+    // 就是场景重启后残留的回调），而这里本来每帧就会跑。
+    //
+    // **一列从上往下顺**：标题 → 提示 → 读数 → （底部）按键说明。
+    // 三段都问上一段要高度，所以场子把标题写成两行还是四行都不会互相压。
+    const titleBottom = this.title.y + this.title.height
+    this.notice.setPosition(s.scale.width / 2, titleBottom + 2)
+    this.lines.setY(titleBottom + this.notice.height + 10)
+    this.hint.setY(s.scale.height - LINE * 3.4)
 
     const ai = e.aiStats
+    // 物理世界的生死。**这是最该被显示、却最容易漏掉的一行**：
+    // `World.update()` 第一句就是 `if (isPaused || bodies.size === 0) return`，
+    // 于是「一个 body 都没有」和「世界被暂停了」都会让 `WORLD_STEP` 彻底停发，
+    // 敌人系统**整个静默假死**（不刷怪、不跑 AI、不结算帧伤），而画面上
+    // 唯一的迹象就是「场上空的」—— 和「刷怪逻辑写错了」长得一模一样。
+    const world = s.physics.world
+    const worldFlag = world.isPaused ? '  ⚠️ PHYSICS PAUSED' : world.bodies.size === 0 ? '  ⚠️ 没有 body' : ''
     const rows = [
       `fps ${String(this.fps).padStart(3)}   frame ${c.frameId}   ${c.paused ? 'PAUSED' : c.frozen ? `FREEZE ${c.freezeRemainingMs.toFixed(0)}ms` : ''}`,
+      `world    bodies ${String(world.bodies.size).padStart(3)}   steps ${String(e.worldSteps).padStart(5)}${worldFlag}`,
       `enemies  alive ${String(e.liveEnemies.length).padStart(3)} / pool ${e.pool.live}   queue ${e.spawns.length}   ai ${ai.ticked}(near ${ai.near} / far ${ai.far})`,
       `ledger   pairs ${String(e.ledger.entryCount).padStart(3)}   ticks ${e.ledger.tickCount}   sources ${e.contactsTracked}`,
       `player   hp ${p.hp.toFixed(0)}/${p.maxHp}   hits ${p.hitCount}   taken ${p.damageTaken.toFixed(0)}   ${p.alive ? '' : 'DEAD'}`,

@@ -831,6 +831,30 @@ function validateTank(raw: unknown): TankDef {
 // ---------------------------------------------------------------- 加载
 
 /**
+ * 三份配置表的文件名。**这是唯一来源** —— fetch 加载与 Phaser loader 都读它，
+ * 免得两处各写一遍然后漂移。
+ */
+export const CONFIG_FILE_NAMES = ['balance.json', 'difficulty.json', 'enemies.json'] as const
+
+export type ConfigFileName = (typeof CONFIG_FILE_NAMES)[number]
+
+/**
+ * 配置表相对页面根的相对路径。
+ *
+ * ⚠️ **不带前导斜杠**：`base` 是 `./`，部署时静态产物按版本号分目录
+ * （见《技术选型》§7），带斜杠的绝对路径在 `/game/v1.2.3/` 这类子目录下会 404。
+ *
+ * ⚠️ 也**不要试图从 JS 里 import 这个路径**。`public/` 下的文件不参与打包，
+ * Vite 遇到 `import`/`import.meta.glob` 指向 `public/` 会**静默**换成空模块
+ * （只在终端打一行 warning），于是拿到的 JSON 是 `undefined`，场景初始化当场中断。
+ * 要读它们，只有两条路：`fetch()`，或者 Phaser 的 loader（`loadConfigBundle` 走前者，
+ * `ArenaBase` 走后者）。这条有架构测试守着。
+ */
+export function configUrl(name: ConfigFileName): string {
+  return `config/${name}`
+}
+
+/**
  * 开屏一次性加载三份 JSON。
  *
  * ⚠️ `base` **必须传**（通常是 `import.meta.env.BASE_URL`）。
@@ -843,21 +867,21 @@ function validateTank(raw: unknown): TankDef {
  * 加载失败**直接抛**，绝不静默退回代码内默认值 —— 那会违反红线 2 的语义。
  */
 export async function loadConfigBundle(base: string): Promise<ConfigBundle> {
-  const fetchJson = async (name: string): Promise<unknown> => {
-    const url = new URL(`config/${name}`, base).href
+  const fetchJson = async (name: ConfigFileName): Promise<unknown> => {
+    const url = new URL(configUrl(name), base).href
     let res: Response
     try {
       res = await fetch(url)
     } catch (cause) {
-      throw new ConfigError(`config/${name}`, `网络请求失败（${url}）：${String(cause)}`)
+      throw new ConfigError(configUrl(name), `网络请求失败（${url}）：${String(cause)}`)
     }
     if (!res.ok) {
-      throw new ConfigError(`config/${name}`, `HTTP ${res.status}（${url}）`)
+      throw new ConfigError(configUrl(name), `HTTP ${res.status}（${url}）`)
     }
     try {
       return await res.json()
     } catch (cause) {
-      throw new ConfigError(`config/${name}`, `不是合法 JSON：${String(cause)}`)
+      throw new ConfigError(configUrl(name), `不是合法 JSON：${String(cause)}`)
     }
   }
 

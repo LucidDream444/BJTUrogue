@@ -235,6 +235,10 @@ export class EnemySystem implements ActorEventSink {
   private lastFrameId = -1
   private lastAiMs = 0
   private lastAiStats: AiTickStats = { ticked: 0, near: 0, far: 0 }
+  /** `WORLD_STEP` 一共进来过几次。**它不涨 = 物理世界没在步**，见文件头那段 ⚠️ */
+  private worldStepCount = 0
+  /** `create()` 有没有被调过。没调过就刷怪 = 队列永远没人取，见 `assertWired()` */
+  private wired = false
   private disposed = false
 
   constructor(opts: EnemySystemOptions) {
@@ -325,9 +329,27 @@ export class EnemySystem implements ActorEventSink {
 
   // ------------------------------------------------------------ 生命周期
 
-  /** 挂到物理世界的 step 事件上。**在 `create()` 里调一次。** */
+  /** 挂到物理世界的 step 事件上。**在场景的 `create()` 里调一次。** */
   create(): void {
+    this.wired = true
     this.scene.physics.world.on(Phaser.Physics.Arcade.Events.WORLD_STEP, this.onWorldStep, this)
+  }
+
+  /**
+   * 忘了调 `create()` 就刷怪时**当场炸**。
+   *
+   * 为什么值得为「调用方少写一行」专门写一段抛错：这个疏漏的现场**没有任何声音** ——
+   * 怪全躺在队列里、AI 一次不跑、帧伤一次不结，画面上只是「场上空的」，
+   * 和「刷怪逻辑写错了」「配置表读错了」长得一模一样，
+   * 而类型检查、lint、构建、全部单测**一个都不会红**（真发生过）。
+   * 炸在这里，屏幕上于是写着「EnemySystem.create() 没被调用」。
+   */
+  private assertWired(): void {
+    if (this.wired) return
+    throw new Error(
+      'EnemySystem 还没 create() 就被要求刷怪 —— 队列永远不会有人取走，怪不会出现。\n' +
+        '场景建好 EnemySystem 之后、第一次 requestSpawn 之前，必须调一次 enemies.create()。',
+    )
   }
 
   /**
@@ -359,6 +381,7 @@ export class EnemySystem implements ActorEventSink {
   /** 世界步回调。挂在 WORLD_STEP 上，掉帧时一帧会被调 N 次（N 次共用同一个 frameId）。 */
   private onWorldStep(): void {
     if (this.disposed) return
+    this.worldStepCount++
 
     const nowMs = this.clock.nowMs
     const frameId = this.clock.frameId
@@ -618,6 +641,7 @@ export class EnemySystem implements ActorEventSink {
     reason: SpawnReason,
     delayMs = 0,
   ): boolean {
+    this.assertWired()
     const nowMs = this.clock.nowMs
     return this.spawns.push({
       spec: this.specFor(kind, gen),
@@ -983,6 +1007,17 @@ export class EnemySystem implements ActorEventSink {
   /** 当前这一帧的 AI 记账 */
   get aiStats(): AiTickStats {
     return this.lastAiStats
+  }
+
+  /**
+   * `WORLD_STEP` 一共进来过几次。
+   *
+   * **它不涨就等于整个敌人系统是死的** —— 不刷怪、不跑 AI、不结算帧伤，
+   * 而且一声不吭。物理世界一空（`bodies.size === 0`）或一被暂停就会这样，
+   * 见文件头那段 ⚠️。HUD 直接显示它，就是为了把「静默」这两个字去掉。
+   */
+  get worldSteps(): number {
+    return this.worldStepCount
   }
 
   /**
