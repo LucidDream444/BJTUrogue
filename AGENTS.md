@@ -76,7 +76,7 @@ npm run lint         # ESLint
 | `client/src/domains/procgen/` | D2 关卡与地牢生成 | 生成器、可达性校验、房间构建 |
 | `client/src/domains/enemies/` | D3 敌人与首领 | 敌人 AI、寻路、行为配置、敌人表现 |
 | `client/src/domains/meta/` | D4 局外成长与存档 | 主菜单、结算、升级页、存档、设置 |
-| `client/src/test/` | **各域各自加** | 白箱测试场，见下节 |
+| `client/src/test/` | **各域各自加** | 白箱测试场。共用底座在 `test/` 顶层，场子放 `test/arenas/<你的域>/`，见下节 |
 | `client/public/config/` | 字段定义归 D2（C2），各域填自己的表 | 敌人表由 D3 填，武器表由 D1 填 |
 | `client/public/assets/` | 资源管线归 D4，各域投自己的资源 | 命名规范见 `client/public/assets/README.md` |
 | `server/` | D5 | 客户端代码不要放这里 |
@@ -92,16 +92,29 @@ npm run lint         # ESLint
 
 **规则：**
 
-1. **所有测试场统一放 `client/src/test/`**，不得散落在各域目录里。
+1. **所有测试场统一放 `client/src/test/arenas/<你的域>/`**，不得散落在各域目录里。
+   **一人一个文件夹**（`arenas/D1/` `arenas/D2/` `arenas/D3/` `arenas/D4/`），
+   放自己的场子；共用底座与模板在 `test/` 顶层和 `arenas/` 顶层，不要往那儿加场子。
+   文件夹只决定「谁的东西在哪儿」，**不影响 URL**：id 取的是文件名，
+   所以 `arenas/D3/tank_grind.ts` 还是 `?arena=tank_grind`。
+   ⚠️ 代价是**文件名要全局唯一**（跨文件夹也算）—— 撞了会当场抛，并印出两个文件的路径。
 2. **每个测试场自带启动代码**，新增一个测试场**不需要修改任何其他域的文件**（包括 `main.ts`）。
+   新建一个域文件夹时，要在 `client/src/test/architecture.test.ts` 的 `ARENA_FOLDER_DOMAINS`
+   表里加一行（它按文件夹对账「这个域的场子只许 import 自己那个域」），测试会告诉你缺哪行。
 3. **白箱**：用白色方块 / 几何图形代替美术，用文字标出编号与状态。没有美术也要能看懂。
 4. 测试场是**临时的调试设施**，不是产品功能。正式美术与正式玩法接入后，测试场可以保留也可以删，
    但**绝不能变成产品运行时依赖的代码**。
 
 **为什么要统一放：** 其他组员也用 AI 辅助开发，目录约定统一，他们的 AI 才不会各写各的。
-如果你要加一个测试场，**照 `client/src/test/` 里既有测试场的样子抄**。
+**为什么要按域再分一层：** 五个域都会往这儿加场子，混在一个文件夹里，
+找自己的场子要先穿过一堆不认识的；分开之后每个人的东西各归各的位置，
+菜单里的顺序也天然按域聚在一起。**加了场子别人的文件一行都不用动** —— 这一条没变。
 
-> 详细的启动机制（URL 参数、注册表）见 `client/src/test/README.md`。
+如果你要加一个测试场，**照 `client/src/test/arenas/` 里既有测试场的样子抄**
+（模板是 `arenas/_ArenaTemplate.ts`，只此一份）。
+
+> 详细的启动机制（URL 参数、注册表）与「整段复制给你的 AI 助手」的指令块，
+> 见 `client/src/test/README.md`。
 
 ---
 

@@ -14,6 +14,7 @@
  * | `__placeholder` 不写在 assets 之外 | 真美术到位后真图被白方块**静默覆盖**（§六） |
  * | 产品代码不 import `test/` | 测试场变成产品的运行时依赖（§五明确禁止） |
  * | 平衡数值不写进代码 | 每改一次平衡就得重新构建（§三 红线 2） |
+ * | 场子按域分文件夹、只碰自己那个域 | 跨域调用悄悄长出来，某天删一个字段就弄坏**别人文件夹里**的场子 |
  *
  * ## 这个文件自己的约束
  *
@@ -500,33 +501,117 @@ function htmlScripts(html: string): string[] {
   return out
 }
 
+/**
+ * `arenas/<这个文件夹>` → 它**允许** import 哪个域。
+ *
+ * 场子按域分文件夹之后，「测试场只许用 D3 的域」这条旧规矩就不成立了：
+ * D1 写自己的场子当然要碰 `domains/combat`。真正的规矩变成了
+ * **「一个域的场子只许碰自己那个域」** —— 跨域还是要走事件总线。
+ *
+ * ⚠️ **这张表和豁免清单一样是显式的：加一个文件夹就必须来这里加一行。**
+ * 不这么钉的话，新来的场子会安静地什么都 import 得到，
+ * 「只走事件总线」就退化成一句没人执行的口号了。
+ */
+const ARENA_FOLDER_DOMAINS: Record<string, readonly string[]> = {
+  D1: ['combat'],
+  D2: ['procgen'],
+  D3: ['enemies'],
+  D4: ['meta'],
+}
+
+/**
+ * 测试场的**底座**（`test/` 下不在 `arenas/` 里的那几个共用文件）允许碰的域。
+ *
+ * 现在只绑 D3 一个：底座是 D3 建的，它要替所有场子造一个 `EnemySystem`。
+ * 等别的域真的需要底座替他们造自己的系统时，这条会变成一次需要全员同意的改动
+ * —— 那正是它该是的样子。
+ */
+const HARNESS_DOMAINS: readonly string[] = ['enemies']
+
+/** `test/arenas/D3/basic_hit.ts` → `'D3'`。不在域文件夹里则 `null` */
+function arenaFolderOf(rel: string): string | null {
+  const m = /^test\/arenas\/([^/]+)\//.exec(rel)
+  return m ? m[1]! : null
+}
+
+/** 这个源文件（运行时）import 到的域，已去重排序 */
+function domainsImportedBy(rel: string): string[] {
+  const out = new Set<string>()
+  for (const imp of importsOf(rel)) {
+    const target = resolveSpec(rel, imp.spec)
+    if (target === null) continue
+    const m = /^domains\/([^/]+)\//.exec(target)
+    if (m) out.add(m[1]!)
+  }
+  return [...out].sort()
+}
+
 describe('域之间只走事件总线（AGENTS.md §四）', () => {
-  it('测试场只依赖共用层和 D3 自己的域', () => {
-    const allowed = new Set(['enemies'])
-    const bad: string[] = []
-    for (const rel of SOURCES.filter((r) => r.startsWith('test/'))) {
-      for (const imp of importsOf(rel)) {
-        const target = resolveSpec(rel, imp.spec)
-        if (target === null) continue
-        const m = /^domains\/([^/]+)\//.exec(target)
-        if (m && !allowed.has(m[1]!)) bad.push(`${rel} → ${target}`)
-      }
-    }
-    // 测试场是 D3 建的基础设施，但它必须**只**用 D3 自己的域和共用层。
-    // 依赖 D1 的战斗实现会让「测试场能跑」变成 D1 的进度问题，
-    // 而它存在的整个意义就是让 D3 能在 D1 还没开工时先把敌人做完。
+  it('测试场的底座只依赖共用层和 D3 的域', () => {
+    const allowed = new Set(HARNESS_DOMAINS)
+    const bad = SOURCES.filter((r) => r.startsWith('test/') && !r.startsWith('test/arenas/')).flatMap(
+      (rel) =>
+        domainsImportedBy(rel)
+          .filter((d) => !allowed.has(d))
+          .map((d) => `${rel} → domains/${d}/`),
+    )
+    // 底座必须**只**用 D3 自己的域和共用层。依赖 D1 的战斗实现会让
+    // 「底座能跑」变成 D1 的进度问题，而它存在的整个意义就是让 D3
+    // 能在 D1 还没开工时先把敌人做完。
     expect(bad).toEqual([])
   })
 
-  it('测试场不 import 别的域（同一张表的反向断言）', () => {
-    const domains = new Set(
-      SOURCES.map((rel) => /^domains\/([^/]+)\//.exec(rel)?.[1]).filter(
-        (d): d is string => d !== undefined,
-      ),
+  it('每个域文件夹里的场子，只许碰自己那个域', () => {
+    const bad: string[] = []
+    for (const rel of SOURCES) {
+      const folder = arenaFolderOf(rel)
+      if (folder === null) continue
+      const allowed = ARENA_FOLDER_DOMAINS[folder]
+      if (allowed === undefined) {
+        bad.push(`${rel}：文件夹 ${folder} 不在 ARENA_FOLDER_DOMAINS 表里，加一行`)
+        continue
+      }
+      for (const d of domainsImportedBy(rel)) {
+        if (!allowed.includes(d)) {
+          bad.push(`${rel} → domains/${d}/（${folder} 的场子只许碰 ${allowed.join(' / ')}）`)
+        }
+      }
+    }
+    expect(bad).toEqual([])
+  })
+
+  it('场子必须放进一个域文件夹，顶层只留模板', () => {
+    // 顶层的场子绕过了上面那条「只许碰自己那个域」的检查（它没有文件夹），
+    // 所以这里把「场子不许放顶层」也钉住。`_` 开头的（模板）不算。
+    const loose = SOURCES.filter(
+      (rel) =>
+        /^test\/arenas\/[^/]+\.ts$/.test(rel) &&
+        !(rel.split('/').pop() ?? '').startsWith('_'),
     )
-    // 现在只有 enemies 一个域有代码。等 D1/D2/D4 开工之后，
-    // 上面那条断言会开始真的有约束力 —— 这里把它显式记下来。
-    expect(domains.has('enemies')).toBe(true)
+    expect(loose).toEqual([])
+  })
+
+  it('磁盘上出现的每个域文件夹都要在表里有条目', () => {
+    // 单向的：**表里可以有磁盘上还没有的文件夹**（D1/D2/D4 还没开工，
+    // 提前写好是为了让「这个文件夹归谁、能碰什么」在有人开工之前就是明确的），
+    // 但**反过来的那个方向不能有**：凭空冒出一个文件夹而表里没它，
+    // 那个文件夹里的场子会掉进上一段代码的 `allowed === undefined` 分支
+    // —— 那里是故意的，会直接报出来，而不是当成「没限制」放行。
+    const onDisk = new Set(SOURCES.map(arenaFolderOf).filter((f): f is string => f !== null))
+    expect([...onDisk].filter((f) => !(f in ARENA_FOLDER_DOMAINS))).toEqual([])
+    expect(onDisk.has('D3')).toBe(true) // 反向证据：没扫到 D3 的话这条会空转
+  })
+
+  it('测试场碰到的每个域都在这张表里（防止表里写错字）', () => {
+    // 前面几条都是「不许碰表外的域」。反过来的那种错法也要堵：
+    // 表里把 `enemies` 写成 `enemy`，或者某个域被整个漏掉 ——
+    // 那时候前面的检查会「通过」，因为它们查的是表，而表是错的。
+    const known = new Set([...Object.values(ARENA_FOLDER_DOMAINS).flat(), ...HARNESS_DOMAINS])
+    const touched = new Set(
+      SOURCES.filter((rel) => rel.startsWith('test/')).flatMap((rel) => domainsImportedBy(rel)),
+    )
+    expect([...touched].filter((d) => !known.has(d))).toEqual([])
+    expect(touched.has('enemies')).toBe(true) // 底座确实在用 D3 的域（反向证据）
   })
 })
 

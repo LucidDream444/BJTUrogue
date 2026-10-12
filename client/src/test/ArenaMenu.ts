@@ -16,8 +16,14 @@ import Phaser from 'phaser'
 import { MENU_SCENE_KEY, formatArenaIds, parseArenaQuery, type ArenaEntry } from './arenaCatalog'
 import { ARENAS, findArena } from './registry'
 
-/** 行高。菜单项之间靠它排开 */
-const LINE = 34
+/**
+ * 行高。菜单项之间靠它排开。
+ *
+ * 一行占的是「20px 的标题 + 往下 22px 的 12px 说明」≈ 37px，所以 34 会让
+ * **说明压在下一项的标题上**（真的发生过 —— 4 个场子时每一行都在互相挤）。
+ * 取 42 留一点余量。
+ */
+const LINE = 42
 /** 第一项从哪一行开始 */
 const FIRST_ROW_Y = 180
 

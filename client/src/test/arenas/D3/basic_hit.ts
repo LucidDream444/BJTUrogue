@@ -17,8 +17,8 @@
  * 如果你怀疑它没生效，看 `gun contacts` 有没有比 `gun shots` 涨得快很多。
  */
 
-import type { ArenaConfig, ArenaDefinition, ArenaContext } from '../ArenaBase'
-import { ArenaBase, WORLD_HEIGHT, WORLD_WIDTH } from '../ArenaBase'
+import type { ArenaConfig, ArenaDefinition, ArenaContext } from '../../ArenaBase'
+import { ArenaBase, WORLD_HEIGHT, WORLD_WIDTH } from '../../ArenaBase'
 
 /** 两只怪摆在玩家的两边，出生就能看见，不用找 */
 const PLAYER_X = WORLD_WIDTH / 2

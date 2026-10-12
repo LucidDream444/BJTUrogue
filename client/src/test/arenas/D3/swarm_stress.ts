@@ -46,8 +46,8 @@
  * 但会看起来像「越清越多」。想真的清干净，按 `0` 之后等它分裂完，再按一次。
  */
 
-import type { ArenaConfig, ArenaDefinition, ArenaContext } from '../ArenaBase'
-import { ArenaBase, WORLD_HEIGHT, WORLD_WIDTH } from '../ArenaBase'
+import type { ArenaConfig, ArenaDefinition, ArenaContext } from '../../ArenaBase'
+import { ArenaBase, WORLD_HEIGHT, WORLD_WIDTH } from '../../ArenaBase'
 
 /** 开局的量。印在 180 的软上限之上，好让 `queue` 有一次明显的涨落 */
 const INITIAL_SWARM = 150

@@ -29,8 +29,8 @@
  * 柱子（120×120）比一格大，用来验「绕单点障碍」而不是「绕长墙」。
  */
 
-import type { ArenaConfig, ArenaDefinition, ArenaContext } from '../ArenaBase'
-import { ArenaBase, WORLD_HEIGHT, WORLD_WIDTH } from '../ArenaBase'
+import type { ArenaConfig, ArenaDefinition, ArenaContext } from '../../ArenaBase'
+import { ArenaBase, WORLD_HEIGHT, WORLD_WIDTH } from '../../ArenaBase'
 
 const MID_Y = WORLD_HEIGHT / 2
 /** 墙上缺口的宽度。**160 = 两格寻路网格**（`ArenaBase` 里 `GRID_SIZE * 2`） */
