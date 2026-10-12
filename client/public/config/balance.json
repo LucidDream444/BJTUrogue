@@ -1,0 +1,48 @@
+{
+  "schemaVersion": 1,
+
+  "_comment": "基线数值。这是全项目「几发击杀 / 几秒击杀」的度量衡，改动会让所有敌人数值整体漂移。",
+  "_owner": "D3 起草，**D1 必须签字**（武器手感与射速是 D1 的设计输出）。签字前本文件视为待定。",
+
+  "baseline": {
+    "bullet": {
+      "damage": 10,
+      "fireIntervalMs": 250,
+      "speed": 520,
+      "radius": 4
+    },
+    "player": {
+      "maxHp": 200,
+      "speed": 200,
+      "radius": 12,
+      "iframeMs": 500
+    },
+    "baselineDps": 40
+  },
+
+  "spawn": {
+    "maxSpawnsPerFrame": 8,
+    "overflowStaggerMs": 40,
+    "maxAliveSoft": 180,
+    "maxAliveHard": 260,
+    "poolCapacity": 512,
+    "_queue_note": "maxQueueAgeMs 要远大于一条完整分裂链的时长（第一代 180+90×1，第二代 160+90×3 ≈ 2.5 秒），否则正常玩法就会开始丢怪。",
+    "maxQueueAgeMs": 8000,
+    "maxQueueLength": 512
+  },
+
+  "frameDamage": {
+    "tickMs": 100,
+    "pairTtlMs": 250,
+    "maxTicksPerSourceDefault": 8,
+    "contactMaxTicks": 100000
+  },
+
+  "juice": {
+    "hitstopBudgetRatio": 0.25,
+    "hitstopWindowMs": 500,
+    "traumaCap": 0.6,
+    "shakeMinIntervalMs": 90,
+    "particleCeilingSplitter": 64
+  }
+}

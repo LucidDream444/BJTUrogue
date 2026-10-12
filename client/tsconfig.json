@@ -1,0 +1,38 @@
+{
+  "compilerOptions": {
+    /* 语言与模块 */
+    "target": "ES2022",
+    "lib": ["ES2022", "DOM", "DOM.Iterable"],
+    "module": "ESNext",
+    "moduleResolution": "bundler",
+    "types": ["vite/client", "node"],
+    "resolveJsonModule": true,
+    "isolatedModules": true,
+    "esModuleInterop": true,
+    "verbatimModuleSyntax": true,
+
+    /* 类型严格度 —— 契约靠类型卡住，这是本项目用 TS 的主要理由 */
+    "strict": true,
+    "noImplicitOverride": true,
+    "noFallthroughCasesInSwitch": true,
+    "noUnusedLocals": true,
+    "noUnusedParameters": true,
+    "noImplicitReturns": true,
+
+    /* 类字段语义：ES2022 下子类化 Phaser 类时必须用 declare 声明继承字段，
+       这条打开后行为才和运行时一致（详见 CLAUDE.md「Phaser 子类化」一节） */
+    "useDefineForClassFields": true,
+
+    /* 构建由 Vite 负责，tsc 只做类型检查 */
+    "noEmit": true,
+    "skipLibCheck": true,
+    "forceConsistentCasingInFileNames": true,
+
+    /* 路径别名：跨域引用走 @/，避免 ../../.. 相对路径地狱 */
+    "baseUrl": ".",
+    "paths": {
+      "@/*": ["src/*"]
+    }
+  },
+  "include": ["src", "vite.config.ts"]
+}
