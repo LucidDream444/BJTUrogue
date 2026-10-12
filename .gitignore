@@ -16,6 +16,10 @@
 openspec/
 .claude/commands/opsx/
 
+# Claude 的东西**全部**不入库：技能、命令、本地设置，一律是本地工具配置，不是项目内容。
+# （`.claude/commands/opsx/` 和 `.claude/settings.local.json` 这两行已被覆盖，
+#   但故意保留原样 —— 其中前者属于上面那段不许改的内容。）
+.claude
 # Claude Code 本地个人设置（不入库）
 .claude/settings.local.json
 
