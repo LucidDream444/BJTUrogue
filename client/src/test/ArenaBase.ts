@@ -31,7 +31,14 @@
 import Phaser from 'phaser'
 import { GameClock } from '@/core/time'
 import { TypedBus, type GameEvents, type EnemyKind } from '@/core/events'
-import { parseConfigBundle, type ConfigBundle, type Difficulty } from '@/core/config'
+import {
+  CONFIG_FILE_NAMES,
+  configUrl,
+  parseConfigBundle,
+  type ConfigBundle,
+  type ConfigFileName,
+  type Difficulty,
+} from '@/core/config'
 import { preloadAssets, ensurePlaceholderTextures, registerAnimations } from '@/core/assets'
 import { EnemySystem, type EnemySystemNavOptions } from '@/domains/enemies/EnemySystem'
 import { JuiceDirector } from '@/domains/enemies/presentation/JuiceDirector'
@@ -162,9 +169,34 @@ export abstract class ArenaBase extends Phaser.Scene {
     // 占位期：清单里全是 placeholder，所以这里不下载任何文件，
     // 但真美术到位后这一句就会自动开始加载 —— 测试场不用改。
     preloadAssets(this)
+
+    // 配置表走 **Phaser 的 loader**，在 `preload` 里异步取。
+    // 场景生命周期保证了 `create()` 一定在所有加载完成之后才跑，
+    // 所以 `create()` 里读 `cache.json` 是同步的、一定拿得到。
+    //
+    // ⚠️ 别改成 `import.meta.glob('../../public/config/*.json', { query: '?raw' })`。
+    // 看起来更直接，但 `public/` 下的文件**不参与打包**，Vite 遇到指向它的
+    // import 会**静默**换成空模块（只在终端打一行 warning，不报错），
+    // 于是三份 JSON 全变成 `undefined`、`create()` 当场中断 ——
+    // 表现是「进得去场子，但黑屏，一个东西都没有」。
+    // 这条有架构测试守着（`architecture.test.ts` 的 public 守卫）。
+    for (const name of CONFIG_FILE_NAMES) {
+      this.load.json(name, configUrl(name))
+    }
   }
 
   create(): void {
+    // 场景建不起来的时候，**把原因画在屏幕上**（见 `showFatal`）。
+    // 空白的画布和「配置文件写错了」在现场长得一模一样，
+    // 而写测试场的人多半是别人的 AI —— 它看不见控制台。
+    try {
+      this.createArena()
+    } catch (err) {
+      this.showFatal(err)
+    }
+  }
+
+  private createArena(): void {
     // 暂停状态挂在**场景级**的物理世界上。`R` 复位走的是 `scene.restart()`，
     // 万一那个世界被留给了下一个实例，这里不复位就会「一进去世界就是停的」。
     // 幂等且免费，所以无条件写一句。
@@ -177,7 +209,11 @@ export abstract class ArenaBase extends Phaser.Scene {
     const cfg = this.configure()
     this.clock = new GameClock()
     this.bus = new TypedBus<GameEvents>()
-    this.bundle = parseConfigBundle(readEmbeddedConfig())
+    this.bundle = parseConfigBundle({
+      balance: readCachedConfig(this, 'balance.json'),
+      difficulty: readCachedConfig(this, 'difficulty.json'),
+      enemies: readCachedConfig(this, 'enemies.json'),
+    })
     this.hud = new Hud(this)
 
     this.drawBackground(cfg.walls ?? [])
@@ -207,6 +243,11 @@ export abstract class ArenaBase extends Phaser.Scene {
         onSlam: (x, y, radius, hitstopMs) => this.juice.onSlam(x, y, radius, hitstopMs),
       },
     })
+    // ⚠️ **不能漏。** 构造只建对象，`create()` 才把它挂到 `WORLD_STEP` 上。
+    // 漏了它的现场长这样：场上空的、`queue` 里排着怪、AI 一次不跑、帧伤一次不结，
+    // 而控制台一声不吭 —— 和「刷怪逻辑写错了」完全分不出来。
+    // （曾经真漏过一次：`juice.create()` 和 `gun.create()` 都在，就这句不在。）
+    this.enemies.create()
 
     this.juice = new JuiceDirector({
       scene: this,
@@ -245,6 +286,7 @@ export abstract class ArenaBase extends Phaser.Scene {
 
     // HUD 的所有依赖这时才齐（它得先于它们建出来才能画在最上层）
     this.hud.bind({
+      scene: this,
       enemies: this.enemies,
       clock: this.clock,
       player: this.player,
@@ -282,6 +324,57 @@ export abstract class ArenaBase extends Phaser.Scene {
   }
 
   // ------------------------------------------------------------ 内部
+
+  /**
+   * 场景没建起来时，**把原因画在屏幕上**，而不是留一块黑画布。
+   *
+   * 为什么值得这么写：黑画布是**最没有信息量的失败**——
+   * 「配置表没加载上」「场子代码抛异常」「页面根本没加载对」
+   * 在现场长得一模一样，而看的人多半是别人家的 AI 或队友，
+   * 他们看不见浏览器控制台，只能看见「什么都没有」，然后开始猜。
+   *
+   * 所以：控制台留一份完整的，屏幕上留一份能直接读的。
+   */
+  private showFatal(err: unknown): void {
+    const message = err instanceof Error ? err.message : String(err)
+    console.error('[test] 场景初始化失败：', err)
+
+    const cx = WORLD_WIDTH / 2
+    const cy = WORLD_HEIGHT / 2
+    this.add
+      .rectangle(cx, cy, WORLD_WIDTH, WORLD_HEIGHT, 0x1a0000)
+      .setDepth(10_000)
+      .setScrollFactor(0)
+    this.add
+      .text(cx, cy - 60, '测试场没能建起来', {
+        fontFamily: 'monospace',
+        fontSize: '32px',
+        color: '#ff5555',
+      })
+      .setOrigin(0.5)
+      .setDepth(10_001)
+      .setScrollFactor(0)
+    this.add
+      .text(cx, cy + 10, message, {
+        fontFamily: 'monospace',
+        fontSize: '16px',
+        color: '#ffbbbb',
+        align: 'center',
+        wordWrap: { width: WORLD_WIDTH - 160 },
+      })
+      .setOrigin(0.5)
+      .setDepth(10_001)
+      .setScrollFactor(0)
+    this.add
+      .text(cx, cy + 140, '控制台里有完整堆栈。改完刷新页面。', {
+        fontFamily: 'monospace',
+        fontSize: '14px',
+        color: '#888888',
+      })
+      .setOrigin(0.5)
+      .setDepth(10_001)
+      .setScrollFactor(0)
+  }
 
   /**
    * 每个场子都有的调试热键。
@@ -485,26 +578,14 @@ export abstract class ArenaBase extends Phaser.Scene {
   }
 }
 
-/**
- * 测试场读的配置。
- *
- * 用 `import.meta.glob(..., { eager: true, query: '?raw' })` 把 JSON 当**文本**
- * 一起打进来，而不是 `fetch('/config/balance.json')`：
- * 测试场要能离线打开（直接双击 dist 里的 html 也能跑），
- * 而且 fetch 是异步的 —— 场景 `create()` 里拿不到值，得把整个初始化拆成两段。
- */
-function readEmbeddedConfig(): { balance: unknown; difficulty: unknown; enemies: unknown } {
-  const files = import.meta.glob('../../public/config/*.json', {
-    eager: true,
-    query: '?raw',
-    import: 'default',
-  }) as Record<string, string>
-
-  const pick = (name: string): unknown => {
-    const hit = Object.entries(files).find(([path]) => path.endsWith(`/${name}.json`))
-    if (!hit) throw new Error(`[test] 找不到配置表 ${name}.json —— 检查 import.meta.glob 的路径`)
-    return JSON.parse(hit[1])
+/** 从 Phaser 的缓存里取一份配置表。**取不到就是真的没加载上**，当场抛。 */
+function readCachedConfig(scene: Phaser.Scene, name: ConfigFileName): unknown {
+  if (!scene.cache.json.exists(name)) {
+    throw new Error(
+      `配置表 ${name} 没加载上（preload 里 load.json 失败了）。\n` +
+        `如果是从 file:// 直接双击打开 html —— 那条路取不到 public/ 下的文件，` +
+        `请走 npm run dev 或任意静态服务器。`,
+    )
   }
-
-  return { balance: pick('balance'), difficulty: pick('difficulty'), enemies: pick('enemies') }
+  return scene.cache.json.get(name)
 }

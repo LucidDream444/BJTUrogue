@@ -423,6 +423,51 @@ describe('资产引用必须走清单（AGENTS.md §六）', () => {
   })
 })
 
+describe('`public/` 下的文件不许被 import', () => {
+  /**
+   * `public/` 里的东西由 Vite **原样拷贝**、不参与打包。指向它的 import 不会报错，
+   * 只会被**静默**替换成空模块，终端上只留一行 warning。
+   *
+   * 这个坑真踩过一次：测试场用 `import.meta.glob('../../public/config/*.json')`
+   * 读配置表，三份 JSON 全变成 `undefined`，`parseConfigBundle` 抛在场景 `create()` 里，
+   * 表现是「进得去场子、但一片黑、一个敌人也没有」—— 而 `tsc`、ESLint、`npm run build`
+   * **全都是干净的**。能通过所有静态检查的失败，只有这种守卫拦得住。
+   *
+   * 允许的读法：`fetch()` / Phaser 的 loader / 测试里的 `node:fs`
+   *（后者写的是 `fileURLToPath(new URL(...))`，不是静态 import，匹配不到）。
+   */
+  const FORBIDDEN_PUBLIC_IMPORT = [
+    /\bfrom\s*['"`][^'"`]*\/public\//,
+    /\bimport\s*\(\s*['"`][^'"`]*\/public\//,
+    /\bimport\.meta\.glob\s*\(\s*['"`][^'"`]*public\//,
+  ]
+
+  it('守卫本身认得出来（别写成永远匹配不到的空守卫）', () => {
+    // ⚠️ `IM` 拆开拼是**故意的**：直接写 `import(` 或 `import ... from '…'` 的话，
+    // 本文件自己的源码里就出现了一个真的 import 形状，会被上面的 import 扫描器
+    // 当成一条依赖边（`守卫自身有效` 里那条「解析出的 import 恰好是这四个包」
+    // 立刻就会红）。绕开它，同时照样验到三条正则。
+    const IM = 'im' + 'port'
+    const target = `'../../public/config/enemies.json'`
+    expect(FORBIDDEN_PUBLIC_IMPORT[0].test(`from ${target}`)).toBe(true)
+    expect(FORBIDDEN_PUBLIC_IMPORT[1].test(`${IM}(${target})`)).toBe(true)
+    expect(FORBIDDEN_PUBLIC_IMPORT[2].test(`${IM}.meta.glob(${target})`)).toBe(true)
+    // 反向：正常的相对 import 不该被误伤
+    expect(FORBIDDEN_PUBLIC_IMPORT[0].test(`from './DummyPlayer'`)).toBe(false)
+  })
+
+  it('没有 import / import.meta.glob 指向 public/', () => {
+    const bad = SOURCES.filter((rel) => rel !== GUARD_FILE)
+      .map((rel) => {
+        const code = codeWithoutAllowances(rel)
+        const hit = FORBIDDEN_PUBLIC_IMPORT.map((p) => p.exec(code)).find((m) => m !== null)
+        return hit ? `${rel}: ${hit[0]}` : null
+      })
+      .filter((x): x is string => x !== null)
+    expect(bad).toEqual([])
+  })
+})
+
 describe('测试场不能变成产品的运行时依赖（AGENTS.md §五）', () => {
   it('src/test/ 之外没有文件 import 测试场', () => {
     const bad: string[] = []
