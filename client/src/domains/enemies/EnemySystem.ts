@@ -237,6 +237,8 @@ export class EnemySystem implements ActorEventSink {
   private lastAiStats: AiTickStats = { ticked: 0, near: 0, far: 0 }
   /** `WORLD_STEP` 一共进来过几次。**它不涨 = 物理世界没在步**，见文件头那段 ⚠️ */
   private worldStepCount = 0
+  /** 上一个物理步里**物理体速度非零**的活怪数。HUD 读数，见 `movingEnemies` */
+  private movingCount = 0
   /** `create()` 有没有被调过。没调过就刷怪 = 队列永远没人取，见 `assertWired()` */
   private wired = false
   private disposed = false
@@ -378,6 +380,12 @@ export class EnemySystem implements ActorEventSink {
 
   // ------------------------------------------------------------ 每步 / 每帧
 
+  /** 物理体速度是否非零（阈值 1px/s，把浮点残渣和分离力的微推排除掉）。 */
+  private isMovingBody(entry: Entry): boolean {
+    const v = entry.view.body.velocity
+    return v.x * v.x + v.y * v.y > 1
+  }
+
   /** 世界步回调。挂在 WORLD_STEP 上，掉帧时一帧会被调 N 次（N 次共用同一个 frameId）。 */
   private onWorldStep(): void {
     if (this.disposed) return
@@ -408,6 +416,33 @@ export class EnemySystem implements ActorEventSink {
     // 而「每个配对单帧最多结算一次」由账本的 lastSettledFrameId 闸门守着。
     this.touchContact(nowMs)
     this.ledger.step(nowMs, frameId)
+
+    // **把 brain 写好的速度意图落到物理体上。这是它唯一的写入点。**
+    //
+    // ⚠️ 这段以前**不存在**，速度只在状态切换时被写过一次（见 `runAi` 里那段 ⚠️）。
+    // 两个症状：① 怪沿着「上一次状态切换那一刻的速度」直线滑行，玩家移动了不跟、
+    // 撞上墙不绕；② `graceMs: 0` 的怪（第三代分裂怪、肉盾）出生即 `chase`、
+    // 状态从不切换，速度一次都没写过 —— **原地不动**。
+    //
+    // 放在**每个物理步**而不是每帧：Arcade 的 body 每个步都按当前 velocity 积分，
+    // 而 `WORLD_STEP` 是 `World.step()` 的**最后一句**（`World.js` L1058，
+    // 在 `body.update(delta)` 之后）—— 所以这里写的速度作用于**下一个**步。
+    // 一帧有 N 个物理步时写 N 次是幂等的（意图一帧只变一次），不浪费。
+    //
+    // 只写活着的：死掉的那只已经 `park()` 过了（`Actor.park()` 里 `body.stop()`，
+    // 并且把 body 摘出了物理世界），它的位置要**冻在死的那一刻** ——
+    // `reapDead` 之后正是拿 `entry.view.x/y` 去算孩子出生的坐标。
+    // 这里再写一次速度（哪怕写 0）都不是「没效果」，而是「多了一个改尸体位置的路径」。
+    let moving = 0
+    for (let i = 0; i < this.frameEntries.length; i++) {
+      const entry = this.frameEntries[i]!
+      if (!entry.model.alive) continue
+      entry.view.applyVelocityIntent()
+      // 读数从**物理体**上取，不是从 `velIntent` 上取 —— 这两者不同才是问题本身：
+      // 上面那行的缺失会让意图算得好好的而 body 一动不动。从意图取数就永远读不出这个 bug。
+      if (this.isMovingBody(entry)) moving++
+    }
+    this.movingCount = moving
   }
 
   /** 把每只活着的怪的位置/速度回读进各自的快照。哈希与 brain 吃的是同一份。 */
@@ -502,19 +537,23 @@ export class EnemySystem implements ActorEventSink {
 
       const out = brain(this.ctx)
 
-      // **brain 只输出意图**：写回 model，由 Actor 在下一个物理步交给物理体。
+      // **brain 只输出意图**：写回 model，由 `onWorldStep` 的末尾统一交给物理体。
       // 一帧的延迟是无所谓的（速度是 px/s 的量），换来的是一条硬规矩：
       // brain 不碰物理、不碰别的实体，所以它能在 node 里直测。
+      //
+      // ⚠️ **这里不许再顺手 `applyVelocityIntent()`。** 曾经这里是这样写的：
+      // 「状态刚切进去就要被 Actor 看见，所以不等下一物理步，直接同步一次速度」——
+      // 于是**速度就只在状态切换的那一刻被写过**，之后再没人写。
+      // brain 每 tick 算出来的新方向全部烂在 `model.velIntent` 里，物理体永远
+      // 沿着上一次状态切换时的那个速度直线滑行：玩家跑了不跟、被墙挡住不绕，
+      // 而 `graceMs: 0` 的怪（第三代分裂怪、肉盾）出生就是 `chase`、
+      // **从头到尾没切换过状态**，于是速度一次都没写过 —— 原地不动。
+      // 唯一的写入点是 `onWorldStep` 末尾那个循环，见那里的注释。
       model.velIntent.x = out.vx
       model.velIntent.y = out.vy
       const next = out.nextState
       if (next !== undefined && next !== model.state) {
         model.setState(next as EnemyState, nowMs)
-        // 状态刚切进去就要被 Actor 看见（表现层的受击动画读的是它），
-        // 所以这里不等到下一物理步 —— 直接同步一次速度。
-        // 不这么做的话，'windup'（m = 0）会让肉盾**多滑一帧**再站定，
-        // 而「前摇时必须完全不动的那个信号」正是玩家判断该不该跑的唯一依据。
-        actor.applyVelocityIntent()
       }
       if (out.attack) this.resolveAttack(entry, out.attack)
 
@@ -1018,6 +1057,24 @@ export class EnemySystem implements ActorEventSink {
    */
   get worldSteps(): number {
     return this.worldStepCount
+  }
+
+  /**
+   * 上一个物理步里**真的在动**的活怪数（按物理体速度算，不是按速度意图）。
+   *
+   * 为什么值得占 HUD 一行：这个数**小于 `liveEnemies.length` 就是有人不动**，
+   * 而「不动」的原因里最坏的一种是「速度意图根本没被写进物理体」——
+   * 那会让怪沿着上一次状态切换时的速度直线滑行、或者干脆站住，
+   * 而 AI 次数、账本、队列、帧率**全部正常**，画面上只是「怪有点呆」。
+   * 从 `velIntent` 取数是读不出这个 bug 的（意图一直是对的），必须读物理体。
+   *
+   * ⚠️ **它可能比 `liveEnemies.length` 少最多 `maxSpawnsPerFrame` 只**：
+   * 当帧刚出生的怪不在 `frameEntries` 里（那个数组在 `runAi` 之前就填好了），
+   * 所以要等下一帧才被算进来。密集刷怪时 `moving` 略小于 `alive` 是正常的 ——
+   * 判据是「**一只都不动**」，不是「两个数相等」。
+   */
+  get movingEnemies(): number {
+    return this.movingCount
   }
 
   /**

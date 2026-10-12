@@ -10,6 +10,8 @@
  * | `fps` | 掉帧会让一帧内的补步变多 —— 帧伤次数、AI 次数都会跟着变 |
  * | `alive` / `ai near/far` | 降频逻辑坏掉的话，远处那群怪的 AI 会全在跑（或全不跑） |
  * | `frameId` | **不涨 = 物理世界空了**（`WORLD_STEP` 不再触发，见 `EnemySystem` 文件头） |
+ * | `world bodies/steps` | `bodies` 是 0 或世界被暂停 = 同上，但这两行能区分是哪一种 |
+ * | `moving` | **小于 `alive` 就是有怪不动**；一只都不动 = 速度意图没落到物理体上 |
  * | `ledger pairs` | 只涨不落 = 有人忘了 `releaseBullet()` |
  * | `freezeMs` | 顿帧没结束就恢复 = 表现层配对写错了 |
  */
@@ -161,12 +163,26 @@ export class Hud {
     // 于是「一个 body 都没有」和「世界被暂停了」都会让 `WORLD_STEP` 彻底停发，
     // 敌人系统**整个静默假死**（不刷怪、不跑 AI、不结算帧伤），而画面上
     // 唯一的迹象就是「场上空的」—— 和「刷怪逻辑写错了」长得一模一样。
+    // 「**一只都不动**」= 速度意图没落到物理体上（或者 AI 完全没跑），标在行尾。
+    //
+    // 判据是 `moving === 0` 而不是「有几只不动」：受击硬直（`flinchMs`）和肉盾的
+    // 下砸前摇（`windupMs` 700ms）**是设计上就要停住的**，按「有几只不动」算的话
+    // 这行会一直闪 —— 一个天天闪的警告等于没有警告。
+    // 全员静止才是那个 bug 的签名（第三代分裂怪和肉盾出生即 `chase`，
+    // 状态从不切换 ⇒ 速度一次都没写过 ⇒ 场上所有怪一起站住）。
+    //
+    // `moving` 密集刷怪时会比 `alive` 少最多 `maxSpawnsPerFrame`（8）只 ——
+    // 当帧刚出生的怪要下一帧才被算进来（见 `movingEnemies` 的注释）。
+    // 所以**别拿这两个数相等当判据**。
+    const frozen = e.movingEnemies === 0 && e.liveEnemies.length >= 2
+    const stuckFlag = frozen ? '  ⚠️ 一只都没动' : ''
+
     const world = s.physics.world
     const worldFlag = world.isPaused ? '  ⚠️ PHYSICS PAUSED' : world.bodies.size === 0 ? '  ⚠️ 没有 body' : ''
     const rows = [
       `fps ${String(this.fps).padStart(3)}   frame ${c.frameId}   ${c.paused ? 'PAUSED' : c.frozen ? `FREEZE ${c.freezeRemainingMs.toFixed(0)}ms` : ''}`,
       `world    bodies ${String(world.bodies.size).padStart(3)}   steps ${String(e.worldSteps).padStart(5)}${worldFlag}`,
-      `enemies  alive ${String(e.liveEnemies.length).padStart(3)} / pool ${e.pool.live}   queue ${e.spawns.length}   ai ${ai.ticked}(near ${ai.near} / far ${ai.far})`,
+      `enemies  alive ${String(e.liveEnemies.length).padStart(3)} / pool ${e.pool.live}   moving ${String(e.movingEnemies).padStart(3)}   queue ${e.spawns.length}${stuckFlag}   ai ${ai.ticked}(near ${ai.near} / far ${ai.far})`,
       `ledger   pairs ${String(e.ledger.entryCount).padStart(3)}   ticks ${e.ledger.tickCount}   sources ${e.contactsTracked}`,
       `player   hp ${p.hp.toFixed(0)}/${p.maxHp}   hits ${p.hitCount}   taken ${p.damageTaken.toFixed(0)}   ${p.alive ? '' : 'DEAD'}`,
       `gun      shots ${g.shotsFired}   contacts ${g.contactsResolved}   ${g.swingActive ? 'swinging' : ''}`,

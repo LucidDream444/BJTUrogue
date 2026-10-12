@@ -289,6 +289,33 @@ describe('FlowField — 重建节流与边界', () => {
     expect(f.update(115, 105, 1)).toBe(true) // 跨到右邻格
   })
 
+  /**
+   * ⚠️ 上面那条只断言了「重建发生了」，**断言不了「重建出来的场是对的」**。
+   * 真正被报上来的症状是「玩家移动之后怪还沿着老路线直着走」—— 那既可以因为
+   * 「场没重建」，也可以因为「场重建了但没人用它」（速度意图没落到物理体上）。
+   * 所以这里断言**同一只怪在目标移动前后拿到的方向确实变了，而且指向新目标**。
+   */
+  it('目标移动之后，同一只怪拿到的方向**跟着变**，指向新目标', () => {
+    // 墙横在中间，怪在左下角。视线被墙挡住 ⇒ 走的是网格流向那条分支。
+    const wallY = 100
+    const isWalkable = (x: number, _y: number) => !(x > 45 && x < 155 && _y > wallY - 5 && _y < wallY + 5)
+    const f = makeField(isWalkable, 0)
+
+    // 目标在墙的**右边**：怪应该先往右（去绕墙），x 分量为正
+    f.update(185, wallY, 0)
+    const before = f.dirAt(25, 25)!
+    expect(before).not.toBeNull()
+    expect(before.x).toBeGreaterThan(0)
+
+    // 目标挪到墙的**左边**（同一只怪、同一个位置）：x 分量必须翻成负的
+    f.update(15, wallY, 1)
+    const after = f.dirAt(25, 25)!
+    expect(after).not.toBeNull()
+    expect(after.x).toBeLessThan(0)
+
+    expect(Math.abs(after.x - before.x)).toBeGreaterThan(0.5) // 真的变了，不是抖动
+  })
+
   it('目标跑到网格外 → 清场，dirAt 返回 null', () => {
     const f = makeField()
     f.update(105, 105, 0)
