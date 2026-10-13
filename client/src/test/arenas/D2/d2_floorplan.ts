@@ -26,6 +26,7 @@
 import type { ArenaConfig, ArenaContext, ArenaDefinition } from '../../ArenaBase'
 import { ArenaBase, WORLD_HEIGHT, WORLD_WIDTH } from '../../ArenaBase'
 import { COLORS, drawFloorplan } from '@/domains/procgen/presentation/floorplan'
+import { checkReachability } from '@/domains/procgen/validate/reachability'
 import { chooseClassroom, DEFAULT_SEED, generateForArena, loadRoomsConfig, summarise } from './_shared'
 
 /** 缩略图占的高度。下面那一块留给图例与读数 —— 图铺满整块画布的话，字会压在地图上。 */
@@ -73,10 +74,19 @@ class D2FloorplanArena extends ArenaBase {
       g.strokeRect(r.x - 2, r.y - 2, r.width + 4, r.height + 4)
     }
 
+    // 走廊的两个数必须分开报，别把矩形的高度当成可走宽度。
+    // `corridorRect` **含墙**（墙是骑在它的上下边上画的，往里外各吃半层），
+    // 所以 200 的矩形里只有 160 走得过去 —— 差的那 40 正好是一层墙厚。
+    // 实测值走 `checkReachability`，和 `d2_seed_sweep` 是同一个函数、同一份网格：
+    // 两处各量各的话，屏幕上 200 和 160 并排出现，看起来像生成器坏了。
+    const reach = checkReachability(map, cfg)
+
     const lines = [
       `D2 · 整层缩略图（种子 ${seed}）`,
       ...summarise({ map, cfg, elapsedMs }),
-      `走廊可走 ${Math.round(map.corridorRect.height)}px 高 · 墙 ${map.walls.length} 段 · ` +
+      `走廊矩形 ${Math.round(map.corridorRect.height)}px 高（含墙）· ` +
+        `实测可走 ${reach.corridorWalkableWidth}px · ` +
+        `墙 ${map.walls.length} 段 · ` +
         `障碍 ${map.rooms.reduce((n, r) => n + r.obstacles.length, 0)} 个`,
       highlighted === null
         ? '这一档尺寸下，d2_classroom 挑不出 1:1 能摆下的教室'
