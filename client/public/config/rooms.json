@@ -1,0 +1,51 @@
+{
+  "schemaVersion": 1,
+
+  "_comment": "D2（关卡与地牢生成）的旋钮。红线 2：改这里不需要重新构建，也不需要改任何 TypeScript。",
+  "_owner": "D2。字段定义归 D2（C2 契约），消费方是 D1（战斗场景）与 D3（敌人寻路）。",
+
+  "_derivation": "威胁预算 = round_half_up(budgetBase × budgetGrowth ^ t)，其中 t = order / (主干教室数 - 1)，t ∈ [0, 1]。侧室数不配置，由 totalRooms − 主干教室数 得出（主干数在 mainRoomMin—mainRoomMax 之间随种子取）。",
+
+  "totalRooms": 15,
+  "mainRoomMin": 8,
+  "mainRoomMax": 11,
+
+  "_sizes_comment": "教室尺寸档位。宽高都必须是 navCellSize 的整数倍 —— 按格对齐是「可视 = 可走性」的前提。最大值必须 ≤ 1280×720，否则 1:1 的测试场放不下（test/ArenaBase.ts 的世界尺寸写死）。",
+  "sizeTiers": [
+    { "width": 400, "height": 240 },
+    { "width": 520, "height": 280 },
+    { "width": 640, "height": 320 }
+  ],
+
+  "_geometry_comment": "全部 px。corridorMinWidth 是走廊的**可走宽度**（横截方向），不是长度；实际矩形还要加上两侧各一层墙厚。",
+  "corridorMinWidth": 120,
+  "roomGap": 40,
+
+  "_wall_comment": "墙厚必须 ≥ 一格。20px 的墙中心落在格边界上时**一格中心都不覆盖**，寻路会认为墙两侧都走得通 —— 字面意义上的墙上有洞。取一格厚还带来一个好处：每堵墙恰好封掉一格，不多不少。",
+  "wallThickness": 40,
+
+  "_doors_comment": "doorWidth 是门洞沿墙方向的宽度，取 3 格 = 120。**不能取 80**：那正好等于肉盾直径，零余量 —— 格子化之后肉盾过不去。理由与 corridorMinWidth ≥ 120 完全相同。doorClearance 是门前净空半径：障碍物不许长进这个圈里，否则门会被课桌堵住。",
+  "doorWidth": 120,
+  "doorClearance": 60,
+
+  "_obstacles_comment": "障碍物按格对齐。课桌宽度恒为 1 格（deskWidthCells），长度在 deskLenCells 之间取整数格、只横竖。椅子恒 1 格。",
+  "deskWidthCells": 1,
+  "deskLenCells": [2, 4],
+  "deskRowsMin": 2,
+  "deskRowsMax": 3,
+  "chairChance": 0.55,
+
+  "_density_comment": "障碍物总面积 ÷ 教室面积的上限。0.18 是按最小档教室（400×240，内部 9×5 格）反推的：那一档隔行摆得下 2 排、每排 2 张 2 格桌 = 4 张桌（8 格）+ 约 2 把椅子 = 10 格 / 45 格 ≈ 0.22，所以上限压到 0.18 时小教室会**恰好用满**、大教室摆不满 3 排。调大它会让小教室变成迷宫 —— 小教室本来就只有 3 格宽的走道。",
+  "obstacleDensityMax": 0.18,
+
+  "_spawns_comment": "每间教室的刷怪点数。**与预算无关** —— 预算是「刷多少怪」，点数是「在哪儿刷」，D1/D3 把前者铺到后者上。",
+  "spawnPointsMin": 3,
+  "spawnPointsMax": 6,
+  "spawnPointMinGap": 80,
+
+  "_budget_comment": "威胁预算曲线。t 是进度百分比，不是房间序号 —— 这样 N=8 和 N=11 的末间一样强。",
+  "budgetBase": 5,
+  "budgetGrowth": 1.6,
+
+  "navCellSize": 40
+}
