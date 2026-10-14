@@ -119,7 +119,12 @@ export interface Mapper {
   toScreen(wx: number, wy: number): { x: number; y: number }
 }
 
-function mapperFor(world: Rect, screenX: number, screenY: number, scale: number): Mapper {
+/**
+ * 造一个换算器。**导出**：别的绘制（`d2_classroom_scene` 那类只有自己才画的东西）
+ * 也该走这一条式子 —— 各写一份的话，两份一旦分叉，表现是**整张图整体偏半格**，
+ * 而这种偏移看起来永远像「生成器把墙算歪了」。
+ */
+export function mapperFor(world: Rect, screenX: number, screenY: number, scale: number): Mapper {
   const originX = left(world)
   const originY = top(world)
   return {
