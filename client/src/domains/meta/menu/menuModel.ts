@@ -79,7 +79,10 @@ export function openScreen(state: MenuState, screen: MenuScreen): MenuState {
  */
 export function closeScreen(state: MenuState): MenuState | null {
   if (state.screen === 'main') return null
-  return { ...state, screen: 'main' }
+  // 提示**跟着它所属的那一屏一起结束**：不清的话它会一直占着主菜单底部那一行，
+  // 把「当前：xx · 难度」挤掉 —— 而玩家退回主菜单最想确认的恰恰是当前选了什么。
+  // （与 `openScreen` 对称：进一屏清一次，出一屏也清一次。）
+  return { ...state, screen: 'main', notice: '' }
 }
 
 export function withNotice(state: MenuState, notice: string): MenuState {

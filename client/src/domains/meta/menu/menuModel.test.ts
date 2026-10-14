@@ -73,6 +73,11 @@ describe('弹层开关（需求 §4.6）', () => {
     expect(closeScreen(state)?.screen).toBe('main')
   })
 
+  it('关掉弹层时**清掉提示** —— 否则它会盖住主菜单底部的「当前选择」', () => {
+    const state = withNotice(openScreen(createMenuState(), 'upgrade'), '已解锁：体育生')
+    expect(closeScreen(state)?.notice).toBe('')
+  })
+
   it('主菜单是顶层：按 Esc 没人接（返回 null，调用方自己决定做什么）', () => {
     expect(closeScreen(createMenuState())).toBeNull()
   })
