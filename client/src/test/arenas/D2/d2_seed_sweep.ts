@@ -33,6 +33,14 @@
  * `restart()` 把整棵显示树扔掉，不可能漏。代价是当前种子要存在**模块级**变量里
  * （实例会被销毁重建）。这是刻意的交换：拿一个进程内的全局变量，
  * 换「不可能漏清理」。`test/arenas/` 不是产品代码，这个全局不会外泄。
+ *
+ * ⚠️ **但 `restart()` 会在「拆场子」那条路径上把异常放大成「整页死」。** 拆不干净
+ * 顶多是残留，拆的时候**抛异常**是另一回事 —— 异常在 `SceneManager.processQueue`
+ * 里抛出，`restart` 的 `start` 那条 op 就永远轮不到，而且它会从 `Game.step` 冲出
+ * rAF 回调，Phaser 是先调回调再排下一帧，于是下一帧再也不排了。**帧号冻住，点哪儿都不应。**
+ * 2026-10-15 在本场子里踩到过一次（`EnemySystem.shutdown()` 里 `physics.world` 是 null），
+ * 按 `N` / `R` 同样死。任何新写的场子只要用 `restart()`，就走在同一条路上 ——
+ * 拆场子的代码里**不要碰任何可能已经被引擎置空的东西**，细节见那个方法的注释。
  */
 
 import type { ArenaConfig, ArenaContext, ArenaDefinition } from '../../ArenaBase'
@@ -57,7 +65,16 @@ import { DEFAULT_SEED, D2_SEEDS, generateForArena, loadRoomsConfig, summarise } 
  * 不是一个数：单个数的注释在这个 change 之后一定会过期。
  */
 const PLAN_HEIGHT = 430
-/** `A` 键批量扫的种子个数。约 30ms 一个，所以 100 个会卡住三秒左右 —— 提示里写明了。 */
+/**
+ * `A` 键批量扫的种子个数。
+ *
+ * ⚠️ 这里原来写的是「约 30ms 一个，所以 100 个会卡住三秒左右」—— **量错了，差了七倍**。
+ * 2026-10-15 实测（1000 个种子逐个计时，最慢的一个 6.6ms）：生成 + 可达性合计
+ * **约 4ms 一个**，100 个 = 0.42 秒。这个数还印在屏幕上过，见下面 `A` 的提示语。
+ *
+ * 量错的代价不是难看：真正把页面弄死的那件事（见 `A` 的处理函数里那段）被
+ * 「大概就是扫得慢吧」盖住了整整一天。
+ */
 const SWEEP_COUNT = 100
 /** 批量扫的起点。与 `generate.test.ts` 的种子表同一起点、同一段步长。 */
 const SEED_BASE = 13
@@ -121,7 +138,7 @@ class D2SeedSweepArena extends ArenaBase {
         ? '问题：无'
         : `问题 ${reach.problems.length} 条：${reach.problems[0]}`,
       sweepReport === null
-        ? `按 A 扫 ${SWEEP_COUNT} 个种子（会卡住约 3 秒）`
+        ? `按 A 扫 ${SWEEP_COUNT} 个种子（同步跑，约 0.4 秒）`
         : sweepReport,
     ]
     ctx.scene.add
@@ -134,9 +151,18 @@ class D2SeedSweepArena extends ArenaBase {
       .setDepth(1000)
 
     // ⚠️ `ev.repeat` 必须挡掉。浏览器按住不放会按系统重复率**不停地**发 keydown，
-    // 而这两件事一件要重建场景、一件要同步跑 100 次生成（约 3 秒）——
-    // 按住 `A` 不放 = 一串 3 秒的冻结接在一起，页面看起来就是死了。
+    // 而 `A` 每次都要同步跑 100 次生成（0.4 秒）再重建场景 ——
+    // 按住不放 = 一串 0.4 秒的冻结接在一起，手感上就是卡。
     // （顺带：`A` 同时也是底座的「向左走」键，松开就好，这一场没有墙，走不出事。）
+    //
+    // ⚠️ **2026-10-15：「按 A 卡死」查出来不是这一场的问题，也不是 0.4 秒的问题。**
+    // 真实链条是 `scene.restart()` → 场景 `SHUTDOWN` → 底座 `teardown()` →
+    // `EnemySystem.shutdown()` 里 `physics.world` 已经是 null → TypeError →
+    // ① `restart` 的 `start` 那条 op 永远轮不到 ② 异常冲出 rAF 回调、Phaser 不再排下一帧
+    // → **帧号冻住，整页死**。按 `N` / `R` 一样死，跟扫种子一个字的关系都没有。
+    // 修在 `EnemySystem.shutdown()`（D3 的文件，已同步），详细分析在那个方法的注释里。
+    // 留在这里的教训是**读数**那一层：屏幕上的「会卡住约 3 秒」把真凶盖住了 ——
+    // 一个偏大七倍的估算，比没有估算更容易让人以为是「就是慢」。
     ctx.scene.input.keyboard?.on('keydown-N', (ev: KeyboardEvent) => {
       if (ev.repeat) return
       seedIndex = (seedIndex + 1) % D2_SEEDS.length
@@ -148,7 +174,7 @@ class D2SeedSweepArena extends ArenaBase {
       this.scene.restart()
     })
 
-    ctx.hud.setNotice('N = 换下一个种子　A = 批量扫 100 个种子（会卡住约 3 秒）')
+    ctx.hud.setNotice('N = 换下一个种子　A = 批量扫 100 个种子（同步跑，约 0.4 秒）')
   }
 }
 
