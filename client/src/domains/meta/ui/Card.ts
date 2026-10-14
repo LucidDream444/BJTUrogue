@@ -15,6 +15,7 @@
 
 import Phaser from 'phaser'
 import type { CharacterDef } from '../catalog'
+import { dashRect } from './dashed'
 import { THEME, fontPx } from './theme'
 
 export interface CardOptions {
@@ -162,42 +163,5 @@ export class Card {
       this.frame.fillStyle(THEME.color.dim, 0.35)
       this.frame.fillRect(x0, y0, fw, fh)
     }
-  }
-}
-
-/** 虚线矩形。Phaser 没有内置虚线描边，所以这里自己按段画。 */
-function dashRect(
-  g: Phaser.GameObjects.Graphics,
-  x: number,
-  y: number,
-  w: number,
-  h: number,
-): void {
-  const dash = 8
-  const gap = 6
-  dashLine(g, x, y, x + w, y, dash, gap)
-  dashLine(g, x + w, y, x + w, y + h, dash, gap)
-  dashLine(g, x + w, y + h, x, y + h, dash, gap)
-  dashLine(g, x, y + h, x, y, dash, gap)
-}
-
-function dashLine(
-  g: Phaser.GameObjects.Graphics,
-  x0: number,
-  y0: number,
-  x1: number,
-  y1: number,
-  dash: number,
-  gap: number,
-): void {
-  const len = Math.hypot(x1 - x0, y1 - y0)
-  // 长度为 0 时下面会除以 0 → NaN → Phaser 画出一条不可见的废线。
-  // 这种"什么都没画、也不报错"的结果最难查，所以直接返回。
-  if (len === 0) return
-  const ux = (x1 - x0) / len
-  const uy = (y1 - y0) / len
-  for (let d = 0; d < len; d += dash + gap) {
-    const e = Math.min(d + dash, len)
-    g.lineBetween(x0 + ux * d, y0 + uy * d, x0 + ux * e, y0 + uy * e)
   }
 }

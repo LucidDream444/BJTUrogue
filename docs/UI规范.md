@@ -14,6 +14,11 @@
 | `domains/meta/ui/Button.ts` | 按钮（焦点 / 悬停 / 禁用三种状态的叠加） | 所有人的界面 |
 | `domains/meta/ui/Card.ts` | 卡片（含"立绘占位"虚线框；已选中 / 未解锁） | 角色卡、奖励卡、关卡卡 |
 | `domains/meta/ui/Slider.ts` | 滑杆（0..1，拖动即时回调） | 音量等 |
+| `domains/meta/ui/Bar.ts` | 条形读数（条形比例 + 当前 / 上限） | 血量 / 护盾 / 魔法，D1 的 HUD 也能用 |
+| `domains/meta/ui/dashed.ts` | 虚线框（"这里还没有东西"的视觉约定） | 立绘位、未解锁格 |
+| `domains/meta/ui/overlayFrame.ts` | 弹层外框（压暗层 / 面板 / 标题 / 关闭按钮 / 提示行） | 所有弹层 —— **叠放顺序的坑只在这里讲一次** |
+| `domains/meta/ui/panels.ts` | 操作说明与设置两块内容 | 主菜单 **与** 暂停菜单（需求要求"是同一个界面"） |
+| `domains/meta/pause/PauseOverlay.ts` | 暂停菜单组件（不是场景！） | 宿主是 D1 的战斗场景 |
 
 **它们都是产品代码，不是测试设施**，放在 `domains/meta/` 下（那是 D4 的域）。
 别的域**可以 import 它们，但不要改它们** —— 要加状态 / 样式，找 D4。
