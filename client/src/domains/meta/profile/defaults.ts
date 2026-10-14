@@ -23,6 +23,7 @@
  */
 
 import { PROFILE_SCHEMA_VERSION, type ProfileData } from './types'
+import { STARTER_SKILL_ID } from '../catalog'
 
 /**
  * ⚠️ **占位值。** 角色目录（4 个角色的定位与差异化）是 D4 的设计输出，
@@ -47,7 +48,9 @@ export function createDefaultProfile(): ProfileData {
     },
     unlocks: {
       characters: [STARTER_CHARACTER_ID],
-      skills: [],
+      // MVP：唯一的技能默认解锁。设计上「一个角色可以选择多个技能」——
+      // 那需要一个装备界面，记在改动日志的缺口清单里。
+      skills: [STARTER_SKILL_ID],
     },
     currency: { coins: 0 },
     upgrades: {},
