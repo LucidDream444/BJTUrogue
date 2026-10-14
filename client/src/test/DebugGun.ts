@@ -85,9 +85,18 @@ export class DebugGun {
   private firing = false
   private swinging = false
 
+  private readonly blockers: Phaser.Physics.Arcade.StaticGroup | null
+
   /** 统计：打了几发、每发平均打出几次结算。HUD 显示 */
   shotsFired = 0
   contactsResolved = 0
+  /**
+   * 被**场景几何**（墙、课桌、关着的门）挡下的发数。
+   *
+   * 单独一个数、不并进 `contactsResolved`：后者是「子弹和怪结算了几次」，
+   * 两个数混在一起就再也看不出「子弹是不是根本没飞到怪身上」。
+   */
+  bulletsBlocked = 0
 
   constructor(opts: {
     scene: Phaser.Scene
@@ -95,12 +104,21 @@ export class DebugGun {
     player: DummyPlayer
     tune: ArenaTune
     clock: GameClock
+    /**
+     * 挡子弹的静态体（可选的）。**不传 = 子弹除了怪什么都不撞**，
+     * 飞出场外靠 TTL 回收 —— 旧场子就是这个行为，别改它们。
+     *
+     * 传进来的那一组由**底座**造（`ArenaBase.buildCollision`），
+     * 顺序上必须先于 `new DebugGun(...)` —— D2 的 `bulletStoppers` 就是这么接上的。
+     */
+    blockers?: Phaser.Physics.Arcade.StaticGroup | null
   }) {
     this.scene = opts.scene
     this.enemies = opts.enemies
     this.player = opts.player
     this.tune = opts.tune
     this.clock = opts.clock
+    this.blockers = opts.blockers ?? null
   }
 
   create(): void {
@@ -137,6 +155,18 @@ export class DebugGun {
       this.enemies.group,
       (a, b) => this.onBulletHit(a as Phaser.GameObjects.GameObject, b as Phaser.GameObjects.GameObject),
     )
+
+    // 子弹 × **场景几何**（墙 / 课桌 / 关着的门）。只有配了碰撞体的场子才有这一条。
+    //
+    // 开着的门**不用在这里再判一次**：那一组里它的 `body.enable` 是 `false`，
+    // 而 `collideSpriteVsGroup` 的两条路径都会跳过停用的体（源码已核实）。
+    if (this.blockers) {
+      this.scene.physics.add.overlap(
+        this.bullets.map((b) => b.sprite),
+        this.blockers,
+        (a) => this.onBulletBlocked(a as Phaser.GameObjects.GameObject),
+      )
+    }
   }
 
   shutdown(): void {
@@ -267,6 +297,22 @@ export class DebugGun {
     )
     this.contactsResolved++
     if (result.consumed) this.recycle(b)
+  }
+
+  /**
+   * 子弹撞上**场景几何**（墙、课桌、关着的门）。
+   *
+   * **和 `onBulletHit` 一样只有一句 `recycle`。** 这里没有伤害、没有材质判断 ——
+   * 「课桌挡弹、椅子放行」在几何那一侧就已经表达完了：椅子压根不在
+   * `bulletStoppers` 里（见 `colliders.ts`）。所以这个函数里
+   * **没有任何 `if` 去看它撞的是什么**，就像 `onBulletHit` 里没有任何
+   * `if (enemy is tank)` —— 同样一件事，同样的形状。
+   */
+  private onBulletBlocked(bulletGO: Phaser.GameObjects.GameObject): void {
+    const b = this.bullets.find((x) => x.sprite === bulletGO && x.active)
+    if (!b) return
+    this.bulletsBlocked++
+    this.recycle(b)
   }
 
   private startSwing(): void {

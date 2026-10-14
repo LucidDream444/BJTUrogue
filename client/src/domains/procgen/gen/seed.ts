@@ -37,8 +37,14 @@ export type SaltName =
   | 'mainCount'
   /** 每间房用几号尺寸档位 */
   | 'sizeTier'
+  /** 每间主干教室的宽度用几号档位（与侧室的 `sizeTier` 分开，改一个不动另一个） */
+  | 'mainWidth'
   /** 哪些主干教室挂侧室 */
   | 'sideAnchors'
+  /** 一间侧室装的是什么关别（精英 / 道具 / 宝箱） */
+  | 'sideKind'
+  /** 一间侧室挂在上方还是下方 */
+  | 'bands'
   /** 一间房里的课桌排布 */
   | 'desks'
   /** 一间房里的椅子 */
@@ -80,4 +86,40 @@ export function rngFor(seed: number, salt: SaltName, index = 0): Rng {
  */
 export function pickIn<T>(seed: number, salt: SaltName, index: number, items: readonly T[]): T {
   return rngFor(seed, salt, index).pick(items)
+}
+
+/**
+ * 从一张「值 → 权重」的表里**按权重**抽一个。
+ *
+ * 权重不必凑成 1：内部归一化，所以配置表里写 `{elite: 2, reward: 3, chest: 2}`
+ * 和写 `{elite: 0.28, reward: 0.43, chest: 0.28}` 是同一件事 ——
+ * 前者改起来不用担心总和。
+ *
+ * **顺序敏感**：同一张表里键的先后决定随机数落在哪个区间，所以表是按
+ * 配置文件里的书写顺序读的，抽签结果因此可复现（`Object.entries` 对
+ * 非数字键保持插入顺序）。调整权重的**数值**会改变分布，
+ * 调整**顺序**也会 —— 后者看起来无害，其实等于换了一张表。
+ */
+export function weightedPickIn<K extends string>(
+  seed: number,
+  salt: SaltName,
+  index: number,
+  weights: Readonly<Partial<Record<K, number>>>,
+): K {
+  const entries = Object.entries(weights) as [K, number][]
+  if (entries.length === 0) throw new Error(`weightedPickIn(${salt}): 权重表是空的`)
+
+  let total = 0
+  for (const [, w] of entries) total += w
+  if (!(total > 0)) throw new Error(`weightedPickIn(${salt}): 权重总和为 ${total}，抽不出东西`)
+
+  const r = rngFor(seed, salt, index).floatBetween(0, total)
+  let acc = 0
+  for (const [key, w] of entries) {
+    acc += w
+    if (r < acc) return key
+  }
+  // 浮点累加可能差一个 ulp 落在总和上。兜底返回最后一个，
+  // 而不是抛 —— 这里抛的话，表现是「某个种子画不出地图」，而它其实是取整误差。
+  return entries[entries.length - 1]![0]
 }

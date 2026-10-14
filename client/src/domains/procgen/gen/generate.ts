@@ -92,7 +92,7 @@ export function generateDungeon(
     schemaVersion: DUNGEON_SCHEMA_VERSION,
     seed,
     bounds: plan.bounds,
-    corridorRect: plan.corridorRect,
+    passages: plan.passages,
     walls: plan.walls,
     rooms,
     navCellSize: cfg.navCellSize,

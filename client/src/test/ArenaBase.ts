@@ -61,7 +61,41 @@ export const GRID_SIZE = 40
  */
 export const DEBUG_MELEE_REACH = 64
 
-/** 一堵墙。`nav` 网格由它生成，物理碰撞体也由它生成。 */
+/**
+ * 门洞挡板的样子。**纯装饰，不参与判定**（判定看 `body.enable`）。
+ *
+ * 开着的时候只描一圈绿边：门洞本来就是墙上的一个缺口，不描的话，
+ * 「这儿有扇门」在画面上和「这段墙漏了一块」长得**一模一样** ——
+ * 而后者看起来像生成器漏了墙。关上时填成红的，一眼能看出现在过不去。
+ */
+const DOOR_OPEN_STROKE = 0x44dd88
+const DOOR_SHUT_STROKE = 0xff4466
+const DOOR_SHUT_FILL = 0xff4466
+/** 画在底座的灰墙（−50）之上、角色（0）之下 —— 压在墙上才看得见。 */
+const DOOR_DEPTH = -45
+
+/**
+ * 一块矩形。`x` / `y` 是**中心点**（与 `Rect` 同一约定，见 `procgen/model/rect.ts`）。
+ *
+ * ⚠️ **它本身既不是「墙」也不是「碰撞体」，是一种几何数据** —— 传进哪个字段
+ * 才决定它有什么行为：
+ *
+ * | 字段 | 画出来 | 进寻路网格 | 挡人 | 挡怪 | 挡子弹 |
+ * |---|---|---|---|---|---|
+ * | `ArenaConfig.walls` | ✅ 灰方块 | ✅ | ❌ | ❌（网格绕） | ❌ |
+ * | `collision.solids` | ❌ | ❌ | ✅ | ✅ | ❌ |
+ * | `collision.bulletStoppers` | ❌ | ❌ | ❌ | ❌ | ✅ |
+ * | `collision.barriers` | ✅ 绿框 / 红块 | ❌ | 关着时 | 关着时 | 关着时 |
+ *
+ * 同一样东西**同时**进 `walls` 和 `collision.solids` 是正常的，D2 的场子就是这么干的
+ * ——「看得见」「寻路绕开」「撞上去会停」本来就是三件事，各配各的。
+ *
+ * ⚠️ **`挡怪` 那一列与「寻路网格」那一列是两套机制，别当成一回事。**
+ * `walls` 里的东西怪不撞（没有碰撞体），但会**绕着走**（进了网格）；
+ * `collision.solids` 里的东西怪撞得住，但**不会绕**（没进网格，只在原地磨）。
+ * 两边都想要的，就两处都填 —— 产品里这两件事是一致的（产品的网格吃障碍物），
+ * 测试场里不是（`makeNav` 只吃 `walls`）。
+ */
 export interface WallSpec {
   x: number
   y: number
@@ -78,10 +112,48 @@ export interface ArenaSpawnSpec {
   y?: number
 }
 
+/**
+ * **碰撞几何**：交给底座，让它变成真的物理体。
+ *
+ * 这三个列表就是 D2 的 `collidersOf()` 交出来的那三个（`@/domains/procgen/colliders`），
+ * **名字故意一模一样** ——「哪一块该挡什么」是在生成那一侧算好的，
+ * 底座不再自己判断一次。各判一次的话，「椅子挡人不挡弹」这种分岔会分头漂移。
+ *
+ * ⚠️ **不填 = 一个物理体都不造。** 这是故意的：`walls` 被好几个场子用着，
+ * 让它突然长出碰撞体会**改掉别人的场子**。想挡人就在这里显式说一遍。
+ *
+ * ⚠️ **椅子不许进 `bulletStoppers`**（椅子挡人不挡弹）。判断在 D2 那边做，
+ * 这里只负责把列表搬过来 —— 搬错了不会报错，只会「子弹在椅子前面停住」。
+ */
+export interface ArenaCollision {
+  /** 挡移动的（墙 + 课桌 + 椅子）。**给玩家，不给怪** —— 怪吃的是寻路网格 */
+  solids?: WallSpec[]
+  /** 挡子弹的（墙 + 课桌）。**椅子不在里面** */
+  bulletStoppers?: WallSpec[]
+  /**
+   * 门洞挡板，一块 = 一扇门。**造出来时全是开着的**。
+   *
+   * 底座只负责「造出来 + 能开关」，**什么时候关是玩法**（进房关门、清完开门），
+   * 那是 D1 的场景逻辑。开关见 `DoorBarrierControl`。
+   */
+  barriers?: WallSpec[]
+}
+
 export interface ArenaConfig {
   /** 场上没有别人时的初始刷怪 */
   spawns?: ArenaSpawnSpec[]
+  /** 墙：**画出来 + 进寻路网格**。不挡人 —— 要挡人放进 `collision.solids` */
   walls?: WallSpec[]
+  /** 碰撞几何。**不填 = 一个物理体都不造**，见 `ArenaCollision` */
+  collision?: ArenaCollision
+  /**
+   * 假玩家的出生点。默认是世界正中心。
+   *
+   * ⚠️ 造了碰撞体之后，正中心**有可能正好落在一张课桌或一段墙里**
+   * （生成器摆桌子时不知道底座把出生点钉在那儿）—— 那时要显式给一个空位，
+   * 否则玩家一进场就卡在桌子里，而那看起来和「碰撞坏了」一模一样。
+   */
+  playerSpawn?: { x: number; y: number }
   /** 假玩家的移动速度（px/s），默认取 `baseline.player.speed` */
   playerSpeed?: number
   /** 开局给玩家一点无敌时间，省得一进场就被围死。默认 0（测试场就是要挨打） */
@@ -90,6 +162,40 @@ export interface ArenaConfig {
   difficulty?: Difficulty
   /** 固定随机种子 */
   rngSeed?: number
+}
+
+/**
+ * 门洞挡板的开关。**底座只提供「怎么开关」，不决定「什么时候关」。**
+ *
+ * 关 = 让那块静态体上场，开 = `body.enable = false` —— **是同一块体在翻转，
+ * 不是造一块拆一块**。源码核实过：`World.collideSpriteVsGroup` 的两条路径
+ * （静态树那条、遍历 `getChildren()` 那条）都跳过 `!bodyB.enable` 的体，
+ * 所以停用是引擎支持的开关方式，不必重建。
+ *
+ * ⚠️ 热键 `E` 绑的是 `setAllClosed()`。**产品里不许这么干** ——
+ * 一间房的门该开着还是关着，取决于「这一间有没有清完」，那是 D1 按 `room.order`
+ * 逐个判的，`setClosedAt(i, …)` 才是那条路上的形状。
+ */
+export interface DoorBarrierControl {
+  /** 几扇门（= 几个洞）。**同一个洞只算一块** —— 见 `colliders.ts` 的 ⚠️ */
+  readonly count: number
+  setAllClosed(closed: boolean): void
+  allClosed(): boolean
+  setClosedAt(index: number, closed: boolean): void
+  isClosedAt(index: number): boolean
+}
+
+/** 碰撞体造完之后，场子能问到的东西。**没造碰撞体时两个数都是 0、`doors` 是 `null`。** */
+export interface ArenaColliderInfo {
+  /**
+   * 挡人的静态体个数。
+   * ⚠️ 是**几何块数**，不是「地图上有几段墙」—— 墙、课桌、椅子各算一块。
+   */
+  readonly solidCount: number
+  /** 挡子弹的静态体个数。**比 `solidCount` 少的那些就是椅子** */
+  readonly bulletStopperCount: number
+  /** 门洞挡板。这一场没有门就是 `null` —— 不是「一个关不动的空控制器」 */
+  readonly doors: DoorBarrierControl | null
 }
 
 /** 交给场子的那包东西。`onArenaCreate` / `onArenaUpdate` 都收它。 */
@@ -105,6 +211,8 @@ export interface ArenaContext {
   world: { width: number; height: number }
   /** 从配置里读出来的常用数值，省得每个场子都 `bundle.baseline.bullet.damage` 一遍 */
   tune: ArenaTune
+  /** 造出来的碰撞体。这一场没配 `collision` 时是个全 0 的空读数 */
+  colliders: ArenaColliderInfo
 }
 
 /** 场子会用到的那几个配置读数。**全部来自配置表，没有一个是写死的**。 */
@@ -136,6 +244,13 @@ export interface ArenaDefinition {
   scene: new () => ArenaBase
 }
 
+/** 一块门洞挡板的运行时状态：物理体 + 它的样子。**开关只翻 `body.enable`。** */
+interface DoorRuntime {
+  readonly body: Phaser.Physics.Arcade.StaticBody
+  readonly vis: Phaser.GameObjects.Rectangle
+  closed: boolean
+}
+
 export abstract class ArenaBase extends Phaser.Scene {
   protected clock!: GameClock
   protected bus!: TypedBus<GameEvents>
@@ -148,8 +263,19 @@ export abstract class ArenaBase extends Phaser.Scene {
   protected ctx!: ArenaContext
 
   private walls: Phaser.GameObjects.Rectangle[] = []
-  /** 墙的**数据**（不是显示对象）。撒点与寻路网格都读它 */
-  private wallSpecs: WallSpec[] = []
+  /**
+   * **所有挡人的几何**（墙 + 桌椅 + 门挡板），撒点要躲开的东西。
+   *
+   * 与 `cfg.walls` **不是一回事**：`cfg.walls` 是「画出来 + 进寻路网格」的那一份，
+   * 这里多的是「只挡人、不画也不进网格」的桌椅。撒点读的是这一份。
+   */
+  private blockingSpecs: WallSpec[] = []
+  private solidGroup: Phaser.Physics.Arcade.StaticGroup | null = null
+  private bulletGroup: Phaser.Physics.Arcade.StaticGroup | null = null
+  /** 造出来的碰撞几何相关的所有 GameObject（Zone 与挡板的样子），拆场景时逐个销毁 */
+  private colliderObjects: Phaser.GameObjects.GameObject[] = []
+  private doorRuntimes: DoorRuntime[] = []
+  private colliderInfo: ArenaColliderInfo = { solidCount: 0, bulletStopperCount: 0, doors: null }
   private started = false
 
   /** 场子的元信息。**子类必须给**，`registry.test.ts` 会检查它存在。 */
@@ -221,14 +347,18 @@ export abstract class ArenaBase extends Phaser.Scene {
 
     this.player = new DummyPlayer({
       scene: this,
-      x: WORLD_WIDTH / 2,
-      y: WORLD_HEIGHT / 2,
+      x: cfg.playerSpawn?.x ?? WORLD_WIDTH / 2,
+      y: cfg.playerSpawn?.y ?? WORLD_HEIGHT / 2,
       radius: this.bundle.balance.baseline.player.radius,
       maxHp: this.bundle.balance.baseline.player.maxHp,
       speed: cfg.playerSpeed ?? this.bundle.balance.baseline.player.speed,
       worldWidth: WORLD_WIDTH,
       worldHeight: WORLD_HEIGHT,
     })
+
+    // ⚠️ 必须在 `new DebugGun(...)` **之前**：枪要拿到挡弹那一组才能接上。
+    // 也必须在 `this.player` 之后：玩家接 collider 要用它的物理体。
+    this.buildCollision(cfg)
 
     this.enemies = new EnemySystem({
       scene: this,
@@ -250,6 +380,10 @@ export abstract class ArenaBase extends Phaser.Scene {
     // （曾经真漏过一次：`juice.create()` 和 `gun.create()` 都在，就这句不在。）
     this.enemies.create()
 
+    // 怪 × 场景几何。**必须在 `new EnemySystem(...)` 之后**（要它的 `group`），
+    // 见 `attachEnemyColliders()`。没配 `collision` 的场子里它什么都不做。
+    this.attachEnemyColliders()
+
     this.juice = new JuiceDirector({
       scene: this,
       bus: this.bus,
@@ -269,6 +403,8 @@ export abstract class ArenaBase extends Phaser.Scene {
       player: this.player,
       tune,
       clock: this.clock,
+      // 这一场没造挡弹体时是 `null`，枪就只打怪 —— 见 `DebugGun` 的 `blockers`
+      blockers: this.bulletGroup,
     })
     this.gun.create()
 
@@ -283,6 +419,7 @@ export abstract class ArenaBase extends Phaser.Scene {
       hud: this.hud,
       world: { width: WORLD_WIDTH, height: WORLD_HEIGHT },
       tune,
+      colliders: this.colliderInfo,
     }
 
     // HUD 的所有依赖这时才齐（它得先于它们建出来才能画在最上层）
@@ -325,6 +462,172 @@ export abstract class ArenaBase extends Phaser.Scene {
   }
 
   // ------------------------------------------------------------ 内部
+
+  /**
+   * 把 `cfg.collision` 变成真的物理体。**不配就一个都不造**（见 `ArenaCollision`）。
+   *
+   * ## 为什么用 `Zone` 当宿主
+   *
+   * `Zone` 是「有位置、有尺寸、什么都不渲染」的 GameObject，正好是碰撞体该长的样子：
+   * `StaticBody` 的尺寸取自 `gameObject.displayWidth / displayHeight`
+   * （`Zone` 自己带这两个属性，值 = 尺寸 × 缩放，源码已核实），位置取自 `x/y` 与原点。
+   * 用 `Rectangle` + `setVisible(false)` 也行，但那会白白多一个渲染对象。
+   *
+   * ## ⚠️ 必须同时进 Group —— 否则判定被静默跳过
+   *
+   * `World.collideSpriteVsGroup` 走静态树那条路径时有一句
+   * `if (… || !group.contains(bodyB.gameObject)) continue`：**体进了世界、
+   * 没进组，判定一声不吭地不生效**。表现是「碰撞体造了，人照样穿过去」，
+   * 而控制台什么都没有。所以这里每一个 Zone 都 `group.add()`。
+   *
+   * ## 玩家接在这里，怪在 `attachEnemyColliders()`
+   *
+   * 玩家那一条在下面直接接；怪那一条要等 `this.enemies` 建好，见那个方法
+   * （以及它里面「挡住 ≠ 绕开」那一段 —— 那一句是读这一块最容易读错的地方）。
+   *
+   * ⚠️ 这里写的是**一次 `collider(组, 静态组)`**，不是给每只怪各接一条。
+   * 静态体走的是 `staticTree`，**不每帧重建、永远全速搜索**；本项目同时在场的怪
+   * 定位「数百量级」，离 §1 那个 5,000 动态体的量级余量还差一个数量级。
+   * 早先那版注释拿「几百只怪逐个接会贵」当理由不接怪 —— **理由是错的，
+   * 因为这里根本没有「逐个接」这种写法**，何况怪平时走的是寻路网格、
+   * 真撞上静态体的机会本来就少。
+   */
+  private buildCollision(cfg: ArenaConfig): void {
+    const c = cfg.collision
+    if (!c) {
+      this.colliderInfo = { solidCount: 0, bulletStopperCount: 0, doors: null }
+      return
+    }
+
+    const solids = this.physics.add.staticGroup()
+    const stoppers = this.physics.add.staticGroup()
+    for (const spec of c.solids ?? []) solids.add(this.makeStaticZone(spec))
+    for (const spec of c.bulletStoppers ?? []) stoppers.add(this.makeStaticZone(spec))
+
+    // 门洞挡板：**同一块 Zone 同时进两个组**。开关只是一次 `enable` 翻转，
+    // 两个组各看它一次，于是「挡人」和「挡子弹」永远同步 ——
+    // 分成两块的话，总有一天只关了一半，而那看起来像「子弹穿得过关着的门」。
+    this.doorRuntimes = (c.barriers ?? []).map((spec) => {
+      const zone = this.makeStaticZone(spec)
+      solids.add(zone)
+      stoppers.add(zone)
+      const rt: DoorRuntime = {
+        body: zone.body as Phaser.Physics.Arcade.StaticBody,
+        vis: this.add
+          .rectangle(spec.x, spec.y, spec.width, spec.height)
+          .setDepth(DOOR_DEPTH),
+        closed: false,
+      }
+      this.colliderObjects.push(rt.vis)
+      this.setDoorClosed(rt, false) // 造出来是**开着**的：没人在屋里的时候门不该是封的
+      return rt
+    })
+
+    this.solidGroup = solids
+    this.bulletGroup = stoppers
+    this.physics.add.collider(this.player.gameObject, solids)
+    // 怪那一侧**不在这里接**：`this.enemies` 这会儿还没建（它在 `buildCollision()`
+    // 之后才 `new`）。怪 × solids 接在 `attachEnemyColliders()`，由 `createArena()`
+    // 在 `enemies.create()` 之后调 —— 顺序写错的表现是「怪直接穿过课桌」，
+    // 那和「碰撞几何没配对」长得一模一样。
+
+    // 撒点也要躲开它们，否则持续刷怪的场子会把怪生进课桌里。
+    // **墙也要补进来**：`drawBackground` 只收了 `cfg.walls`，桌椅是这里才到的。
+    for (const spec of [...(c.solids ?? []), ...(c.barriers ?? [])]) {
+      this.blockingSpecs.push(spec)
+    }
+
+    this.colliderInfo = {
+      solidCount: solids.getLength(),
+      bulletStopperCount: stoppers.getLength(),
+      doors: this.makeDoorControl(),
+    }
+  }
+
+  /**
+   * **怪 × 场景几何**（墙、桌椅、关着的门）。玩家那一条在 `buildCollision()` 里，
+   * 这一条必须等 `this.enemies` 建好才能接，所以单独一个方法。
+   *
+   * ## 为什么怪也要接：几何本来拦不住它们
+   *
+   * 以前怪那一侧**一条 `collider` 都没有** —— 位置只由 `body.velocity` 积分，
+   * 撞上什么几何都直接穿过去。走位正常的时候看不出来（寻路网格本来就绕开了墙），
+   * 露馅的是**课桌椅子**：它们压根不在网格里。
+   *
+   * 怪的位置既然是引擎按速度推出来的，给它们接上静态体之后就是**真的挡得住**，
+   * 不是摆样子。
+   *
+   * ⚠️ **挡住 ≠ 绕开，这两件事必须分开说。** 怪往哪儿走是**寻路网格**说了算，
+   * 而底座的 `makeNav()` 只吃 `cfg.walls` —— 桌椅压根没进过它的输入
+   * （这是 D3 那边的待办，见 `d2_classroom.ts` 文件头那张表）。于是接上这一条之后：
+   *
+   * - 直冲课桌的怪会**顶着桌子原地磨**（引擎把速度沿着法线清掉，AI 下一步又把
+   *   速度写回去），而不是像产品里那样绕过去；
+   * - 那**不是**这一条接错了，是「物理说不许过、寻路说往前走」两边在打架 ——
+   *   产品里两者一致（产品的网格是吃障碍物的），测试场里不一致。
+   *
+   * 所以这个接线在测试场里说的是「几何**挡得住**」，**不是**「怪会绕」。
+   * 想看后者得先让 `makeNav` 看见障碍物。
+   *
+   * ## 关着的门连着怪一起挡
+   *
+   * 门挡板那块 `Zone` 同时进了 `solids`（见 `buildCollision`），所以 `E` 关门之后
+   * 怪也过不去 —— 这正是产品要的（封门就是把人**和怪**关在一间里）。
+   */
+  private attachEnemyColliders(): void {
+    // 没配 `collision` 的场子（旧场子、D3 的场子）`solidGroup` 是 null，
+    // 这一条就什么都不做 —— **旧场子的行为一个字都不许变**。
+    if (this.solidGroup === null) return
+    this.physics.add.collider(this.enemies.group, this.solidGroup)
+  }
+
+  /** 一块静态碰撞体。**看得见的是 `Zone` 自己的空** —— 它不渲染，只站位置。 */
+  private makeStaticZone(spec: WallSpec): Phaser.GameObjects.Zone {
+    const zone = this.add.zone(spec.x, spec.y, spec.width, spec.height)
+    // `true` = 静态体。尺寸与位置由构造时的 `displayWidth/displayHeight` 与原点推出，
+    // 之后**不改** —— 改了要显式 `updateFromGameObject()`，而这里没人改。
+    this.physics.add.existing(zone, true)
+    this.colliderObjects.push(zone)
+    return zone
+  }
+
+  /**
+   * 门洞挡板的控制器。
+   *
+   * 闭包抓的是 `this.doorRuntimes` **这个数组本身**，而 `teardown()` 用的是
+   * `length = 0`（原地清空）而不是换一个新数组 —— 换掉的话，场景关了之后
+   * 手里还攥着旧 ctx 的场子会继续翻**已经销毁**的物理体。
+   */
+  private makeDoorControl(): DoorBarrierControl {
+    const rts = this.doorRuntimes
+    const apply = (index: number, closed: boolean): void => {
+      const rt = rts[index]
+      if (!rt) return
+      this.setDoorClosed(rt, closed)
+    }
+    return {
+      count: rts.length,
+      setAllClosed: (closed) => {
+        for (let i = 0; i < rts.length; i++) apply(i, closed)
+      },
+      // 空数组返回 `false`：一扇门都没有的时候，「门全关着」不是一句真话
+      allClosed: () => rts.length > 0 && rts.every((r) => r.closed),
+      setClosedAt: apply,
+      isClosedAt: (index) => rts[index]?.closed ?? false,
+    }
+  }
+
+  /** 关 = 这块静态体上场；开 = 停用它（引擎支持的开关方式，见 `DoorBarrierControl`）。 */
+  private setDoorClosed(rt: DoorRuntime, closed: boolean): void {
+    rt.closed = closed
+    rt.body.enable = closed
+    if (closed) {
+      rt.vis.setFillStyle(DOOR_SHUT_FILL, 0.45).setStrokeStyle(2, DOOR_SHUT_STROKE, 1)
+    } else {
+      // 开着的时候**不填**：填了会挡住门洞里能看见的地板，看起来像一堵墙
+      rt.vis.setFillStyle(DOOR_SHUT_FILL, 0).setStrokeStyle(2, DOOR_OPEN_STROKE, 0.9)
+    }
+  }
 
   /**
    * 场景没建起来时，**把原因画在屏幕上**，而不是留一块黑画布。
@@ -393,7 +696,7 @@ export abstract class ArenaBase extends Phaser.Scene {
     if (!kb) return
 
     // 空格默认会滚动页面；不捕获的话按一下整页就会往下跳。
-    kb.addCapture(['SPACE', 'ZERO', 'R', 'I', 'ESC'])
+    kb.addCapture(['SPACE', 'ZERO', 'R', 'I', 'E', 'ESC'])
 
     kb.on('keydown-SPACE', () => this.togglePause())
     kb.on('keydown-ZERO', () => this.enemies.killAll())
@@ -402,7 +705,30 @@ export abstract class ArenaBase extends Phaser.Scene {
       this.player.setInvulnerable(!this.player.isInvulnerable)
       this.hud.setNotice(this.player.isInvulnerable ? '无敌 ON' : '无敌 OFF')
     })
+    kb.on('keydown-E', () => this.toggleDoors())
     kb.on('keydown-ESC', () => this.scene.start(MENU_SCENE_KEY))
+  }
+
+  /**
+   * `E` 键：所有门洞挡板一起开关。**这是「能开关」的演示，不是玩法。**
+   *
+   * 产品里一间房的门该不该关，取决于「这一间有没有清完」—— 那是 D1 按
+   * `DoorBarrierControl.setClosedAt(i, …)` 逐扇判的。底座这个键存在的理由只有一个：
+   * **不开一次关一次就看不出来封门到底封没封住**，而「封不住」在现场的表现是
+   * 「怪还是从门里进来」——和「门本来就是开的」长得一模一样。
+   *
+   * 没配挡板的场子按 `E` 会明说一句，而不是安静地什么都不发生：
+   * 后者会让人以为「这个键坏了」，于是去查按键绑定。
+   */
+  private toggleDoors(): void {
+    const doors = this.colliderInfo.doors
+    if (!doors || doors.count === 0) {
+      this.hud.setNotice('这一场没有门洞挡板（configure() 里没配 collision.barriers）')
+      return
+    }
+    const closed = !doors.allClosed()
+    doors.setAllClosed(closed)
+    this.hud.setNotice(closed ? `关门：${doors.count} 扇全封上（再按 E 放开）` : `开门：${doors.count} 扇全放开`)
   }
 
   private togglePause(): void {
@@ -426,7 +752,20 @@ export abstract class ArenaBase extends Phaser.Scene {
     this.bus?.clear()
     for (const w of this.walls) w.destroy()
     this.walls = []
-    this.wallSpecs = []
+    // `Zone` 与挡板的样子都在这里销毁。**顺带把静态体带走**：不过就算不销毁，
+    // `ArcadePhysics` 在 `SHUTDOWN` 时也会清空 `staticTree`/`staticBodies`，
+    // 所以这里图的是「场景重启后不留一个还在跑的显示对象」，不是防物理泄漏。
+    for (const o of this.colliderObjects) o.destroy()
+    this.colliderObjects = []
+    this.solidGroup?.destroy()
+    this.bulletGroup?.destroy()
+    this.solidGroup = null
+    this.bulletGroup = null
+    // ⚠️ **原地清空**，不要 `= []` —— 换掉数组的话，手里还攥着旧 `ctx` 的
+    // 场子会继续翻已经销毁的物理体（`makeDoorControl` 的闭包抓的是这个数组）。
+    this.doorRuntimes.length = 0
+    this.colliderInfo = { solidCount: 0, bulletStopperCount: 0, doors: null }
+    this.blockingSpecs = []
     this.started = false
   }
 
@@ -440,15 +779,21 @@ export abstract class ArenaBase extends Phaser.Scene {
     for (let y = 0; y <= WORLD_HEIGHT; y += GRID_SIZE) g.lineBetween(0, y, WORLD_WIDTH, y)
     g.setDepth(-100)
 
-    this.wallSpecs = walls
+    // 拷一份，不持有 `cfg.walls` 本身：`buildCollision` 之后还要往里加桌椅
+    this.blockingSpecs = [...walls]
     for (const w of walls) {
       const rect = this.add.rectangle(w.x, w.y, w.width, w.height, 0x3a3a4a)
       rect.setStrokeStyle(2, 0x6a6a80)
       rect.setDepth(-50)
       this.walls.push(rect)
-      // 物理体：怪撞墙会被挡住。**注意这里不加碰撞体到敌人身上** ——
-      // 敌人靠 nav 网格自己绕，撞墙只是兜底。加 collider 会让 200 只怪时
-      // 每次分离力都触发一次碰撞解算，纯粹的性能负担。
+      // ⚠️ **这里不造任何物理体。** 灰方块是纯装饰 ——
+      // 「看得见」「怪绕着走」「撞上去会停」是三件事，各配各的：
+      // 寻路网格读 `cfg.walls`；「撞上去会停」要 `cfg.collision.solids` 显式说一遍
+      // （见 `WallSpec` 那张表）。
+      //
+      // 顺手在这里补一个 body 看起来更省事，但那是**改别人的场子**：
+      // 已经用了 `walls` 的场子（D3 的 `swarm_stress` 有一根柱子正好在
+      // 世界正中心，也就是假玩家的出生点）会突然发现玩家卡在墙里。
     }
   }
 
@@ -521,7 +866,8 @@ export abstract class ArenaBase extends Phaser.Scene {
   }
 
   /**
-   * 场上随机一点。**避开墙**，否则怪会直接生在墙里然后卡一辈子。
+   * 场上随机一点。**避开挡人的东西**（墙、桌椅、门挡板），
+   * 否则怪会直接生在桌子/墙里然后卡一辈子。
    * `protected`：持续刷怪的场子要能调它（自己按格子算坐标迟早会把怪生在柱子里，
    * 而「卡在柱子里的怪」看起来和「寻路坏了」一模一样）。
    *
@@ -535,14 +881,17 @@ export abstract class ArenaBase extends Phaser.Scene {
     for (let attempt = 0; attempt < 32; attempt++) {
       const x = Phaser.Math.Between(pad, WORLD_WIDTH - pad)
       const y = Phaser.Math.Between(pad, WORLD_HEIGHT - pad)
-      if (!this.insideAnyWall(x, y, 20)) return { x, y }
+      if (!this.insideAnyBlocker(x, y, 20)) return { x, y }
     }
     return { x: WORLD_WIDTH / 2, y: 80 }
   }
 
-  /** 点 `(x, y)` 周围 `slack` 的方框是否与任何一堵墙相交 */
-  private insideAnyWall(x: number, y: number, slack: number): boolean {
-    for (const w of this.wallSpecs) {
+  /**
+   * 点 `(x, y)` 周围 `slack` 的方框是否与**任何挡人的东西**相交
+   * （墙、桌椅、门挡板 —— 即 `blockingSpecs`，比 `cfg.walls` 多）。
+   */
+  private insideAnyBlocker(x: number, y: number, slack: number): boolean {
+    for (const w of this.blockingSpecs) {
       if (
         Math.abs(x - w.x) < w.width / 2 + slack &&
         Math.abs(y - w.y) < w.height / 2 + slack
