@@ -45,6 +45,24 @@
           "maxLevel": 5
         }
       ]
+    },
+    "athlete": {
+      "_note": "占位角色：定位与数值都没设计。base 暂与新生相同、成长线为空 —— 解锁之后能选能用，但和新生没区别。",
+      "unlockCost": 200,
+      "base": { "maxHp": 200, "magic": 40, "armor": 0 },
+      "tracks": []
+    },
+    "scholar": {
+      "_note": "占位角色：同上。",
+      "unlockCost": 400,
+      "base": { "maxHp": 200, "magic": 40, "armor": 0 },
+      "tracks": []
+    },
+    "leader": {
+      "_note": "占位角色：同上。",
+      "unlockCost": 600,
+      "base": { "maxHp": 200, "magic": 40, "armor": 0 },
+      "tracks": []
     }
   },
 
