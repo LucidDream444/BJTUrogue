@@ -80,15 +80,21 @@ const DOOR_DEPTH = -45
  * ⚠️ **它本身既不是「墙」也不是「碰撞体」，是一种几何数据** —— 传进哪个字段
  * 才决定它有什么行为：
  *
- * | 字段 | 画出来 | 进寻路网格 | 挡人 | 挡子弹 |
- * |---|---|---|---|---|
- * | `ArenaConfig.walls` | ✅ 灰方块 | ✅ | ❌ | ❌ |
- * | `collision.solids` | ❌ | ❌ | ✅ | ❌ |
- * | `collision.bulletStoppers` | ❌ | ❌ | ❌ | ✅ |
- * | `collision.barriers` | ✅ 绿框 / 红块 | ❌ | 关着时 | 关着时 |
+ * | 字段 | 画出来 | 进寻路网格 | 挡人 | 挡怪 | 挡子弹 |
+ * |---|---|---|---|---|---|
+ * | `ArenaConfig.walls` | ✅ 灰方块 | ✅ | ❌ | ❌（网格绕） | ❌ |
+ * | `collision.solids` | ❌ | ❌ | ✅ | ✅ | ❌ |
+ * | `collision.bulletStoppers` | ❌ | ❌ | ❌ | ❌ | ✅ |
+ * | `collision.barriers` | ✅ 绿框 / 红块 | ❌ | 关着时 | 关着时 | 关着时 |
  *
  * 同一样东西**同时**进 `walls` 和 `collision.solids` 是正常的，D2 的场子就是这么干的
- * ——「看得见」「怪绕着走」「撞上去会停」本来就是三件事，各配各的。
+ * ——「看得见」「寻路绕开」「撞上去会停」本来就是三件事，各配各的。
+ *
+ * ⚠️ **`挡怪` 那一列与「寻路网格」那一列是两套机制，别当成一回事。**
+ * `walls` 里的东西怪不撞（没有碰撞体），但会**绕着走**（进了网格）；
+ * `collision.solids` 里的东西怪撞得住，但**不会绕**（没进网格，只在原地磨）。
+ * 两边都想要的，就两处都填 —— 产品里这两件事是一致的（产品的网格吃障碍物），
+ * 测试场里不是（`makeNav` 只吃 `walls`）。
  */
 export interface WallSpec {
   x: number
@@ -374,6 +380,10 @@ export abstract class ArenaBase extends Phaser.Scene {
     // （曾经真漏过一次：`juice.create()` 和 `gun.create()` 都在，就这句不在。）
     this.enemies.create()
 
+    // 怪 × 场景几何。**必须在 `new EnemySystem(...)` 之后**（要它的 `group`），
+    // 见 `attachEnemyColliders()`。没配 `collision` 的场子里它什么都不做。
+    this.attachEnemyColliders()
+
     this.juice = new JuiceDirector({
       scene: this,
       bus: this.bus,
@@ -470,13 +480,17 @@ export abstract class ArenaBase extends Phaser.Scene {
    * 没进组，判定一声不吭地不生效**。表现是「碰撞体造了，人照样穿过去」，
    * 而控制台什么都没有。所以这里每一个 Zone 都 `group.add()`。
    *
-   * ## ⚠️ 玩家挡得住，怪挡不住
+   * ## 玩家接在这里，怪在 `attachEnemyColliders()`
    *
-   * 只给玩家接 `collider`。怪走的是寻路网格（`EnemySystem` 的 `nav`），
-   * 撞墙只是兜底；给几百只怪逐个接 collider，每一次分离力都要做一次碰撞解算
-   * （《Phaser3性能与引擎事实》§5）。**这是设计，不是漏了。**
-   * 代价是**这一场里怪会穿过课桌** —— 因为底座的寻路网格只吃 `cfg.walls`，
-   * 桌椅从头到尾没进去过（见 `d2_classroom.ts` 文件头那张表）。
+   * 玩家那一条在下面直接接；怪那一条要等 `this.enemies` 建好，见那个方法
+   * （以及它里面「挡住 ≠ 绕开」那一段 —— 那一句是读这一块最容易读错的地方）。
+   *
+   * ⚠️ 这里写的是**一次 `collider(组, 静态组)`**，不是给每只怪各接一条。
+   * 静态体走的是 `staticTree`，**不每帧重建、永远全速搜索**；本项目同时在场的怪
+   * 定位「数百量级」，离 §1 那个 5,000 动态体的量级余量还差一个数量级。
+   * 早先那版注释拿「几百只怪逐个接会贵」当理由不接怪 —— **理由是错的，
+   * 因为这里根本没有「逐个接」这种写法**，何况怪平时走的是寻路网格、
+   * 真撞上静态体的机会本来就少。
    */
   private buildCollision(cfg: ArenaConfig): void {
     const c = cfg.collision
@@ -512,6 +526,10 @@ export abstract class ArenaBase extends Phaser.Scene {
     this.solidGroup = solids
     this.bulletGroup = stoppers
     this.physics.add.collider(this.player.gameObject, solids)
+    // 怪那一侧**不在这里接**：`this.enemies` 这会儿还没建（它在 `buildCollision()`
+    // 之后才 `new`）。怪 × solids 接在 `attachEnemyColliders()`，由 `createArena()`
+    // 在 `enemies.create()` 之后调 —— 顺序写错的表现是「怪直接穿过课桌」，
+    // 那和「碰撞几何没配对」长得一模一样。
 
     // 撒点也要躲开它们，否则持续刷怪的场子会把怪生进课桌里。
     // **墙也要补进来**：`drawBackground` 只收了 `cfg.walls`，桌椅是这里才到的。
@@ -524,6 +542,43 @@ export abstract class ArenaBase extends Phaser.Scene {
       bulletStopperCount: stoppers.getLength(),
       doors: this.makeDoorControl(),
     }
+  }
+
+  /**
+   * **怪 × 场景几何**（墙、桌椅、关着的门）。玩家那一条在 `buildCollision()` 里，
+   * 这一条必须等 `this.enemies` 建好才能接，所以单独一个方法。
+   *
+   * ## 为什么怪也要接：几何本来拦不住它们
+   *
+   * 以前怪那一侧**一条 `collider` 都没有** —— 位置只由 `body.velocity` 积分，
+   * 撞上什么几何都直接穿过去。走位正常的时候看不出来（寻路网格本来就绕开了墙），
+   * 露馅的是**课桌椅子**：它们压根不在网格里。
+   *
+   * 怪的位置既然是引擎按速度推出来的，给它们接上静态体之后就是**真的挡得住**，
+   * 不是摆样子。
+   *
+   * ⚠️ **挡住 ≠ 绕开，这两件事必须分开说。** 怪往哪儿走是**寻路网格**说了算，
+   * 而底座的 `makeNav()` 只吃 `cfg.walls` —— 桌椅压根没进过它的输入
+   * （这是 D3 那边的待办，见 `d2_classroom.ts` 文件头那张表）。于是接上这一条之后：
+   *
+   * - 直冲课桌的怪会**顶着桌子原地磨**（引擎把速度沿着法线清掉，AI 下一步又把
+   *   速度写回去），而不是像产品里那样绕过去；
+   * - 那**不是**这一条接错了，是「物理说不许过、寻路说往前走」两边在打架 ——
+   *   产品里两者一致（产品的网格是吃障碍物的），测试场里不一致。
+   *
+   * 所以这个接线在测试场里说的是「几何**挡得住**」，**不是**「怪会绕」。
+   * 想看后者得先让 `makeNav` 看见障碍物。
+   *
+   * ## 关着的门连着怪一起挡
+   *
+   * 门挡板那块 `Zone` 同时进了 `solids`（见 `buildCollision`），所以 `E` 关门之后
+   * 怪也过不去 —— 这正是产品要的（封门就是把人**和怪**关在一间里）。
+   */
+  private attachEnemyColliders(): void {
+    // 没配 `collision` 的场子（旧场子、D3 的场子）`solidGroup` 是 null，
+    // 这一条就什么都不做 —— **旧场子的行为一个字都不许变**。
+    if (this.solidGroup === null) return
+    this.physics.add.collider(this.enemies.group, this.solidGroup)
   }
 
   /** 一块静态碰撞体。**看得见的是 `Zone` 自己的空** —— 它不渲染，只站位置。 */
