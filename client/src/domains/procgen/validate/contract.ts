@@ -31,6 +31,17 @@
  * 症状是「怪穿墙、玩家不穿」，两边都不报错。下面两条 `onCellCenter` /
  * `onCellBoundary` 就是钉死这件事的。
  *
+ * ## 关别那一层（schemaVersion 3 起）
+ *
+ * 尺寸契约之外，这里还守三条「数据合法、但说不通」的：
+ *
+ * - `start` / `boss` 只能出现在进度轴的两端（它们是**位置**，不是内容）
+ * - 侧室的关别必须来自配置的 `sideKindWeights`（生成器的抽取范围就是它）
+ * - 非战斗关别三空（桌椅 / 刷怪点 / 预算）
+ *
+ * 第三条的判据是 `isCombatKind()` —— 与生成器**同一个函数**。各写一份关别名册的
+ * 失败形态是「摆了桌椅但不刷怪」，而且两边都不报错。
+ *
  * ## 枚举合法性为什么要 `as readonly string[]`
  *
  * `DungeonMap` 是 TS 类型，所以 `kind` 在编译期已经是 `RoomKind` 了 ——
@@ -45,9 +56,11 @@ import {
   mainRooms,
   ROOM_KINDS,
   ROOM_KINDS_EMITTED,
+  ROOM_KIND_LABELS,
   sideRooms,
 } from '../model/types'
 import type { RoomsConfig } from '../config'
+import { isCombatKind } from '../config'
 import { doorRect, left, rectContains, rectsIntersect, right, top, bottom } from '../model/rect'
 import { MapValidationError, type MapErrorContext } from './errors'
 
@@ -160,6 +173,57 @@ export function validateContract(map: DungeonMap, cfg: RoomsConfig): ContractRep
     }
     if (room.branch !== 'main' && room.branch !== 'side') {
       fail(at('branch'), `branch 只能是 'main' 或 'side'，拿到 ${JSON.stringify(room.branch)}`, ctx)
+    }
+
+    // spec `procgen-config-contract`「关别与位置一致」+「非战斗房三空」
+    //
+    // 关别表这一层要守三件事，三件都是「数据合法但说不通」：
+    //
+    // ① `start` / `boss` 是**位置**，不是内容 —— 它们只能出现在进度轴的两端
+    //    （`start` ↔ order 0、`boss` ↔ 最大 order）。写成别的样子几何上完全合法，
+    //    症状是「起点房在中间」或者「首领藏在侧室里」，而两者都不会抛。
+    // ② 侧室的关别必须来自 `sideKindWeights` 的键集合 —— 生成器的抽取范围就是它。
+    //    校验器挡的是**手工数据 / 存档迁移**里冒出来的、配置里根本没有的关别。
+    // ③ 非战斗关别三空。判据只有 `combatKinds`（`isCombatKind`），
+    //    与生成器读的是同一处 —— 分开写一份关别名册的话，改一处忘一处
+    //    就会生成出「摆了桌椅但一个怪都没有」的房，两边都不报错。
+    const label = ROOM_KIND_LABELS[room.kind]
+    if (room.kind === 'start' && room.order !== 0) {
+      fail(at('kind'), `「${label}」只能是第一间（order 0），这里 order = ${room.order}`, ctx)
+    }
+    if (room.kind === 'boss' && room.order !== n - 1) {
+      fail(
+        at('kind'),
+        `「${label}」只能是最后一间（order ${n - 1}），这里 order = ${room.order} —— ` +
+          `它是单局的终点，藏在中间就等于这局没有终点`,
+        ctx,
+      )
+    }
+    if (room.branch === 'side' && !(room.kind in cfg.sideKindWeights)) {
+      const allowed = Object.keys(cfg.sideKindWeights).join(' / ')
+      fail(
+        at('kind'),
+        `侧室的关别「${label}」不在 sideKindWeights 里（允许：${allowed}）—— ` +
+          `侧室的关别就是从那张表里抽的，表外的一律是手工数据或迁移漏改`,
+        ctx,
+      )
+    }
+    if (!isCombatKind(cfg, room.kind)) {
+      const why = `「${label}」不在 combatKinds（${cfg.combatKinds.join(' / ')}）里，是不打架的关别`
+      if (room.obstacles.length > 0) {
+        fail(at('obstacles'), `${why}，却摆着 ${room.obstacles.length} 件桌椅`, ctx)
+      }
+      if (room.spawnPoints.length > 0) {
+        fail(
+          at('spawnPoints'),
+          `${why}，却有 ${room.spawnPoints.length} 个刷怪点 —— ` +
+            `D1 的「进房关门、清完开门」在这里会永远等不到清空`,
+          ctx,
+        )
+      }
+      if (room.budget !== 0) {
+        fail(at('budget'), `${why}，威胁预算却写着 ${room.budget} —— 一个没有敌人的场地没有威胁`, ctx)
+      }
     }
 
     // ---- 尺寸契约

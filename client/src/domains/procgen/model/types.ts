@@ -15,10 +15,10 @@
  * | 字段 | 回答 | 取值 |
  * |---|---|---|
  * | `branch` | 在**主干上还是侧室** | `'main'` / `'side'` |
- * | `kind` | 里面**装的是什么** | 7 类内容类型 |
+ * | `kind` | 里面**装的是什么** | 8 类内容类型 |
  *
  * 早先的设计想让 `kind` 一个字段干完，把"侧室"当成一个类型值。撞墙的地方是：
- * 内容类型是 **7 类**（枚举一次定完，见下），塞不下第 8 个位置值；而且塞进去了之后
+ * 内容类型是 **8 类**（枚举一次定完，见下），塞不下第 9 个位置值；而且塞进去了之后
  * **「侧室里装的是什么」就无处表达** —— 而迭代 2 要的恰恰是「侧室是精英房 / 奖励房」。
  *
  * 同理**没有** `mandatory: boolean`：那是 `branch === 'main'` 的派生重复。
@@ -35,14 +35,26 @@
 // ---------------------------------------------------------------- 房间
 
 /**
- * 房间的**内容类型**。7 类一次定义完整，即使本期只产出其中三类。
+ * 房间的**内容类型**。8 类一次定义完整，即使本期只产出其中六类。
  *
- * **加枚举值比加字段便宜得多**：枚举先定完，迭代 2 的「房间类型扩充」才能只改配置
- * 不改代码。校验器接受全部 7 类，生成器本期只产出 `start` / `main` / `boss`。
+ * **加枚举值比加字段便宜得多**：枚举先定完，「房间类型扩充」才能只改配置
+ * 不改代码。校验器接受全部 8 类，生成器本期只产出 `ROOM_KINDS_EMITTED` 那几个。
  *
  * ⚠️ 注意 `'side'` **不在**这张表里 —— 侧室是位置，不是内容，见 `RoomBranch`。
+ *
+ * ⚠️ `'chest'` 是**第 8 类，后来加的**（见 `openspec/changes/room-kinds-and-furniture`）：
+ * 宝箱关要在地图上**标出来**，而 `'hidden'`（隐藏房）恰恰是不该标的那一类 ——
+ * 两者共用一类就等于要么把隐藏房画在地图上、要么让宝箱关藏起来。
  */
-export type RoomKind = 'start' | 'main' | 'elite' | 'reward' | 'shop' | 'boss' | 'hidden'
+export type RoomKind =
+  | 'start'
+  | 'main'
+  | 'elite'
+  | 'reward'
+  | 'shop'
+  | 'boss'
+  | 'hidden'
+  | 'chest'
 
 /** 合法的 `RoomKind` 全集。校验器与测试场都读它，不要在别处再抄一份。 */
 export const ROOM_KINDS: readonly RoomKind[] = [
@@ -53,10 +65,40 @@ export const ROOM_KINDS: readonly RoomKind[] = [
   'shop',
   'boss',
   'hidden',
+  'chest',
 ]
 
-/** 本期生成器**实际产出**的类型。其余四类留给迭代 2，校验器照样接受。 */
-export const ROOM_KINDS_EMITTED: readonly RoomKind[] = ['start', 'main', 'boss']
+/** 本期生成器**实际产出**的类型。`shop` / `hidden` 留给迭代 2，校验器照样接受。 */
+export const ROOM_KINDS_EMITTED: readonly RoomKind[] = [
+  'start',
+  'main',
+  'elite',
+  'reward',
+  'chest',
+  'boss',
+]
+
+/**
+ * 关别的**中文名**。缩略图标签、场子读数、将来的 HUD 都读这一张表。
+ *
+ * **为什么这张表在 `model` 而不是 `presentation`：** 它是纯数据（零 Phaser 依赖，
+ * node 下可单测），而且 D1 的 HUD 也要读同一份。三个显示处各写一遍中文名
+ * 就是三份会漂移的事实，而漂移的表现是「同一个关别在两块画面上写着两个词」。
+ *
+ * `Record<RoomKind, string>` 而不是 `Partial<...>`：**加枚举值忘了加名字**
+ * 是这类改动最常见的漏，而它在画面上只表现为空白或原值、不报错 ——
+ * 用 `Record` 让它在 `tsc` 那一步就红。
+ */
+export const ROOM_KIND_LABELS: Record<RoomKind, string> = {
+  start: '起点',
+  main: '普通战',
+  elite: '精英',
+  reward: '道具关',
+  shop: '商店',
+  boss: '首领',
+  hidden: '隐藏房',
+  chest: '宝箱关',
+}
 
 /**
  * 房间在**进度结构**上的位置。
@@ -179,7 +221,12 @@ export interface Room {
   readonly obstacles: readonly Obstacle[]
   /** 刷怪点。**每一个都从门可达** —— 这是由构造保证的，见 design D5 */
   readonly spawnPoints: readonly Point[]
-  /** 威胁预算。**与难度档位无关**；难度只乘在「预算 → 具体刷怪」那一步 */
+  /**
+   * 威胁预算。**与难度档位无关**；难度只乘在「预算 → 具体刷怪」那一步。
+   *
+   * **非战斗关别恒为 `0`** —— 一个空场地写着一份威胁预算就是数据在说谎。
+   * 哪几类关别要打由配置表的 `combatKinds` 决定（`isCombatKind()`）。
+   */
   readonly budget: number
   /**
    * 侧室挂在主干第几间上（`order` 值）。主干房间为 `null`。
@@ -198,8 +245,13 @@ export interface Room {
  * - `1`：首版。主干道是一条贯穿全层的 `corridorRect`，主干教室南北交替挂在它两侧。
  * - `2`：平面结构返工成「**一排主干教室 + 连廊**」—— `corridorRect` 换成 `passages`。
  *   见 `openspec/changes/rework-layout-to-classroom-row`。
+ * - `3`：**侧室的 `kind` 说真话** —— 由一律 `'main'` 改为按关别抽（精英 / 道具 / 宝箱），
+ *   非战斗关别不摆桌椅、不刷怪、预算为 0；`RoomKind` 增第 8 类 `'chest'`。
+ *   见 `openspec/changes/room-kinds-and-furniture`。
+ *   **这是语义变化而不是新增字段**：同一份 15 间房的地图，v2 里侧室恒为 `main`
+ *   （「要清图」），v3 里是一组取值之一 —— 按 v2 的理解去读 v3 的数据会得到错的答案。
  */
-export const DUNGEON_SCHEMA_VERSION = 2
+export const DUNGEON_SCHEMA_VERSION = 3
 
 /**
  * 一段连廊 —— 相邻两间主干教室之间的连接。

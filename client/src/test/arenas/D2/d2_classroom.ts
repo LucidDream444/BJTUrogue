@@ -56,7 +56,8 @@ import type { RoomsConfig } from '@/domains/procgen/config'
 import { roomViewBox, wallsNearRoom } from '@/domains/procgen/presentation/framing'
 import { drawRoom1to1 } from '@/domains/procgen/presentation/floorplan'
 import { containsPoint, left, top } from '@/domains/procgen/model/rect'
-import type { DungeonMap, Rect, Room } from '@/domains/procgen/model/types'
+import type { DungeonMap, Rect, Room, RoomKind } from '@/domains/procgen/model/types'
+import { ROOM_KIND_LABELS } from '@/domains/procgen/model/types'
 import { cellCenter, cellOf, gridOfMap, isBlockedCell } from '@/domains/procgen/walkability'
 import { chooseClassroom, DEFAULT_SEED, elapsedText, generateForArena, loadRoomsConfig } from './_shared'
 
@@ -175,6 +176,17 @@ function spawnCellText(state: SpawnCell): string {
     return '⚠ 玩家出生点那一格被课桌盖住了 —— 是生成器的问题（底座把出生点钉死在画布中心），换个种子或看 d2_seed_sweep'
   }
   return '⚠ 玩家出生点那一格是墙（框心正好压在墙的内侧线上）—— 这一场没有物理体，不影响看地图'
+}
+
+/**
+ * 一串关别 → 中文名，用 `/` 连起来（给读数的配置行用）。
+ *
+ * 认不出来的键**原样印出来**，不吞：配置里混进一个表里没有的关别时，
+ * 屏幕上得看得见它是谁 —— 印成空白的话，那一行看起来只是「少了个词」，
+ * 而校验器报的那条错误（`kind 必须是 ROOM_KINDS 里的值`）也就没人会去对。
+ */
+function kindNames(kinds: readonly string[]): string {
+  return kinds.map((k) => (k in ROOM_KIND_LABELS ? ROOM_KIND_LABELS[k as RoomKind] : k)).join('/')
 }
 
 interface ClassroomLayout {
@@ -299,7 +311,18 @@ class D2ClassroomArena extends ArenaBase {
     // 半数的刷怪点在课桌这一侧、玩家在另一侧，所以「怪穿不穿桌子」只有
     // 玩家走过去才会发生 —— 站在出生点不动，看到的是「什么都没发生」，
     // 而那和「桌子挡得住」在现场长得一模一样。
-    ctx.hud.setNotice('WASD 自己走两步 —— 墙和课桌都没有物理体，玩家和怪都会穿过去；要看的是红格和青线对不对得上')
+    //
+    // 后半句是**主动交代这个场子的取景**：这里的教室一定有桌椅，因为
+    // `chooseClassroom` 只挑打架的房间。不说的话，一个在找「道具关长什么样」
+    // 的人会以为「D2 把道具关也摆满了桌子」—— 而那是 `combatKinds` 说了算的，
+    // 道具关与宝箱关本来就是空场地（见 d2_room_kinds）。
+    //
+    // 提示条是 20px、**一行不折**且没有宽度上限（`Hud.setNotice`），
+    // 所以这句话的长度是算过的：与原来那句差不多宽（约 950px / 1280）。
+    // 再加词就会顶出画布 —— 想加先量。
+    ctx.hud.setNotice(
+      'WASD 走两步看红格/青线 —— 这一场只摆打架的教室；道具关 / 宝箱关不摆桌椅，判据是 combatKinds',
+    )
   }
 
   private drawReadout(ctx: ArenaContext, L: ClassroomLayout): void {
@@ -308,13 +331,23 @@ class D2ClassroomArena extends ArenaBase {
       `D2 · 一间教室 1:1`,
       `种子 ${L.map.seed} · 房间 ${rooms.length}（主干 ${rooms.filter((r) => r.branch === 'main').length} · 侧室 ${rooms.filter((r) => r.branch === 'side').length}）`,
       `生成 ${elapsedText(L.elapsedMs)}`,
-      `房间 #${L.room.order} ${L.room.kind}/${L.room.branch} · ${L.room.rect.width}×${L.room.rect.height}px · 档位 ${L.room.sizeTier}`,
-      `障碍 ${L.room.obstacles.length} · 刷怪点 ${L.room.spawnPoints.length}`,
+      // 关别印**中文**（`ROOM_KIND_LABELS`，全项目唯一那份表）—— 缩略图、
+      // d2_room_kinds 和这里读的是同一份名字，三处对不上就没法互相指。
+      `房间 #${L.room.order} ${L.room.branch === 'side' ? '侧室' : '主干'}·${ROOM_KIND_LABELS[L.room.kind]} · ${L.room.rect.width}×${L.room.rect.height}px · 档位 ${L.room.sizeTier}`,
+      `桌椅 ${L.room.obstacles.length} · 刷怪点 ${L.room.spawnPoints.length} · 威胁预算 ${L.room.budget}`,
       `门 ${L.room.doors.map((d) => `${d.kind}→${d.toOrder}`).join(' ')}`,
       '',
       `红格 = D2 的 ${L.cfg.navCellSize}px 判定，红 = 这格中心站不了`,
       `青线 = 底座的 ${GRID_SIZE * 2}px 格，只画线不做判断`,
       '桌上有红格、青线跨过去一格都不红 —— 两套格子不一样，所以怪会穿过课桌',
+      '',
+      // 「打不打架」的判据只有一条：关别在不在 `combatKinds` 里。
+      // 这一行放在「桌椅 / 刷怪点 / 预算」三个数的**正下面**，因为这三个数
+      // 是一起被那条判据决定的 —— 非战斗关别一律 0 / 0 / 0（校验器会把
+      // 任何一个非零值打回来）。不写这一行的话，看的人会以为「道具关没有敌人」
+      // 是生成器没生成，而它是**配置说的**。
+      `打架的关别 = combatKinds：${kindNames(L.cfg.combatKinds)}`,
+      `不在里面的不摆桌椅、不给刷怪点、预算 0 —— 侧室这一层能抽到：${kindNames(Object.keys(L.cfg.sideKindWeights))}（见 d2_room_kinds）`,
       '',
       // 出生点那一格是什么，必须**报出来**：它压在课桌上时玩家一进场就卡住，
       // 而那和「寻路坏了」长得一模一样（见 `playerCellFree`）。
@@ -347,7 +380,9 @@ class D2ClassroomArena extends ArenaBase {
 
 export const arena: ArenaDefinition = {
   displayName: 'D2 · 一间教室（1:1）',
+  // 长度是算过的：底座的标题**不折行**，写到 1200px 就会被画布右边切掉。
+  // 上限约 80 个全角字（15px 字，从 x = 8 起）。
   description:
-    '一间主干教室按 1:1 摆好：墙、门、课桌、椅子、刷怪点、门外的连廊。红格是 D2 的 40px 判定，青线是底座的 80px 格 —— 两边不一样，怪会穿过课桌。玩家撞不动墙（底座没有物理体），那是 D1 的事。',
+    '一间打架的主干教室按 1:1 摆好：墙、门、课桌、刷怪点、门外的连廊。红格是 D2 的 40px 判定，青线是底座的 80px 格 —— 两边不一样，怪会穿过课桌。',
   scene: D2ClassroomArena,
 }

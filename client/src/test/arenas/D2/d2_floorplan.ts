@@ -39,42 +39,58 @@ import type { RoomsConfig } from '@/domains/procgen/config'
 import { COLORS, drawFloorplan, drawRoom1to1 } from '@/domains/procgen/presentation/floorplan'
 import { fullyInside, roomViewBox, wallsNearRoom } from '@/domains/procgen/presentation/framing'
 import { bottom, left, right, top } from '@/domains/procgen/model/rect'
-import type { DungeonMap, Rect, Room } from '@/domains/procgen/model/types'
+import type { DungeonMap, Rect, Room, RoomKind } from '@/domains/procgen/model/types'
+import { ROOM_KINDS_EMITTED, ROOM_KIND_LABELS } from '@/domains/procgen/model/types'
 import { checkReachability } from '@/domains/procgen/validate/reachability'
 import {
   chooseClassroom,
   DEFAULT_SEED,
   elapsedText,
   generateForArena,
+  HUD_TOP_LEFT_BOTTOM,
   loadRoomsConfig,
 } from './_shared'
 
 /**
  * ## 版面：**底座先占了四条边，剩下的才是这一场的**
  *
- * 摆之前先看底座的 HUD 占哪儿（`test/Hud.ts`）：标题与读数在**左上**（x 8—230，
- * y 8—120）、临时提示横在**中上**（y 30—55）、按键说明钉在**左下**
- * （4 行，y 669—725），还有一只白方块钉在**画布正中心**。
- * 不避开它们的话，两边的字会叠在一起 —— 而**叠在一起在现场看起来就是
+ * 摆之前先看底座的 HUD 占哪儿（`test/Hud.ts`）：标题 + 7 行读数在**左上**，
+ * **一直压到 `y ≈ 190`**；临时提示横在**中上**；按键说明钉在**左下**；
+ * 还有一只白方块钉在**画布正中心**。三个数都量过，放在 `_shared.ts` 的
+ * `HUD_TOP_LEFT_BOTTOM` 那一节（**那里是唯一一份**，别在这儿再抄一遍）。
+ *
+ * 躲不开的话两边的字会叠在一起 —— 而**叠在一起在现场看起来就是
  * 「读数没印出来」**，看场子的人会去查生成器。
  *
- * 于是：两张图占**左中部**（x 8—992），图例退到**右上**，读数压成 4 行放**右下**。
+ * 于是：两张图占**左中部**（x 8—992），图例退到**右上**，读数压成 5 行放**右下**。
  *
  * ⚠️ 右边界取 992 而不是 1280：图例的色块在 x 1000 起。特写区宽度封在 984，
  * 于是**宽度再大也撞不到图例那一列**（比例由高度定，见下）。
+ *
+ * ⚠️ **`PLAN_BOX.y` 原来写的是 124**，理由是文件头一句「标题与读数在 y 8—120」——
+ * 那句话是估的，实际到 190。症状在验收截图里看得见：缩略图**最左边两间**
+ * （`#0 起点`、`#2 普通战`）的标签正好被读数的最后两行（`gun` / `juice`）压住，
+ * 而这一版要看的恰恰就是**每间房的关别标签**。所以整条长条压到 210 起，
+ * 下面那张特写跟着让出 86px（376 → 290 高，缩下来小两成，仍然看得清侧室横跨谁）。
  */
-const PLAN_BOX = { x: 8, y: 124, width: 984, height: 132 } as const
+const PLAN_BOX = { x: 8, y: HUD_TOP_LEFT_BOTTOM, width: 984, height: 132 } as const
 /**
  * 上面那张整层缩略图的盒子**比地图的比例高**，而且这是**故意**的：
  * 整层是 8:1 的长条，给再多竖直空间也用不上（`drawFloorplan` 会居中，上下留白）。
  * 给 132 是因为**下面那张特写要地方** —— 那张才是能看清侧室的一张。
  */
-const DETAIL_TOP = 264
+const DETAIL_TOP = 350
 const DETAIL_BOTTOM = 640
-/** 图例的位置（右上角）。读数在它下面。 */
-const LEGEND_AT = { x: WORLD_WIDTH - 280, y: 8 } as const
-/** 读数压在**右下**（左下被按键说明占了）。11px × 5 行。 */
-const READOUT_AT = { x: WORLD_WIDTH - 762, y: DETAIL_BOTTOM + 6 } as const
+/**
+ * 图例的位置（右上角，但**让开标题那一行**）。
+ *
+ * 原来是 `y = 8`，而底座的说明行**不折行**、一直铺到画布右边 ——
+ * 于是图例的头两行（主干教室 / 侧室）正好压在那行字上，两个都糊了。
+ * 说明行的下沿约 46，提示条到 68，所以图例从 100 起，谁都压不着。
+ */
+const LEGEND_AT = { x: WORLD_WIDTH - 280, y: 100 } as const
+/** 读数压在**右下**（左下被按键说明占了）。11px × 6 行。 */
+const READOUT_AT = { x: WORLD_WIDTH - 762, y: DETAIL_BOTTOM } as const
 
 class D2FloorplanArena extends ArenaBase {
   protected get definition(): ArenaDefinition {
@@ -149,6 +165,12 @@ class D2FloorplanArena extends ArenaBase {
         `墙 ${map.walls.length} 段 · 障碍 ${map.rooms.reduce((n, r) => n + r.obstacles.length, 0)} 个 · ` +
         `生成 ${elapsedText(elapsedMs)}`,
       sideSummary(map),
+      // 关别一行的用处很具体：**「这一层有没有宝箱关」不用数格子**。
+      // 缩略图上每间房都标着关别（`roleLabel`），但 8:1 的长条上那些字只有
+      // 几个像素高 —— 一眼扫过去数不出“宝箱关 3 间”，而数不出就等于没有标记。
+      // 按 `ROOM_KINDS_EMITTED` 的次序印，**没出现的关别不印**（印 0 会让人以为
+      // 「这一类存在但这一层没有」，而 shop / hidden 本期压根不产出）。
+      kindSummary(map),
       reach.layer1Ok && reach.layer2Ok
         ? '两层可达性全绿（层 1 含逐段连廊端到端）'
         : `⚠ ${reach.problems[0] ?? ''}`,
@@ -167,6 +189,22 @@ class D2FloorplanArena extends ArenaBase {
 
     ctx.hud.setNotice('这一场只是两张图 —— 没有战斗、没有寻路、没有物理体（中间那个白方块是底座钉死在画布中心的玩家，与地图无关）')
   }
+}
+
+/**
+ * 「这一层里每类关别各有几间」一行。
+ *
+ * 按 `ROOM_KINDS_EMITTED` 的次序印，中文名读 `ROOM_KIND_LABELS` ——
+ * 与缩略图标签、与 1:1 那一场是**同一份名字**（spec `procgen-config-contract`
+ * 要求「关别的中文名只有一份表」）。
+ */
+function kindSummary(map: DungeonMap): string {
+  const counts = new Map<RoomKind, number>()
+  for (const r of map.rooms) counts.set(r.kind, (counts.get(r.kind) ?? 0) + 1)
+  const parts = ROOM_KINDS_EMITTED.filter((k) => counts.has(k)).map(
+    (k) => `${ROOM_KIND_LABELS[k]} ${counts.get(k)}`,
+  )
+  return parts.length === 0 ? '这一层一间房都没有' : `关别：${parts.join(' · ')}`
 }
 
 /**
@@ -299,6 +337,7 @@ function drawLegend(scene: ArenaContext['scene'], x: number, y: number): void {
     [COLORS.passage, '连廊地面'],
     [COLORS.startEdge, '起点（#0）'],
     [COLORS.bossEdge, '首领（最后一间）'],
+    [COLORS.nonCombatEdge, '不打架的关别（紫描边）'],
     [COLORS.doorForward, '门 forward'],
     [COLORS.doorBack, '门 back'],
     [COLORS.doorSide, '门 side'],
@@ -317,7 +356,9 @@ function drawLegend(scene: ArenaContext['scene'], x: number, y: number): void {
 
 export const arena: ArenaDefinition = {
   displayName: 'D2 · 整层缩略图',
+  // 长度是算过的：底座的标题**不折行**，写到 1200px 就会被画布右边切掉，
+  // 而切掉之后看着像「说明本来就写到这儿」。上限约 80 个全角字（15px 字）。
   description:
-    '两张图：上面是一排 15 间房 + 中间的连廊（连廊用不同底色），粉点是刷怪点，黄框是 d2_classroom 要走的房间；下面是第一间侧室的特写，能看见它横跨宿主与连廊、两扇门各开向谁。',
+    '两张图：上面一排 15 间房 + 连廊（粉点 = 刷怪点，黄框 = d2_classroom 要走的房间），下面一间侧室的特写（横跨宿主与连廊）。每间房标着「位置·关别」。',
   scene: D2FloorplanArena,
 }

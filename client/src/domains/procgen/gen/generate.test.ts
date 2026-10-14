@@ -17,12 +17,12 @@ import { fileURLToPath } from 'node:url'
 import { describe, expect, it } from 'vitest'
 
 import { generateDungeon } from './generate'
-import { parseRoomsConfig, passageClearWidth, type RoomsConfig } from '../config'
+import { parseRoomsConfig, passageClearWidth, isCombatKind, type RoomsConfig } from '../config'
 import { validateContract } from '../validate/contract'
 import { assertReachable, checkReachability } from '../validate/reachability'
 import { gridOfMap } from '../walkability'
 import type { DungeonMap, Rect } from '../model/types'
-import { mainRooms, sideRooms } from '../model/types'
+import { ROOM_KINDS, ROOM_KIND_LABELS, mainRooms, sideRooms } from '../model/types'
 import { left, right, top, bottom } from '../model/rect'
 
 const CONFIG_DIR = fileURLToPath(new URL('../../../../public/config/', import.meta.url))
@@ -435,9 +435,14 @@ describe('D2 生成器 — 可达性（硬性验收标准）', () => {
     }
   })
 
-  it('每间房都有出生点 —— 空房 = 清不掉 = 整局作废', () => {
+  it('每间**战斗**房都有出生点 —— 空房 = 清不掉 = 整局作废', () => {
+    // ⚠️ 判据是 `combatKinds`，不是「所有房间」。原先这条写的是「每间房」，
+    // 那是关别表落地之前的实话；道具关 / 宝箱关**本来就不该有怪**，
+    // 拿「每间房」去要求它们，等于把「空房」这件事从设计里抹掉。
+    // 非战斗房那一侧由下面「非战斗房三空」那条守着。
     for (const seed of SEEDS.slice(0, 200)) {
       for (const room of generateDungeon(seed, cfg).rooms) {
+        if (!isCombatKind(cfg, room.kind)) continue
         expect(room.spawnPoints.length, `种子 ${seed} 房间 #${room.order}`).toBeGreaterThan(0)
       }
     }
@@ -693,6 +698,347 @@ describe('D2 校验器 — 负样本（证明它不是永远通过）', () => {
       x.schemaVersion = 99
     })
     expectFails(m, 'schemaVersion', '迁移要显式写出来')
+  })
+
+  // ---- 关别表那三条规则（schemaVersion 3）
+
+  /** 把一间房改造成**合法**的非战斗房：关别对了，三项也都清空了。 */
+  const asNonCombat = (m: LooseMap, order: number): AnyRec => {
+    const r = m.rooms[order]!
+    r.kind = 'reward'
+    r.obstacles = []
+    r.spawnPoints = []
+    r.budget = 0
+    return r
+  }
+
+  /** 一间侧室的 order —— 侧室才抽关别，主干那三类由位置决定。 */
+  const someSideOrder = (m: LooseMap): number =>
+    (m.rooms.find((r) => r.branch === 'side') as AnyRec).order as number
+
+  it('非战斗房摆着课桌被拒（三条里先撞上的那条）', () => {
+    const m = broken(SEED, (x) => {
+      const victim = asNonCombat(x, someSideOrder(x))
+      const donor = x.rooms.find((r) => (r.obstacles as AnyRec[]).length > 0)!
+      victim.obstacles = [(donor.obstacles as AnyRec[])[0]]
+    })
+    expectFails(m, 'obstacles', '是不打架的关别')
+  })
+
+  it('非战斗房有刷怪点被拒 —— 门会永远等不到清空', () => {
+    const m = broken(SEED, (x) => {
+      const victim = asNonCombat(x, someSideOrder(x))
+      const rect = victim.rect as MutRect
+      victim.spawnPoints = [{ x: rect.x, y: rect.y }]
+    })
+    expectFails(m, 'spawnPoints', '永远等不到清空')
+  })
+
+  it('非战斗房留着威胁预算被拒', () => {
+    const m = broken(SEED, (x) => {
+      asNonCombat(x, someSideOrder(x)).budget = 8
+    })
+    expectFails(m, 'budget', '一个没有敌人的场地没有威胁')
+  })
+
+  it('起点房不在第一间被拒', () => {
+    const m = broken(SEED, (x) => {
+      x.rooms[3]!.kind = 'start'
+    })
+    expectFails(m, 'rooms[3].kind', '只能是第一间')
+  })
+
+  it('首领房不在最后一间被拒 —— 藏在中间等于这局没有终点', () => {
+    const m = broken(SEED, (x) => {
+      x.rooms[3]!.kind = 'boss'
+    })
+    expectFails(m, 'rooms[3].kind', '只能是最后一间')
+  })
+
+  it('侧室挂着配置表外的关别被拒，并列出允许的取值', () => {
+    const m = broken(SEED, (x) => {
+      x.rooms[someSideOrder(x)]!.kind = 'shop' // 合法枚举值，但不在 sideKindWeights 里
+    })
+    expectFails(m, 'kind', '不在 sideKindWeights 里')
+  })
+})
+
+describe('D2 配置 — 关别表（schemaVersion 3）', () => {
+  // 与上面那组同一条理由：一个从来不拒绝的配置加载器，和没有加载器长得一样。
+  // 这一组把**每一类**新校验各踩一次；读的是真文件、再就地弄坏一处，
+  // 所以「真表本身是合法的」也顺带被证明了（下面每个用例都要先复制出一份好表）。
+  type Raw = Record<string, unknown>
+
+  const rawRooms = (): Raw => JSON.parse(readFileSync(CONFIG_DIR + 'rooms.json', 'utf8')) as Raw
+
+  const expectConfigFails = (
+    mangle: (raw: Raw) => void,
+    pathPart: string,
+    messagePart: string,
+  ): void => {
+    const raw = rawRooms()
+    mangle(raw)
+    let caught: Error | null = null
+    try {
+      parseRoomsConfig(raw)
+    } catch (e) {
+      caught = e as Error
+    }
+    expect(caught, `本该被拒（期望命中 ${pathPart}）`).not.toBeNull()
+    expect(caught!.message).toContain(pathPart)
+    expect(caught!.message).toContain(messagePart)
+  }
+
+  it('真表本身合法（负样本的前提）', () => {
+    expect(() => parseRoomsConfig(rawRooms())).not.toThrow()
+  })
+
+  it('空权重表被拒 —— 侧室的关别就是从这张表里抽的', () => {
+    expectConfigFails(
+      (raw) => {
+        raw.sideKindWeights = {}
+      },
+      'rooms.sideKindWeights',
+      '至少要有一类关别',
+    )
+  })
+
+  it('权重为 0 被拒 —— 写 0 等于「这一类永远抽不到」', () => {
+    expectConfigFails(
+      (raw) => {
+        raw.sideKindWeights = { elite: 0 }
+      },
+      'rooms.sideKindWeights.elite',
+      '权重要大于 0',
+    )
+  })
+
+  it('权重为负被拒', () => {
+    expectConfigFails(
+      (raw) => {
+        raw.sideKindWeights = { reward: -1 }
+      },
+      'rooms.sideKindWeights.reward',
+      '权重要大于 0',
+    )
+  })
+
+  it('"boss" 混进侧室权重被拒 —— 它由位置决定，不是能抽出来的内容', () => {
+    expectConfigFails(
+      (raw) => {
+        raw.sideKindWeights = { elite: 2, boss: 1 }
+      },
+      'rooms.sideKindWeights.boss',
+      '由**位置**决定',
+    )
+  })
+
+  it('"start" 混进侧室权重同样被拒', () => {
+    expectConfigFails(
+      (raw) => {
+        raw.sideKindWeights = { start: 1 }
+      },
+      'rooms.sideKindWeights.start',
+      '由**位置**决定',
+    )
+  })
+
+  it('combatKinds 里的关别不存在被拒', () => {
+    expectConfigFails(
+      (raw) => {
+        raw.combatKinds = ['main', 'library']
+      },
+      'rooms.combatKinds[1]',
+      '要一个关别',
+    )
+  })
+
+  it('combatKinds 缺 main 被拒 —— 否则整层没有一处会刷怪', () => {
+    expectConfigFails(
+      (raw) => {
+        raw.combatKinds = ['elite', 'boss']
+      },
+      'rooms.combatKinds',
+      '必须含 main',
+    )
+  })
+
+  it('combatKinds 里重复的关别被拒', () => {
+    expectConfigFails(
+      (raw) => {
+        raw.combatKinds = ['main', 'main']
+      },
+      'rooms.combatKinds[1]',
+      '重复了',
+    )
+  })
+
+  it('每个关别都有非空中文名 —— 加枚举值忘了加名字，这里就红', () => {
+    for (const kind of ROOM_KINDS) {
+      const label = ROOM_KIND_LABELS[kind]
+      expect(label, `${kind} 没有中文名`).toBeTruthy()
+      expect(label.trim(), `${kind} 的中文名是空白`).not.toBe('')
+    }
+  })
+
+  it('中文名互不相同 —— 两个关别写同一个词，画面上就分不出来', () => {
+    const labels = ROOM_KINDS.map((k) => ROOM_KIND_LABELS[k])
+    expect(new Set(labels).size).toBe(labels.length)
+  })
+})
+
+describe('D2 关别与家具（schemaVersion 3）', () => {
+  /** 换掉 `combatKinds` 再解析一遍 —— 别的字段一个都不动。 */
+  const cfgWithCombat = (kinds: string[]): RoomsConfig => {
+    const raw = JSON.parse(readFileSync(CONFIG_DIR + 'rooms.json', 'utf8')) as Record<string, unknown>
+    raw.combatKinds = kinds
+    return parseRoomsConfig(raw)
+  }
+
+  /** 与关别无关的那一半：矩形、门、档位、进度位置。 */
+  const geometryOf = (map: DungeonMap): unknown =>
+    map.rooms.map((r) => ({
+      order: r.order,
+      kind: r.kind,
+      branch: r.branch,
+      rect: r.rect,
+      sizeTier: r.sizeTier,
+      doors: r.doors,
+      anchoredTo: r.anchoredTo,
+    }))
+
+  it('主干：首间起点、末间首领，中间清一色普通战', () => {
+    for (const seed of SEEDS.slice(0, 200)) {
+      const mains = mainRooms(generateDungeon(seed, cfg))
+      expect(mains[0]!.kind, `种子 ${seed}`).toBe('start')
+      expect(mains[mains.length - 1]!.kind, `种子 ${seed}`).toBe('boss')
+      for (const r of mains.slice(1, -1)) {
+        expect(r.kind, `种子 ${seed} 主干 #${r.order}`).toBe('main')
+      }
+    }
+  })
+
+  it('侧室的关别全在 sideKindWeights 的键里，且没有 start / boss', () => {
+    const allowed = new Set(Object.keys(cfg.sideKindWeights))
+    expect(allowed.size, '真表里至少要有两类').toBeGreaterThan(1)
+    for (const seed of SEEDS.slice(0, 200)) {
+      for (const r of sideRooms(generateDungeon(seed, cfg))) {
+        expect(allowed.has(r.kind), `种子 ${seed} 侧室 #${r.order} 是 ${r.kind}`).toBe(true)
+        expect(r.kind, `种子 ${seed} 侧室 #${r.order}`).not.toBe('start')
+        expect(r.kind, `种子 ${seed} 侧室 #${r.order}`).not.toBe('boss')
+      }
+    }
+  })
+
+  it('几何不受 combatKinds 影响 —— 改它只动桌椅 / 刷怪点 / 预算', () => {
+    // 这是「关别」与「打不打架」解耦的直接验收：关别是生成出来的事实，
+    // `combatKinds` 是对它的解释。改解释不该动一个像素。
+    const lean = cfgWithCombat(['main'])
+    for (const seed of SEEDS.slice(0, 50)) {
+      const a = generateDungeon(seed, cfg)
+      const b = generateDungeon(seed, lean)
+      expect(geometryOf(b), `种子 ${seed}`).toEqual(geometryOf(a))
+      expect(b.passages, `种子 ${seed}`).toEqual(a.passages)
+      expect(b.walls, `种子 ${seed}`).toEqual(a.walls)
+      expect(b.bounds, `种子 ${seed}`).toEqual(a.bounds)
+      expect(b.navOrigin, `种子 ${seed}`).toEqual(a.navOrigin)
+      expect(b.navCellSize, `种子 ${seed}`).toBe(a.navCellSize)
+    }
+  })
+
+  it('几何不受 sideKindWeights 影响 —— 侧室抽到什么关别，房子还是那间房子', () => {
+    // 把关别抹成一个常量再比：要证明的是「只有关别变了」。
+    const noKind = (map: DungeonMap): unknown =>
+      (geometryOf(map) as { kind: string; rect: Rect }[]).map((r) => ({ ...r, kind: '·' }))
+
+    const raw = JSON.parse(readFileSync(CONFIG_DIR + 'rooms.json', 'utf8')) as Record<string, unknown>
+    raw.sideKindWeights = { elite: 1 }
+    const allElite = parseRoomsConfig(raw)
+
+    for (const seed of SEEDS.slice(0, 50)) {
+      const a = generateDungeon(seed, cfg)
+      const b = generateDungeon(seed, allElite)
+      expect(noKind(b), `种子 ${seed}`).toEqual(noKind(a))
+      for (const r of sideRooms(b)) {
+        expect(r.kind, `种子 ${seed} 侧室 #${r.order}`).toBe('elite')
+      }
+    }
+    // 防「这条测试其实什么都没测」：权重确实换了关别，否则上面那两条恒真。
+    const seed = SEEDS[0]!
+    expect(geometryOf(generateDungeon(seed, allElite))).not.toEqual(
+      geometryOf(generateDungeon(seed, cfg)),
+    )
+  })
+
+  it('非战斗房三空、战斗房基本都有桌椅 —— 1000 个种子', () => {
+    let combatRooms = 0
+    let combatRoomsWithDesks = 0
+    let nonCombatRooms = 0
+    for (const seed of SEEDS) {
+      for (const r of generateDungeon(seed, cfg).rooms) {
+        const where = `种子 ${seed} 房间 #${r.order}（${r.kind}）`
+        if (isCombatKind(cfg, r.kind)) {
+          combatRooms++
+          if (r.obstacles.length > 0) combatRoomsWithDesks++
+        } else {
+          nonCombatRooms++
+          expect(r.obstacles.length, `${where} 摆着桌椅`).toBe(0)
+          expect(r.spawnPoints.length, `${where} 有刷怪点`).toBe(0)
+          expect(r.budget, `${where} 还留着预算`).toBe(0)
+        }
+      }
+    }
+    expect(nonCombatRooms, '真表里道具关/宝箱关一间都没抽到？').toBeGreaterThan(0)
+
+    // ⚠️ 这里**不是** 100%，而原因与本 change 无关。
+    // 会空的只有一类：最小档（400×280）的**普通战**主干教室，实测约 45%
+    // （挂侧室的更空，多一扇门就多一块禁区）。tier1 / tier2 从不空；
+    // 起点与首领房从不空 —— 它们只有一扇竖门。
+    //
+    // 原因是**门禁区**把那一档房子吃得只剩放不下桌子的缝：400×280 的内部只有 9×6 格，
+    // 而每扇门的禁区是 240×160（`doorWidth` 120 + 两侧各 `doorClearance` 60）。
+    // 西、东两扇竖门各吃掉 3 格宽，北/南那扇侧室门再横着吃掉 6 格 ——
+    // 剩下的缝要么只有 3 格宽，要么落在摆桌循环「跳过一张桌就 `ix += len + 1`」
+    // 的步进之外（从 `ix=1` 起步，`ix=2` 那个恰好放得下的位置永远走不到）。
+    //
+    // 这是 `rework-layout-to-classroom-row` 之后就存在的事实，不是关别表引进的。
+    // 要不要处理（把禁区改成圆、让小教室摆 1 格桌、还是干脆接受空场地）是
+    // **另一个 change 的决定** —— 它一动，所有种子的桌椅与刷怪点都会重排。
+    //
+    // 写成 `> 0.85` 而不是 `=== 1`：断言要描述**现在为真的事实**，
+    // 一个恒假的断言会被下一个人直接删掉，连带把上面那三条也删了。
+    expect(combatRoomsWithDesks / combatRooms, '战斗房有桌椅的比例').toBeGreaterThan(0.85)
+    console.log(
+      `[读] 1000 个种子：战斗房 ${combatRooms} 间（${((combatRoomsWithDesks / combatRooms) * 100).toFixed(1)}% 有桌椅）、` +
+        `非战斗房 ${nonCombatRooms} 间（全部三空）`,
+    )
+  })
+
+  it('权重分布 —— 每一类关别都没有被饿死', () => {
+    // 实测（1000 个种子、5457 间侧室，权重 elite:reward:chest = 2:3:2）：
+    //   elite 1466（期望 1559），reward 2367（期望 2339），chest 1624（期望 1559）
+    // 三类都在期望值的 ±6% 内。数字写在这里是因为权重一改它们就过期 ——
+    // 读的时候**只当量级参考**，真数在测试输出里（`[读] 侧室 …`）。
+    const weights = cfg.sideKindWeights
+    const total = Object.values(weights).reduce((a, b) => a + b, 0)
+    const count = new Map<string, number>()
+    let sides = 0
+    for (const seed of SEEDS) {
+      for (const r of sideRooms(generateDungeon(seed, cfg))) {
+        sides++
+        count.set(r.kind, (count.get(r.kind) ?? 0) + 1)
+      }
+    }
+    const report: string[] = []
+    for (const [kind, w] of Object.entries(weights)) {
+      const want = (w / total) * sides
+      const got = count.get(kind) ?? 0
+      report.push(`${kind}: ${got}（期望 ${want.toFixed(0)}）`)
+      // 下限取一半：这是「有没有被饿死」，不是卡方检验。
+      // 卡得太死的话，改一个权重就会红，而那种红不是缺陷。
+      expect(got, `${kind} 抽到的次数`).toBeGreaterThan(want * 0.5)
+    }
+    console.log(`[读] 侧室 ${sides} 间 —— ${report.join('，')}`)
   })
 })
 

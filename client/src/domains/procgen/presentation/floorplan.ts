@@ -25,8 +25,10 @@
 
 import Phaser from 'phaser'
 import type { RoomsConfig } from '../config'
+import { isCombatKind } from '../config'
 import { bottom, clipRect, left, rectsIntersect, right, top } from '../model/rect'
 import type { DungeonMap, Rect, Room } from '../model/types'
+import { ROOM_KIND_LABELS } from '../model/types'
 import { gridOfMap } from '../walkability'
 import { fullyInside } from './framing'
 
@@ -61,6 +63,18 @@ export const COLORS = {
   /** 起点 / 首领的强调描边 */
   startEdge: 0xb5a54a,
   bossEdge: 0xb54a4a,
+  /**
+   * **非战斗关别**（道具关 / 宝箱关，以及被 `combatKinds` 排除的起点/首领）的描边。
+   *
+   * 取紫罗兰色。它要和已经用掉的四种颜色**都分得开**：主干蓝 `0x4a7fb5`、
+   * 侧室绿 `0x4ab58a`、起点黄 `0xb5a54a`、首领红 `0xb54a4a` ——
+   * 也刻意避开刷怪点的粉 `0xd44a8a`（紫得发红就会和它混）。
+   *
+   * ⚠️ 起点 / 首领的描边**优先级更高**（见 `drawRoomOutline`）：一层的起点在哪
+   * 比「这间打不打架」更值得一眼看见。默认配置里那两个都是战斗房，不冲突；
+   * 真把 `start` 移出 `combatKinds` 时，起点房会保持黄色 —— 那是对的。
+   */
+  nonCombatEdge: 0x9b6ad4,
   /** 墙 */
   wall: 0x3a3a4a,
   wallEdge: 0x6a6a80,
@@ -192,18 +206,44 @@ export interface FloorplanView {
 }
 
 /**
- * 缩略图上那一行角色名：`侧室` / `起点` / `主干` / `首领`。
+ * 缩略图上那一行标签：**位置 · 关别**，例 `侧室·宝箱关`。
  *
- * 不用 `Room.kind` 的原值：侧室的 `kind` 也是 `'main'`，照原值印出来，
- * 缩略图上**侧室和主干教室写着同一个词**。原值在 1:1 那一场是有用的
- * （`#9 main (main)` 是要和代码里的字段对着读的），缩略图上不是 ——
- * 这张图要回答的就是「哪块是主干、哪块是侧室」。
+ * 两个字段回答两个问题，而这张图两个都要答：
+ *
+ * | 字段 | 在这张图上的样子 |
+ * |---|---|
+ * | `branch`（位置） | 位置词 + 底色（主干蓝 / 侧室绿） |
+ * | `kind`（内容） | `ROOM_KIND_LABELS` 的中文名 + 非战斗关别的紫色描边 |
+ *
+ * 早先这里只印位置词（`侧室` / `主干` / `起点` / `首领`），理由是「侧室和主干
+ * 都写着 main，照原值印反而分不出来」。那句话在对 `kind` 的**原值**说事，
+ * 而关别表落地之后原值不再是唯一的选择 —— 读 `ROOM_KIND_LABELS` 就有中文名，
+ * 于是两个字段可以并列写出来，不必二选一。
+ *
+ * ⚠️ **中文名从 `ROOM_KIND_LABELS` 读，不许在这里写第二份关别名册**：
+ * 三处各写一遍就是三份会漂移的事实，而漂移的表现是「同一个关别在两块画面上
+ * 写着两个词」，谁都不会注意到（spec `procgen-config-contract` 有这一条）。
  */
 function roleLabel(room: Room): string {
-  if (room.branch === 'side') return '侧室'
-  if (room.kind === 'start') return '起点'
-  if (room.kind === 'boss') return '首领'
-  return '主干'
+  const where = room.branch === 'side' ? '侧室' : '主干'
+  return `${where}·${ROOM_KIND_LABELS[room.kind]}`
+}
+
+/**
+ * 一间房描边的颜色与线宽。
+ *
+ * 优先级：**起点 / 首领 > 非战斗 > 位置**。
+ *
+ * - 起点与首领优先：「这层的起点在哪、终点在哪」是一眼就要看见的两个位置，
+ *   而它比「这一间打不打架」更基本（默认配置里那两个本来也是战斗房）。
+ * - 非战斗优先于位置：位置已经由**底色**表达了（主干蓝 / 侧室绿），描边空出来
+ *   正好说第二件事 —— 「这一间不打架」。两件事各占一个通道，谁也不挤谁。
+ */
+function roomOutline(cfg: RoomsConfig, room: Room): { color: number; width: number } {
+  if (room.kind === 'start') return { color: COLORS.startEdge, width: 3 }
+  if (room.kind === 'boss') return { color: COLORS.bossEdge, width: 3 }
+  if (!isCombatKind(cfg, room.kind)) return { color: COLORS.nonCombatEdge, width: 3 }
+  return { color: room.branch === 'main' ? COLORS.mainRoomEdge : COLORS.sideRoomEdge, width: 2 }
 }
 
 /**
@@ -282,12 +322,8 @@ export function drawFloorplan(
     const p = mapper.toScreen(left(room.rect), top(room.rect))
     const w = room.rect.width * scale
     const h = room.rect.height * scale
-    // 显式标 `number`：`COLORS` 是 `as const`，不标的话 `color` 会被窄成
-    // 那两个字面量类型的联合，下面赋 `startEdge` 会报 TS2322。
-    let color: number = room.branch === 'main' ? COLORS.mainRoomEdge : COLORS.sideRoomEdge
-    if (room.kind === 'start') color = COLORS.startEdge
-    if (room.kind === 'boss') color = COLORS.bossEdge
-    g.lineStyle(room.kind === 'start' || room.kind === 'boss' ? 3 : 2, color, 1)
+    const line = roomOutline(cfg, room)
+    g.lineStyle(line.width, line.color, 1)
     g.strokeRect(p.x, p.y, w, h)
   }
 
@@ -316,10 +352,8 @@ export function drawFloorplan(
       if (!fullyInside(room.rect, world)) continue
       const p = mapper.toScreen(room.rect.x, room.rect.y)
       scene.add
-        // 标的是**这一间在平面里演什么角色**，不是 `Room.kind` 的原值：
-        // 侧室的 `kind` 是 `'main'`（只有起点和首领另算），照原值印的话，
-        // 缩略图上侧室和主干教室**都写着 main** —— 而「哪块是主干、哪块是侧室」
-        // 正是这张图要一眼看出来的东西，颜色之外还得有字。
+        // 标的是**位置 · 关别**（见 `roleLabel`）：颜色之外还得有字 ——
+        // 一块 24px 宽的色块，光靠蓝/绿/紫分不出「侧室·精英」和「侧室·宝箱关」。
         .text(p.x, p.y, `#${room.order}\n${roleLabel(room)}`, {
           fontFamily: 'monospace',
           fontSize: `${size}px`,
@@ -514,7 +548,12 @@ export function drawRoom1to1(
         .setOrigin(0.5)
         .setDepth(-70)
     }
-    at(room.rect.x, top(room.rect) + cfg.navCellSize, `#${room.order} ${room.kind} (${room.branch})`)
+    // 1:1 这一场印的是**中文关别 + 原始 branch**：关别要和场子读数、
+    // 和缩略图说得一样（`ROOM_KIND_LABELS` 那一份），而 branch 是代码里的字段名，
+    // 对着 `Room` 读代码时用得上。这里本来印的是 `kind` 的**原值** ——
+    // 关别表落地后原值有 8 个，中英混排的 `#9 chest (side)` 不如 `#9 宝箱关 (side)`
+    // 好读，而原值在场子读数里照样查得到。
+    at(room.rect.x, top(room.rect) + cfg.navCellSize, `#${room.order} ${ROOM_KIND_LABELS[room.kind]} (${room.branch})`)
 
     // 连廊那一段标出来。**不标的话它就是一块比周围亮一点的深色** ——
     // 而这个场子最要紧的一条就是「这扇门外确实有条路」。
