@@ -11,10 +11,18 @@
  */
 
 import type Phaser from 'phaser'
+import { CHARACTERS, characterById } from '../catalog'
 import type { MetaConfig, UpgradeTrackDef } from '../metaConfig'
 import { costOfNextLevel } from '../metaConfig'
 import type { ProfileStore } from '../profile/ProfileStore'
-import { buyUpgrade, formatPerLevel, formatTotal, levelOf } from '../progress/progress'
+import {
+  buyUpgrade,
+  formatPerLevel,
+  formatTotal,
+  isUnlocked,
+  levelOf,
+  unlock,
+} from '../progress/progress'
 import { Button } from '../ui/Button'
 import type { OverlayFrame, OverlaySink } from '../ui/overlayFrame'
 import { THEME, fontPx } from '../ui/theme'
@@ -82,6 +90,8 @@ export function buildUpgradePanel(
     )
   }
 
+  y = drawUnlockSection(scene, sink, frame, store, meta, onChanged, y + 10)
+
   sink.track(
     scene.add.text(
       frame.contentLeft,
@@ -94,6 +104,65 @@ export function buildUpgradePanel(
       },
     ),
   )
+}
+
+/**
+ * 「可解锁」一段：列出还没解锁的角色（价格来自 meta.json 的 `unlockCost`）。
+ *
+ * 只列**目录里认识、且 meta.json 里有定价**的项 —— 目录里有而表里没有的，
+ * 说明那个角色还没做（只有占位名字），不该摆在界面上收钱。
+ */
+function drawUnlockSection(
+  scene: Phaser.Scene,
+  sink: OverlaySink,
+  frame: OverlayFrame,
+  store: ProfileStore,
+  meta: MetaConfig,
+  onChanged: (notice: string) => void,
+  y: number,
+): number {
+  const locked = CHARACTERS.filter(
+    (c) => meta.characters[c.id] !== undefined && !isUnlocked(store.profile, c.id),
+  )
+  if (locked.length === 0) return y
+
+  sink.track(
+    scene.add.text(frame.contentLeft, y, '可解锁', {
+      fontFamily: THEME.font.family,
+      fontSize: fontPx(THEME.font.body),
+      color: THEME.text.body,
+    }),
+  )
+  let rowY = y + 26
+  for (const c of locked) {
+    const cost = meta.characters[c.id]?.unlockCost ?? 0
+    const affordable = store.profile.currency.coins >= cost
+    sink.track(
+      scene.add.text(frame.contentLeft, rowY + 8, `${c.name}    ${cost} 币`, {
+        fontFamily: THEME.font.family,
+        fontSize: fontPx(THEME.font.small),
+        color: THEME.text.dim,
+      }),
+    )
+    const button = new Button(
+      scene,
+      frame.cx + frame.panelWidth / 2 - THEME.space.lg - 45,
+      rowY + 14,
+      '解锁',
+      () => {
+        let ok = false
+        store.update((draft) => {
+          ok = unlock(draft, meta, c.id).ok
+        })
+        onChanged(ok ? `已解锁：${characterById(c.id)?.name ?? c.id}` : `没解锁成：需要 ${cost} 币`)
+      },
+      { width: 90, height: 32, fontSize: THEME.font.small },
+    )
+    button.setDisabled(!affordable)
+    sink.button(button)
+    rowY += 40
+  }
+  return rowY
 }
 
 /** 画一组成长线（一个角色或一个技能），返回下一个可用 y */
