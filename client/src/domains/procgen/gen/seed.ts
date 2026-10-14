@@ -37,8 +37,12 @@ export type SaltName =
   | 'mainCount'
   /** 每间房用几号尺寸档位 */
   | 'sizeTier'
+  /** 每间主干教室的宽度用几号档位（与侧室的 `sizeTier` 分开，改一个不动另一个） */
+  | 'mainWidth'
   /** 哪些主干教室挂侧室 */
   | 'sideAnchors'
+  /** 一间侧室挂在上方还是下方 */
+  | 'bands'
   /** 一间房里的课桌排布 */
   | 'desks'
   /** 一间房里的椅子 */

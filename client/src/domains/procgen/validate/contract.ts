@@ -5,9 +5,9 @@
  *
  * ## 这个文件是「尺寸契约」的可执行版本
  *
- * spec `procgen-config-contract` 用一张表写了尺寸契约（40px 格 / 走廊 ≥ 120 /
- * 课桌短边 1 格 / 按格对齐 / 只横竖 / 椅子 1 格）。**一张写在文档里的表会被忘掉；
- * 一个会抛异常的断言不会。**
+ * spec `procgen-config-contract` 用一张表写了尺寸契约（40px 格 / 窄口净宽 ≥ 120 /
+ * 主干教室与连廊等高 / 门洞两端落在格边界 / 课桌短边 1 格 / 按格对齐 / 只横竖 /
+ * 椅子 1 格）。**一张写在文档里的表会被忘掉；一个会抛异常的断言不会。**
  *
  * 这里校验的是**生成出来的地图**，不是配置表（配置表的自洽在校验器里跑，
  * 见 `config.ts`）。两者都要有，因为它们抓的是不同的错：
@@ -163,15 +163,44 @@ export function validateContract(map: DungeonMap, cfg: RoomsConfig): ContractRep
     }
 
     // ---- 尺寸契约
-    const tier = cfg.sizeTiers.findIndex(
-      (t) => t.width === room.rect.width && t.height === room.rect.height,
-    )
-    if (tier < 0) {
-      const list = cfg.sizeTiers.map((t) => `${t.width}×${t.height}`).join(' / ')
-      fail(at('rect'), `${where(at('rect'), room.rect)} 不匹配任何尺寸档位（${list}）`, ctx)
-    }
-    if (room.sizeTier !== tier) {
-      fail(at('sizeTier'), `记的是 ${room.sizeTier}，尺寸反查出来是 ${tier} —— 两处不一致`, ctx)
+    //
+    // 主干与侧室的档位**不是同一张表**，因为约束不同：
+    // 主干教室的高度是**统一值**（`mainRoomHeight`，见 `layout.ts` 文件头 ① ——
+    // 侧室朝主干那面墙要同时贴住宿主与连廊，高度不一就贴不住），只有宽度分档；
+    // 侧室只有一面墙与主干相邻，宽高两维都可以取档。
+    if (room.branch === 'main') {
+      if (room.rect.height !== cfg.mainRoomHeight) {
+        fail(
+          at('rect'),
+          `${where(at('rect'), room.rect)} 的高度不是 mainRoomHeight（${cfg.mainRoomHeight}）—— ` +
+            `主干教室与连廊必须等高，否则侧室朝主干那面墙贴不住两条线，` +
+            `连廊的墙得逐段跳台阶`,
+          ctx,
+        )
+      }
+      const tier = cfg.mainWidthTiers.indexOf(room.rect.width)
+      if (tier < 0) {
+        const list = cfg.mainWidthTiers.join(' / ')
+        fail(
+          at('rect'),
+          `${where(at('rect'), room.rect)} 的宽度不匹配任何主干宽度档（${list}）`,
+          ctx,
+        )
+      }
+      if (room.sizeTier !== tier) {
+        fail(at('sizeTier'), `记的是 ${room.sizeTier}，宽度反查出来是 ${tier} —— 两处不一致`, ctx)
+      }
+    } else {
+      const tier = cfg.sideRoomTiers.findIndex(
+        (t) => t.width === room.rect.width && t.height === room.rect.height,
+      )
+      if (tier < 0) {
+        const list = cfg.sideRoomTiers.map((t) => `${t.width}×${t.height}`).join(' / ')
+        fail(at('rect'), `${where(at('rect'), room.rect)} 不匹配任何侧室档位（${list}）`, ctx)
+      }
+      if (room.sizeTier !== tier) {
+        fail(at('sizeTier'), `记的是 ${room.sizeTier}，尺寸反查出来是 ${tier} —— 两处不一致`, ctx)
+      }
     }
 
     // 房间边界落在**格中心**上（见文件头：墙以它为中心，正好封掉一格）
@@ -203,13 +232,31 @@ export function validateContract(map: DungeonMap, cfg: RoomsConfig): ContractRep
       if (d.kind !== 'back' && d.kind !== 'forward' && d.kind !== 'side') {
         fail(`${dp}.kind`, `门只有 'back' / 'forward' / 'side'，拿到 ${JSON.stringify(d.kind)}`, ctx)
       }
-      // 门洞宽必须是整格：不是整格的话两端落在格中心上，实际能过的格子数
-      // 会比设计的多一个 —— 而"多一个"不会有人发现，直到有人量碰撞箱。
-      if (d.width % cell !== 0) {
+      // 门洞宽必须是**奇数格**（`≡ cell (mod 2×cell)`）。
+      //
+      // 整数格只保证「长度是整格」，保证不了「两端落在格**边界**上」：
+      // 门心落在格中心上（`layout.ts` 文件头 ②），两端 = 门心 ± 门宽/2 ——
+      // 门宽/2 得是**半格**，两端才落回格边界。120px（3 格）✓，80px / 160px（偶数格）✗，
+      // 后者实际能过 4 格。而"多一个"不会有人发现，直到有人量碰撞箱。
+      if (d.width % (cell * 2) !== cell) {
         fail(
           `${dp}.width`,
-          `门洞宽 ${d.width} 不是 navCellSize（${cell}）的整数倍 —— ` +
-            `两端落在格中心上时，实际可过的格子数会比设计多一个`,
+          `门洞宽 ${d.width} 不是奇数格（应 ≡ ${cell} mod ${cell * 2}）—— ` +
+            `偶数格的门两端落在格中心上，实际可过的格子数会比设计多一个`,
+          ctx,
+        )
+      }
+      // 门洞两端落在格**边界**上，且覆盖整数格。上面那条只管宽度，
+      // 管不了**位置**：整格宽的门摆在半个格子的偏移上，两端一样是格中心。
+      const doorAlong0 = (d.axis === 'h' ? d.x : d.y) - d.width / 2
+      const doorAlong1 = doorAlong0 + d.width
+      const doorOrigin = d.axis === 'h' ? ox : oy
+      if (!onCellBoundary(doorAlong0, doorOrigin) || !onCellBoundary(doorAlong1, doorOrigin)) {
+        fail(
+          `${dp}`,
+          `门洞的两端 (${doorAlong0}, ${doorAlong1}) 没落在格边界上` +
+            `（球心在 ${doorOrigin} + ${cell}k 处）—— 两端落在格中心上时，` +
+            `实际可过的格子数会比设计多一个`,
           ctx,
         )
       }
@@ -221,15 +268,19 @@ export function validateContract(map: DungeonMap, cfg: RoomsConfig): ContractRep
     }
 
     // spec `dungeon-layout`「每一个主干教室至少有一扇门直接开在主干道上」
+    //
+    // 走廊没有了，「开在主干道上」现在的意思是**开在某一扇竖直隔墙上、
+    // 直接通进一段连廊**。少了它就说明这间房只能从侧室绕进来 ——
+    // 而"主干"这个名字就没意义了。
     if (room.branch === 'main') {
-      const toCorridor = room.doors.filter(
-        (d) => d.axis === 'h' && rectsIntersect(doorRect(d, wt), map.corridorRect),
+      const toPassage = room.doors.filter((d) =>
+        map.passages.some((p) => rectsIntersect(doorRect(d, wt), p.rect)),
       )
-      if (toCorridor.length === 0) {
+      if (toPassage.length === 0) {
         const kinds = room.doors.map((d) => `${d.kind}/${d.axis}`).join(', ') || '一扇都没有'
         fail(
           at('doors'),
-          `主干教室没有一扇门直接开在主干道上（现有的门：${kinds}）—— ` +
+          `主干教室没有一扇门直接通进连廊（现有的门：${kinds}）—— ` +
             `那样它只能从侧室绕进来，而"主干"这个名字就没意义了`,
           ctx,
         )
@@ -269,6 +320,20 @@ export function validateContract(map: DungeonMap, cfg: RoomsConfig): ContractRep
           at('doors'),
           `没有一扇门汇回主干下一间（order ${next.order}）—— ` +
             `那样侧室就是一条死路，"绕行"变成"白跑"`,
+          ctx,
+        )
+      }
+      // spec `procgen-config-contract`「侧室不超出宿主的西边界」：
+      // 侧室横跨「宿主的一部分 + 一整段连廊」（`layout.ts` 文件头 ③），
+      // 搭接长度 = 宿主东边界 − 侧室西边界。大于宿主宽度就意味着侧室伸到了
+      // 宿主的西墙外面 —— 那在缩略图上只是「侧室比教室宽一点」，看不出错了。
+      const host = mains[hostIdx]!
+      const overlap = right(host.rect) - left(room.rect)
+      if (overlap > host.rect.width) {
+        fail(
+          at('rect'),
+          `侧室与宿主（order ${host.order}）的搭接长度 ${overlap} 超过了宿主宽度 ` +
+            `${host.rect.width} —— 侧室伸到宿主的西墙外面去了`,
           ctx,
         )
       }
@@ -378,7 +443,56 @@ export function validateContract(map: DungeonMap, cfg: RoomsConfig): ContractRep
     }
   }
 
-  // ------------------------------------------------------------ 3. 全局
+  // ------------------------------------------------------------ 3. 连廊
+
+  // spec `procgen-config-contract`「地图用连廊表达连接，而不是一条贯穿的走廊」
+  //
+  // 数目与形状一起钉死：`N − 1` 段、每段只夹在两间**相邻**主干教室之间。
+  // 「贯穿全层的一条走廊」也能凑出 `N − 1` 段来（只要有人手工切一刀），
+  // 所以数目对不算通过 —— 还要每一段的 `between` 报出的确实是相邻的两间。
+  if (map.passages.length !== mainCount - 1) {
+    fail(
+      'passages',
+      `连廊段数应为「主干教室数 − 1」= ${mainCount - 1}，实际 ${map.passages.length} —— ` +
+        `连廊是**教室之间**的连接，不是与教室并列、贯穿全层的空间`,
+    )
+  }
+  for (let i = 0; i < map.passages.length; i++) {
+    const p = map.passages[i]!
+    const pp = `passages[${i}]`
+    // 与主干教室**等高**：同一条带里交替排开，上下两条墙线才是同两条直线
+    if (p.rect.height !== cfg.mainRoomHeight) {
+      fail(
+        pp,
+        `${where(pp, p.rect)} 的高度不是 mainRoomHeight（${cfg.mainRoomHeight}）—— ` +
+          `连廊与主干教室必须等高，否则连廊的墙要在每两间房之间跳一次台阶`,
+      )
+    }
+    // 沿 x 的长度 = roomGap（含两端各半堵墙，见 `model/types.ts` 的 `Passage`）
+    if (p.rect.width !== cfg.roomGap) {
+      fail(pp, `${where(pp, p.rect)} 的长度不是配置的 roomGap（${cfg.roomGap}）`)
+    }
+    // 两端落在格中心上（它们同时也是相邻两间教室的边界）
+    if (!onCellCenter(left(p.rect), ox) || !onCellCenter(right(p.rect), ox)) {
+      fail(pp, `${where(pp, p.rect)} 的左右边界没落在格中心上`)
+    }
+    if (!onCellCenter(top(p.rect), oy) || !onCellCenter(bottom(p.rect), oy)) {
+      fail(pp, `${where(pp, p.rect)} 的上下边界没落在格中心上`)
+    }
+    // `between` 报出的必须是主干轴上**相邻**的两间，且升序
+    const [a, b] = p.between
+    const ai = mains.findIndex((m) => m.order === a)
+    const bi = mains.findIndex((m) => m.order === b)
+    if (ai < 0 || bi < 0 || bi !== ai + 1) {
+      fail(
+        `${pp}.between`,
+        `报的是 order ${a} 与 ${b}，但它们不是主干轴上相邻的两间 —— ` +
+          `D1 的封门逻辑靠这个字段，报错了就是"锁了，但不是该锁的那扇"`,
+      )
+    }
+  }
+
+  // ------------------------------------------------------------ 4. 全局
 
   // spec `dungeon-layout`「最后一间恒为首领」+「首领房不可能是侧室」
   const first = map.rooms[0]!

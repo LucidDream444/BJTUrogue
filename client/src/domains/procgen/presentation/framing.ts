@@ -19,46 +19,125 @@
  */
 
 import type { RoomsConfig } from '../config'
-import { bottom, clipRect, left, rectFromCorners, rectsIntersect, right, top } from '../model/rect'
+import {
+  bottom,
+  clipRect,
+  containsPoint,
+  left,
+  rectContains,
+  rectFromCorners,
+  rectsIntersect,
+  right,
+  top,
+} from '../model/rect'
 import type { DungeonMap, Rect, Room } from '../model/types'
 
 /**
- * 取景框：**这一间房 + 它门外那条走廊**。
+ * 取景框：**这一间房 + 它每一扇门外的那一块**。
  *
- * ## 为什么框是**不对称**的
+ * ## 为什么不是「对称留白」
  *
- * 主干教室南北交替挂在走廊两侧，所以走廊只在房间的**一侧**。对称留白
- * （`inflate(room.rect, r)`）会把一半的画面花在房间背后的空气上 ——
- * 而那一侧除了外墙什么都没有，是这个场子里最不该浪费的一圈。
+ * `inflate(room.rect, 一格)` 会把画面的大半花在**这一间房背后**，
+ * 而门外那条路一格都看不见 —— 可「这扇门外确实有地方可去」正是这个场子
+ * 最要看的一条。所以框要**朝门外长出去**。
  *
- * 框的四条边：
+ * ## 门外是哪儿，靠**探针**算，不靠类型猜
  *
- * - 左右和背面：各留**一格**。再宽就只剩背景了。
- * - 走廊那一侧：并到**走廊外沿再加一格**，正好能看见走廊对面的墙 ——
- *   也就是「这扇门外确实有条路」，而不是一片黑。
+ * 门外那块东西是个变量：主干教室的 `back`/`forward` 门外面是**一段连廊**，
+ * 侧室那两扇门外面是**宿主教室**和**连廊**，而主干的 `side` 门外面是**侧室**。
+ * 按 `DoorKind` 或按 `branch` 分支去猜，就要写四套规则，而每套都要和
+ * `layout.ts` 的摆位保持同步 —— 那边一改，这边**不报错**，只是框错了一格。
  *
- * ⚠️ **只在 y 上并走廊，x 上不并。** 走廊横着贯穿整层（8000px 宽），
- * 按它的 x 范围取框会取到一整层楼，缩到屏幕上什么都看不清。
+ * 所以这里只做一件事：**从门心朝门外面走半格，看落进哪个矩形里。**
+ * 半格够了 —— 所有相邻空间都是**贴边**的（连廊的西边就是教室的东边，
+ * 侧室朝主干那一面就在带的那条线上），而墙骑在那条线上、厚一格，
+ * 走半格正好越过它落到对面那块的内部。
  *
- * 没有开向走廊的门（侧室只有 `v` 向的门）就不并 —— 它的门外是宿主教室，
- * 按对称留白处理。
+ * | 门 | 门心 | 门外半格处 | 落进 |
+ * |---|---|---|---|
+ * | 主干 `back` | `(左边界, +20)` | `(左边界 − 20, +20)` | 西边那段连廊（起点没有，落空 → 不并） |
+ * | 主干 `forward` | `(右边界, +20)` | `(右边界 + 20, +20)` | 东边那段连廊 |
+ * | 主干的 `side` | `(…, ±带边)` | `(…, ±带边 ∓ 20)` | 挂在它上面的侧室 |
+ * | 侧室的两扇 | `(…, ±带边)` | `(…, ±带边 ∓ 20)` | 宿主教室 / 连廊 |
+ *
+ * 落空是**正常**的（起点西边、首领东边都是整层的外沿），不并就是了。
+ *
+ * ## 并进来的那块，四面再各留一格
+ *
+ * 留的那一格是给**墙**的：框边恰好压在墙上时，墙只剩半个身子，
+ * 看起来像「这儿有一条奇怪的横线」。留一格之后墙整条落在框里。
+ *
+ * 框最大 `1120×680`（最大档主干 640 + 两侧连廊 400 + 两格留白 80 = 1120，
+ * 高 280 + 侧室 320 + 两格留白 80 = 680），进得了 1280×720。
+ * 这串加法**写全**：之前这里写的是 1080，正是把 640+400+80 心算错了 40 ——
+ * 而框的上限是个会被 `chooseClassroom` 拿去过滤的数，错 40 就是**悄悄少一间候选**。
  */
-export function roomWithCorridorBox(map: DungeonMap, cfg: RoomsConfig, room: Room): Rect {
-  const side = cfg.navCellSize
-  const hasCorridorDoor = room.doors.some((d) => d.axis === 'h')
+export function roomViewBox(map: DungeonMap, cfg: RoomsConfig, room: Room): Rect {
+  const cell = cfg.navCellSize
+  let x0 = left(room.rect) - cell
+  let x1 = right(room.rect) + cell
+  let y0 = top(room.rect) - cell
+  let y1 = bottom(room.rect) + cell
 
-  let y0 = top(room.rect) - side
-  let y1 = bottom(room.rect) + side
-  if (hasCorridorDoor) {
-    y0 = Math.min(y0, top(map.corridorRect) - side)
-    y1 = Math.max(y1, bottom(map.corridorRect) + side)
+  for (const beyond of spacesBeyondDoors(map, room, cell)) {
+    x0 = Math.min(x0, left(beyond) - cell)
+    x1 = Math.max(x1, right(beyond) + cell)
+    y0 = Math.min(y0, top(beyond) - cell)
+    y1 = Math.max(y1, bottom(beyond) + cell)
   }
 
-  return rectFromCorners(
-    left(room.rect) - side,
-    y0,
-    right(room.rect) + side,
-    y1,
+  return rectFromCorners(x0, y0, x1, y1)
+}
+
+/**
+ * 每一扇门外面的那**一块空间**（连廊或别的房间）。同一块被两扇门撞上时只返回一次。
+ *
+ * 排除房间自己：探针落在自己身上说明方向算反了，那种情况下并进来的是本房，
+ * 框会缩成原样 —— 而「框比预期的窄」在现场看起来和「门外没东西」一模一样。
+ */
+function spacesBeyondDoors(map: DungeonMap, room: Room, depth: number): Rect[] {
+  const out: Rect[] = []
+  const push = (r: Rect): void => {
+    // 落回本房自己 = 方向算反了。并进来的是本房，框会缩成「对称留白」那副样子，
+    // 而**框比预期窄**在现场看起来和「门外没东西」一模一样，没人会去查方向。
+    if (rectContains(r, room.rect)) return
+    if (!out.includes(r)) out.push(r)
+  }
+
+  for (const d of room.doors) {
+    // 门的法线方向：竖直墙上开的那扇沿 ±x 出入，水平墙上那扇沿 ±y。
+    // 朝哪边是**门心在本房轴线的哪一侧**定的，不是按 kind 定的（见上）。
+    let px = d.x
+    let py = d.y
+    if (d.axis === 'v') px += d.x < room.rect.x ? -depth : depth
+    else py += d.y < room.rect.y ? -depth : depth
+
+    for (const p of map.passages) if (containsPoint(p.rect, px, py)) push(p.rect)
+    for (const other of map.rooms) {
+      if (other === room) continue
+      if (containsPoint(other.rect, px, py)) push(other.rect)
+    }
+  }
+  return out
+}
+
+/**
+ * 整块都在取景框里 —— 没被切到。
+ *
+ * 判定的是「能不能替它下结论」，不是「要不要画」：填充可以裁着画，
+ * 但**描边、标签、门、刷怪点**一旦被取景框切掉一半，剩下那一半就是在说谎
+ * （沿框边的那两条线会被读成一堵墙，门会被读成一扇半截的门）。
+ *
+ * 放在 `framing.ts` 而不是 `floorplan.ts`：场子也要问同一个问题
+ * （「这一段连廊要不要贴名字」），而 `floorplan.ts` 一进依赖闭包就把 Phaser
+ * 带进去了。
+ */
+export function fullyInside(r: Rect, box: Rect): boolean {
+  return (
+    left(r) >= left(box) &&
+    right(r) <= right(box) &&
+    top(r) >= top(box) &&
+    bottom(r) <= bottom(box)
   )
 }
 

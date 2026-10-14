@@ -17,10 +17,16 @@
  * 墙本身 —— 课桌**从头到尾没进过底座的网格**。所以在这个场子里，底座的寻路
  * 看不见课桌，怪会径直穿过桌子走过去。
  *
- * 前两条是**另一笔账**，别跟上面混成一句：实测 200 个种子 / 15711 件障碍物，
- * 按 `makeNav` 那套（原点 0、80px、中心点采样）去采样，只有 **564 件**盖住了格心；
- * 换成产品的 40px 网格是 **2388 件**。也就是说**就算**把障碍物喂进底座，
- * 80px 的格子还会再漏掉约四分之三 —— 换格子尺寸并不能替代「喂进去」。
+ * 前两条是**另一笔账**，别跟上面混成一句。实测 200 个种子 / 13018 件障碍物，
+ * 按「这件障碍物里落进至少一个格心」（= 会被标成堵的那条规则）去数：
+ * 底座那套（原点 0、80px）是 **13018 件**，产品那套（`navOrigin`、40px）也是 **13018 件**
+ * —— **两种格子一件都没漏**。差别不在「看不看得见」，在**粒度**：
+ * 一件桌椅平均把 1.6 个 80px 格心盖成堵，换成 40px 是 2.2 个。
+ *
+ * 所以「换格子尺寸」**并不能**替代「把障碍物喂进去」—— 结论没变，
+ * 但**别再拿「80px 会漏掉课桌」当理由**：它不漏，它只是粗。
+ * （首版这里写的是「只盖住 564 / 2388 件」，那个数复现不出来 —— 计数只往上数、
+ * 落在负坐标上的桌椅一格都没数到。结论歪打正着，理由是错的。）
  *
  * 画面上：**红格是 D2 的判定**（红 = 这一格中心站不了），**青色细线是底座的 80px 格子**。
  * 桌子上有红格、青线跨过去的地方一格都不红 —— 那就是「两套格子」的样子。
@@ -47,27 +53,34 @@
 import type { ArenaConfig, ArenaContext, ArenaDefinition, ArenaSpawnSpec } from '../../ArenaBase'
 import { ArenaBase, GRID_SIZE, WORLD_HEIGHT, WORLD_WIDTH } from '../../ArenaBase'
 import type { RoomsConfig } from '@/domains/procgen/config'
-import { roomWithCorridorBox, wallsNearRoom } from '@/domains/procgen/presentation/framing'
+import { roomViewBox, wallsNearRoom } from '@/domains/procgen/presentation/framing'
 import { drawRoom1to1 } from '@/domains/procgen/presentation/floorplan'
-import { left, top } from '@/domains/procgen/model/rect'
+import { containsPoint, left, top } from '@/domains/procgen/model/rect'
 import type { DungeonMap, Rect, Room } from '@/domains/procgen/model/types'
-import { cellOf, gridOfMap, isBlockedCell } from '@/domains/procgen/walkability'
+import { cellCenter, cellOf, gridOfMap, isBlockedCell } from '@/domains/procgen/walkability'
 import { chooseClassroom, DEFAULT_SEED, elapsedText, generateForArena, loadRoomsConfig } from './_shared'
 
 /** 场上最多放几只怪。**这是测试场的密度，不是产品数值** —— 产品按威胁预算刷。 */
 const MAX_ENEMIES = 4
 
 /**
- * 读数栏：画布**右边那一条空的**，不是压在图上的一条。
+ * 读数栏：画布右边那一条，**压在取景框的东侧留白上**，不是一条空出来的列。
  *
- * 为什么不去占画面下方：底座的按键说明就钉在左下角
- * （`Hud.update()` 里 `y = 画布高 − LINE*3.4`，四行），读数放下去两段会叠在一起 ——
+ * 这是算过的，不是凑合：取景框最宽 **1120**（最大档教室 640 + 东西两段连廊 400
+ * + 两格留白 80），画布只有 1280 —— 居中之后框占 `x 80..1200`，
+ * **右边再没有一条 272px 宽的干净列**了。旧版这里写着「框最宽 1000，从 1008 起是干净的」，
+ * 而 1000 的框居中之后到 1140，**本来就是叠着的** —— 那句话只是没人核过。
+ *
+ * 之所以还能这么放：框的东侧那 240px 是**门外**（连廊、邻居的墙根），
+ * 教室本体最宽 640 *（每个主干教室西边都是连廊，所以它至少从框内 240 处起）*，
+ * 居中之后止于 `x ≤ 960` —— 读数栏从 1008 起，**压不到这一间房本身**。
+ * 压到的是：东侧那段连廊、以及（这一间挂侧室时）侧室东头的一角。
+ *
+ * 为什么不往下放：底座的按键说明钉在左下角（`Hud.update()` 里
+ * `y = 画布高 − LINE*3.4`，四行），读数放下去两段会叠在一起 ——
  * 而「字叠在一起」在现场看起来就是「读数没印出来」。
- *
- * 为什么右边一定空着：取景框最宽 1000（最大档教室 640×320 → 框 720×600，
- * 加上居中之后的左右留白正好到 x=1000），所以从 1008 起是干净的。
- * ⚠️ 这条依赖「房间尺寸档位表最宽 640」——档位表将来要是出了比 920 还宽的房间，
- * 框会盖到这条读数栏下面，而那时表现是**读数被地图压住**，不是报错。
+ * ⚠️ 上面两条都依赖「主干教室最宽 640」：档位表将来要是出了更宽的房间，
+ * 教室本体就会伸进读数栏底下，而那时表现是**读数被地图压住**，不是报错。
  */
 const READOUT_X = WORLD_WIDTH - 272
 const READOUT_WIDTH = 272
@@ -112,31 +125,63 @@ function shift(r: Rect, dx: number, dy: number): Rect {
  * 框在画布上居中，所以 `screenY = (画布高 − 框高) / 2`，框中心 = `screenY + 框高/2`
  * = 画布高/2 —— **和框多高无关**。底座又把玩家钉死在画布正中心
  * （`ArenaBase` 的出生点写死为 `(WORLD_WIDTH/2, WORLD_HEIGHT/2)`），
- * 所以框一旦居中，玩家就必然落在**框心**上：
- * 水平是教室正中，垂直是「教室中心再往走廊那边偏 100px」——
- * 因为框 = 教室 + 走廊，框心自然比教室心低半个走廊。
- * 那正是玩家推门进来站的位置，合理。
+ * 所以框一旦居中，玩家就必然落在**框心**上。
+ *
+ * 但「框心落在教室里的哪儿」**不固定**，也不再是一句话能说清的：框 = 教室 +
+ * 门外那几块（东西两段连廊，外面还各留一格；这一间挂侧室时，上边或下边再多一块）。
+ * 侧室挂上还是挂下按种子随机，于是框心可能在教室里偏上、偏下，
+ * 甚至**正好落在墙的内侧线上**。`Room` 里没有「框心」这个数 —— 它是这几块合起来的副产品。
+ * 所以这里**不推**，直接问网格：那一格堵不堵。
  *
  * ## 那为什么还要查
  *
- * **合理不等于空着。** 生成器摆课桌时不知道底座把出生点钉在这个点上了。
- * 一旦它压在一张课桌上，玩家一进场就卡在桌子里 —— 而那和「寻路坏了」
+ * **落在哪儿都有可能是堵的。** 生成器摆课桌时不知道底座把出生点钉在这个点上了，
+ * 而框心又是从这一层的地图形状算出来的。一旦它压在一张课桌上（或者干脆压在南/北墙
+ * 那一格的边界上），玩家一进场就卡在里面 —— 而那和「寻路坏了」
  * 在现场长得一模一样，看场子的人会去查 D2 的生成器。
  *
  * 这一场**不去挪框躲开它**（挪了框就出画布，房间缺一角，而缺一角看起来
  * 和「生成器没生成这段墙」一样糟），改成**如实报**：读数最后一行写出来。
  */
-function playerCellFree(map: DungeonMap, dx: number, dy: number): boolean {
+function playerCellFree(map: DungeonMap, dx: number, dy: number): SpawnCell {
   const grid = gridOfMap(map)
   const { cx, cy } = cellOf(grid, WORLD_WIDTH / 2 - dx, WORLD_HEIGHT / 2 - dy)
-  return !isBlockedCell(grid, cx, cy)
+  if (!isBlockedCell(grid, cx, cy)) return 'free'
+  // 「堵」是**格心**被判定的，所以拿格心去问障碍物：`buildGrid` 只从两个来源盖章
+  // （墙、障碍物），没被障碍物盖住就一定是墙。
+  const c = cellCenter(grid, cx, cy)
+  for (const room of map.rooms) {
+    for (const o of room.obstacles) if (containsPoint(o.rect, c.x, c.y)) return 'obstacle'
+  }
+  return 'wall'
+}
+
+/**
+ * 出生点那一格的状态。**三种分开报**，因为能做的事完全不同：
+ *
+ * - `free`：正常。
+ * - `obstacle`：格心被**课桌**盖住了 —— 生成器的问题，去查生成器。
+ * - `wall`：格心落在**墙**上（框心正好压在墙的内侧线上）—— 这是**这一场的取景**
+ *   造出来的（框居中 → 玩家必在框心），而这一场没有物理体，不影响看地图。
+ *
+ * 合成一句「出生点被挡住」，看的人只能两个方向都查一遍；而红色每次都亮的话，
+ * 人就学会不看红色了 —— 那才是真的丢掉了这条读数。
+ */
+type SpawnCell = 'free' | 'obstacle' | 'wall'
+
+function spawnCellText(state: SpawnCell): string {
+  if (state === 'free') return '玩家出生点落在空格上'
+  if (state === 'obstacle') {
+    return '⚠ 玩家出生点那一格被课桌盖住了 —— 是生成器的问题（底座把出生点钉死在画布中心），换个种子或看 d2_seed_sweep'
+  }
+  return '⚠ 玩家出生点那一格是墙（框心正好压在墙的内侧线上）—— 这一场没有物理体，不影响看地图'
 }
 
 interface ClassroomLayout {
   map: DungeonMap
   cfg: RoomsConfig
   room: Room
-  /** 要画的世界矩形（地图坐标）。**不对称**，见 `roomWithCorridorBox` */
+  /** 要画的世界矩形（地图坐标）。**不对称**，见 `roomViewBox` */
   box: Rect
   /** 地图坐标 → 屏幕坐标的平移量（缩放恒为 1）。**绘制与喂给底座的墙共用它。** */
   dx: number
@@ -147,8 +192,8 @@ interface ClassroomLayout {
   elapsedMs: number
   /** 地图坐标下的、裁过的那几段墙 */
   walls: Rect[]
-  /** 玩家出生点（画布正中心）那一格是不是空的，见 `playerCellFree` */
-  playerFree: boolean
+  /** 玩家出生点（画布正中心）那一格是什么，见 `playerCellFree` */
+  spawnCell: SpawnCell
 }
 
 class D2ClassroomArena extends ArenaBase {
@@ -166,7 +211,9 @@ class D2ClassroomArena extends ArenaBase {
 
   protected configure(): ArenaConfig {
     const { map, cfg, elapsedMs } = generateForArena(this, DEFAULT_SEED)
-    const room = chooseClassroom(map, cfg, WORLD_WIDTH, WORLD_HEIGHT)
+    // 上限**不在这一行传** —— 两个场子要问同一间房，上限就得是同一份，
+    // 所以它连同 `WORLD_WIDTH/WORLD_HEIGHT` 一起封在 `chooseClassroom` 里（见 `_shared.ts`）。
+    const room = chooseClassroom(map, cfg)
     if (room === null) {
       // 挑不到就抛。**不兜底去画第一间房** —— 兜底会把「生成器变了」
       // 伪装成「这个场子只是凑合着跑」，而那时候看场子的人正是要判断生成器变了没有。
@@ -178,14 +225,15 @@ class D2ClassroomArena extends ArenaBase {
       )
     }
 
-    const box = roomWithCorridorBox(map, cfg, room)
+    const box = roomViewBox(map, cfg, room)
 
     // 框在画布上居中。**顺序很重要：先定框、再算平移** —— 反过来（按玩家出生点
     // 去推框的位置）会把框顶出画布，房间缺一角，而缺一角看起来和「生成器没生成
     // 这段墙」一模一样。而框居中之后玩家本来就在框心（见 `playerCellFree`），
     // 并不需要额外去对。
     //
-    // 框最大 720×600（最大档教室 640×320 + 两侧各一格 + 走廊），塞得进 1280×720；
+    // 框最大 1120×680（最大档教室 640 + 东西两段连廊 400 + 两格留白 80；
+    // 高 280 + 侧室 320 + 两格留白 80），塞得进 1280×720；
     // `chooseClassroom` 已经用同一个尺寸挡过一遍，这里不会算出负数。
     const screenX = (WORLD_WIDTH - box.width) / 2
     const screenY = (WORLD_HEIGHT - box.height) / 2
@@ -206,7 +254,7 @@ class D2ClassroomArena extends ArenaBase {
       screenY,
       elapsedMs,
       walls: wallsNearRoom(map, box),
-      playerFree: playerCellFree(map, dx, dy),
+      spawnCell: playerCellFree(map, dx, dy),
     }
 
     return {
@@ -268,13 +316,11 @@ class D2ClassroomArena extends ArenaBase {
       `青线 = 底座的 ${GRID_SIZE * 2}px 格，只画线不做判断`,
       '桌上有红格、青线跨过去一格都不红 —— 两套格子不一样，所以怪会穿过课桌',
       '',
-      // 出生点那格空不空，必须**报出来**：它压在课桌上时玩家一进场就卡住，
+      // 出生点那一格是什么，必须**报出来**：它压在课桌上时玩家一进场就卡住，
       // 而那和「寻路坏了」长得一模一样（见 `playerCellFree`）。
-      L.playerFree
-        ? '玩家出生点落在空格上'
-        : '⚠ 玩家出生点压在障碍物上 —— 底座的出生点钉死在画布中心，换个种子或看 d2_seed_sweep',
+      spawnCellText(L.spawnCell),
       '',
-      '玩家已设为无敌：这一场是白箱，不是战斗场。门外亮一档的那条是走廊',
+      '玩家已设为无敌：这一场是白箱，不是战斗场。门外那段是连廊',
     ]
     const lines = raw.flatMap((l) => wrap(l, 21))
 
@@ -290,7 +336,9 @@ class D2ClassroomArena extends ArenaBase {
       .text(READOUT_X + 8, panelY + 6, lines.join('\n'), {
         fontFamily: 'monospace',
         fontSize: '11px',
-        color: L.playerFree ? '#9ad4ff' : '#ff9a9a',
+        // 红字只留给**课桌**那一种：墙是这一场的取景造出来的、不影响产品，
+        // 而每次都亮的红字会让人学会不看红字。
+        color: L.spawnCell === 'obstacle' ? '#ff9a9a' : '#9ad4ff',
         lineSpacing: 4,
       })
       .setDepth(1000)
@@ -300,6 +348,6 @@ class D2ClassroomArena extends ArenaBase {
 export const arena: ArenaDefinition = {
   displayName: 'D2 · 一间教室（1:1）',
   description:
-    '一间主干教室按 1:1 摆好：墙、门、课桌、椅子、刷怪点、门外的走廊。红格是 D2 的 40px 判定，青线是底座的 80px 格 —— 两边不一样，怪会穿过课桌。玩家撞不动墙（底座没有物理体），那是 D1 的事。',
+    '一间主干教室按 1:1 摆好：墙、门、课桌、椅子、刷怪点、门外的连廊。红格是 D2 的 40px 判定，青线是底座的 80px 格 —— 两边不一样，怪会穿过课桌。玩家撞不动墙（底座没有物理体），那是 D1 的事。',
   scene: D2ClassroomArena,
 }
