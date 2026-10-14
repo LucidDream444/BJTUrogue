@@ -34,6 +34,7 @@ import Phaser from 'phaser'
 import { characterById } from '../catalog'
 import type { ProfileStore } from '../profile/ProfileStore'
 import type { DisplayMode } from '../profile/types'
+import { totalLevelsFor } from '../progress/progress'
 import { Bar } from '../ui/Bar'
 import { Button } from '../ui/Button'
 import { dashRect } from '../ui/dashed'
@@ -401,7 +402,9 @@ export class PauseOverlay {
 
   private upgradesOf(characterId: string | undefined): number {
     if (!characterId) return 0
-    return this.store.profile.upgrades[characterId] ?? 0
+    // 升级次数 = 这个角色名下所有成长线（含它的技能）的级数之和。
+    // **不要写 `upgrades[characterId]`** —— 键是 `"owner:track"` 的复合键。
+    return totalLevelsFor(this.store.profile, characterId)
   }
 
   private clear(): void {
