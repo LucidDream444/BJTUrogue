@@ -24,7 +24,8 @@
  */
 
 import { ConfigError } from '@/core/config'
-import type { Rect } from './model/types'
+import { ROOM_KINDS, ROOM_KIND_LABELS } from './model/types'
+import type { Rect, RoomKind } from './model/types'
 
 // ---------------------------------------------------------------- 形状
 
@@ -68,6 +69,36 @@ export interface RoomsConfig {
 
   // 侧室按**宽高两维**取档：它只有一面墙与主干相邻，没有对齐的束缚。
   sideRoomTiers: RoomSizeTier[]
+
+  /**
+   * **侧室的关别权重** —— 一间侧室抽一次，内部按总和归一化（所以不必配成和为 1）。
+   *
+   * 用权重而不是概率（要凑成 1，改一个就得动另一个）也不是固定配比
+   * （房间数随种子在 8—11 间主干之间浮动，固定数量会在边界上要特判）。
+   *
+   * 键 MUST NOT 出现 `start` / `boss` —— 那两个由**位置**决定
+   * （起点恒为第一间、首领恒为最后一间），不是能抽出来的内容。
+   * 校验器在**加载配置时**就拒绝，而不是生成出一局「首领房挂在教室上面」的地图。
+   */
+  sideKindWeights: Partial<Record<RoomKind, number>>
+
+  /**
+   * **哪几类关别要打。** 这一个集合同时决定三件事，而且是**唯一**的判据：
+   *
+   * | 集合内 | 集合外 |
+   * |---|---|
+   * | 摆课桌椅（掩体） | 一间桌椅都没有 |
+   * | 有刷怪点 | `spawnPoints` 是空数组 |
+   * | 有威胁预算 | `budget` 为 `0` |
+   *
+   * 拆成两个字段（`furnishedKinds` + `spawnKinds`）会更灵活，但会让
+   * 「摆了桌椅但不刷怪」「不刷怪但预算写着 8」变成**合法数据** ——
+   * 它们在数据里不报错、在画面上看不出来，而它们都是错的。
+   * 等真的出现「商店想要课桌」这种需求时再拆，那时拆的理由是具体的。
+   *
+   * `main`（普通战）是**必须**在里面的一项：一排主干教室里总得有要打的屋子。
+   */
+  combatKinds: RoomKind[]
 
   // 几何（px）
   /**
@@ -258,6 +289,17 @@ export function parseRoomsConfig(raw: unknown): RoomsConfig {
     }
     return { width, height }
   })
+
+  // 关别：侧室抽哪几类、哪几类要打。**这两张表在几何校验之前读** ——
+  // 它们不影响几何，但错了的话后面所有关于房间内容的判定都建立在错的集合上。
+  const sideKindWeights = needSideKindWeights(
+    need(root.sideKindWeights, 'rooms.sideKindWeights'),
+    'rooms.sideKindWeights',
+  )
+  const combatKinds = needCombatKinds(
+    need(root.combatKinds, 'rooms.combatKinds'),
+    'rooms.combatKinds',
+  )
 
   const minPassageWidth = needNumber(
     need(root.minPassageWidth, 'rooms.minPassageWidth'),
@@ -496,6 +538,8 @@ export function parseRoomsConfig(raw: unknown): RoomsConfig {
     mainWidthTiers,
     mainRoomHeight,
     sideRoomTiers,
+    sideKindWeights,
+    combatKinds,
     minPassageWidth,
     roomGap,
     wallThickness,
@@ -514,6 +558,84 @@ export function parseRoomsConfig(raw: unknown): RoomsConfig {
     budgetGrowth,
     navCellSize,
   }
+}
+
+/**
+ * 一个关别值。不在 `ROOM_KINDS` 里就报错，并**列出合法取值** ——
+ * 只写「不合法」的话，读的人得自己去翻枚举，而翻到的那份可能已经过时了。
+ */
+function needRoomKind(value: unknown, path: string): RoomKind {
+  if (typeof value !== 'string' || !(ROOM_KINDS as readonly string[]).includes(value)) {
+    throw new ConfigError(
+      path,
+      `要一个关别（${ROOM_KINDS.join(' / ')}），拿到 ${JSON.stringify(value)}`,
+    )
+  }
+  return value as RoomKind
+}
+
+/**
+ * `sideKindWeights`：非空、键是合法关别、权重为正、**不许出现由位置决定的关别**。
+ *
+ * 最后一条是这个函数存在的主要理由。`start` / `boss` 不是「内容」而是「位置」：
+ * 起点恒为第一间、首领恒为最后一间。让它们进这张表，抽签就会产出
+ * 「首领房挂在普通教室上方」这种地图 —— 而它在几何上完全合法、校验器一句话都不会说。
+ */
+function needSideKindWeights(value: unknown, path: string): Partial<Record<RoomKind, number>> {
+  const obj = needObject(value, path)
+  const keys = Object.keys(obj)
+  if (keys.length === 0) {
+    throw new ConfigError(path, '至少要有一类关别 —— 侧室的关别就是从这张表里抽的')
+  }
+  const out: Partial<Record<RoomKind, number>> = {}
+  for (const key of keys) {
+    const kind = needRoomKind(key, `${path}.${key}`)
+    if (kind === 'start' || kind === 'boss') {
+      throw new ConfigError(
+        `${path}.${key}`,
+        `「${ROOM_KIND_LABELS[kind]}」由**位置**决定（起点恒为第一间、首领恒为最后一间），` +
+          `不是能抽出来的内容 —— 放进来的话会生成出「首领房挂在普通教室上方」的地图，` +
+          `而它在几何上完全合法`,
+      )
+    }
+    const w = needNumber(obj[key], `${path}.${key}`)
+    if (w <= 0) {
+      throw new ConfigError(
+        `${path}.${key}`,
+        `权重要大于 0，拿到 ${w} —— 写 0 等于「这一类永远抽不到」，` +
+          `那就该把它从表里删掉，而不是留一个抽不到的名字`,
+      )
+    }
+    out[kind] = w
+  }
+  return out
+}
+
+/**
+ * `combatKinds`：非空、无重复、每个都是合法关别、**必须含 `main`**。
+ *
+ * 必须含 `main` 的理由很具体：一排主干教室里「普通战」是默认量，
+ * 把它排除掉就等于整层楼没有可打的屋子。`start` / `boss` 反而是可以排除的
+ * （起点房空着、首领房留出闪避空间，都是合理的配置）—— 所以只钉 `main` 这一条。
+ */
+function needCombatKinds(value: unknown, path: string): RoomKind[] {
+  const arr = needArray(value, path)
+  const out: RoomKind[] = []
+  for (let i = 0; i < arr.length; i++) {
+    const kind = needRoomKind(arr[i], `${path}[${i}]`)
+    if (out.includes(kind)) {
+      throw new ConfigError(`${path}[${i}]`, `「${ROOM_KIND_LABELS[kind]}」重复了`)
+    }
+    out.push(kind)
+  }
+  if (!out.includes('main')) {
+    throw new ConfigError(
+      path,
+      `必须含 main（${ROOM_KIND_LABELS.main}）：一排主干教室里总要有要打的屋子，` +
+        `否则整层没有威胁预算、也没有一处会刷怪。拿到 [${out.join(', ')}]`,
+    )
+  }
+  return out
 }
 
 function needLenPair(value: unknown, path: string): [number, number] {
@@ -579,4 +701,15 @@ export function tierRect(tier: RoomSizeTier, x: number, y: number): Rect {
  */
 export function passageClearWidth(cfg: RoomsConfig): number {
   return cfg.mainRoomHeight - cfg.wallThickness
+}
+
+/**
+ * 这一类关别**要不要打** —— 摆桌椅、刷怪、威胁预算三件事的唯一判据。
+ *
+ * 抽成函数而不是各处写 `cfg.combatKinds.includes(...)`：那行代码抄三遍之后，
+ * 改判据时漏掉一处不会报错，只会让那个文件按老规矩走 ——
+ * 症状是「同一间房，生成器摆了桌椅、校验器说它不该有桌椅」。
+ */
+export function isCombatKind(cfg: RoomsConfig, kind: RoomKind): boolean {
+  return cfg.combatKinds.includes(kind)
 }

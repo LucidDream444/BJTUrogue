@@ -83,7 +83,8 @@
 import type { Door, Passage, Rect, Room, RoomBranch, RoomKind } from '../model/types'
 import { bottom, left, right, top } from '../model/rect'
 import type { RoomsConfig } from '../config'
-import { rngFor } from './seed'
+import { isCombatKind } from '../config'
+import { rngFor, weightedPickIn } from './seed'
 import { threatBudget } from './budget'
 
 /** 一个区间的半开表示：`[start, end)`，两端都落在格边界上（见文件头 ②） */
@@ -172,9 +173,16 @@ export function planLayout(seed: number, cfg: RoomsConfig): LayoutPlan {
       anchorMainIndex: null,
     })
     if (anchorSet.has(i)) {
+      const order = ord++
       descs.push({
-        order: ord++,
-        kind: 'main',
+        order,
+        // 侧室装的是什么，按 `sideKindWeights` 抽。**单独一条派生流**：
+        // 与 `'sizeTier'` 分开，于是调权重不会连带把侧室的尺寸换一批，
+        // 反过来也一样 —— 两条规则各自可复现，见 `seed.ts` 讲的理由。
+        //
+        // 下标取 `order` 而不是 `anchor`：`order` 才是房间的身份证
+        // （`anchor` 只在主干那一步有意义），而且校验器报错时给的也是它。
+        kind: weightedPickIn(seed, 'sideKind', order, cfg.sideKindWeights),
         branch: 'side',
         mainIndex: null,
         anchorMainIndex: i,
@@ -392,12 +400,7 @@ export function planLayout(seed: number, cfg: RoomsConfig): LayoutPlan {
     doors: doorsOf.get(desc.order) ?? [],
     obstacles: [],
     spawnPoints: [],
-    budget:
-      desc.branch === 'main'
-        ? threatBudget(desc.mainIndex!, mainCount, cfg)
-        : // 侧室沿用宿主那一间的预算：它在进度上和宿主是并行的，
-          // 用宿主的值既保证「预算单调不减」，也免得侧室变成一个难度洼地。
-          threatBudget(desc.anchorMainIndex!, mainCount, cfg),
+    budget: budgetOf(desc, mainCount, cfg),
     anchoredTo: desc.branch === 'side' ? mainOrder[desc.anchorMainIndex!]! : null,
   }))
 
@@ -410,6 +413,28 @@ function kindOfMain(i: number, mainCount: number): RoomKind {
   if (i === 0) return 'start'
   if (i === mainCount - 1) return 'boss'
   return 'main'
+}
+
+/**
+ * 一间房的威胁预算。
+ *
+ * **先判关别，再判进度轴** —— 顺序不能反。非战斗关别（道具关 / 宝箱关，
+ * 或配置里被排除出 `combatKinds` 的起点房 / 首领房）恒为 `0`：
+ * 一个没有敌人的空场地写着一份威胁预算，就是数据在说谎，
+ * 而说谎的那一行会被 D1 如实执行（进房关门 → 没有怪 → 门永远不开）。
+ *
+ * 判据只有 `combatKinds` 一处（`isCombatKind`），**这里不另写一份关别名册** ——
+ * 否则「哪几类要打」会有两个来源，改一个忘一个的表现是
+ * 「摆了桌椅但不刷怪」或者反过来，两者都不报错。
+ *
+ * 战斗房仍按老规矩：主干读自己的进度位置，侧室沿用宿主那一间的预算 ——
+ * 侧室在进度上和宿主是并行的，用宿主的值既保证「预算单调不减」，
+ * 也免得侧室变成一个难度洼地。
+ */
+function budgetOf(desc: Desc, mainCount: number, cfg: RoomsConfig): number {
+  if (!isCombatKind(cfg, desc.kind)) return 0
+  const i = desc.branch === 'main' ? desc.mainIndex! : desc.anchorMainIndex!
+  return threatBudget(i, mainCount, cfg)
 }
 
 /**

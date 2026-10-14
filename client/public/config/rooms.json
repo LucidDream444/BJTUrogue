@@ -1,5 +1,5 @@
 {
-  "schemaVersion": 2,
+  "schemaVersion": 3,
 
   "_comment": "D2（关卡与地牢生成）的旋钮。红线 2：改这里不需要重新构建，也不需要改任何 TypeScript。",
   "_owner": "D2。字段定义归 D2（C2 契约），消费方是 D1（战斗场景）与 D3（敌人寻路）。",
@@ -24,6 +24,12 @@
     { "width": 520, "height": 280 },
     { "width": 640, "height": 320 }
   ],
+
+  "_kinds_comment": "★ 新（schemaVersion 2 → 3）：**每一间房是什么关，从这张表起说真话。** 侧室的 kind 不再是写死的 main，而是按 sideKindWeights 抽（权重不必凑成 1，内部归一化）；主干仍是「首间 start、末间 boss、其余 main」，那两个由位置决定，所以不许出现在这张表里（配置加载时就拒绝）。combatKinds 是「哪几类关别要打」的**唯一**判据 —— 不在集合里 = 不摆桌椅、不刷怪、威胁预算为 0，三件事读同一个集合，免得出现「摆了桌椅但不刷怪」这种合法但错的数据。",
+  "sideKindWeights": { "elite": 2, "reward": 3, "chest": 2 },
+
+  "_combat_comment": "要打的关别。main 必须在这里（一排主干教室里总要有要打的屋子，否则整层没有威胁预算）；start / boss 是可以排除的（起点房空着、首领房留出闪避空间，都是合理配置）。改这一行不需要重新构建，也不需要改任何 TypeScript。",
+  "combatKinds": ["start", "main", "elite", "boss"],
 
   "_geometry_comment": "全部 px。minPassageWidth 是**全层最窄的可走净宽下限**，窄口 = 连廊净宽与门宽（首版这里写的是「走廊宽度」，走廊没了，约束的对象换成全层最窄的那几处）。连廊净宽 = mainRoomHeight − wallThickness = 240（减去的是**一层**墙厚，不是两层 —— 墙骑在带的两条边上、各往里吃半个墙厚，首版的 corridorRect 就在这个减法上被两个场子读出两个数）。120 是肉盾直径 80 + 余量。",
   "minPassageWidth": 120,
