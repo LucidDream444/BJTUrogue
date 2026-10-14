@@ -38,14 +38,29 @@
  * 门在这里只表现为「墙上的一个洞 + 一圈橙框」，门外是黑的。取景框的这个取舍
  * 和 `d2_room_kinds` 是同一条（那边也讲了为什么），不重复。
  *
- * ## 这一场**验不了**什么
+ * ## 这一场**也撞得住了**（2026-10-14 起）
  *
- * 与 `d2_room_kinds` 同理：`configure()` **不往底座喂墙**，于是这里没有墙的物理体、
- * 也没有敌人 —— 白方块会直接飘过墙和课桌。那不是 bug，是这一场压根没有物理体
- * （理由是**底座的墙会盖在观感图上面**：`drawBackground` 给每堵墙 `add.rectangle()`
- * 到 depth −50，而这一场的画面在 −80，喂进去就变成一片灰色方块压在教室上）。
+ * `configure()` 仍然**不往底座喂墙** —— 理由是底座的墙会盖在观感图上面：
+ * `drawBackground` 给每堵墙 `add.rectangle()` 到 depth −50，而这一场的画面在 −80，
+ * 喂进去就变成一片灰色方块压在教室上。
  *
- * 要验「挡不挡得住」去 `d2_classroom`，要验「换批种子稳不稳」去 `d2_seed_sweep`。
+ * 但**碰撞体走的是另一条路**：`collision.*` 那一组造的是看不见的 `Zone`，
+ * 和「画出来的墙」没有半点关系（见 `WallSpec` 那张表）。所以这一场照样能
+ * WASD 撞桌椅、左键打一枪看课桌挡弹 / 椅子放行、`E` 开关门 —— 而画面上
+ * 一个灰方块都不会多。**这正是「画出来」和「挡得住」分成两件事的理由之一。**
+ *
+ * 仍然没有的是**敌人**：`walls` 为空 → 底座不建寻路网格（`ArenaBase.makeNav`
+ * 见空墙就返回 `undefined`）→ `EnemySystem` 没有 nav，这一场也就不刷怪。
+ * 要验「怪绕不绕得开课桌」去 `d2_classroom`，要验「换批种子稳不稳」去 `d2_seed_sweep`。
+ *
+ * ## ⚠️ 这一场的碰撞几何是**缩放过的**
+ *
+ * 坐标系是 `mapperFor` 出来的（不是 1:1），所以每块碰撞矩形都要单独换算到屏幕。
+ * 忘了换算的表现**不是报错**，是「桌子画在这儿、人却撞在别处」——
+ * 而看的人第一反应会去查生成器。
+ *
+ * 换算现在收在 `collisionInBox()` 的 `Mapper` 参数里，两个场子共用那一条
+ * （原来各自算，于是 1:1 那一场漏了 —— 见 `_shared.ts` 的 `collisionInBox`）。
  *
  * ## 这一场的成品图
  *
@@ -57,7 +72,7 @@ import type Phaser from 'phaser'
 import type { ArenaConfig, ArenaContext, ArenaDefinition } from '../../ArenaBase'
 import { ArenaBase, WORLD_WIDTH } from '../../ArenaBase'
 import type { RoomsConfig } from '@/domains/procgen/config'
-import { bottom, clipRect, inflate, left, rectsIntersect, right, top } from '@/domains/procgen/model/rect'
+import { bottom, clipRect, doorRect, inflate, left, rectsIntersect, right, top } from '@/domains/procgen/model/rect'
 import type { Door, DungeonMap, Rect, Room } from '@/domains/procgen/model/types'
 import { ROOM_KIND_LABELS } from '@/domains/procgen/model/types'
 import { COLORS, mapperFor, type Mapper } from '@/domains/procgen/presentation/floorplan'
@@ -65,6 +80,7 @@ import { fullyInside, wallsNearRoom } from '@/domains/procgen/presentation/frami
 import { gridOfMap } from '@/domains/procgen/walkability'
 import {
   chooseClassroom,
+  collisionInBox,
   D2_SEEDS,
   DEFAULT_SEED,
   elapsedText,
@@ -72,6 +88,7 @@ import {
   HUD_HINT_RIGHT,
   HUD_TOP_LEFT_BOTTOM,
   loadRoomsConfig,
+  nearestSpawn,
 } from './_shared'
 
 // ---------------------------------------------------------------- 配色
@@ -191,11 +208,14 @@ function strokeWorld(
  * 洞本身**不是画上去的**（生成器本来就给墙留了缺口），这一场只是给洞口加一圈橙框 ——
  * 不加的话，墙上的缺口看起来像「这一段墙没生成出来」，而那正是看场子的人
  * 最容易误判的一种坏法。
+ *
+ * 这条式子**不再在这儿写第二遍**：它就是 `rect.ts` 的 `doorRect()`，
+ * 也是碰撞那边（`collidersOf().barriers`）用来造门挡板的同一条。
+ * 这里自己算一份的话，画出来的橙框和挡板的实际位置会**各说各的**，
+ * 而那种偏差看起来像「门没关严」。
  */
 function doorHole(d: Door, cfg: RoomsConfig): Rect {
-  return d.axis === 'v'
-    ? { x: d.x, y: d.y, width: cfg.wallThickness, height: d.width }
-    : { x: d.x, y: d.y, width: d.width, height: cfg.wallThickness }
+  return doorRect(d, cfg.wallThickness)
 }
 
 /**
@@ -300,6 +320,16 @@ function drawDoor(g: Phaser.GameObjects.Graphics, m: Mapper, hole: Rect): void {
   }
 }
 
+/*
+ * 这里原来有一个 `scaleCollision(c, m, scale)`：把碰撞几何换算到屏幕。
+ *
+ * **搬到 `_shared.ts` 了**（`screenRect()` + `collisionInBox()` 收一个 `Mapper`）。
+ * 原因不是「两场共用少写点」，是**这一场有、1:1 那一场没有** ——
+ * 于是 1:1 那一场的碰撞体整块停在另一个坐标系里（表现和怎么发现的见
+ * `collisionInBox` 的注释）。换算要是留在各自的场子里，同样的漏法就会再来一次：
+ * 唯一有效的防法是让「换算到哪个空间」变成**调用时必须给的一个参数**。
+ */
+
 // ---------------------------------------------------------------- 场子
 
 interface SceneLayout {
@@ -355,21 +385,35 @@ class D2ClassroomSceneArena extends ArenaBase {
     const screenX = FRAME.x + (FRAME.width - box.width * scale) / 2
     const screenY = FRAME.y + (FRAME.height - box.height * scale) / 2
 
+    const mapper = mapperFor(box, screenX, screenY, scale)
+
     this.layout = {
       map,
       cfg,
       room,
       box,
-      mapper: mapperFor(box, screenX, screenY, scale),
+      mapper,
       scale,
       elapsedMs,
       walls: wallsNearRoom(map, box),
     }
 
+    const cfgOut: ArenaConfig = {
+      rngSeed: 0xd2ce,
+      // 碰撞几何：**不经过 `walls`**，所以画面上不会多出底座那些灰方块
+      // （`walls` 为空 = 底座不画墙、也不建寻路网格，见文件头）。
+      // 换算器交进去 —— 这一场缩放过的，不留神就会交出一份地图坐标的几何。
+      collision: collisionInBox(map, cfg, box, mapper),
+    }
+    // 玩家默认落在画布正中心 —— 而这一场的正中心是**缩放后**的那间房的中心，
+    // 底下多半压着一张课桌。挪到最近的刷怪点，理由同 `d2_classroom`。
+    const spawnMap = nearestSpawn(room)
+    if (spawnMap !== null) cfgOut.playerSpawn = mapper.toScreen(spawnMap.x, spawnMap.y)
+
     // ⚠️ **不喂墙**（`walls` 不传）。底座的 `drawBackground` 会给每堵墙
     // `add.rectangle()` 一个灰色方块、画在 depth −50，正好**盖在这一场的观感图上**
     // （这一场在 −80）。喂进去的后果不是「多了碰撞体」，是「教室被一片灰方块糊住」。
-    return { rngSeed: 0xd2ce }
+    return cfgOut
   }
 
   protected override onArenaCreate(ctx: ArenaContext): void {
@@ -399,8 +443,12 @@ class D2ClassroomSceneArena extends ArenaBase {
     })
 
     // 长度是算过的：底座的提示条是 20px、**一行不折**且没有宽度上限
-    // （`Hud.setNotice`），这一句约 40 个全角 ≈ 800px / 1280。再加词就会顶出画布。
-    ctx.hud.setNotice('教室长这样：地砖 / 桌椅 / 黑板 / 门都是画出来的 —— 按 D 叠判定，按 N 换种子')
+    // （`Hud.setNotice`），这一句约 46 个全角 ≈ 920px / 1280。再加词就会顶出画布。
+    //
+    // 前三个动作是**能照做的**：撞桌椅、打一枪、关门。观感图容易变成「看两眼就走」，
+    // 而这三件事能把「画出来的桌椅」和「挡得住人的桌椅」一次对上
+    // ——它们是**同一份地图数据的两个用途**（见文件头）。
+    ctx.hud.setNotice('教室长这样 —— 撞得住了：WASD 走两步、左键打一枪、E 关门；黑板 / 窗 / 盆栽是画上去的')
   }
 }
 
@@ -647,7 +695,7 @@ function drawLegend(scene: Phaser.Scene, L: SceneLayout): void {
       [
         `种子 ${L.map.seed} · #${L.room.order} ${where}·${ROOM_KIND_LABELS[L.room.kind]} · ${L.room.rect.width}×${L.room.rect.height}px · 档位 ${L.room.sizeTier}`,
         `缩放 ×${L.scale.toFixed(2)}（不是 1:1，看观感）· 生成 ${elapsedText(L.elapsedMs)} · 桌椅 ${L.room.obstacles.length} · 刷怪点 ${L.room.spawnPoints.length} · 门 ${doors}`,
-        'D = 判定叠加（红格 / 刷怪点 / 标签）　N = 换种子　黑板 · 窗 · 盆栽是装饰，不在地图数据里',
+        'D = 判定叠加　N = 换种子　E = 关门挡板　WASD 撞桌椅 · 左键打一枪　黑板 / 窗 / 盆栽是装饰',
       ].join('\n'),
       { fontFamily: 'monospace', fontSize: '11px', color: COLORS.text, lineSpacing: 3 },
     )

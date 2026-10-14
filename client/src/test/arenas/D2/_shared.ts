@@ -17,15 +17,19 @@
 
 import type Phaser from 'phaser'
 import { WORLD_HEIGHT, WORLD_WIDTH } from '../../ArenaBase'
+import type { ArenaCollision, WallSpec } from '../../ArenaBase'
 import {
   ROOMS_CONFIG_NAME,
   ROOMS_CONFIG_URL,
   roomsConfigFromCache,
   type RoomsConfig,
 } from '@/domains/procgen/config'
-import type { DungeonMap, Rect, Room } from '@/domains/procgen/model/types'
+import type { DungeonMap, Point, Rect, Room } from '@/domains/procgen/model/types'
+import { collidersOf } from '@/domains/procgen/colliders'
 import { generateDungeon } from '@/domains/procgen/gen/generate'
+import { left, rectsIntersect, top } from '@/domains/procgen/model/rect'
 import { roomViewBox } from '@/domains/procgen/presentation/framing'
+import type { Mapper } from '@/domains/procgen/presentation/floorplan'
 
 /** 换种子时按顺序翻的几张牌。**写死**是为了「同一个种子看到的永远是同一张图」。 */
 export const D2_SEEDS = [1, 13, 42, 837, 20261013, 99991] as const
@@ -87,6 +91,113 @@ export function generateForArena(scene: Phaser.Scene, seed: number): ArenaMap {
   const t0 = performance.now()
   const map = generateDungeon(seed, cfg, () => performance.now())
   return { map, cfg, elapsedMs: performance.now() - t0 }
+}
+
+/**
+ * 一块几何从**地图坐标**换算到**屏幕坐标**，并换成底座认的 `WallSpec`。
+ *
+ * ⚠️ 两边的 `x` / `y` 都是**中心点**，而 `toScreen` 吃的是左上角 ——
+ * 所以先取左上角去换算，再加上半个屏幕尺寸把中心点挪回去。写反了**不报错**，
+ * 只是整块偏半个身位，看起来像「桌子画在这儿、人却撞在别处」。
+ *
+ * 这个函数存在的理由和 `Mapper` 那一行注释是同一条（`floorplan.ts`：
+ * 「所有绘制都走它，别处不许再写一次平移公式」）：平移公式写第二遍，
+ * 两份一分叉就是**一整张图偏移**，而偏移看起来永远像「生成器算歪了」。
+ */
+export function screenRect(r: Rect, m: Mapper): WallSpec {
+  const p = m.toScreen(left(r), top(r))
+  const width = r.width * m.scale
+  const height = r.height * m.scale
+  return { x: p.x + width / 2, y: p.y + height / 2, width, height }
+}
+
+/**
+ * 把整层楼的碰撞几何**裁进这一场的取景框、换算到屏幕**，转成底座认的 `ArenaCollision`。
+ *
+ * 「哪一块该挡什么」不在这一层判 —— 那是 `collidersOf()` 算好的三张表，
+ * 这里只做裁剪和搬运。三个列表**一起裁**，所以「椅子不在挡弹表里」这件事
+ * 裁完还是成立的（分开裁就有机会裁出不一致）。
+ *
+ * ## ⚠️ 换算器是**参数**，不是这一层假定的事
+ *
+ * 两个场子一个 1:1、一个缩放过，几何该落在哪儿**只有调用方知道**。
+ * 这里要是自己假定一个（比如「原样返回，反正是地图坐标」），
+ * 缩放过的那一场会错得显而易见，而 **1:1 的那一场会错得看不出来** ——
+ * 它的地图坐标恰好也是「一堆看起来挺合理的数」。
+ *
+ * 这不是假想的：`d2_classroom` 第一版就是这么写的（那时这里没有 `m` 这个参数），
+ * 表现是**所有碰撞体整体平移**了几百像素 —— 墙、桌椅、8 块门挡板全都在画面上，
+ * 只是**没有一块在那儿**。人撞上去不停、子弹穿墙过、按 `E` 什么都不会变，
+ * 而没有一行报错。所以：**坐标系必须是传进来的，不能是假设的。**
+ * （发现它的是无头截图：整张图扫不到一点挡板的绿色描边。）
+ *
+ * ## 为什么要裁
+ *
+ * `collidersOf()` 交的是**整层楼**的几何：一层有几百段墙，而 1:1 的场子里
+ * 玩家走不出这 1280×720 —— 全喂进去就是几百块永远碰不到的静态体。
+ * 裁一遍之后，读数里那个「造了几块」才和画面上看得见的东西对得上。
+ *
+ * ## 为什么是筛（`rectsIntersect`）而不是裁断（`clipRect`）
+ *
+ * `wallsNearRoom()` 交寻路的那一份是**裁断**的：墙被切在框边上，框外那一截消失。
+ * 画面上看不出来（截掉的本就在框外），但**物理认得出来** —— 框的边缘会凭空
+ * 多出一条本来不存在的通道。所以这里只筛不裁：整段留下。
+ *
+ * 筛用的是**地图坐标**的框（`box` 是 `roomViewBox()` 交的，本来就活在地图空间），
+ * 所以「裁」和「换算」是两步、走的是两个空间 —— 别把 `box` 也换算了：
+ * 换过之后框的位置和房间对不上，裁出来的会是一间**别的**房间里那些块。
+ *
+ * ⚠️ 于是「物理挡得住的墙」与「寻路认为堵的墙」在**框外那几十像素的边条上**
+ * 有一点出入（一个整段、一个截断）。留着不修：修它要动 `makeNav`，
+ * 那是 D3 的活（见 `d2_classroom.ts` 文件头那张表）。
+ */
+export function collisionInBox(
+  map: DungeonMap,
+  cfg: RoomsConfig,
+  box: Rect,
+  m: Mapper,
+): ArenaCollision {
+  const col = collidersOf(map, cfg)
+  const inBox = (r: Rect): boolean => rectsIntersect(r, box)
+  return {
+    solids: col.solids.filter((c) => inBox(c.rect)).map((c) => screenRect(c.rect, m)),
+    bulletStoppers: col.bulletStoppers.filter((c) => inBox(c.rect)).map((c) => screenRect(c.rect, m)),
+    barriers: col.barriers.filter((b) => inBox(b.rect)).map((b) => screenRect(b.rect, m)),
+  }
+}
+
+/**
+ * 玩家该从哪儿进场：**这一间里离房间中心最近的那个刷怪点**（返回**地图坐标**）。
+ *
+ * 为什么用刷怪点，不再写一个「找一格空的」：刷怪点的「站得住」是生成器
+ * **构造**出来的（`gen/spawns.ts`：房间内部 + 从门可达 + 网格上不堵），
+ * 而这里再算一遍就是同一件事有两个真值来源 —— 两边一分岔，
+ * 「玩家卡在桌子里」会变成两边各自都对。
+ *
+ * ## 为什么交**地图坐标**，不是屏幕坐标
+ *
+ * 交地图坐标的话，调用方要屏幕点时过一次 `mapper`，要问生成器那一侧
+ * （`d2_classroom` 的出生点对账、`cellStateAt`）时**直接用** —— 不必再反着
+ * 换算回去。上一版是交屏幕坐标的，于是 1:1 那一场得自己减掉平移量还原，
+ * 而「反着算一遍」正是会在符号或次序上出错、又不会报错的那类代码。
+ *
+ * 「离房间中心最近」这条判据里**没有取景框**：房间中心是地图上的东西，
+ * 两个场子读的是同一个数（拿画布中心去比会在缩放过的那一场里挑到另一个点）。
+ *
+ * `spawnPoints` 是空的话返回 `null`（非战斗关别就是空的），由场子决定怎么办 ——
+ * 这里不兜底挑一个点，那会把「这一间本来就不该站人」伪装成「站得住」。
+ */
+export function nearestSpawn(room: Room): Point | null {
+  let best: Point | null = null
+  let bestDist = Infinity
+  for (const p of room.spawnPoints) {
+    const d = (p.x - room.rect.x) ** 2 + (p.y - room.rect.y) ** 2
+    if (d < bestDist) {
+      bestDist = d
+      best = p
+    }
+  }
+  return best
 }
 
 /**
