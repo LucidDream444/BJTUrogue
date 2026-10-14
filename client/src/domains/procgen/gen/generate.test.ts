@@ -17,12 +17,12 @@ import { fileURLToPath } from 'node:url'
 import { describe, expect, it } from 'vitest'
 
 import { generateDungeon } from './generate'
-import { parseRoomsConfig, type RoomsConfig } from '../config'
+import { parseRoomsConfig, passageClearWidth, isCombatKind, type RoomsConfig } from '../config'
 import { validateContract } from '../validate/contract'
 import { assertReachable, checkReachability } from '../validate/reachability'
 import { gridOfMap } from '../walkability'
 import type { DungeonMap, Rect } from '../model/types'
-import { mainRooms, sideRooms } from '../model/types'
+import { ROOM_KINDS, ROOM_KIND_LABELS, mainRooms, sideRooms } from '../model/types'
 import { left, right, top, bottom } from '../model/rect'
 
 const CONFIG_DIR = fileURLToPath(new URL('../../../../public/config/', import.meta.url))
@@ -97,6 +97,30 @@ describe('D2 生成器 — 房间数量与节奏', () => {
     }
   })
 
+  it('侧室档位过滤后的分布 —— 大档没有被饿死', () => {
+    // design 的 Open Question 2：档位要按 `k = 侧室宽 − roomGap ≤ 宿主宽度` 过滤，
+    // 而大档侧室只有**最宽的那一档主干教室**挂得下 —— 会不会实际上几乎挑不到？
+    // 实测（1000 个种子，5511 间侧室）：档 0 = 2140 / 档 1 = 2202 / 档 2 = 1169，
+    // **没有被饿死**。这里钉的只是下限，不钉死具体数：调 `sideRoomTiers` 或
+    // `mainWidthTiers` 是正常的平衡改动，而每次改都要来改这条测试的话，
+    // 它就从「守门人」变成「噪音」了。
+    const counts = new Array<number>(cfg.sideRoomTiers.length).fill(0)
+    let total = 0
+    for (const seed of SEEDS) {
+      for (const r of sideRooms(generateDungeon(seed, cfg))) {
+        counts[r.sizeTier] = (counts[r.sizeTier] ?? 0) + 1
+        total++
+      }
+    }
+    expect(total, '1000 个种子里一间侧室都没有').toBeGreaterThan(0)
+    for (let t = 0; t < counts.length; t++) {
+      expect(
+        counts[t]! / total,
+        `侧室档位分布 ${JSON.stringify(counts)}（共 ${total} 间）：档 ${t} 只被用了 ${counts[t]} 次`,
+      ).toBeGreaterThan(0.1)
+    }
+  })
+
   it('末间恒为 boss，且不在侧室里', () => {
     for (const seed of SEEDS.slice(0, 200)) {
       const map = generateDungeon(seed, cfg)
@@ -140,12 +164,143 @@ describe('D2 生成器 — 几何契约', () => {
   })
 
   it('房间尺寸完全等于某个档位，没有中间尺寸', () => {
+    // **主干与侧室查的不是同一张表**（见 `config.ts`）：主干只按宽度分档、
+    // 高度是统一值（要与连廊等高），侧室宽高两维都取档。
+    // 合成一句「尺寸等于某个档位」的话，主干教室高度被改掉也照样绿 ——
+    // 而同一条带里的两条墙线正是靠这个高度重合的。
     for (const seed of SEEDS.slice(0, 100)) {
       for (const r of generateDungeon(seed, cfg).rooms) {
-        const hit = cfg.sizeTiers.some((t) => t.width === r.rect.width && t.height === r.rect.height)
-        expect(hit, `种子 ${seed} 房间 #${r.order} 尺寸 ${r.rect.width}×${r.rect.height}`).toBe(true)
+        if (r.branch === 'main') {
+          expect(
+            cfg.mainWidthTiers,
+            `种子 ${seed} 主干 #${r.order} 的宽度 ${r.rect.width} 不是任何一档`,
+          ).toContain(r.rect.width)
+          expect(r.rect.height, `种子 ${seed} 主干 #${r.order} 的高度应是统一值`).toBe(
+            cfg.mainRoomHeight,
+          )
+        } else {
+          const hit = cfg.sideRoomTiers.some(
+            (t) => t.width === r.rect.width && t.height === r.rect.height,
+          )
+          expect(
+            hit,
+            `种子 ${seed} 侧室 #${r.order} 尺寸 ${r.rect.width}×${r.rect.height} 不是任何一档`,
+          ).toBe(true)
+        }
+        expect(r.sizeTier, `种子 ${seed} 房间 #${r.order}`).toBeGreaterThanOrEqual(0)
       }
     }
+  })
+
+  it('主干教室与连廊等价高、等底 —— 同一条带里的上下两面墙是同两条直线', () => {
+    // 「等高」是侧室那面墙能一次贴合住宿主与连廊的前提（见 `layout.ts` 文件头 ①）。
+    // 万一两者的 y 中心不同，症状不是报错，而是侧室的墙贴不住其中一条、露出缝 ——
+    // 而缝在数据里看不出来，在游戏里是「怪从这个洞里走进教室」。
+    for (const seed of SEEDS.slice(0, 100)) {
+      const map = generateDungeon(seed, cfg)
+      for (const p of map.passages) {
+        expect(p.rect.height, `种子 ${seed} 连廊高`).toBe(cfg.mainRoomHeight)
+        expect(top(p.rect), `种子 ${seed} 连廊上边`).toBe(-cfg.mainRoomHeight / 2)
+        expect(p.rect.y, `种子 ${seed} 连廊中线`).toBe(0)
+      }
+      for (const r of mainRooms(map)) {
+        expect(top(r.rect), `种子 ${seed} 主干 #${r.order} 的上边`).toBe(top(map.passages[0]!.rect))
+      }
+    }
+  })
+
+  it('连廊段数 = 主干数 − 1，且只夹在相邻两间之间', () => {
+    // 「贯穿全层的一条走廊」也能凑出 N−1 段来（手工切一刀即可），所以数目对不算通过：
+    // 还要每一段的 `between` 报出的确实是主干轴上相邻的两间。
+    // 报错的症状是「门锁了，但不是该锁的那扇」—— 和「锁对了」长得一模一样。
+    for (const seed of SEEDS.slice(0, 100)) {
+      const map = generateDungeon(seed, cfg)
+      const mains = mainRooms(map)
+      expect(map.passages.length, `种子 ${seed}`).toBe(mains.length - 1)
+      for (let i = 0; i < map.passages.length; i++) {
+        const p = map.passages[i]!
+        const ai = mains.findIndex((m) => m.order === p.between[0])
+        const bi = mains.findIndex((m) => m.order === p.between[1])
+        expect(ai, `种子 ${seed} 连廊 #${i} 的西端`).toBe(i)
+        expect(bi, `种子 ${seed} 连廊 #${i} 的东端`).toBe(i + 1)
+        // 段与段之间不重叠、按 x 从左到右 —— 缩略图与 D1 的封门都按这个顺序读
+        if (i > 0) {
+          expect(left(p.rect), `种子 ${seed} 连廊 #${i} 与 #${i - 1}`).toBeGreaterThan(
+            right(map.passages[i - 1]!.rect),
+          )
+        }
+      }
+    }
+  })
+
+  it('侧室横跨「宿主东段 + 一整段连廊」，搭接不超宿主', () => {
+    // 这条是**唯一一条新几何发明**（design 的 D 那一节），猜错的代价是整个平面结构。
+    // 三段都要钉：西边界 = 宿主东边界 − 搭接；东边界 = 连廊东端；搭接 ∈ [门宽+半格, 宿主宽]。
+    // 上界松一格就是侧室伸到宿主的西墙外面 —— 在缩略图上只是「侧室比教室宽一点」。
+    for (const seed of SEEDS.slice(0, 100)) {
+      const map = generateDungeon(seed, cfg)
+      const mains = mainRooms(map)
+      const minOverlap = cfg.navCellSize / 2 + cfg.doorWidth
+      for (const room of sideRooms(map)) {
+        const host = mains.find((m) => m.order === room.anchoredTo)!
+        const overlap = right(host.rect) - left(room.rect)
+        const tag = `种子 ${seed} 侧室 #${room.order}（挂 #${host.order}）`
+        expect(overlap, `${tag} 的搭接长度`).toBeLessThanOrEqual(host.rect.width)
+        // 下限：入口门整个落在搭接段里，否则有一半开在宿主外面 —— 几何上看不出来
+        expect(overlap, `${tag} 的搭接长度`).toBeGreaterThanOrEqual(minOverlap)
+        // 东边界接的是**连廊的东端**（下一间主干教室的西边界），不是连廊中间。
+        // 接在这儿出口门才永远紧挨着前进门：从侧室出来的玩家一转身就看得见它。
+        expect(right(room.rect), `${tag} 的东边界`).toBe(right(host.rect) + cfg.roomGap)
+        expect(room.rect.width, `${tag} 的宽度`).toBe(overlap + cfg.roomGap)
+      }
+    }
+  })
+
+  it('每一扇门的门洞两端都落在格边界上', () => {
+    // 门宽是奇数格只保证「长度是整格」，保证不了**位置**：整格宽的门摆在半个格子的
+    // 偏移上，两端一样落在格中心 —— 于是实际能过的格子数比设计多一个。
+    // 竖直墙上的门心偏移半格（`layout.ts` 文件头 ④）就是为了这两端。
+    const cell = cfg.navCellSize
+    const mod = (a: number, n: number): number => ((a % n) + n) % n
+    for (const seed of SEEDS.slice(0, 100)) {
+      const map = generateDungeon(seed, cfg)
+      for (const room of map.rooms) {
+        for (let i = 0; i < room.doors.length; i++) {
+          const d = room.doors[i]!
+          const along = d.axis === 'h' ? d.x : d.y
+          const origin = d.axis === 'h' ? map.navOrigin.x : map.navOrigin.y
+          const tag = `种子 ${seed} #${room.order} 的 doors[${i}]（${d.kind}/${d.axis}）`
+          expect(mod(along - d.width / 2 - origin, cell), `${tag} 的门洞西/北端`).toBe(0)
+          expect(mod(along + d.width / 2 - origin, cell), `${tag} 的门洞东/南端`).toBe(0)
+        }
+      }
+    }
+  })
+
+  it('侧室的挂靠侧随种子变，不是按宿主序号交替', () => {
+    // 交替（奇偶决定上下）是个很像设计、却会让「随机刷新」看着像花纹的实现。
+    // 两条都要钉，因为它们抓的是不同的坏法：
+    // ① 同一个锚点在不同种子上必须两侧都出现过 —— 抓「按锚点序号定侧」
+    // ② 同一张图里两个锚点可以同侧 —— 抓「按序号奇偶交替」
+    let north = 0
+    let south = 0
+    let sameSidedMapSeen = false
+    for (const seed of SEEDS.slice(0, 400)) {
+      const byAnchor = new Map<number, number>()
+      for (const room of sideRooms(generateDungeon(seed, cfg))) {
+        const band = room.rect.y < 0 ? -1 : 1
+        byAnchor.set(room.anchoredTo!, band)
+        if (room.anchoredTo === 0) {
+          if (band < 0) north++
+          else south++
+        }
+      }
+      const bands = [...byAnchor.values()]
+      if (bands.length >= 2 && new Set(bands).size === 1) sameSidedMapSeen = true
+    }
+    expect(north, '锚在主干 #0 上的侧室：一次都没挂到北侧').toBeGreaterThan(0)
+    expect(south, '锚在主干 #0 上的侧室：一次都没挂到南侧').toBeGreaterThan(0)
+    expect(sameSidedMapSeen, '一整批图里都没出现「两个锚点同侧」—— 像是按序号交替').toBe(true)
   })
 
   it('所有房间都是轴对齐矩形且互相不重叠', () => {
@@ -165,12 +320,31 @@ describe('D2 生成器 — 几何契约', () => {
     }
   })
 
-  it('难度档位不参与几何 —— 地图里没有任何难度字段', () => {
+  it('难度档位不参与几何 —— 三档难度同种子产出逐项相同的地图', () => {
     // 生成器签名里就没有难度参数（`(seed, cfg, now?)`），所以「同一颗种子在
-    // 三档难度下产出同一张图」在调用侧**不可能被破坏**。真正可能被破坏的是
-    // 反向的那件事：将来有人为了「困难模式多放几张桌子」给 `DungeonMap`
-    // 加一个难度字段。那时这条会红，而红的位置正是要拦下来的地方。
-    const banned = ['difficulty', 'difficultyId', 'tier', 'mode']
+    // 三档难度下产出同一张图」在调用侧**不可能被破坏**。
+    //
+    // 那这条断言的力气花在哪儿？**花在两件会真的坏掉的事上**：
+    //
+    // ① `DungeonMap` 里冒出一个难度字段（比如为了「困难模式多放几张桌子」）
+    // ② `RoomsConfig` 里冒出一个从 `difficulty.json` 派生的字段
+    //    （比如把 `enemyCount` 乘进 `obstacleDensityMax`）
+    //
+    // 两条都是**悄悄**发生的：地图和配置都能照常跑，只有难度一调，
+    // 几何跟着变 —— 而那正是「难度只乘在预算 → 刷怪那一步」这条约定的反面。
+    // 所以难度档位的名字从**真文件**里读，不在这里另写一份。
+    const diffRaw = JSON.parse(readFileSync(CONFIG_DIR + 'difficulty.json', 'utf8')) as {
+      difficulties: Record<string, Record<string, number>>
+    }
+    const ids = Object.keys(diffRaw.difficulties)
+    expect(ids.length, '难度档位至少要有三档').toBeGreaterThanOrEqual(3)
+
+    // 三档下拿的是**同一份 cfg**，所以三张图逐项相同 —— 它们必须是同一个对象级别相等
+    const ref = JSON.stringify(generateDungeon(SEEDS[0]!, cfg))
+    for (const id of ids) {
+      expect(JSON.stringify(generateDungeon(SEEDS[0]!, cfg)), `难度 ${id}`).toBe(ref)
+    }
+
     const keys = new Set<string>()
     const walk = (v: unknown): void => {
       if (Array.isArray(v)) return v.forEach(walk)
@@ -181,8 +355,14 @@ describe('D2 生成器 — 几何契约', () => {
       }
     }
     walk(generateDungeon(SEEDS[0]!, cfg))
-    for (const b of banned) {
+    const bannedMapKeys = ['difficulty', 'difficultyId', 'tier', 'mode']
+    for (const b of bannedMapKeys) {
       expect([...keys], `DungeonMap 里不该出现 "${b}" —— 难度只乘在"预算 → 刷怪"那一步`).not.toContain(b)
+    }
+    // 反向：配置里也不许出现难度派生的字段名（含难度档位的 id 本身）
+    const bannedCfgKeys = [...Object.keys(diffRaw.difficulties), ...Object.keys(diffRaw.difficulties[ids[0]!]!)]
+    for (const b of bannedCfgKeys) {
+      expect(Object.keys(cfg), `rooms.json 里不该出现 "${b}" —— 那是难度侧的旋钮`).not.toContain(b)
     }
   })
 })
@@ -201,11 +381,30 @@ describe('D2 生成器 — 可达性（硬性验收标准）', () => {
     expect(failures.slice(0, 5).join('\n')).toBe('')
   })
 
-  it('走廊实测可走宽度 ≥ corridorMinWidth', () => {
+  it('每一段连廊的实测净宽 = mainRoomHeight − wallThickness', () => {
+    // 这个数是**量出来的**（从连廊中线那一列上下数格），不是照配置抄的 ——
+    // 两者不是一个数：`Passage.rect` 含墙，可走的是里面那一条。
+    // 量错过一次（数着数着穿过侧室的出口门走进侧室，240 的连廊报成 520），
+    // 所以这里钉的是**实测值**：改坏了，红的是这条，而不是等着人去看读数。
     for (const seed of SEEDS.slice(0, 100)) {
       const map = generateDungeon(seed, cfg)
       const r = checkReachability(map, cfg)
-      expect(r.corridorWalkableWidth, `种子 ${seed}`).toBeGreaterThanOrEqual(cfg.corridorMinWidth)
+      expect(r.passageClearWidths.length, `种子 ${seed}`).toBe(map.passages.length)
+      for (let i = 0; i < r.passageClearWidths.length; i++) {
+        expect(r.passageClearWidths[i], `种子 ${seed} 连廊 #${i} 的净宽`).toBe(passageClearWidth(cfg))
+      }
+    }
+  })
+
+  it('最窄窄口（连廊净宽与每一扇门取小）≥ minPassageWidth', () => {
+    for (const seed of SEEDS.slice(0, 100)) {
+      const map = generateDungeon(seed, cfg)
+      const r = checkReachability(map, cfg)
+      expect(r.narrowestOpeningWidth, `种子 ${seed}`).toBeGreaterThanOrEqual(cfg.minPassageWidth)
+      // 反过来也要钉：读数不能是「随手量到的最小值」—— 窄口就那么两处，
+      // 报出比它俩更小的数说明量到别的地方去了（比如把墙里那一格数进去了）。
+      const narrowest = Math.min(passageClearWidth(cfg), cfg.doorWidth)
+      expect(r.narrowestOpeningWidth, `种子 ${seed}`).toBe(narrowest)
     }
   })
 
@@ -236,9 +435,14 @@ describe('D2 生成器 — 可达性（硬性验收标准）', () => {
     }
   })
 
-  it('每间房都有出生点 —— 空房 = 清不掉 = 整局作废', () => {
+  it('每间**战斗**房都有出生点 —— 空房 = 清不掉 = 整局作废', () => {
+    // ⚠️ 判据是 `combatKinds`，不是「所有房间」。原先这条写的是「每间房」，
+    // 那是关别表落地之前的实话；道具关 / 宝箱关**本来就不该有怪**，
+    // 拿「每间房」去要求它们，等于把「空房」这件事从设计里抹掉。
+    // 非战斗房那一侧由下面「非战斗房三空」那条守着。
     for (const seed of SEEDS.slice(0, 200)) {
       for (const room of generateDungeon(seed, cfg).rooms) {
+        if (!isCombatKind(cfg, room.kind)) continue
         expect(room.spawnPoints.length, `种子 ${seed} 房间 #${room.order}`).toBeGreaterThan(0)
       }
     }
@@ -253,7 +457,7 @@ describe('D2 校验器 — 负样本（证明它不是永远通过）', () => {
   type LooseMap = {
     rooms: AnyRec[]
     walls: AnyRec[]
-    corridorRect: MutRect
+    passages: { rect: MutRect; between: number[] }[]
     navCellSize: number
     navOrigin: { x: number; y: number }
     schemaVersion: number
@@ -316,22 +520,56 @@ describe('D2 校验器 — 负样本（证明它不是永远通过）', () => {
     expectFails(m, `rooms[${m.rooms.length - 1}].kind`, "应是 'boss'")
   })
 
-  it('走廊被堵死 —— 实测宽度不足被拒，且给出实际值', () => {
-    const cell = cfg.navCellSize
+  it('连廊被拦腰切断 —— 实测净宽为 0，层 1 也抓得住', () => {
     const m = broken(SEED, (x) => {
-      // 在走廊正中间横一道整格高的墙 —— 可走宽度实测出来就是 0
+      // 在**第一段**连廊正中间竖一道墙：宽两格、高 = 整条带高。
+      //
+      // 为什么不能只横一道「一格厚」的墙（首版那条负样本就是这么写的）：
+      // 竖直墙上的门洞是 **3 格高**（`doorWidth` 120 = 3 格），而 40px 厚的墙
+      // 只盖住中间那 2 格 —— 门洞最上面那一格还是通的，flood fill 从那里挤过去，
+      // **一段被切断的连廊照样判绿**。这不是假设，是照着写的版本跑出来的。
+      // 高 = `mainRoomHeight` 才能在带内把所有行都盖住。
+      //
+      // 这一条同时是 `floodWithin`（限定在连廊矩形里走）的存在理由：
+      // 不限定范围的话，从西端的门出去可以绕「教室 → 别的门 → 整层楼 → 东端的门」，
+      // 一段断掉的连廊会被判绿 —— 而这条负样本正卡在它上面。
+      const p = x.passages[0]!.rect
       x.walls.push({
-        x: x.corridorRect.x,
-        y: x.corridorRect.y,
-        width: x.corridorRect.width,
-        height: cell,
+        x: p.x,
+        y: p.y,
+        width: cfg.navCellSize * 2,
+        height: cfg.mainRoomHeight,
       })
     })
     const r = checkReachability(m, cfg)
     const text = r.problems.join('\n')
-    expect(text).toContain('走廊实测可走宽度')
-    expect(text).toContain(`${cfg.corridorMinWidth}px`)
-    expect(r.corridorWalkableWidth).toBe(0)
+    // 层 1：这一段自己走不通。报的是**哪一段**（`between` 报出的两间房）
+    expect(text).toContain('连廊 #0')
+    expect(text).toContain('堵死')
+    expect(r.layer1Ok).toBe(false)
+    // 层 2：窄口读数跟着掉到 0，并给出配置里的下限
+    expect(text).toContain(`${cfg.minPassageWidth}px`)
+    expect(r.passageClearWidths[0]).toBe(0)
+    expect(r.narrowestOpeningWidth).toBe(0)
+    // 其余的连廊不受影响 —— 堵一段不是"全层都堵"
+    expect(r.passageClearWidths.slice(1).every((w) => w === passageClearWidth(cfg))).toBe(true)
+  })
+
+  it('连廊被整段填实 —— 抓得住"这一段根本进不去"', () => {
+    // 上一条切的是「进得去、出不来」。这一条填的是**整个**连廊矩形，
+    // 于是连"西端门外那一格"都站不住 —— 是另一条分支，另一句报错。
+    // 两条分开写，是为了让「报出来的话指向真正的症状」这件事也被测到：
+    // 合成一句「连廊有问题」的话，看的人得自己去分辨是堵了还是没了。
+    const m = broken(SEED, (x) => {
+      const p = x.passages[0]!.rect
+      x.walls.push({ x: p.x, y: p.y, width: p.width, height: p.height })
+    })
+    const r = checkReachability(m, cfg)
+    const text = r.problems.join('\n')
+    expect(text).toContain('连廊 #0')
+    expect(text).toContain('进不去')
+    expect(r.layer1Ok).toBe(false)
+    expect(r.passageClearWidths[0]).toBe(0)
   })
 
   it('障碍物没按格对齐被拒', () => {
@@ -460,6 +698,347 @@ describe('D2 校验器 — 负样本（证明它不是永远通过）', () => {
       x.schemaVersion = 99
     })
     expectFails(m, 'schemaVersion', '迁移要显式写出来')
+  })
+
+  // ---- 关别表那三条规则（schemaVersion 3）
+
+  /** 把一间房改造成**合法**的非战斗房：关别对了，三项也都清空了。 */
+  const asNonCombat = (m: LooseMap, order: number): AnyRec => {
+    const r = m.rooms[order]!
+    r.kind = 'reward'
+    r.obstacles = []
+    r.spawnPoints = []
+    r.budget = 0
+    return r
+  }
+
+  /** 一间侧室的 order —— 侧室才抽关别，主干那三类由位置决定。 */
+  const someSideOrder = (m: LooseMap): number =>
+    (m.rooms.find((r) => r.branch === 'side') as AnyRec).order as number
+
+  it('非战斗房摆着课桌被拒（三条里先撞上的那条）', () => {
+    const m = broken(SEED, (x) => {
+      const victim = asNonCombat(x, someSideOrder(x))
+      const donor = x.rooms.find((r) => (r.obstacles as AnyRec[]).length > 0)!
+      victim.obstacles = [(donor.obstacles as AnyRec[])[0]]
+    })
+    expectFails(m, 'obstacles', '是不打架的关别')
+  })
+
+  it('非战斗房有刷怪点被拒 —— 门会永远等不到清空', () => {
+    const m = broken(SEED, (x) => {
+      const victim = asNonCombat(x, someSideOrder(x))
+      const rect = victim.rect as MutRect
+      victim.spawnPoints = [{ x: rect.x, y: rect.y }]
+    })
+    expectFails(m, 'spawnPoints', '永远等不到清空')
+  })
+
+  it('非战斗房留着威胁预算被拒', () => {
+    const m = broken(SEED, (x) => {
+      asNonCombat(x, someSideOrder(x)).budget = 8
+    })
+    expectFails(m, 'budget', '一个没有敌人的场地没有威胁')
+  })
+
+  it('起点房不在第一间被拒', () => {
+    const m = broken(SEED, (x) => {
+      x.rooms[3]!.kind = 'start'
+    })
+    expectFails(m, 'rooms[3].kind', '只能是第一间')
+  })
+
+  it('首领房不在最后一间被拒 —— 藏在中间等于这局没有终点', () => {
+    const m = broken(SEED, (x) => {
+      x.rooms[3]!.kind = 'boss'
+    })
+    expectFails(m, 'rooms[3].kind', '只能是最后一间')
+  })
+
+  it('侧室挂着配置表外的关别被拒，并列出允许的取值', () => {
+    const m = broken(SEED, (x) => {
+      x.rooms[someSideOrder(x)]!.kind = 'shop' // 合法枚举值，但不在 sideKindWeights 里
+    })
+    expectFails(m, 'kind', '不在 sideKindWeights 里')
+  })
+})
+
+describe('D2 配置 — 关别表（schemaVersion 3）', () => {
+  // 与上面那组同一条理由：一个从来不拒绝的配置加载器，和没有加载器长得一样。
+  // 这一组把**每一类**新校验各踩一次；读的是真文件、再就地弄坏一处，
+  // 所以「真表本身是合法的」也顺带被证明了（下面每个用例都要先复制出一份好表）。
+  type Raw = Record<string, unknown>
+
+  const rawRooms = (): Raw => JSON.parse(readFileSync(CONFIG_DIR + 'rooms.json', 'utf8')) as Raw
+
+  const expectConfigFails = (
+    mangle: (raw: Raw) => void,
+    pathPart: string,
+    messagePart: string,
+  ): void => {
+    const raw = rawRooms()
+    mangle(raw)
+    let caught: Error | null = null
+    try {
+      parseRoomsConfig(raw)
+    } catch (e) {
+      caught = e as Error
+    }
+    expect(caught, `本该被拒（期望命中 ${pathPart}）`).not.toBeNull()
+    expect(caught!.message).toContain(pathPart)
+    expect(caught!.message).toContain(messagePart)
+  }
+
+  it('真表本身合法（负样本的前提）', () => {
+    expect(() => parseRoomsConfig(rawRooms())).not.toThrow()
+  })
+
+  it('空权重表被拒 —— 侧室的关别就是从这张表里抽的', () => {
+    expectConfigFails(
+      (raw) => {
+        raw.sideKindWeights = {}
+      },
+      'rooms.sideKindWeights',
+      '至少要有一类关别',
+    )
+  })
+
+  it('权重为 0 被拒 —— 写 0 等于「这一类永远抽不到」', () => {
+    expectConfigFails(
+      (raw) => {
+        raw.sideKindWeights = { elite: 0 }
+      },
+      'rooms.sideKindWeights.elite',
+      '权重要大于 0',
+    )
+  })
+
+  it('权重为负被拒', () => {
+    expectConfigFails(
+      (raw) => {
+        raw.sideKindWeights = { reward: -1 }
+      },
+      'rooms.sideKindWeights.reward',
+      '权重要大于 0',
+    )
+  })
+
+  it('"boss" 混进侧室权重被拒 —— 它由位置决定，不是能抽出来的内容', () => {
+    expectConfigFails(
+      (raw) => {
+        raw.sideKindWeights = { elite: 2, boss: 1 }
+      },
+      'rooms.sideKindWeights.boss',
+      '由**位置**决定',
+    )
+  })
+
+  it('"start" 混进侧室权重同样被拒', () => {
+    expectConfigFails(
+      (raw) => {
+        raw.sideKindWeights = { start: 1 }
+      },
+      'rooms.sideKindWeights.start',
+      '由**位置**决定',
+    )
+  })
+
+  it('combatKinds 里的关别不存在被拒', () => {
+    expectConfigFails(
+      (raw) => {
+        raw.combatKinds = ['main', 'library']
+      },
+      'rooms.combatKinds[1]',
+      '要一个关别',
+    )
+  })
+
+  it('combatKinds 缺 main 被拒 —— 否则整层没有一处会刷怪', () => {
+    expectConfigFails(
+      (raw) => {
+        raw.combatKinds = ['elite', 'boss']
+      },
+      'rooms.combatKinds',
+      '必须含 main',
+    )
+  })
+
+  it('combatKinds 里重复的关别被拒', () => {
+    expectConfigFails(
+      (raw) => {
+        raw.combatKinds = ['main', 'main']
+      },
+      'rooms.combatKinds[1]',
+      '重复了',
+    )
+  })
+
+  it('每个关别都有非空中文名 —— 加枚举值忘了加名字，这里就红', () => {
+    for (const kind of ROOM_KINDS) {
+      const label = ROOM_KIND_LABELS[kind]
+      expect(label, `${kind} 没有中文名`).toBeTruthy()
+      expect(label.trim(), `${kind} 的中文名是空白`).not.toBe('')
+    }
+  })
+
+  it('中文名互不相同 —— 两个关别写同一个词，画面上就分不出来', () => {
+    const labels = ROOM_KINDS.map((k) => ROOM_KIND_LABELS[k])
+    expect(new Set(labels).size).toBe(labels.length)
+  })
+})
+
+describe('D2 关别与家具（schemaVersion 3）', () => {
+  /** 换掉 `combatKinds` 再解析一遍 —— 别的字段一个都不动。 */
+  const cfgWithCombat = (kinds: string[]): RoomsConfig => {
+    const raw = JSON.parse(readFileSync(CONFIG_DIR + 'rooms.json', 'utf8')) as Record<string, unknown>
+    raw.combatKinds = kinds
+    return parseRoomsConfig(raw)
+  }
+
+  /** 与关别无关的那一半：矩形、门、档位、进度位置。 */
+  const geometryOf = (map: DungeonMap): unknown =>
+    map.rooms.map((r) => ({
+      order: r.order,
+      kind: r.kind,
+      branch: r.branch,
+      rect: r.rect,
+      sizeTier: r.sizeTier,
+      doors: r.doors,
+      anchoredTo: r.anchoredTo,
+    }))
+
+  it('主干：首间起点、末间首领，中间清一色普通战', () => {
+    for (const seed of SEEDS.slice(0, 200)) {
+      const mains = mainRooms(generateDungeon(seed, cfg))
+      expect(mains[0]!.kind, `种子 ${seed}`).toBe('start')
+      expect(mains[mains.length - 1]!.kind, `种子 ${seed}`).toBe('boss')
+      for (const r of mains.slice(1, -1)) {
+        expect(r.kind, `种子 ${seed} 主干 #${r.order}`).toBe('main')
+      }
+    }
+  })
+
+  it('侧室的关别全在 sideKindWeights 的键里，且没有 start / boss', () => {
+    const allowed = new Set(Object.keys(cfg.sideKindWeights))
+    expect(allowed.size, '真表里至少要有两类').toBeGreaterThan(1)
+    for (const seed of SEEDS.slice(0, 200)) {
+      for (const r of sideRooms(generateDungeon(seed, cfg))) {
+        expect(allowed.has(r.kind), `种子 ${seed} 侧室 #${r.order} 是 ${r.kind}`).toBe(true)
+        expect(r.kind, `种子 ${seed} 侧室 #${r.order}`).not.toBe('start')
+        expect(r.kind, `种子 ${seed} 侧室 #${r.order}`).not.toBe('boss')
+      }
+    }
+  })
+
+  it('几何不受 combatKinds 影响 —— 改它只动桌椅 / 刷怪点 / 预算', () => {
+    // 这是「关别」与「打不打架」解耦的直接验收：关别是生成出来的事实，
+    // `combatKinds` 是对它的解释。改解释不该动一个像素。
+    const lean = cfgWithCombat(['main'])
+    for (const seed of SEEDS.slice(0, 50)) {
+      const a = generateDungeon(seed, cfg)
+      const b = generateDungeon(seed, lean)
+      expect(geometryOf(b), `种子 ${seed}`).toEqual(geometryOf(a))
+      expect(b.passages, `种子 ${seed}`).toEqual(a.passages)
+      expect(b.walls, `种子 ${seed}`).toEqual(a.walls)
+      expect(b.bounds, `种子 ${seed}`).toEqual(a.bounds)
+      expect(b.navOrigin, `种子 ${seed}`).toEqual(a.navOrigin)
+      expect(b.navCellSize, `种子 ${seed}`).toBe(a.navCellSize)
+    }
+  })
+
+  it('几何不受 sideKindWeights 影响 —— 侧室抽到什么关别，房子还是那间房子', () => {
+    // 把关别抹成一个常量再比：要证明的是「只有关别变了」。
+    const noKind = (map: DungeonMap): unknown =>
+      (geometryOf(map) as { kind: string; rect: Rect }[]).map((r) => ({ ...r, kind: '·' }))
+
+    const raw = JSON.parse(readFileSync(CONFIG_DIR + 'rooms.json', 'utf8')) as Record<string, unknown>
+    raw.sideKindWeights = { elite: 1 }
+    const allElite = parseRoomsConfig(raw)
+
+    for (const seed of SEEDS.slice(0, 50)) {
+      const a = generateDungeon(seed, cfg)
+      const b = generateDungeon(seed, allElite)
+      expect(noKind(b), `种子 ${seed}`).toEqual(noKind(a))
+      for (const r of sideRooms(b)) {
+        expect(r.kind, `种子 ${seed} 侧室 #${r.order}`).toBe('elite')
+      }
+    }
+    // 防「这条测试其实什么都没测」：权重确实换了关别，否则上面那两条恒真。
+    const seed = SEEDS[0]!
+    expect(geometryOf(generateDungeon(seed, allElite))).not.toEqual(
+      geometryOf(generateDungeon(seed, cfg)),
+    )
+  })
+
+  it('非战斗房三空、战斗房基本都有桌椅 —— 1000 个种子', () => {
+    let combatRooms = 0
+    let combatRoomsWithDesks = 0
+    let nonCombatRooms = 0
+    for (const seed of SEEDS) {
+      for (const r of generateDungeon(seed, cfg).rooms) {
+        const where = `种子 ${seed} 房间 #${r.order}（${r.kind}）`
+        if (isCombatKind(cfg, r.kind)) {
+          combatRooms++
+          if (r.obstacles.length > 0) combatRoomsWithDesks++
+        } else {
+          nonCombatRooms++
+          expect(r.obstacles.length, `${where} 摆着桌椅`).toBe(0)
+          expect(r.spawnPoints.length, `${where} 有刷怪点`).toBe(0)
+          expect(r.budget, `${where} 还留着预算`).toBe(0)
+        }
+      }
+    }
+    expect(nonCombatRooms, '真表里道具关/宝箱关一间都没抽到？').toBeGreaterThan(0)
+
+    // ⚠️ 这里**不是** 100%，而原因与本 change 无关。
+    // 会空的只有一类：最小档（400×280）的**普通战**主干教室，实测约 45%
+    // （挂侧室的更空，多一扇门就多一块禁区）。tier1 / tier2 从不空；
+    // 起点与首领房从不空 —— 它们只有一扇竖门。
+    //
+    // 原因是**门禁区**把那一档房子吃得只剩放不下桌子的缝：400×280 的内部只有 9×6 格，
+    // 而每扇门的禁区是 240×160（`doorWidth` 120 + 两侧各 `doorClearance` 60）。
+    // 西、东两扇竖门各吃掉 3 格宽，北/南那扇侧室门再横着吃掉 6 格 ——
+    // 剩下的缝要么只有 3 格宽，要么落在摆桌循环「跳过一张桌就 `ix += len + 1`」
+    // 的步进之外（从 `ix=1` 起步，`ix=2` 那个恰好放得下的位置永远走不到）。
+    //
+    // 这是 `rework-layout-to-classroom-row` 之后就存在的事实，不是关别表引进的。
+    // 要不要处理（把禁区改成圆、让小教室摆 1 格桌、还是干脆接受空场地）是
+    // **另一个 change 的决定** —— 它一动，所有种子的桌椅与刷怪点都会重排。
+    //
+    // 写成 `> 0.85` 而不是 `=== 1`：断言要描述**现在为真的事实**，
+    // 一个恒假的断言会被下一个人直接删掉，连带把上面那三条也删了。
+    expect(combatRoomsWithDesks / combatRooms, '战斗房有桌椅的比例').toBeGreaterThan(0.85)
+    console.log(
+      `[读] 1000 个种子：战斗房 ${combatRooms} 间（${((combatRoomsWithDesks / combatRooms) * 100).toFixed(1)}% 有桌椅）、` +
+        `非战斗房 ${nonCombatRooms} 间（全部三空）`,
+    )
+  })
+
+  it('权重分布 —— 每一类关别都没有被饿死', () => {
+    // 实测（1000 个种子、5457 间侧室，权重 elite:reward:chest = 2:3:2）：
+    //   elite 1466（期望 1559），reward 2367（期望 2339），chest 1624（期望 1559）
+    // 三类都在期望值的 ±6% 内。数字写在这里是因为权重一改它们就过期 ——
+    // 读的时候**只当量级参考**，真数在测试输出里（`[读] 侧室 …`）。
+    const weights = cfg.sideKindWeights
+    const total = Object.values(weights).reduce((a, b) => a + b, 0)
+    const count = new Map<string, number>()
+    let sides = 0
+    for (const seed of SEEDS) {
+      for (const r of sideRooms(generateDungeon(seed, cfg))) {
+        sides++
+        count.set(r.kind, (count.get(r.kind) ?? 0) + 1)
+      }
+    }
+    const report: string[] = []
+    for (const [kind, w] of Object.entries(weights)) {
+      const want = (w / total) * sides
+      const got = count.get(kind) ?? 0
+      report.push(`${kind}: ${got}（期望 ${want.toFixed(0)}）`)
+      // 下限取一半：这是「有没有被饿死」，不是卡方检验。
+      // 卡得太死的话，改一个权重就会红，而那种红不是缺陷。
+      expect(got, `${kind} 抽到的次数`).toBeGreaterThan(want * 0.5)
+    }
+    console.log(`[读] 侧室 ${sides} 间 —— ${report.join('，')}`)
   })
 })
 
