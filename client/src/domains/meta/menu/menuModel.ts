@@ -40,7 +40,7 @@ export const MENU_ACTION_LABELS: Readonly<Record<MenuAction, string>> = {
  * 用**一个字段**而不是三个布尔：三个布尔能有 8 种组合，其中 5 种是"两个弹层
  * 同时开着"这种不合法状态 —— 那种状态迟早会出现，而且只在某个边角操作里出现。
  */
-export type MenuScreen = 'main' | 'help' | 'settings' | 'confirm-quit'
+export type MenuScreen = 'main' | 'help' | 'settings' | 'upgrade' | 'confirm-quit'
 
 export interface MenuState {
   screen: MenuScreen

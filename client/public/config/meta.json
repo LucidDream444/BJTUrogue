@@ -1,0 +1,70 @@
+{
+  "schemaVersion": 1,
+
+  "_comment": "D4 局外成长的数值表。**字段定义按契约 C2 归 D2** —— 这份由 D4 起草，等 D2 过一眼再算冻结。",
+  "_economy_note": "币只有一个用途：**带出对局**，在局外用掉。对局中不消耗币。死亡不清空币。",
+  "_upgrade_note": "一条成长线（track）的第 L+1 级成本 = round(baseCost × costGrowth ^ L)。L 从 0 起算。",
+
+  "economy": {
+    "coinsPerKill": 1,
+    "coinsPerClearedRoom": 5,
+    "coinsPerDepth": 20
+  },
+
+  "characters": {
+    "student": {
+      "_note": "MVP 只有一个角色。base 是**角色档**的基础值，与 balance.json 里那个用于战斗基线的假玩家是两回事。",
+      "unlockCost": 0,
+      "base": { "maxHp": 200, "magic": 40, "armor": 0 },
+      "tracks": [
+        {
+          "id": "maxHp",
+          "name": "生命上限",
+          "unit": "point",
+          "perLevel": 20,
+          "baseCost": 30,
+          "costGrowth": 1.6,
+          "maxLevel": 10
+        },
+        {
+          "id": "magic",
+          "name": "魔法上限",
+          "unit": "point",
+          "perLevel": 10,
+          "baseCost": 25,
+          "costGrowth": 1.6,
+          "maxLevel": 10
+        },
+        {
+          "id": "armor",
+          "name": "护甲",
+          "unit": "point",
+          "perLevel": 1,
+          "baseCost": 40,
+          "costGrowth": 1.8,
+          "maxLevel": 5
+        }
+      ]
+    }
+  },
+
+  "skills": {
+    "rapid_fire": {
+      "_note": "MVP 只有一个技能：加攻速。一个角色可以选择多个技能 —— 那是下一版的事（见改动日志的缺口清单）。",
+      "name": "快速击发",
+      "description": "提升攻击速度",
+      "unlockCost": 0,
+      "tracks": [
+        {
+          "id": "attackSpeedPct",
+          "name": "攻速",
+          "unit": "percent",
+          "perLevel": 5,
+          "baseCost": 35,
+          "costGrowth": 1.7,
+          "maxLevel": 10
+        }
+      ]
+    }
+  }
+}

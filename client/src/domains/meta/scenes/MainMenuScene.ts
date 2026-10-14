@@ -45,7 +45,9 @@ import {
 } from '../menu/menuModel'
 import { ProfileStore } from '../profile/ProfileStore'
 import { LocalStorageProfileStorage } from '../profile/storage'
+import { META_CONFIG_NAME, META_CONFIG_URL, parseMetaConfig, type MetaConfig } from '../metaConfig'
 import type { Difficulty } from '@/core/config'
+import { buildUpgradePanel } from '../upgrade/UpgradePanel'
 import { Button } from '../ui/Button'
 import { Card } from '../ui/Card'
 import { buildOverlayFrame } from '../ui/overlayFrame'
@@ -97,8 +99,19 @@ export class MainMenuScene extends Phaser.Scene {
   private static readonly OVERLAY_TITLES = {
     help: '操作说明',
     settings: '设置',
+    upgrade: '角色升级',
     'confirm-quit': '确定退出游戏？',
   } as const
+  /** 每屏的面板高度。写在一起，改一处就够 —— 分开写在两个地方必然漂。 */
+  private static readonly OVERLAY_HEIGHTS = {
+    help: 320,
+    settings: 360,
+    upgrade: 470,
+    'confirm-quit': 360,
+  } as const
+
+  /** 局外成长的数值表。**加载失败时是 `null`**，升级页会照实说 */
+  private meta: MetaConfig | null = null
 
   private readonly disposers: (() => void)[] = []
 
@@ -116,8 +129,26 @@ export class MainMenuScene extends Phaser.Scene {
     this.state = createMenuState()
   }
 
+  preload(): void {
+    // 配置表必须走 Phaser 的 loader，**不能 import** —— `public/` 下的文件不参与
+    // 打包，Vite 遇到指向它的 import 会静默换成空模块（见 `ArenaBase.preload`）。
+    this.load.json(META_CONFIG_NAME, META_CONFIG_URL)
+  }
+
   create(): void {
     const outcome = this.store.load()
+
+    // 成长表读不出来**不该把主菜单整个弄死**：菜单本身还能用，
+    // 只是「查看升级」进去会告诉你原因。
+    try {
+      this.meta = parseMetaConfig(this.cache.json.get(META_CONFIG_NAME))
+    } catch (err) {
+      this.meta = null
+      this.state = withNotice(
+        this.state,
+        `成长配置读不出来：${err instanceof Error ? err.message : String(err)}`,
+      )
+    }
 
     // 档读不出来的时候**必须在画面上说**（`profile/types.ts` 的 LoadOutcome 注释）：
     // 玩家刚丢了一部分进度，而"存档没读出来"只写进控制台的话，
@@ -193,11 +224,8 @@ export class MainMenuScene extends Phaser.Scene {
         this.refresh()
         break
       case 'upgrade':
-        this.state = withNotice(
-          this.state,
-          '角色升级页还没做：它要等资源经济与角色目录定稿（见改动日志的待决）',
-        )
-        this.refresh()
+        this.state = openScreen(this.state, 'upgrade')
+        this.rebuild()
         break
       case 'help':
         this.state = openScreen(this.state, 'help')
@@ -385,7 +413,7 @@ export class MainMenuScene extends Phaser.Scene {
         screenWidth: W,
         screenHeight: H,
         title: MainMenuScene.OVERLAY_TITLES[screen],
-        panelHeight: screen === 'help' ? 320 : 360,
+        panelHeight: MainMenuScene.OVERLAY_HEIGHTS[screen],
       },
       () => this.escape(),
     )
@@ -398,6 +426,14 @@ export class MainMenuScene extends Phaser.Scene {
       this.settingsParts = buildSettingsPanel(this, sink, frame, this.store, (mode) =>
         this.setDisplayMode(mode),
       )
+    }
+    if (screen === 'upgrade') {
+      buildUpgradePanel(this, sink, frame, this.store, this.meta, (notice) => {
+        // 买完要重建整屏（数字变了、按钮的可用态也变了），而重建会销毁
+        // 那块面板上的提示行 —— 所以提示走菜单状态，由 `refresh()` 重新写上去。
+        this.state = withNotice(this.state, notice)
+        this.rebuild()
+      })
     }
     if (screen === 'confirm-quit') {
       // 退出确认是个二选一：需求 §4.1「确认：关闭程序；取消：关闭弹窗回到主菜单」。
