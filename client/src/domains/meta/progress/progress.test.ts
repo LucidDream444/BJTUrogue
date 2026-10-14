@@ -30,6 +30,8 @@ import {
   settleRun,
   totalLevelsFor,
   trackKey,
+  unlock,
+  isUnlocked,
 } from './progress'
 
 /** 线上那份表。**不另抄一份**：抄的那份迟早和它漂，而这正是要防的事。 */
@@ -212,5 +214,53 @@ describe('RunLedger（一局的账本）', () => {
     expect(input.clearedRooms).toBe(1)
     expect(input.outcome).toBe('dead')
     ledger.dispose()
+  })
+})
+
+describe('解锁', () => {
+  it('够钱：扣币、加进 unlocks、之后能被门禁放行', () => {
+    const p = profile()
+    p.currency.coins = 1000
+    const r = unlock(p, META, 'athlete')
+    expect(r.ok).toBe(true)
+    expect(r.cost).toBe(META.characters.athlete.unlockCost)
+    expect(p.currency.coins).toBe(1000 - r.cost)
+    expect(isUnlocked(p, 'athlete')).toBe(true)
+  })
+
+  it('不够钱：一分不扣、也没解锁', () => {
+    const p = profile()
+    p.currency.coins = 10
+    const r = unlock(p, META, 'athlete')
+    expect(r.ok).toBe(false)
+    expect(p.currency.coins).toBe(10)
+    expect(isUnlocked(p, 'athlete')).toBe(false)
+    expect(r.notice).toContain('还差')
+  })
+
+  it('重复解锁：拒绝，且不再扣钱', () => {
+    const p = profile()
+    p.currency.coins = 1000
+    unlock(p, META, 'athlete')
+    const before = p.currency.coins
+    const again = unlock(p, META, 'athlete')
+    expect(again.ok).toBe(false)
+    expect(p.currency.coins).toBe(before)
+    expect(p.unlocks.characters.filter((id) => id === 'athlete')).toHaveLength(1)
+  })
+
+  it('技能走同一个入口（往 skills 数组里加）', () => {
+    const p = profile()
+    p.unlocks.skills = []
+    p.currency.coins = 1000
+    expect(unlock(p, META, 'rapid_fire').ok).toBe(true)
+    expect(p.unlocks.skills).toContain('rapid_fire')
+    // 解锁即生效：攻速成长线从此算数
+    p.upgrades[trackKey('rapid_fire', 'attackSpeedPct')] = 2
+    expect(effectiveStats(p, META, 'student').attackSpeedPct).toBeGreaterThan(0)
+  })
+
+  it('不认识的 id：拒绝', () => {
+    expect(unlock(profile(), META, '不存在').ok).toBe(false)
   })
 })

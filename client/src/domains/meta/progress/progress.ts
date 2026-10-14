@@ -105,6 +105,43 @@ export function buyUpgrade(draft: ProfileData, ownerId: string, track: UpgradeTr
   return { ok: true, cost, notice: `${track.name} +1` }
 }
 
+/**
+ * 解锁一个角色或技能。
+ *
+ * ## 这一步补的是"从无到有"那条路径
+ *
+ * 在此之前，解锁**状态**（`profile.unlocks`）与解锁**门禁**（主菜单不让选未解锁的卡）
+ * 都已经在了，但**没有任何办法把"未解锁"变成"已解锁"** ——
+ * `meta.json` 里的 `unlockCost` 是个只有解析器读过的死字段。
+ *
+ * ## 角色与技能共用同一个入口
+ *
+ * 两者的差别只有"往哪个数组里加"，所以查一次 id 属于谁就够了。分成两个函数的话，
+ * "币够不够"和"有没有解锁过"这两条检查会被抄两遍 —— 而抄两遍的东西迟早只剩一遍是对的。
+ */
+export function unlock(draft: ProfileData, meta: MetaConfig, id: string): BuyResult {
+  const character = meta.characters[id]
+  const skill = meta.skills[id]
+  const kind = character ? '角色' : skill ? '技能' : null
+  const cost = character?.unlockCost ?? skill?.unlockCost ?? 0
+
+  if (kind === null) return { ok: false, cost: 0, notice: `没有这个可解锁项：${id}` }
+  if (isUnlocked(draft, id)) return { ok: false, cost: 0, notice: `${id} 已经解锁了` }
+  if (draft.currency.coins < cost) {
+    return { ok: false, cost, notice: `币不够：还差 ${cost - draft.currency.coins}` }
+  }
+
+  draft.currency.coins -= cost
+  if (kind === '角色') draft.unlocks.characters.push(id)
+  else draft.unlocks.skills.push(id)
+  return { ok: true, cost, notice: `解锁${kind}：${id}` }
+}
+
+/** 解锁了吗。角色与技能各存一个数组，所以两边都要看。 */
+export function isUnlocked(profile: ProfileData, id: string): boolean {
+  return profile.unlocks.characters.includes(id) || profile.unlocks.skills.includes(id)
+}
+
 /** 一局的原始计数。**谁统计由宿主决定**（见 `run/RunLedger.ts`）。 */
 export interface RunInput {
   outcome: 'dead' | 'cleared' | 'quit'
