@@ -16,6 +16,7 @@
  */
 
 import type Phaser from 'phaser'
+import { WORLD_HEIGHT, WORLD_WIDTH } from '../../ArenaBase'
 import {
   ROOMS_CONFIG_NAME,
   ROOMS_CONFIG_URL,
@@ -24,7 +25,7 @@ import {
 } from '@/domains/procgen/config'
 import type { DungeonMap, Rect, Room } from '@/domains/procgen/model/types'
 import { generateDungeon } from '@/domains/procgen/gen/generate'
-import { roomWithCorridorBox } from '@/domains/procgen/presentation/framing'
+import { roomViewBox } from '@/domains/procgen/presentation/framing'
 
 /** 换种子时按顺序翻的几张牌。**写死**是为了「同一个种子看到的永远是同一张图」。 */
 export const D2_SEEDS = [1, 13, 42, 837, 20261013, 99991] as const
@@ -83,35 +84,36 @@ export function loadRoomsConfig(scene: Phaser.Scene): void {
  * 那一间，就是 1:1 场子要走的哪一间。各挑各的话，两块画面对不上，
  * 而「对不上」这件事本身没法判断是挑错了还是生成错了。
  *
+ * 尺寸上限**封在这里、不由调用方传**：以前它是两个参数，于是缩略图那边传了
+ * `WORLD_HEIGHT − 104`（给读数栏让位）、1:1 那边传整个 `WORLD_HEIGHT` ——
+ * 差距正好卡在最大档教室的取景框边界上，**只在特定种子下**暴露成
+ * 「两个场子圈的不是同一间」，而那时没人会想到去比对两个常量。
+ *
  * 条件，按重要性排：
  *
  * - **档位最大**：这一场要看的是**格子级的对错**（桌子有没有压住门、
  *   红的格子和青的格子错没错开）。房间越大、桌子越多，能看出来的越多；
- *   最小的档位（400×240）只放得下 2 张桌，一场几乎什么都看不出来。
- * - **主干道上的**：只有主干教室有一扇开向走廊的 `h` 门，
- *   而「门开在哪条边、门外是不是走廊」正是要看的东西。
+ *   最小的档位（400 宽）只放得下两三张桌，一场几乎什么都看不出来。
+ * - **主干教室**：只有它同时有两扇开向**连廊**的 `v` 门（东、西墙上）
+ *   和可能一扇通往侧室的 `h` 门 —— 「门开在哪条边上、门外是连廊还是侧室」
+ *   正是要看的东西。侧室自己的门型单一，看不出来。
  * - **放得下**：取景框 1:1 摆进世界之后不能超出，否则会画到屏幕外面去 ——
  *   而画到屏幕外面看起来和「生成器没生成这段墙」一模一样。
  * - **有课桌、有刷怪点**：没有这两样就看不出可走性判定的对错。
- * - **不是起点也不是首领**：起点没有 `back` 门，首领的门是终点，
- *   两者的门型都不典型。
+ * - **不是起点也不是首领**：起点西边没有连廊（少一扇门），首领的门是终点，
+ *   两者的框都不典型。
  *
  * 挑不到就返回 `null`，由场子自己决定怎么报 —— 这里不猜、不兜底。
  */
-export function chooseClassroom(
-  map: DungeonMap,
-  cfg: RoomsConfig,
-  maxWidth: number,
-  maxHeight: number,
-): Room | null {
+export function chooseClassroom(map: DungeonMap, cfg: RoomsConfig): Room | null {
   const scored: { room: Room; box: Rect }[] = []
   for (const room of map.rooms) {
     if (room.branch !== 'main') continue
     if (room.kind === 'start' || room.kind === 'boss') continue
     if (!room.obstacles.some((o) => o.kind === 'desk')) continue
     if (room.spawnPoints.length < 2) continue
-    const box = roomWithCorridorBox(map, cfg, room)
-    if (box.width > maxWidth || box.height > maxHeight) continue
+    const box = roomViewBox(map, cfg, room)
+    if (box.width > WORLD_WIDTH || box.height > WORLD_HEIGHT) continue
     scored.push({ room, box })
   }
   if (scored.length === 0) return null

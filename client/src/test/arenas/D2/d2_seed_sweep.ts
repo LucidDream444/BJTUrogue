@@ -8,8 +8,9 @@
  *
  * - 单测报「第 837 个种子红了」的时候，人要在脑子里把种子和画面接起来。
  *   这里按 `N` 换种子，红了的那张图**就在眼前**。
- * - 手感、审美这一类的判断（「这一层是不是太空」「走廊是不是太长」）
- *   **写不进断言**。批量扫一遍然后用眼睛看，是唯一能做这件事的方式。
+ * - 手感、审美这一类的判断（「这一层是不是太空」「连廊是不是太挤」
+ *   「侧室怎么全挂在上面」）**写不进断言**。批量扫一遍然后用眼睛看，
+ *   是唯一能做这件事的方式。
  *
  * ## 三个读数分别是哪一层
  *
@@ -17,7 +18,7 @@
  * |---|---|---|
  * | 层 1 可达 | `validate/reachability.ts` 的房间图遍历 | 有房间从起点走不到 —— 「不回头」规则下这一局直接作废 |
  * | 层 2 可达 | 同上，门 → 出生点的 flood fill | 门被堵死、或出生点被围死 —— 怪出不来，房间清不掉 |
- * | 走廊实测宽度 | 同上，从走廊中心线往上下数格 | 比 `corridorMinWidth` 还窄 = 肉盾过不去 |
+ * | 连廊净宽 / 最窄窄口 | 同上，逐段连廊从中线往上下数格，再与每一扇门宽取小 | 比 `minPassageWidth` 还窄 = 肉盾过不去 |
  *
  * 三个都是**纯函数**，不碰 Phaser —— 所以屏幕上的数和终端里的数是同一份代码算的，
  * 不存在「测试场和单测各算各的」。
@@ -49,8 +50,11 @@ import { DEFAULT_SEED, D2_SEEDS, generateForArena, loadRoomsConfig, summarise } 
  * `y = 720 − 15*3.4 = 669`，四行），这一场的读数有 12 行 12px（行距 3，约 180px），
  * 所以读数从 444 起到 624 收 —— 和说明之间留 45px，谁也不压谁。
  *
- * 缩到 430 **不损失任何信息**：整层楼有 6000 多 px 宽，缩略图永远是**被宽度卡住**的
- * （`scale = 1280/6160 ≈ 0.21`，楼层高 920 × 0.21 ≈ 190px），高度上本来就空一大截。
+ * 缩到 430 **不损失任何信息**：整层楼 5600—7520px 宽（六张牌的实测范围），
+ * 缩略图永远是**被宽度卡住**的（`scale = 1280/宽 ≈ 0.17—0.23`），
+ * 而楼层高 840—960px 缩完只有 **143—210px** —— 430 里本来就空一大截。
+ * 高度随种子变（有没有挂在下边的侧室、挂了几间），所以这里写的是**范围**，
+ * 不是一个数：单个数的注释在这个 change 之后一定会过期。
  */
 const PLAN_HEIGHT = 430
 /** `A` 键批量扫的种子个数。约 30ms 一个，所以 100 个会卡住三秒左右 —— 提示里写明了。 */
@@ -96,14 +100,20 @@ class D2SeedSweepArena extends ArenaBase {
 
     const mainCount = map.rooms.filter((r) => r.branch === 'main').length
     const mark = (ok: boolean): string => (ok ? 'OK' : '× 红了')
+    // 连廊净宽**逐段量**（顺序同 `map.passages`），这里报的是这一层的最小—最大。
+    // 不报平均值：平均值会把「某一段被堵成 40」稀释掉，而那是要当场看见的。
+    const clear = reach.passageClearWidths
+    const lo = clear.length === 0 ? 0 : Math.min(...clear)
+    const hi = clear.length === 0 ? 0 : Math.max(...clear)
+    const clearText = clear.length === 0 ? '—' : lo === hi ? `${lo}px` : `${lo}..${hi}px`
     const lines = [
       `D2 · 换种子（${seedIndex + 1}/${D2_SEEDS.length}）`,
       ...summarise({ map, cfg, elapsedMs }),
       '',
-      `主干 ${mainCount} · 侧室 ${map.rooms.length - mainCount}`,
+      `主干 ${mainCount} · 侧室 ${map.rooms.length - mainCount} · 连廊 ${map.passages.length} 段`,
       `层 1 可达 ${mark(reach.layer1Ok)}（走过 ${reach.visitedRooms}/${reach.roomCount} 间）`,
       `层 2 可达 ${mark(reach.layer2Ok)}`,
-      `走廊实测可走 ${reach.corridorWalkableWidth}px（下限 ${cfg.corridorMinWidth}px）`,
+      `连廊净宽 ${clearText} × ${clear.length} 段 · 最窄窄口 ${reach.narrowestOpeningWidth}px（下限 ${cfg.minPassageWidth}px）`,
       // 耗时**不在这里再印一遍** —— `summarise()` 的第三行已经有了。
       // 同一张屏上两个「生成耗时」只要有一点不一样，就成了两个真值来源。
       '',
@@ -181,6 +191,6 @@ function runSweep(cfg: RoomsConfig): string {
 export const arena: ArenaDefinition = {
   displayName: 'D2 · 换种子',
   description:
-    '按 N 换种子，看新的整层图 + 层1/层2 可达性 + 走廊实测宽度 + 生成耗时。按 A 批量扫 100 个种子，把「一千张图都对」这个结论搬到屏幕上。',
+    '按 N 换种子，看新的整层图 + 层1/层2 可达性 + 每段连廊净宽与全层最窄窄口 + 生成耗时。按 A 批量扫 100 个种子，把「一千张图都对」这个结论搬到屏幕上。',
   scene: D2SeedSweepArena,
 }

@@ -164,7 +164,16 @@ export interface Room {
   readonly kind: RoomKind
   readonly branch: RoomBranch
   readonly rect: Rect
-  /** 房间用了几号尺寸档位（索引到 `rooms.json` 的 `sizeTiers`） */
+  /**
+   * 房间用了几号尺寸档位。**索引到哪张表由 `branch` 决定**：
+   *
+   * - `'main'` → `rooms.json` 的 `mainWidthTiers`（主干教室只按**宽度**分档，
+   *   高度统一是 `mainRoomHeight`，理由见 `config.ts`）
+   * - `'side'` → `rooms.json` 的 `sideRoomTiers`（宽高两维）
+   *
+   * 两张表而不是一张：主干教室的高度不是自由的（要与连廊等高），
+   * 塞进同一张表就得靠校验去拒绝一半的档位 —— 那是把"不可能"写成"不许"。
+   */
   readonly sizeTier: number
   readonly doors: readonly Door[]
   readonly obstacles: readonly Obstacle[]
@@ -183,8 +192,31 @@ export interface Room {
 
 // ---------------------------------------------------------------- 地图
 
-/** `DungeonMap.schemaVersion` 当前值。改字段语义时加一。 */
-export const DUNGEON_SCHEMA_VERSION = 1
+/**
+ * `DungeonMap.schemaVersion` 当前值。**改字段语义时加一**（红线 3）。
+ *
+ * - `1`：首版。主干道是一条贯穿全层的 `corridorRect`，主干教室南北交替挂在它两侧。
+ * - `2`：平面结构返工成「**一排主干教室 + 连廊**」—— `corridorRect` 换成 `passages`。
+ *   见 `openspec/changes/rework-layout-to-classroom-row`。
+ */
+export const DUNGEON_SCHEMA_VERSION = 2
+
+/**
+ * 一段连廊 —— 相邻两间主干教室之间的连接。
+ *
+ * **`rect` 是含墙的**（与首版的 `corridorRect` 同约定）：可走的是里面那一条，
+ * 宽 `mainRoomHeight` 减去上下各一层墙厚。拿它当可走区域会多算两格 ——
+ * 而多出来的正好是**墙本身**，墙在寻路里是不可走的，两者混起来会让 D3
+ * 得到一张「墙内可走」的网格，且**不报任何错**。
+ *
+ * `between` 是它连接的两间主干教室的 `order`（升序）。**有它，D1 的封门与
+ * 「不回头」逻辑就不必靠坐标去猜这一段接的是谁** —— 猜错的症状是
+ * 「门锁了，但不是该锁的那扇」，而那和「锁对了」长得一模一样。
+ */
+export interface Passage {
+  readonly rect: Rect
+  readonly between: readonly [number, number]
+}
 
 /**
  * 一层楼。**生成器的产物、D1 战斗场景的输入、D2 校验器的输入，同一个形状。**
@@ -195,8 +227,17 @@ export interface DungeonMap {
   readonly seed: number
   /** 整层的包围盒。缩略图与相机的取景依据 */
   readonly bounds: Rect
-  /** 横向主干道的矩形。所有主干教室至少有一扇 `forward`/`back` 门开在它上面 */
-  readonly corridorRect: Rect
+  /**
+   * **主干教室之间的那一段段连廊**，按 x 从左到右。
+   *
+   * 有几间主干教室就有几段（`N − 1` 段）—— 连廊是**教室之间**的连接，
+   * 不是一个与教室并列、贯穿全层的空间。首版把它做成了后者（一条
+   * `corridorRect`），平面结构因此不是需求要的「一排主干教室」。
+   *
+   * 连廊**不是 `Room`**：不计入房间总数、没有 `order`、没有预算、不刷怪、
+   * 不参与清房判定。玩家在连廊里永远处于脱离战斗的状态。
+   */
+  readonly passages: readonly Passage[]
   /**
    * **每一段墙**。房间的四条边减去门洞、走廊两端的封口、以及侧室门厅的封口，全在这里。
    *
