@@ -45,9 +45,19 @@ import {
 } from '../menu/menuModel'
 import { ProfileStore } from '../profile/ProfileStore'
 import { LocalStorageProfileStorage } from '../profile/storage'
+import { META_CONFIG_NAME, META_CONFIG_URL, parseMetaConfig, type MetaConfig } from '../metaConfig'
 import type { Difficulty } from '@/core/config'
+import { buildUpgradePanel } from '../upgrade/UpgradePanel'
 import { Button } from '../ui/Button'
 import { Card } from '../ui/Card'
+import { buildOverlayFrame } from '../ui/overlayFrame'
+import {
+  applyDisplayModeSelection,
+  buildHelpPanel,
+  buildSettingsPanel,
+  type PanelSink,
+  type SettingsPanelParts,
+} from '../ui/panels'
 import { Slider } from '../ui/Slider'
 import { THEME, fontPx } from '../ui/theme'
 
@@ -81,10 +91,27 @@ export class MainMenuScene extends Phaser.Scene {
   private cards: Card[] = []
   private sliders: Slider[] = []
   private overlayButtons: Button[] = []
-  private fullscreenButton: Button | null = null
-  private windowedButton: Button | null = null
+  private settingsParts: SettingsPanelParts | null = null
   private noticeText: Phaser.GameObjects.Text | null = null
   private unlockedText: Phaser.GameObjects.Text | null = null
+
+  /** 弹层的标题。键就是 `MenuScreen` 里除 `main` 之外的那三个。 */
+  private static readonly OVERLAY_TITLES = {
+    help: '操作说明',
+    settings: '设置',
+    upgrade: '角色升级',
+    'confirm-quit': '确定退出游戏？',
+  } as const
+  /** 每屏的面板高度。写在一起，改一处就够 —— 分开写在两个地方必然漂。 */
+  private static readonly OVERLAY_HEIGHTS = {
+    help: 320,
+    settings: 360,
+    upgrade: 470,
+    'confirm-quit': 360,
+  } as const
+
+  /** 局外成长的数值表。**加载失败时是 `null`**，升级页会照实说 */
+  private meta: MetaConfig | null = null
 
   private readonly disposers: (() => void)[] = []
 
@@ -102,8 +129,26 @@ export class MainMenuScene extends Phaser.Scene {
     this.state = createMenuState()
   }
 
+  preload(): void {
+    // 配置表必须走 Phaser 的 loader，**不能 import** —— `public/` 下的文件不参与
+    // 打包，Vite 遇到指向它的 import 会静默换成空模块（见 `ArenaBase.preload`）。
+    this.load.json(META_CONFIG_NAME, META_CONFIG_URL)
+  }
+
   create(): void {
     const outcome = this.store.load()
+
+    // 成长表读不出来**不该把主菜单整个弄死**：菜单本身还能用，
+    // 只是「查看升级」进去会告诉你原因。
+    try {
+      this.meta = parseMetaConfig(this.cache.json.get(META_CONFIG_NAME))
+    } catch (err) {
+      this.meta = null
+      this.state = withNotice(
+        this.state,
+        `成长配置读不出来：${err instanceof Error ? err.message : String(err)}`,
+      )
+    }
 
     // 档读不出来的时候**必须在画面上说**（`profile/types.ts` 的 LoadOutcome 注释）：
     // 玩家刚丢了一部分进度，而"存档没读出来"只写进控制台的话，
@@ -179,11 +224,8 @@ export class MainMenuScene extends Phaser.Scene {
         this.refresh()
         break
       case 'upgrade':
-        this.state = withNotice(
-          this.state,
-          '角色升级页还没做：它要等资源经济与角色目录定稿（见改动日志的待决）',
-        )
-        this.refresh()
+        this.state = openScreen(this.state, 'upgrade')
+        this.rebuild()
         break
       case 'help':
         this.state = openScreen(this.state, 'help')
@@ -226,8 +268,7 @@ export class MainMenuScene extends Phaser.Scene {
     this.cards = []
     this.sliders = []
     this.objects = []
-    this.fullscreenButton = null
-    this.windowedButton = null
+    this.settingsParts = null
     this.noticeText = null
     this.unlockedText = null
   }
@@ -354,167 +395,57 @@ export class MainMenuScene extends Phaser.Scene {
   }
 
   private buildOverlay(W: number, H: number, screen: Exclude<MenuState['screen'], 'main'>): void {
-    // 压暗背景。**它同时挡掉下层的点击** —— 弹层开着的时候主菜单还在画面里，
-    // 它的按钮必须点不到（否则"点到弹层后面那个按钮"这种事会发生）。
-    //
-    // 它挡得住，靠的是**创建顺序**而不是深度值：Phaser 的命中判定取"显示列表里
-    // 最靠后的那个"（`topOnly` 默认开着），而同深度下列表顺序就是创建顺序。
-    // 于是三层天然叠对：主菜单对象 → 这层压暗 → 弹层自己的控件。
-    //
-    // ⚠️ **别在这里加 `setDepth()`。** 给它一个正的深度值，它就跑到弹层控件上面去了，
-    // 症状是"弹层里的按钮全都点不中"—— 而且**看起来完全正常**：渲染上也被盖住了
-    // （面板把内容整块遮住，两边还都是深色，截图上都看不出来）。
-    // 这个坑真踩过：滑杆拖不动、关闭按钮没反应，而控制台一片安静。
-    // 记录在 `持续更新10.14.md` 的 D4 那一段里。
-    this.track(this.add.rectangle(W / 2, H / 2, W, H, THEME.color.dim, 0.55).setInteractive())
-
-    const panelW = Math.min(W - THEME.space.xl * 2, THEME.overlay.maxWidth)
-    const panelH = Math.min(H - THEME.space.xl * 2, screen === 'help' ? 320 : 360)
-    const cx = W / 2
-    const cy = H / 2
-
-    const panel = this.add
-      .rectangle(cx, cy, panelW, panelH, THEME.color.panel)
-      .setStrokeStyle(2, THEME.color.border)
-    this.track(panel)
-
-    const title = { help: '操作说明', settings: '设置', 'confirm-quit': '确定退出游戏？' }[screen]
-    this.track(
-      this.add
-        .text(cx, cy - panelH / 2 + THEME.space.lg, title, {
-          fontFamily: THEME.font.family,
-          fontSize: fontPx(THEME.font.heading),
-          color: THEME.text.body,
-        })
-        .setOrigin(0.5),
+    // 外框（压暗层 / 面板 / 标题 / 关闭按钮 / 底部提示行）与**叠放顺序**统一在
+    // `ui/overlayFrame.ts` 里 —— 暂停菜单用的是同一份，包括那条"别加 setDepth"的坑。
+    const sink: PanelSink = {
+      track: (obj) => this.track(obj),
+      button: (button) => {
+        this.overlayButtons.push(button)
+      },
+      slider: (slider) => {
+        this.sliders.push(slider)
+      },
+    }
+    const frame = buildOverlayFrame(
+      this,
+      sink,
+      {
+        screenWidth: W,
+        screenHeight: H,
+        title: MainMenuScene.OVERLAY_TITLES[screen],
+        panelHeight: MainMenuScene.OVERLAY_HEIGHTS[screen],
+      },
+      () => this.escape(),
     )
+    this.noticeText = frame.notice
 
-    if (screen === 'help') this.buildHelp(cx, cy, panelW, panelH)
-    if (screen === 'settings') this.buildSettings(cx, cy + THEME.space.lg, panelW)
-
-    // 所有弹层都有的关闭按钮（需求 §4.3 / §4.5：关闭 / Esc 回上一层）
-    this.overlayButtons.push(
-      new Button(this, cx, cy + panelH / 2 - THEME.space.lg - 6, '关闭', () => this.escape(), {
-        width: 140,
-        height: 38,
-        fontSize: THEME.font.body,
-      }),
-    )
-
+    // 说明与设置这两块内容与暂停菜单**共用同一份实现**：
+    // 需求 §4.3 的备注要求它们"是同一个界面"。
+    if (screen === 'help') buildHelpPanel(this, sink, frame)
+    if (screen === 'settings') {
+      this.settingsParts = buildSettingsPanel(this, sink, frame, this.store, (mode) =>
+        this.setDisplayMode(mode),
+      )
+    }
+    if (screen === 'upgrade') {
+      buildUpgradePanel(this, sink, frame, this.store, this.meta, (notice) => {
+        // 买完要重建整屏（数字变了、按钮的可用态也变了），而重建会销毁
+        // 那块面板上的提示行 —— 所以提示走菜单状态，由 `refresh()` 重新写上去。
+        this.state = withNotice(this.state, notice)
+        this.rebuild()
+      })
+    }
     if (screen === 'confirm-quit') {
       // 退出确认是个二选一：需求 §4.1「确认：关闭程序；取消：关闭弹窗回到主菜单」。
-      // 确认按钮放在下面一行，避免和"关闭"挤在一起被误点。
-      this.overlayButtons.push(
-        new Button(this, cx, cy + 34, '确认退出', () => this.confirmQuit(), {
+      // 「取消」就是外框带的那个「关闭」按钮；确认单独一行，免得和它挤在一起被误点。
+      sink.button(
+        new Button(this, frame.cx, frame.cy + 44, '确认退出', () => this.confirmQuit(), {
           width: 200,
           height: 42,
           fontSize: THEME.font.body,
         }),
       )
     }
-
-    this.noticeText = this.track(
-      this.add
-        .text(cx, cy + panelH / 2 - THEME.space.sm, '', {
-          fontFamily: THEME.font.family,
-          fontSize: fontPx(THEME.font.small),
-          color: THEME.text.accent,
-        })
-        .setOrigin(0.5, 1),
-    )
-  }
-
-  private buildHelp(cx: number, cy: number, panelW: number, panelH: number): void {
-    // UC01 要求说明"移动、攻击、交互和死亡规则"。**键位还没定稿（归 D1）**，
-    // 所以这里如实标出来 —— 编一套键位写上去，等 D1 定了就变成两处不一致的真值。
-    const lines = [
-      '移动、攻击、交互的具体键位尚未定稿（归 D1）——',
-      '定稿后这张表要跟着改，改动点在 scenes/MainMenuScene.ts。',
-      '',
-      '死亡规则（已定）：',
-      '· 血量归零 = 本局结束，本局内的临时进度不保存',
-      '· 永久解锁与升级次数**不因死亡清除**',
-      '',
-      '暂停 / 继续：见游戏内右上角的暂停按钮',
-    ]
-    this.track(
-      this.add.text(
-        cx - panelW / 2 + THEME.space.lg,
-        cy - panelH / 2 + THEME.space.lg + 34,
-        lines.join('\n'),
-        {
-          fontFamily: THEME.font.family,
-          fontSize: fontPx(THEME.font.body),
-          color: THEME.text.dim,
-          lineSpacing: 6,
-          wordWrap: { width: panelW - THEME.space.lg * 2 },
-        },
-      ),
-    )
-  }
-
-  private buildSettings(cx: number, y0: number, panelW: number): void {
-    const sliderW = Math.max(160, panelW - THEME.space.xl * 2 - 120)
-    const x = cx - panelW / 2 + THEME.space.lg
-    const s = this.store.profile.settings
-
-    this.sliders.push(
-      new Slider(this, x + 60, y0 + 24, 'BGM 音量', s.bgmVolume, {
-        width: sliderW,
-        onChange: (v) => this.store.setSettings({ bgmVolume: v }),
-      }),
-    )
-    this.sliders.push(
-      new Slider(this, x + 60, y0 + 84, '音效音量', s.sfxVolume, {
-        width: sliderW,
-        onChange: (v) => this.store.setSettings({ sfxVolume: v }),
-      }),
-    )
-    // 显示模式（需求 §4.5）。**分辨率不做** —— 已决定保留 `Scale.RESIZE`，
-    // 那个下拉框在 RESIZE 下没有对应物（见 profile/defaults.ts）。
-    this.track(
-      this.add.text(x, y0 + 128, '显示模式', {
-        fontFamily: THEME.font.family,
-        fontSize: fontPx(THEME.font.body),
-        color: THEME.text.body,
-      }),
-    )
-    this.fullscreenButton = new Button(
-      this,
-      x + 120,
-      y0 + 128,
-      '全屏',
-      () => this.setDisplayMode('fullscreen'),
-      {
-        width: 88,
-        height: 34,
-        fontSize: THEME.font.small,
-      },
-    )
-    this.windowedButton = new Button(
-      this,
-      x + 216,
-      y0 + 128,
-      '窗口',
-      () => this.setDisplayMode('windowed'),
-      {
-        width: 88,
-        height: 34,
-        fontSize: THEME.font.small,
-      },
-    )
-    this.overlayButtons.push(this.fullscreenButton, this.windowedButton)
-
-    // ⚠️ 如实说清楚：音频文件一个都还没有（`public/assets/audio/` 是空的），
-    // 所以这两个滑杆现在**存得下、听得见才怪**。不说的话，测试的人会去报
-    // "音量滑杆没反应"，而那是个假 bug。
-    this.track(
-      this.add.text(x, y0 + 158, '（占位期没有音频文件：这两个值会被存下来，但暂时没有声音可调）', {
-        fontFamily: THEME.font.family,
-        fontSize: fontPx(THEME.font.small),
-        color: THEME.text.dim,
-      }),
-    )
   }
 
   // ------------------------------------------------------------------ 行为
@@ -592,8 +523,7 @@ export class MainMenuScene extends Phaser.Scene {
     }
 
     const mode = p.settings.displayMode
-    this.fullscreenButton?.setSelected(mode === 'fullscreen')
-    this.windowedButton?.setSelected(mode === 'windowed')
+    if (this.settingsParts) applyDisplayModeSelection(this.settingsParts, mode)
 
     if (this.noticeText) {
       const name = characterById(p.selected.characterId)?.name ?? p.selected.characterId
