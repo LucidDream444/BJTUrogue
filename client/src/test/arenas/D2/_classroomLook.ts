@@ -2,17 +2,21 @@
  * **教室长什么样** —— 观感那套画法，从 `d2_classroom_scene` 抽出来的**共用件**。
  *
  * 文件名 `_` 开头 = **不进测试场菜单**（`arenaCatalog.ts` 的规则，`_shared.ts` 同一条）。
- * 它住在 `arenas/D2/` 里，所以「D2 的场子只许 import `domains/procgen`」那条照样管着它。
+ * 它住在 `arenas/D2/` 里，所以「D2 的场子只许 import `domains/procgen`」那条照样管着它，
+ * 尽管今天用它的是跨域那一场（`joint/` 里的场子允许碰两个域，见 `AGENTS.md` §五）。
  *
  * ## 谁在用
  *
  * | 场子 | 怎么用 | 看什么 |
  * |---|---|---|
- * | `d2_classroom_scene` | 一间房、取景框 1:1 放大（≤×2），`focus` = 那一间 | 观感本身对不对 |
- * | `d2_three_rooms` | **整层**三间，跟着玩家走位，`depth` 抬到 −48 | 走位时观感层跟不跟得上 |
+ * | `joint/d1d2_rooms` | **整层**三间，跟着玩家走位 | 走位时观感层跟不跟得上（外加 D1 的真战斗） |
+ * | 同上 · `L` 键第二档 | 同一份画法、`layers: 'doors'` | 底下铺着**一整张** D1 手绘关时，门（开在哪、开着还是关着）还对不对得上 |
  *
- * 两个场子摆的是**同一份地图数据**、同一套配色、同一套画法 —— 各写一份的话，
- * 「观感图」和「走位图」会慢慢变成两张没法互相印证的画。
+ * 曾经用它的是 `d2_classroom_scene`（一间房 1:1 放大看观感本身）与 `d2_three_rooms`
+ * （整层三间走位）—— 两个场子 **2026-10-15 退役删除**，观感预览那条路由
+ * `docs/images/d2_classroom_look.png` 与 `d2_classroom` 接着。
+ * 删它们的时候这一份画法**一行没动**：留着它就是当初抽出它的理由
+ * —— 同一间教室不该长两样，各写一份迟早会分叉。
  *
  * ## 哪些是**画出来的**，哪些是**生成出来的**（这一条最要紧）
  *
@@ -33,8 +37,8 @@
  * |---|---|
  * | `floorplan.ts` 的 `COLORS`：红格、紫描边、青线 —— 给**判定**上色 | `INK`：地砖、桌椅、黑板 —— 给**东西**上色 |
  *
- * 唯一共用的是判定层的 `COLORS.blockedCell` / `COLORS.spawn`（`d2_classroom_scene`
- * 的 `D` 键那一层）—— 同一份判定在两个场子里要是两种样子，谁也不会想到它们读的是同一个数。
+ * 唯一共用的是判定层的 `COLORS.blockedCell` / `COLORS.spawn`（`d2_classroom`
+ * 的 `D` 键那一层）—— 同一份判定在几个场子里要是几种样子，谁也不会想到它们读的是同一个数。
  *
  * ## 画顺序：**底 → 地面 → 家具 → 墙 → 门 → 装饰**
  *
@@ -62,8 +66,9 @@ import type { Mapper } from '@/domains/procgen/presentation/floorplan'
  * 默认画在哪一层。
  *
  * −80 是「底图」那一档：底座的地板网格在 −100、墙的灰方块在 −50、
- * 判定叠加在 −70。`d2_three_rooms` **不**用这个默认值 —— 它要盖住底座那些灰墙，
- * 见那边 `LOOK_DEPTH` 的注释。
+ * 判定叠加在 −70。**要盖住底座那几张灰墙的场子不用这个默认值**（原先的 `d2_three_rooms`
+ * 抬到 −48，理由写在它自己那边）；今天唯一的用户 `joint/d1d2_rooms` 不挂底座
+ * —— 观感这一层上面只有 D1 的实体与 HUD —— 所以照拿这个默认值。
  */
 export const LOOK_DEPTH = -80
 
@@ -278,72 +283,95 @@ export interface ClassroomLook {
   /**
    * 只给**这一间**上色（其余压淡、且只有它画装饰）。
    *
-   * 不给（`null` / 省略）= **每一间都按主角画** —— `d2_three_rooms` 那一场要的：
+   * 不给（`null` / 省略）= **每一间都按主角画** —— `joint/d1d2_rooms` 那一场要的：
    * 三间都是要走进去打架的教室，没有哪一间是「背景」。
    */
   focus?: Room | null
   /** 画在哪一层，默认 `LOOK_DEPTH`（−80） */
   depth?: number
+  /**
+   * 画哪几层。默认 `'full'`（整间教室）。
+   *
+   * `'doors'` = **只画门**。给「底下铺的是一整张 D1 手绘关（墙、黑板、窗都是画好的）」
+   * 的场子用：`joint/d1d2_rooms` 的 `L` 键第二档。那里 D2 只剩一件事要画 ——
+   * **门开在哪、开着还是关着**：门洞（`doorRect`，跨整条墙厚）会把画上去的那片墙
+   * 盖掉，正好在 D1 的墙皮上开出一个门洞，所以**门这一层一定要留着**。
+   *
+   * 为什么是**这一份画法**画门、而不是那边自己再画一遍：门洞的位置就是碰撞那边
+   * 用来造门挡板的同一条式子（`doorRect()`，见 `doorHole()` 的注释）。自己算一份的
+   * 话，画出来的橙框和挡板的实际位置会**各说各的**，而那种偏差看起来像「门没关严」。
+   */
+  layers?: 'full' | 'doors'
 }
 
 /**
- * 把观感画上去，返回那个 `Graphics`（**调用方要能拿到它**：`d2_three_rooms`
- * 靠 `setVisible` 在白箱 / 观感之间切）。
+ * 把观感画上去，返回那个 `Graphics`（**调用方要能拿到它**：`joint/d1d2_rooms`
+ * 靠 `setVisible` 在白箱 / 观感之间切，`L` 键那一下）。
  *
  * 画的东西按「底 → 地面 → 家具 → 墙 → 门 → 装饰」六步，见文件头。
  */
 export function drawClassroomLook(scene: Phaser.Scene, look: ClassroomLook): Phaser.GameObjects.Graphics {
   const { map, cfg, mapper, box } = look
   const focus = look.focus ?? null
+  const layers = look.layers ?? 'full'
   const g = scene.add.graphics().setDepth(look.depth ?? LOOK_DEPTH)
 
   // box 里出现的每一间。后面几处都读它，免得各写一遍 `clipRect(...) !== null`
   // ——那种重复检查最容易在某一处写漏，而漏的那一处表现是「这间房少画了地面」。
   const rooms = map.rooms.filter((r) => clipRect(r.rect, box) !== null)
 
-  // 0. box 那块底。画布其余部分是底座的黑网格，留着 —— 一眼能分出
-  //    「这张画」和「场子的底」。
-  const p0 = mapper.toScreen(left(box), top(box))
-  g.fillStyle(INK.mat, 1)
-  g.fillRect(p0.x, p0.y, box.width * mapper.scale, box.height * mapper.scale)
-  strokeWorld(g, mapper, box, INK.matEdge, 1)
+  if (layers === 'full') {
+    // 0. box 那块底。画布其余部分是底座的黑网格，留着 —— 一眼能分出
+    //    「这张画」和「场子的底」。
+    //    ⚠️ 壳那一档**不画它**：它是盖在整块 box 上的实心底，画了会把下面那层
+    //    （D1 手绘关那张整图）整块糊掉 —— 表现是「切到第二档，画面全黑」。
+    const p0 = mapper.toScreen(left(box), top(box))
+    g.fillStyle(INK.mat, 1)
+    g.fillRect(p0.x, p0.y, box.width * mapper.scale, box.height * mapper.scale)
+    strokeWorld(g, mapper, box, INK.matEdge, 1)
 
-  // 1. 连廊地面。一间房的取景框里只可能露出门外的一点点。
-  for (const p of map.passages) {
-    const c = clipRect(p.rect, box)
-    if (c === null) continue
-    drawTiles(g, mapper, map, cfg, c, INK.passageA, INK.passageB, INK.passageLine)
-  }
+    // 1. 连廊地面。一间房的取景框里只可能露出门外的一点点。
+    for (const p of map.passages) {
+      const c = clipRect(p.rect, box)
+      if (c === null) continue
+      drawTiles(g, mapper, map, cfg, c, INK.passageA, INK.passageB, INK.passageLine)
+    }
 
-  // 2. 地面。**box 里出现的每一间都要铺**，不只是选中的那一间 ——
-  //    只铺一间的话，侧室搭在宿主墙外的那一条会是一块黑，
-  //    而黑看起来和「生成器没生成这块地面」一模一样（`drawRoom1to1` 同一条）。
-  //    有 focus 时邻居压淡一点：画面得一眼分得出「要看的是哪一间」。
-  for (const other of rooms) {
-    const c = clipRect(other.rect, box)
-    if (c === null) continue
-    drawTiles(g, mapper, map, cfg, c, INK.floorA, INK.floorB, INK.floorLine, focus === null || other === focus ? 1 : 0.5)
-  }
+    // 2. 地面。**box 里出现的每一间都要铺**，不只是选中的那一间 ——
+    //    只铺一间的话，侧室搭在宿主墙外的那一条会是一块黑，
+    //    而黑看起来和「生成器没生成这块地面」一模一样（`drawRoom1to1` 同一条）。
+    //    有 focus 时邻居压淡一点：画面得一眼分得出「要看的是哪一间」。
+    for (const other of rooms) {
+      const c = clipRect(other.rect, box)
+      if (c === null) continue
+      drawTiles(g, mapper, map, cfg, c, INK.floorA, INK.floorB, INK.floorLine, focus === null || other === focus ? 1 : 0.5)
+    }
 
-  // 3. 家具。box 里每一间都画（侧室露出来的那条边上可能正好有张桌子）。
-  for (const other of rooms) {
-    for (const o of other.obstacles) {
-      const r = clipRect(o.rect, box)
-      if (r === null) continue
-      if (o.kind === 'desk') drawDesk(g, mapper, r)
-      else drawChair(g, mapper, r)
+    // 3. 家具。box 里每一间都画（侧室露出来的那条边上可能正好有张桌子）。
+    for (const other of rooms) {
+      for (const o of other.obstacles) {
+        const r = clipRect(o.rect, box)
+        if (r === null) continue
+        if (o.kind === 'desk') drawDesk(g, mapper, r)
+        else drawChair(g, mapper, r)
+      }
     }
   }
 
-  // 4. 墙 + 房间内沿那一条亮线
-  for (const w of look.walls) {
-    fillWorld(g, mapper, w, INK.wall)
-    strokeWorld(g, mapper, w, INK.wallEdge, 1)
-  }
-  // 内沿 = 房间往里收半堵墙（墙骑在房间边界上，它朝内的那一面就是内表面）。
-  // 画在门之前：门会把跨过门洞的那一段盖掉 —— 不用专门去断开这条线。
-  for (const r of focus === null ? rooms : [focus]) {
-    strokeWorld(g, mapper, inflate(r.rect, -cfg.wallThickness / 2), INK.roomLine, 2, 0.9)
+  // 4. 墙 + 房间内沿那一条亮线。
+  //    ⚠️ `'doors'` 那一档**整段跳过**：那一档底下铺着一整张 D1 手绘关，墙、黑板、
+  //    窗、盆栽都长在画上。再画一遍 D2 的墙就是「色块糊在手绘上」——
+  //    表现是画面里一半是手绘、一半是色块，而那看起来像那张图只铺了一半。
+  if (layers !== 'doors') {
+    for (const w of look.walls) {
+      fillWorld(g, mapper, w, INK.wall)
+      strokeWorld(g, mapper, w, INK.wallEdge, 1)
+    }
+    // 内沿 = 房间往里收半堵墙（墙骑在房间边界上，它朝内的那一面就是内表面）。
+    // 画在门之前：门会把跨过门洞的那一段盖掉 —— 不用专门去断开这条线。
+    for (const r of focus === null ? rooms : [focus]) {
+      strokeWorld(g, mapper, inflate(r.rect, -cfg.wallThickness / 2), INK.roomLine, 2, 0.9)
+    }
   }
 
   // 5. 门。**整扇在 box 里才画** —— 半扇门画出来会被读成「墙上有个奇怪的缺口」。
@@ -357,7 +385,10 @@ export function drawClassroomLook(scene: Phaser.Scene, look: ClassroomLook): Pha
 
   // 6. 装饰。**只有地图数据里没有的那三样**（见文件头），
   //    每间教室都画 —— 三间都要走进去，哪一间也不该像「还没摆完的房」。
-  for (const r of focus === null ? rooms : [focus]) drawDecor(g, mapper, cfg, r)
+  //    与第 4 步同一条：`'doors'` 那一档底下是 D1 手绘关，黑板窗盆栽都在画上。
+  if (layers !== 'doors') {
+    for (const r of focus === null ? rooms : [focus]) drawDecor(g, mapper, cfg, r)
+  }
 
   return g
 }

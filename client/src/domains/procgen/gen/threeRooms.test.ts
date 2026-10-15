@@ -1,5 +1,6 @@
 /**
- * **三间小图** —— `d2_three_rooms` 那一场依赖的那几条，在这里钉住。
+ * **三间小图** —— 三间那一档测试场（今天跑的是 `joint/d1d2_rooms`）依赖的那几条，
+ * 在这里钉住。（先前跑它的是 `d2_three_rooms`，2026-10-15 退役。）
  *
  * 为什么值得单开一份：那一场要的是「整层三间、三间都能打」，
  * 而这两件事**都不是生成器保证过的**：
@@ -40,7 +41,7 @@ const cfg: RoomsConfig = roomsConfigWithRoomCount(
   3,
 )
 
-describe('D2 三间小图（d2_three_rooms 依赖的）', () => {
+describe('D2 三间小图（三间那一档测试场依赖的）', () => {
   it('就是三间，且三间都在主干上（侧室 0 间）', () => {
     for (const seed of SEEDS.slice(0, 200)) {
       const map = generateDungeon(seed, cfg)
@@ -84,12 +85,15 @@ describe('D2 三间小图（d2_three_rooms 依赖的）', () => {
         else bare.push(`种子 ${seed} #${room.order} ${room.rect.width}×${room.rect.height}`)
       }
     }
-    // 窄档（400 宽）本来就放不下课桌 —— 那是已知的、写进生成器测试里的事
-    // （`generate.test.ts` 只把「战斗房有桌椅」钉在 > 0.85）。这里量的是三间小图上的实际比例。
+    // ★ 桌椅改版（schemaVersion 4）之后这里是 **100%**，所以钉成"一间空的都不许有"。
+    //   改版前 400 宽那一档的普通战教室约 45% 摆不下一张桌（桌椅从左上角一格一格试，
+    //   "跳过一张就步进一格"会走不到那个恰好放得下的位置）；现在排布是**先算出
+    //   几排几张、再整块居中**，位置不再依赖步进顺序。三间小图的三间都是主干档，
+    //   而主干三档在 1000 个种子下一间都不空（实测见 `generate.test.ts` 里那条的 `[读]`）。
     console.log(
       `[读] 三间小图 ${total} 间：有桌椅 ${withDesk} 间（${((withDesk / total) * 100).toFixed(1)}%），没桌椅的样例 ${bare.slice(0, 5).join(' / ') || '（一间都没有）'}`,
     )
-    expect(withDesk / total).toBeGreaterThan(0.85)
+    expect(bare.slice(0, 10)).toEqual([])
   })
 
   it('三间小图照样过契约校验与可达性（改的是房间数，几何不是另一套）', () => {
