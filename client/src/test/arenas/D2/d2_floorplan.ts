@@ -38,7 +38,7 @@ import { ArenaBase, WORLD_WIDTH } from '../../ArenaBase'
 import type { RoomsConfig } from '@/domains/procgen/config'
 import { COLORS, drawFloorplan, drawRoom1to1 } from '@/domains/procgen/presentation/floorplan'
 import { fullyInside, roomViewBox, wallsNearRoom } from '@/domains/procgen/presentation/framing'
-import { bottom, left, right, top } from '@/domains/procgen/model/rect'
+import { left, right, top } from '@/domains/procgen/model/rect'
 import type { DungeonMap, Rect, Room, RoomKind } from '@/domains/procgen/model/types'
 import { ROOM_KINDS_EMITTED, ROOM_KIND_LABELS } from '@/domains/procgen/model/types'
 import { checkReachability } from '@/domains/procgen/validate/reachability'
@@ -138,7 +138,7 @@ class D2FloorplanArena extends ArenaBase {
     // 「侧室长什么样」的一个样本，按规则挑会引入一条看不见的排序，
     // 而排序一变（比如换了 sizeTier 的含义）画面就换一间，谁都不会注意到。
     const side = map.rooms.find((r) => r.branch === 'side') ?? null
-    if (side !== null) drawSideRoomCloseUp(ctx, map, cfg, side)
+    const detailDropped = side === null ? 0 : drawSideRoomCloseUp(ctx, map, cfg, side)
 
     // 连廊的两个数必须分开报，别把矩形的高度当成可走宽度。
     // `Passage.rect` **含墙**（墙是骑在它的那条线上画的，往里外各吃半层），
@@ -163,7 +163,11 @@ class D2FloorplanArena extends ArenaBase {
         `侧室 ${map.rooms.filter((r) => r.branch === 'side').length}）· 每段连廊 ${width} · 实测净高 ${clear}px`,
       `最窄窄口 ${reach.narrowestOpeningWidth}px（下限 ${cfg.minPassageWidth}）· ` +
         `墙 ${map.walls.length} 段 · 障碍 ${map.rooms.reduce((n, r) => n + r.obstacles.length, 0)} 个 · ` +
-        `生成 ${elapsedText(elapsedMs)}`,
+        `生成 ${elapsedText(elapsedMs)}` +
+        // 缩略图是 8:1 的长条，门标注挤不下就筛 —— 但**筛掉几条必须说出来**。
+        // 不说的话，「图上只标了 12 扇门」和「这一层只有 12 扇门」在现场是同一种画面，
+        // 而这一场恰恰是用来判「门对不对」的。（1:1 那张几乎不筛，见最后一行。）
+        (plan.labelsDropped > 0 ? ` · 门标注挤不下筛掉 ${plan.labelsDropped} 条（缩略图窄，看下面特写那张）` : ' · 门标注全标上了'),
       sideSummary(map),
       // 关别一行的用处很具体：**「这一层有没有宝箱关」不用数格子**。
       // 缩略图上每间房都标着关别（`roleLabel`），但 8:1 的长条上那些字只有
@@ -175,7 +179,8 @@ class D2FloorplanArena extends ArenaBase {
         ? '两层可达性全绿（层 1 含逐段连廊端到端）'
         : `⚠ ${reach.problems[0] ?? ''}`,
       (highlighted === null ? 'd2_classroom 挑不出放得下的教室' : `黄框 = d2_classroom 要走 #${highlighted.order}`) +
-        ` · 特写是侧室 #${side?.order ?? '—'}（宿主 #${side?.anchoredTo ?? '—'} + 它东边那段连廊）`,
+        ` · 特写是侧室 #${side?.order ?? '—'}（宿主 #${side?.anchoredTo ?? '—'} + 它东边那段连廊）` +
+        (detailDropped > 0 ? ` · 特写里也筛掉了 ${detailDropped} 条标注` : ''),
     ]
     ctx.scene.add
       .text(READOUT_AT.x, READOUT_AT.y, lines.join('\n'), {
@@ -237,7 +242,7 @@ function drawSideRoomCloseUp(
   map: DungeonMap,
   cfg: RoomsConfig,
   side: Room,
-): void {
+): number {
   const box = roomViewBox(map, cfg, side)
   const regionW = PLAN_BOX.width
   const regionH = DETAIL_BOTTOM - DETAIL_TOP
@@ -246,13 +251,14 @@ function drawSideRoomCloseUp(
   const screenX = PLAN_BOX.x + (regionW - box.width * scale) / 2
   const screenY = DETAIL_TOP + (regionH - box.height * scale) / 2
 
-  const mapper = drawRoom1to1(ctx.scene, map, cfg, side, {
+  const view = drawRoom1to1(ctx.scene, map, cfg, side, {
     box,
     screenX,
     screenY,
     scale,
     walls: wallsNearRoom(map, box),
   })
+  const mapper = view
 
   // 宿主与连廊**描一圈细线**。
   //
@@ -289,7 +295,10 @@ function drawSideRoomCloseUp(
   for (const p of map.passages) {
     if (!fullyInside(p.rect, box)) continue
     outline(p.rect, 0xc9b483)
-    const c = mapper.toScreen(p.rect.x, bottom(p.rect) - cfg.navCellSize)
+    // ⚠️ 印在连廊**上沿**，不是下沿：下沿那块地方已经归 `drawRoom1to1` 的
+    // `连廊 3→5` 了（那条说的是「连着哪两间」，这一条说的是「横向从哪到哪」，
+    // 两句都留着有用 —— 但挤在同一行就是一团糊字）。
+    const c = mapper.toScreen(p.rect.x, top(p.rect) + cfg.navCellSize)
     ctx.scene.add
       .text(c.x, c.y, `连廊 x ${span(p.rect)}`, {
         fontFamily: 'monospace',
@@ -328,6 +337,10 @@ function drawSideRoomCloseUp(
       { fontFamily: 'monospace', fontSize: '12px', color: '#9ad4ff' },
     )
     .setDepth(1000)
+
+  // 特写这一张几乎不筛（框里就两三间房），但**筛了几个照样要报**：
+  // 静默丢弃会让「这一层只有 12 个门洞」变成一句看着像真的假话。
+  return view.labelsDropped
 }
 
 function drawLegend(scene: ArenaContext['scene'], x: number, y: number): void {

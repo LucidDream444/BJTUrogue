@@ -104,6 +104,11 @@ class D2SeedSweepArena extends ArenaBase {
     const { map, cfg, elapsedMs } = generateForArena(ctx.scene, seed)
     const reach = checkReachability(map, cfg)
 
+    // 门标注与连廊名**明确关掉**：这一场一张图只有 430px 高（缩放约 0.17），
+    // 一排 15 间房的门标注全挤在一条线上，筛完剩不下几条、还要占地方。
+    // 这一场要的是「换种子扫连通性」和下面那几行读数，标注是 `d2_floorplan` 的活。
+    // 用显式 `false` 而不是靠默认值：默认值改了，这里会跟着变，而这一场
+    // 多出十几条字看起来只会像「缩略图更挤了」，不会像「有东西变了」。
     drawFloorplan(ctx.scene, map, cfg, {
       x: 0,
       y: 0,
@@ -113,6 +118,8 @@ class D2SeedSweepArena extends ArenaBase {
       doors: true,
       spawns: true,
       obstacles: false,
+      doorLabels: false,
+      passageLabels: false,
     })
 
     const mainCount = map.rooms.filter((r) => r.branch === 'main').length

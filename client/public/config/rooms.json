@@ -31,6 +31,9 @@
   "_combat_comment": "要打的关别。main 必须在这里（一排主干教室里总要有要打的屋子，否则整层没有威胁预算）；start / boss 是可以排除的（起点房空着、首领房留出闪避空间，都是合理配置）。改这一行不需要重新构建，也不需要改任何 TypeScript。",
   "combatKinds": ["start", "main", "elite", "boss"],
 
+  "_settle_comment": "清房宽限窗口（ms）：房间静下来之后再等这么久才宣告「已清」、开门。存在的唯一理由是**分裂怪**——最后一只分裂怪死掉时，子代还在 enemies.json 的 splitDelayMs（今天最大 180）里等着，那一段「存活 0、队列 0」是真的，一空就开门会提前放行。所以这个值 MUST 大于 enemies.json 里最大的 splitDelayMs；这条跨文件的约束由 client/src/domains/procgen/roomFlow.test.ts 盯着，D3 调大分裂延迟而没动这里，测试会当场炸。取 300 = 180 × 1.67，留出的余量是给帧对齐和队列节流的（软上限会把整队推后，但推后的是「什么时候出生」，「在不在队列里」不受影响）。这是**用时间换正确性**：等 D3 给出「本房还有几只没出来」的查询之后，它可以退成 0。",
+  "settleMs": 300,
+
   "_geometry_comment": "全部 px。minPassageWidth 是**全层最窄的可走净宽下限**，窄口 = 连廊净宽与门宽（首版这里写的是「走廊宽度」，走廊没了，约束的对象换成全层最窄的那几处）。连廊净宽 = mainRoomHeight − wallThickness = 240（减去的是**一层**墙厚，不是两层 —— 墙骑在带的两条边上、各往里吃半个墙厚，首版的 corridorRect 就在这个减法上被两个场子读出两个数）。120 是肉盾直径 80 + 余量。",
   "minPassageWidth": 120,
 
