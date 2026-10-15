@@ -17,13 +17,27 @@
 import type { GameEvents, TypedBus } from '@/core/events'
 import type { RunInput } from '../progress/progress'
 
+/**
+ * 账本对总线的全部要求：**能订阅 `entity_killed`**。
+ *
+ * ## 为什么不写 `TypedBus<GameEvents>`
+ *
+ * `TypedBus<E>` 对 `E` 是**不变**的（`listenerCount(event: keyof E)` 让 E 出现在
+ * 逆变位置），所以 `TypedBus<CombatEvents>`（D1 战斗场景那份，是 `GameEvents` 的
+ * 超集）**不能**当成 `TypedBus<GameEvents>` 传进来 —— 类型系统会拦，而且拦得对。
+ *
+ * 收窄成"只订阅"这一条之后，`GameEvents` 的总线（测试场底座）和它的超集
+ * （战斗场景）都能直接传，跨域也不靠强转。
+ */
+export type KillEventSource = Pick<TypedBus<GameEvents>, 'on'>
+
 export class RunLedger {
   private killCount = 0
   private roomCount = 0
   private depthValue = 1
   private readonly unsubscribe: () => void
 
-  constructor(bus: TypedBus<GameEvents>) {
+  constructor(bus: KillEventSource) {
     this.unsubscribe = bus.on('entity_killed', (e) => {
       // 只数敌人。玩家死亡也走这个事件（`kind: 'player'`），把它算进"击杀"会
       // 让玩家多拿一份币 —— 而且是**死得越多拿得越多**。

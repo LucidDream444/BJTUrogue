@@ -103,6 +103,16 @@ export class Button {
     return this.label.text
   }
 
+  /**
+   * 这个按钮画出来的所有显示对象。
+   *
+   * 宿主把弹层整块搬进 `OverlayLayer`（见那个文件头）时要连它们一起搬 ——
+   * 漏掉的话，按钮会留在原来的坐标系里，表现为"面板在屏幕上、按钮却歪着"。
+   */
+  get parts(): Phaser.GameObjects.GameObject[] {
+    return [this.bg, this.label]
+  }
+
   destroy(): void {
     this.bg.destroy()
     this.label.destroy()

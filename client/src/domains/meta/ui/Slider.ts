@@ -97,6 +97,11 @@ export class Slider {
     this.paint()
   }
 
+  /** 这个滑杆画出来的所有显示对象（含那条透明的命中条）。见 `OverlayLayer` */
+  get parts(): Phaser.GameObjects.GameObject[] {
+    return [this.labelText, this.valueText, this.track, this.fill, this.knob, this.hit]
+  }
+
   destroy(): void {
     this.labelText.destroy()
     this.valueText.destroy()
