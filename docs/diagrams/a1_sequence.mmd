@@ -1,0 +1,25 @@
+sequenceDiagram
+    participant P as 玩家
+    participant F as 客户端反馈表单
+    participant Q as 本地待发队列
+    participant V as FeedbackCreateAPIView
+    participant S as FeedbackService
+    participant DB as PostgreSQL
+    P->>F: 填写并提交反馈
+    F->>F: 组装 anon_id + client_version + 字段 + 附件
+    alt 离线
+        F->>Q: 入队(本地持久化)
+        Note over Q: 联网后由队列自动补传
+    end
+    Q->>V: POST /api/feedback/ (multipart)
+    V->>V: FeedbackSerializer 校验
+    alt 校验失败
+        V-->>F: 400 + 错误字段
+    else 校验通过
+        V->>S: create_ticket(anon_id, data)
+        S->>DB: get_or_create(Player, anon_id)
+        S->>DB: create(FeedbackTicket, player=...)
+        S-->>V: 工单
+        V-->>F: 201 + ticket_id
+    end
+    F-->>P: 提示"反馈已提交"

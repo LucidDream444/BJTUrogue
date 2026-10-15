@@ -1,0 +1,18 @@
+sequenceDiagram
+    participant C as 客户端
+    participant LS as localStorage
+    participant V as DRF 视图
+    participant S as PlayerService
+    participant DB as PostgreSQL
+    C->>LS: 读取 anon_id
+    alt 不存在
+        C->>C: 生成 UUID v4
+        C->>LS: 写入 bjtu-rogue:anon_id
+    end
+    C->>V: 携带 anon_id 的任意请求(反馈/遥测)
+    V->>S: get_or_create(anon_id)
+    S->>DB: get_or_create(Player, anon_id)
+    DB-->>S: Player
+    S->>DB: touch(last_seen_at, client_version)
+    S-->>V: Player
+    V-->>C: 正常响应
