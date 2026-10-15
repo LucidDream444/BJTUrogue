@@ -98,6 +98,10 @@ npm run lint         # ESLint
    文件夹只决定「谁的东西在哪儿」，**不影响 URL**：id 取的是文件名，
    所以 `arenas/D3/tank_grind.ts` 还是 `?arena=tank_grind`。
    ⚠️ 代价是**文件名要全局唯一**（跨文件夹也算）—— 撞了会当场抛，并印出两个文件的路径。
+   **跨域联调例外：`arenas/joint/`** —— 场子的货就是「两个域接在一起」时（例如 D1 的战斗
+   跑在 D2 生成的地图上），它按定义要同时 import 两个域，放哪一边的文件夹都会当场红。
+   允许碰哪几个域写在 `ARENA_FOLDER_DOMAINS` 里。**这一格只为联调存在，不是先例**：
+   新场子照旧按自己的域放，别拿它绕开「只许 import 自己那个域」。
 2. **每个测试场自带启动代码**，新增一个测试场**不需要修改任何其他域的文件**（包括 `main.ts`）。
    新建一个域文件夹时，要在 `client/src/test/architecture.test.ts` 的 `ARENA_FOLDER_DOMAINS`
    表里加一行（它按文件夹对账「这个域的场子只许 import 自己那个域」），测试会告诉你缺哪行。
