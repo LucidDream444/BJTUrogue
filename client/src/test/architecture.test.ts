@@ -517,6 +517,11 @@ const ARENA_FOLDER_DOMAINS: Record<string, readonly string[]> = {
   D2: ['procgen'],
   D3: ['enemies'],
   D4: ['meta'],
+  // `joint/` 是**跨域联调**的场子：它的货就是「两个域接在一起」，
+  // 所以它按定义要同时碰两个域 —— 放进去任何一边的文件夹都会当场红。
+  // ⚠️ 这一行是**例外**，不是先例：新场子照旧按自己的域放；
+  // 要来加行的人先问一句「这个场子是不是只为联调存在」。
+  joint: ['combat', 'procgen'],
 }
 
 /**
