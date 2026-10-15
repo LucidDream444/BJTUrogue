@@ -384,13 +384,40 @@ export class EnemySystem implements ActorEventSink {
    *
    * 漏了它的后果：监听器留着（重启 3 次就有 3 个 handler，每帧跑 3 遍 AI），
    * 账本和哈希里留着指向已销毁对象的条目。
+   *
+   * ## ⚠️ 这个方法被调到的时候，场景**可能已经被引擎拆掉一半了**
+   *
+   * 它是从场景的 `SHUTDOWN` 事件里调的，而 `SHUTDOWN` 的监听器**按注册顺序**跑；
+   * 引擎自己的那些（`ArcadePhysics`、`UpdateList`、`DisplayList`…）都在场景 `boot`
+   * 时就注册好了，比任何 `create()` 里的都早。所以到这里：
+   *
+   * | 想碰的东西 | 到这儿是什么样 | 谁干的 |
+   * |---|---|---|
+   * | `scene.physics.world` | **`null`** | `ArcadePhysics.shutdown()` 的 `this.world = null` |
+   * | `group.children` | **`undefined`**（组已被销毁） | `UpdateList.shutdown()` 把表里的对象全 `destroy()` |
+   *
+   * **不加护栏的后果不是「少退订一个监听器」，是整个页面死掉：** 异常在
+   * `SceneManager.processQueue` 里抛出 → 排在后面的 `start` 那条 op 永远轮不到
+   * （`scene.restart()` 只发 op，stop 和 start 是**两条**）→ 场景停在 SHUTDOWN；
+   * 异常再从 `Game.step` 冲出 rAF 回调，而 Phaser 是**先调回调再排下一帧**，
+   * 于是下一帧再也不会被排上 —— 帧号冻住，画面停死，点哪儿都不应。
+   * 2026-10-15 实测：按 `A` / `N` / `R` 全都这样（D2 的换种子场子里查出来的），
+   * 而屏幕上显示的却是「扫种子扫了 3 秒」—— 量错了七倍的估算把真凶盖了一整天。
+   *
+   * 护栏**不会漏掉任何清理**：
+   * - world 真被销毁时，`World.destroy()` → `shutdown()` 里有 `removeAllListeners()`
+   *   （源码已核实），`WORLD_STEP` 的监听器早随 world 一起没了；
+   * - 组真被销毁时，`Group.destroy()` 会把 `children` 置成 `undefined`，也早清空了。
+   *
+   * **没被拆掉的那条路上，这里做的事一个字都没少** —— 所以这里不是「假装清理过了」。
    */
   shutdown(): void {
     if (this.disposed) return
     this.disposed = true
 
-    this.scene.physics.world.off(Phaser.Physics.Arcade.Events.WORLD_STEP, this.onWorldStep, this)
-    this.crowdCollider.destroy()
+    // `?.` 两层都要：`physics` 是场景插件本身（关了也还在），被置 null 的是 `.world`
+    const world = this.scene.physics?.world
+    if (world) world.off(Phaser.Physics.Arcade.Events.WORLD_STEP, this.onWorldStep, this)
     this.pool.releaseAll() // 每只怪都走 release() → ledger.releaseTarget，不用另写一套清理
     this.spawns.clear()
     this.pendingDeaths.length = 0
@@ -400,7 +427,11 @@ export class EnemySystem implements ActorEventSink {
     this.hash.clear()
     // `clear(false, false)`：只移出组，**不销毁**对象 —— Actor 归池管。
     // 传 true 会把它们 destroy 掉，下次 acquire 复用就是一个已销毁的 Sprite。
-    this.group.clear(false, false)
+    //
+    // ⚠️ 组可能**已经被 `UpdateList.shutdown()` 销毁**（见上面那段 ⚠️）：销毁过的组
+    // `children` 是 `undefined`，`clear()` 里 `children.size` 会当场抛 ——
+    // 而且是在「已经清空」的组上抛的，判据和 `world` 那条一样：引擎拆过就不用再拆。
+    if (this.group.children) this.group.clear(false, false)
   }
 
   // ------------------------------------------------------------ 每步 / 每帧

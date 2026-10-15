@@ -1,0 +1,78 @@
+# ==============================================================================
+# .gitattributes —— Git LFS 规则（owner：D4，见《人员分工方案》§三「资源管线」）
+#
+# 目的：**从现在起新加入的二进制媒体走 LFS**，不再直接进 git 对象库。
+#
+# ## 历史不动
+#
+# **没有跑过 `git lfs migrate`**，也没有重写任何提交。已经提交过的文件保持原样 ——
+# git-lfs 的 smudge 只对「指针文件」生效，普通文件原样通过，
+# 所以历史里那些普通提交的图片**不会坏**，也不需要重新检出。
+#
+# ## ⚠️ 每个人先跑一次 `git lfs install`
+#
+# 它往**个人** git 配置里写 `filter.lfs.*` 那四条（clean / smudge / process / required）。
+# **本文件单独存在是不够的** —— git 只认「这个驱动叫什么」，命令得从配置里来。
+#
+# **没跑 install 的后果是安静的，这一点实测过**（2026-10-14，隔离实验）：
+# 新建一个仓库，写上同样的 `.gitattributes`，但**不定义** `filter.lfs.*`，
+# 然后 `git add real.png` —— **不报错**，`git cat-file -p :real.png` 出来的是
+# PNG 的原始字节，也就是说那颗 PNG 被当成普通对象提交进去了。
+#
+# 仓库这边**没有**办法强制别人配好（`filter.*` 是 git 配置，不是属性），
+# 所以规矩只能是：**每台机器先 install，第一次提交资源之后自己验一次**
+# （`git lfs ls-files` 里该出现你刚加的文件；没出现就是没配好）。
+#
+# 另外一种"报错"的情况是 `filter.lfs.*` 配了、但 `git-lfs` 这个程序不在
+# （装过又卸了），那时会看到
+# `error: external filter 'git-lfs filter-process' failed` —— 报错好查，
+# 反而是上面那种静默的更难发现。
+#
+# ## 为什么用全局通配，而不是只罩 `client/public/assets/`
+#
+# 截图、录屏、导出的 UI 稿同样会长在 `artifacts/` 这类地方，
+# 而它们和贴图一样是「只读一次、永远不再 diff」的二进制。
+# 按目录白名单的写法一定会漏，而漏掉的代价正好是这个文件要防的那件事。
+#
+# ## 刻意**不**进 LFS 的东西
+#
+#   *.svg   —— 文本，能 diff、能 review，进 LFS 反而看不到改动
+#   *.json  —— 配置表与 Tiled 地图，同理（`client/public/config/*.json` 是红线 2 的载体）
+#   *.tmx   —— Tiled 的 XML 地图，文本
+#
+# 一句话判据：**能 diff 的不进 LFS，不能 diff 的进。**
+# ==============================================================================
+
+# ---- 图片 ----
+*.png   filter=lfs diff=lfs merge=lfs -text
+*.jpg   filter=lfs diff=lfs merge=lfs -text
+*.jpeg  filter=lfs diff=lfs merge=lfs -text
+*.gif   filter=lfs diff=lfs merge=lfs -text
+*.webp  filter=lfs diff=lfs merge=lfs -text
+*.bmp   filter=lfs diff=lfs merge=lfs -text
+*.tga   filter=lfs diff=lfs merge=lfs -text
+*.ico   filter=lfs diff=lfs merge=lfs -text
+
+# ---- 音频（规范是 ogg + mp3 双格式，见 client/public/assets/README.md）----
+*.ogg   filter=lfs diff=lfs merge=lfs -text
+*.mp3   filter=lfs diff=lfs merge=lfs -text
+*.wav   filter=lfs diff=lfs merge=lfs -text
+*.m4a   filter=lfs diff=lfs merge=lfs -text
+*.flac  filter=lfs diff=lfs merge=lfs -text
+
+# ---- 视频（演示录屏）----
+*.mp4   filter=lfs diff=lfs merge=lfs -text
+*.webm  filter=lfs diff=lfs merge=lfs -text
+
+# ---- 字体 ----
+*.ttf   filter=lfs diff=lfs merge=lfs -text
+*.otf   filter=lfs diff=lfs merge=lfs -text
+*.woff  filter=lfs diff=lfs merge=lfs -text
+*.woff2 filter=lfs diff=lfs merge=lfs -text
+
+# ---- 美术工程源文件（不会被游戏加载，但同样只增不减）----
+*.psd       filter=lfs diff=lfs merge=lfs -text
+*.ase       filter=lfs diff=lfs merge=lfs -text
+*.aseprite  filter=lfs diff=lfs merge=lfs -text
+*.kra       filter=lfs diff=lfs merge=lfs -text
+*.blend     filter=lfs diff=lfs merge=lfs -text

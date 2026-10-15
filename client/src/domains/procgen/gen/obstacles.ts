@@ -29,10 +29,20 @@
 
 import type { Obstacle, Rect, Room } from '../model/types'
 import type { RoomsConfig } from '../config'
+import { isCombatKind } from '../config'
 import { bottom, doorRect, left, inflate, rectsIntersect, right, top } from '../model/rect'
 import { rngFor } from './seed'
 
 export function placeObstacles(seed: number, cfg: RoomsConfig, room: Room): Obstacle[] {
+  // 非战斗关别**一间空房**：道具关、宝箱关，以及配置里被排除出 `combatKinds` 的
+  // 起点房 / 首领房。课桌在这三类房里没有任何玩法理由 ——
+  // 它是**掩体**（见文件头：密度上限是拿「肉盾 slam 半径盖住大半场地」反推的），
+  // 没有敌人的房间里，一模一样的课桌只是占地方、还把宝箱的落点挤掉。
+  //
+  // 早返回而不是走到摆桌逻辑里再判：那样 `taken` / `areaCap` 这些量会被算一半，
+  // 而且下一个人加一种障碍物时得记得再判一次 —— 漏判的表现是空房里冒出课桌。
+  if (!isCombatKind(cfg, room.kind)) return []
+
   const cell = cfg.navCellSize
   const wt = cfg.wallThickness
 

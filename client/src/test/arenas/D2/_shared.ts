@@ -16,18 +16,47 @@
  */
 
 import type Phaser from 'phaser'
+import { WORLD_HEIGHT, WORLD_WIDTH } from '../../ArenaBase'
+import type { ArenaCollision, WallSpec } from '../../ArenaBase'
 import {
   ROOMS_CONFIG_NAME,
   ROOMS_CONFIG_URL,
   roomsConfigFromCache,
   type RoomsConfig,
 } from '@/domains/procgen/config'
-import type { DungeonMap, Rect, Room } from '@/domains/procgen/model/types'
+import type { DungeonMap, Point, Rect, Room } from '@/domains/procgen/model/types'
+import { collidersOf } from '@/domains/procgen/colliders'
 import { generateDungeon } from '@/domains/procgen/gen/generate'
-import { roomWithCorridorBox } from '@/domains/procgen/presentation/framing'
+import { left, rectsIntersect, top } from '@/domains/procgen/model/rect'
+import { roomViewBox } from '@/domains/procgen/presentation/framing'
+import type { Mapper } from '@/domains/procgen/presentation/floorplan'
 
 /** 换种子时按顺序翻的几张牌。**写死**是为了「同一个种子看到的永远是同一张图」。 */
 export const D2_SEEDS = [1, 13, 42, 837, 20261013, 99991] as const
+
+/**
+ * ## 底座 HUD 占掉的那两块（场子摆版面时要躲的东西）
+ *
+ * `test/Hud.ts` 把三样东西钉在画布上，而它们**每一样都是活的**：
+ *
+ * | 谁 | 位置 | 为什么不能当常量猜 |
+ * |---|---|---|
+ * | 标题 + 读数 | 左上，**到 `y ≈ 190`、`x ≈ 310`** | 读数是固定 7 行，但行里会出现 `⚠️` 尾巴，把最宽的一行顶到 400px 开外 |
+ * | 提示条（`setNotice`） | **居中**在 `y 44—68`，宽度跟着字数变 | 它由 `title.height` 顺下来 —— 标题写成两行还是三行，它会跟着动 |
+ * | 按键说明 | 左下，**上沿 `y = 669`**、长约 600px | `y = 画布高 − 15×3.4`，是算出来的，不是摆出来的 |
+ *
+ * 这三个数是**在 1280×720 的无头截图里量出来的**（2026-10-14，`--window-size=1280,720`），
+ * 不是从代码推的：按字号推出来的高度和实际的差十几像素，而**差的那十几像素
+ * 正好会让两行字压在一起** —— 压在一起在现场看起来就是「场子的读数没印出来」，
+ * 看场子的人会去查生成器。
+ *
+ * ⚠️ 这是**两个真值来源**（底座和这里），它们对不上时**不会报错**。
+ * 谁动了 `Hud` 的行数、字号或那三段的高度，就要重新截一张图重量一次。
+ * 取的都是**往上凑的整数**（190 → 210），留的余量是给「读数将来多一行」的。
+ */
+export const HUD_TOP_LEFT_BOTTOM = 210
+/** 按键说明的右边界（最长那行约 40 个全角字，量到约 x 600）。 */
+export const HUD_HINT_RIGHT = 620
 
 /** 默认种子。`d2_classroom` 挑到的那间房好看不好看，全看它。 */
 export const DEFAULT_SEED = D2_SEEDS[3]
@@ -65,6 +94,113 @@ export function generateForArena(scene: Phaser.Scene, seed: number): ArenaMap {
 }
 
 /**
+ * 一块几何从**地图坐标**换算到**屏幕坐标**，并换成底座认的 `WallSpec`。
+ *
+ * ⚠️ 两边的 `x` / `y` 都是**中心点**，而 `toScreen` 吃的是左上角 ——
+ * 所以先取左上角去换算，再加上半个屏幕尺寸把中心点挪回去。写反了**不报错**，
+ * 只是整块偏半个身位，看起来像「桌子画在这儿、人却撞在别处」。
+ *
+ * 这个函数存在的理由和 `Mapper` 那一行注释是同一条（`floorplan.ts`：
+ * 「所有绘制都走它，别处不许再写一次平移公式」）：平移公式写第二遍，
+ * 两份一分叉就是**一整张图偏移**，而偏移看起来永远像「生成器算歪了」。
+ */
+export function screenRect(r: Rect, m: Mapper): WallSpec {
+  const p = m.toScreen(left(r), top(r))
+  const width = r.width * m.scale
+  const height = r.height * m.scale
+  return { x: p.x + width / 2, y: p.y + height / 2, width, height }
+}
+
+/**
+ * 把整层楼的碰撞几何**裁进这一场的取景框、换算到屏幕**，转成底座认的 `ArenaCollision`。
+ *
+ * 「哪一块该挡什么」不在这一层判 —— 那是 `collidersOf()` 算好的三张表，
+ * 这里只做裁剪和搬运。三个列表**一起裁**，所以「椅子不在挡弹表里」这件事
+ * 裁完还是成立的（分开裁就有机会裁出不一致）。
+ *
+ * ## ⚠️ 换算器是**参数**，不是这一层假定的事
+ *
+ * 两个场子一个 1:1、一个缩放过，几何该落在哪儿**只有调用方知道**。
+ * 这里要是自己假定一个（比如「原样返回，反正是地图坐标」），
+ * 缩放过的那一场会错得显而易见，而 **1:1 的那一场会错得看不出来** ——
+ * 它的地图坐标恰好也是「一堆看起来挺合理的数」。
+ *
+ * 这不是假想的：`d2_classroom` 第一版就是这么写的（那时这里没有 `m` 这个参数），
+ * 表现是**所有碰撞体整体平移**了几百像素 —— 墙、桌椅、8 块门挡板全都在画面上，
+ * 只是**没有一块在那儿**。人撞上去不停、子弹穿墙过、按 `E` 什么都不会变，
+ * 而没有一行报错。所以：**坐标系必须是传进来的，不能是假设的。**
+ * （发现它的是无头截图：整张图扫不到一点挡板的绿色描边。）
+ *
+ * ## 为什么要裁
+ *
+ * `collidersOf()` 交的是**整层楼**的几何：一层有几百段墙，而 1:1 的场子里
+ * 玩家走不出这 1280×720 —— 全喂进去就是几百块永远碰不到的静态体。
+ * 裁一遍之后，读数里那个「造了几块」才和画面上看得见的东西对得上。
+ *
+ * ## 为什么是筛（`rectsIntersect`）而不是裁断（`clipRect`）
+ *
+ * `wallsNearRoom()` 交寻路的那一份是**裁断**的：墙被切在框边上，框外那一截消失。
+ * 画面上看不出来（截掉的本就在框外），但**物理认得出来** —— 框的边缘会凭空
+ * 多出一条本来不存在的通道。所以这里只筛不裁：整段留下。
+ *
+ * 筛用的是**地图坐标**的框（`box` 是 `roomViewBox()` 交的，本来就活在地图空间），
+ * 所以「裁」和「换算」是两步、走的是两个空间 —— 别把 `box` 也换算了：
+ * 换过之后框的位置和房间对不上，裁出来的会是一间**别的**房间里那些块。
+ *
+ * ⚠️ 于是「物理挡得住的墙」与「寻路认为堵的墙」在**框外那几十像素的边条上**
+ * 有一点出入（一个整段、一个截断）。留着不修：修它要动 `makeNav`，
+ * 那是 D3 的活（见 `d2_classroom.ts` 文件头那张表）。
+ */
+export function collisionInBox(
+  map: DungeonMap,
+  cfg: RoomsConfig,
+  box: Rect,
+  m: Mapper,
+): ArenaCollision {
+  const col = collidersOf(map, cfg)
+  const inBox = (r: Rect): boolean => rectsIntersect(r, box)
+  return {
+    solids: col.solids.filter((c) => inBox(c.rect)).map((c) => screenRect(c.rect, m)),
+    bulletStoppers: col.bulletStoppers.filter((c) => inBox(c.rect)).map((c) => screenRect(c.rect, m)),
+    barriers: col.barriers.filter((b) => inBox(b.rect)).map((b) => screenRect(b.rect, m)),
+  }
+}
+
+/**
+ * 玩家该从哪儿进场：**这一间里离房间中心最近的那个刷怪点**（返回**地图坐标**）。
+ *
+ * 为什么用刷怪点，不再写一个「找一格空的」：刷怪点的「站得住」是生成器
+ * **构造**出来的（`gen/spawns.ts`：房间内部 + 从门可达 + 网格上不堵），
+ * 而这里再算一遍就是同一件事有两个真值来源 —— 两边一分岔，
+ * 「玩家卡在桌子里」会变成两边各自都对。
+ *
+ * ## 为什么交**地图坐标**，不是屏幕坐标
+ *
+ * 交地图坐标的话，调用方要屏幕点时过一次 `mapper`，要问生成器那一侧
+ * （`d2_classroom` 的出生点对账、`cellStateAt`）时**直接用** —— 不必再反着
+ * 换算回去。上一版是交屏幕坐标的，于是 1:1 那一场得自己减掉平移量还原，
+ * 而「反着算一遍」正是会在符号或次序上出错、又不会报错的那类代码。
+ *
+ * 「离房间中心最近」这条判据里**没有取景框**：房间中心是地图上的东西，
+ * 两个场子读的是同一个数（拿画布中心去比会在缩放过的那一场里挑到另一个点）。
+ *
+ * `spawnPoints` 是空的话返回 `null`（非战斗关别就是空的），由场子决定怎么办 ——
+ * 这里不兜底挑一个点，那会把「这一间本来就不该站人」伪装成「站得住」。
+ */
+export function nearestSpawn(room: Room): Point | null {
+  let best: Point | null = null
+  let bestDist = Infinity
+  for (const p of room.spawnPoints) {
+    const d = (p.x - room.rect.x) ** 2 + (p.y - room.rect.y) ** 2
+    if (d < bestDist) {
+      bestDist = d
+      best = p
+    }
+  }
+  return best
+}
+
+/**
  * 把 `rooms.json` 挂进预加载。场子的 `preload()` 里调它。
  *
  * ⚠️ 必须走 **Phaser 的 loader**，不能 `fetch` —— 场景生命周期保证
@@ -83,35 +219,36 @@ export function loadRoomsConfig(scene: Phaser.Scene): void {
  * 那一间，就是 1:1 场子要走的哪一间。各挑各的话，两块画面对不上，
  * 而「对不上」这件事本身没法判断是挑错了还是生成错了。
  *
+ * 尺寸上限**封在这里、不由调用方传**：以前它是两个参数，于是缩略图那边传了
+ * `WORLD_HEIGHT − 104`（给读数栏让位）、1:1 那边传整个 `WORLD_HEIGHT` ——
+ * 差距正好卡在最大档教室的取景框边界上，**只在特定种子下**暴露成
+ * 「两个场子圈的不是同一间」，而那时没人会想到去比对两个常量。
+ *
  * 条件，按重要性排：
  *
  * - **档位最大**：这一场要看的是**格子级的对错**（桌子有没有压住门、
  *   红的格子和青的格子错没错开）。房间越大、桌子越多，能看出来的越多；
- *   最小的档位（400×240）只放得下 2 张桌，一场几乎什么都看不出来。
- * - **主干道上的**：只有主干教室有一扇开向走廊的 `h` 门，
- *   而「门开在哪条边、门外是不是走廊」正是要看的东西。
+ *   最小的档位（400 宽）只放得下两三张桌，一场几乎什么都看不出来。
+ * - **主干教室**：只有它同时有两扇开向**连廊**的 `v` 门（东、西墙上）
+ *   和可能一扇通往侧室的 `h` 门 —— 「门开在哪条边上、门外是连廊还是侧室」
+ *   正是要看的东西。侧室自己的门型单一，看不出来。
  * - **放得下**：取景框 1:1 摆进世界之后不能超出，否则会画到屏幕外面去 ——
  *   而画到屏幕外面看起来和「生成器没生成这段墙」一模一样。
  * - **有课桌、有刷怪点**：没有这两样就看不出可走性判定的对错。
- * - **不是起点也不是首领**：起点没有 `back` 门，首领的门是终点，
- *   两者的门型都不典型。
+ * - **不是起点也不是首领**：起点西边没有连廊（少一扇门），首领的门是终点，
+ *   两者的框都不典型。
  *
  * 挑不到就返回 `null`，由场子自己决定怎么报 —— 这里不猜、不兜底。
  */
-export function chooseClassroom(
-  map: DungeonMap,
-  cfg: RoomsConfig,
-  maxWidth: number,
-  maxHeight: number,
-): Room | null {
+export function chooseClassroom(map: DungeonMap, cfg: RoomsConfig): Room | null {
   const scored: { room: Room; box: Rect }[] = []
   for (const room of map.rooms) {
     if (room.branch !== 'main') continue
     if (room.kind === 'start' || room.kind === 'boss') continue
     if (!room.obstacles.some((o) => o.kind === 'desk')) continue
     if (room.spawnPoints.length < 2) continue
-    const box = roomWithCorridorBox(map, cfg, room)
-    if (box.width > maxWidth || box.height > maxHeight) continue
+    const box = roomViewBox(map, cfg, room)
+    if (box.width > WORLD_WIDTH || box.height > WORLD_HEIGHT) continue
     scored.push({ room, box })
   }
   if (scored.length === 0) return null

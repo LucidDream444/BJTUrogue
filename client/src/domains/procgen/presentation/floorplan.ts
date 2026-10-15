@@ -25,9 +25,12 @@
 
 import Phaser from 'phaser'
 import type { RoomsConfig } from '../config'
+import { isCombatKind } from '../config'
 import { bottom, clipRect, left, rectsIntersect, right, top } from '../model/rect'
-import type { DungeonMap, Rect, Room } from '../model/types'
+import type { DungeonMap, Point, Rect, Room } from '../model/types'
+import { ROOM_KIND_LABELS } from '../model/types'
 import { gridOfMap } from '../walkability'
+import { cullLabels, doorLabels, fullyInside, passageLabels, planRoom1to1Labels } from './framing'
 
 // ---------------------------------------------------------------- 配色
 
@@ -38,9 +41,19 @@ import { gridOfMap } from '../walkability'
 export const COLORS = {
   /** 房间外的底色（整层的"空气"） */
   outside: 0x0b0b10,
-  /** 走廊地面。**比 `outside` 明显亮一档** —— 差得太小的话，
-      1:1 的场子里「门外面是走廊还是空气」看不出来，而那正是要看的。 */
-  corridor: 0x262632,
+  /**
+   * **连廊**地面。**比 `outside` 明显亮一档** —— 差得太小的话，
+   * 1:1 的场子里「门外面是连廊还是空气」看不出来，而那正是要看的。
+   *
+   * ⚠️ 它必须是**偏暖的**，不能是中性的灰。第一版用了 `0x262632`
+   * （只比底色亮一点的中性灰），结果在缩略图那条 8:1 的长条上，
+   * 连廊和背景**分不开** —— 一排主干教室里，连廊只有 200px 宽（缩到屏幕上 24px），
+   * 而「教室之间那一段是什么」恰恰是这一排唯一要看的东西。
+   *
+   * 也不能偏蓝或偏绿：那会和两类教室撞。所以取一个深卡其 ——
+   * 两边都不像，一眼能分出来就是它不是教室。
+   */
+  passage: 0x453b28,
   /** 主干教室 */
   mainRoom: 0x1e3a5f,
   mainRoomEdge: 0x4a7fb5,
@@ -50,6 +63,18 @@ export const COLORS = {
   /** 起点 / 首领的强调描边 */
   startEdge: 0xb5a54a,
   bossEdge: 0xb54a4a,
+  /**
+   * **非战斗关别**（道具关 / 宝箱关，以及被 `combatKinds` 排除的起点/首领）的描边。
+   *
+   * 取紫罗兰色。它要和已经用掉的四种颜色**都分得开**：主干蓝 `0x4a7fb5`、
+   * 侧室绿 `0x4ab58a`、起点黄 `0xb5a54a`、首领红 `0xb54a4a` ——
+   * 也刻意避开刷怪点的粉 `0xd44a8a`（紫得发红就会和它混）。
+   *
+   * ⚠️ 起点 / 首领的描边**优先级更高**（见 `drawRoomOutline`）：一层的起点在哪
+   * 比「这间打不打架」更值得一眼看见。默认配置里那两个都是战斗房，不冲突；
+   * 真把 `start` 移出 `combatKinds` 时，起点房会保持黄色 —— 那是对的。
+   */
+  nonCombatEdge: 0x9b6ad4,
   /** 墙 */
   wall: 0x3a3a4a,
   wallEdge: 0x6a6a80,
@@ -77,6 +102,11 @@ export const COLORS = {
   grid40: 0x5f7f9f,
   /** 底座的 80px 粗网格（只画线，不判断）。青色，与 40px 网格明确区分 */
   harnessGrid: 0x00d8ff,
+  /**
+   * 连廊名的字色。**暖卡其，和 `passage` 是同一个色系但亮得多** ——
+   * 它印在那块深卡其的地面上，同色系的暗色字在 12:1 的缩略图上会被背景吃掉。
+   */
+  passageText: '#c9b483',
   text: '#cfe4ff',
 } as const
 
@@ -94,7 +124,12 @@ export interface Mapper {
   toScreen(wx: number, wy: number): { x: number; y: number }
 }
 
-function mapperFor(world: Rect, screenX: number, screenY: number, scale: number): Mapper {
+/**
+ * 造一个换算器。**导出**：别的绘制（`d2_classroom_scene` 那类只有自己才画的东西）
+ * 也该走这一条式子 —— 各写一份的话，两份一旦分叉，表现是**整张图整体偏半格**，
+ * 而这种偏移看起来永远像「生成器把墙算歪了」。
+ */
+export function mapperFor(world: Rect, screenX: number, screenY: number, scale: number): Mapper {
   const originX = left(world)
   const originY = top(world)
   return {
@@ -132,13 +167,27 @@ function lineWorld(
   g.lineBetween(a.x, a.y, b.x, b.y)
 }
 
+/**
+ * 一扇门该用什么颜色。**门线、门标注的字色都读这一份** ——
+ * 各算一遍的话，漂移的表现是「亮线是绿的、旁边那行 `→5` 是黄的」，
+ * 而两个都对不上时没人知道该信哪个。
+ */
+function doorColor(door: { kind: string; toOrder: number | null }): number {
+  return door.toOrder === null ? COLORS.doorSealed : (DOOR_COLOR[door.kind] ?? COLORS.doorSealed)
+}
+
+/** 数字色 → CSS 字符串。Phaser 的 `text` 收字色只能收这个形式，转换只此一处。 */
+function cssColor(n: number): string {
+  return `#${n.toString(16).padStart(6, '0')}`
+}
+
 /** 门画成一段**亮线**，颜色按 `DoorKind`。线宽在屏幕上是定值，不随缩放变。 */
 function drawDoor(
   g: Phaser.GameObjects.Graphics,
   m: Mapper,
   door: { kind: string; x: number; y: number; width: number; axis: 'h' | 'v'; toOrder: number | null },
 ): void {
-  const color = door.toOrder === null ? COLORS.doorSealed : (DOOR_COLOR[door.kind] ?? COLORS.doorSealed)
+  const color = doorColor(door)
   g.lineStyle(3, color, 1)
   const half = door.width / 2
   if (door.axis === 'h') lineWorld(g, m, door.x - half, door.y, door.x + half, door.y)
@@ -155,28 +204,129 @@ export interface FloorplanOptions {
   height: number
   /** 盒子内边距。默认 10 */
   padding?: number
-  /** 画 `#序号` 标签。默认 true */
+  /** 画 `#序号` 标签（含门标注与连廊名，见下两个开关）。默认 true */
   labels?: boolean
+  /**
+   * 门旁标出**它通向哪一间**（`→5`，字色跟门型走）。默认 true。
+   *
+   * 这一条正是「侧室接回主干」读不出来的那个缺口：缩略图上门只画成一段亮线，
+   * 亮线的颜色只说得出「这是前门/后门/侧门」，说不出**穿过它到哪一间**。
+   * 而一段连廊对面那扇门是通往下一间主干、还是退回宿主，靠看图是猜不出来的。
+   *
+   * 挤不下就由 `cullLabels` 筛掉（**筛掉几个要印在读数里**，见 `FloorplanView.labelsDropped`）。
+   */
+  doorLabels?: boolean
+  /** 连廊上标出**它连着哪两间**（`连廊 3→5`）。默认 true */
+  passageLabels?: boolean
   /** 画门。默认 true */
   doors?: boolean
   /** 画刷怪点。默认 true */
   spawns?: boolean
   /** 画障碍物。整层缩略图里它们只有几个像素，默认 false */
   obstacles?: boolean
+  /**
+   * 要画的世界范围。默认 `map.bounds`（整层）。
+   *
+   * 有它才能**用同一个函数画局部放大**：整层是一排 15 间房，宽近 8000px、
+   * 高不到 1000px —— 缩到屏幕上是一条 12:1 的长条，侧室与宿主那点搭接
+   * 只剩几个像素。放大那一遍把同一个 `drawFloorplan` 对准其中两三间房，
+   * 于是**两遍的配色、门型、画法天然一致**；各写一份绘制才是分叉的开始。
+   */
+  world?: Rect
 }
 
 export interface FloorplanView {
   mapper: Mapper
   /** 房间 → 屏幕矩形 */
   roomRect(room: Room): { x: number; y: number; width: number; height: number }
+  /**
+   * 挤不下被筛掉的门标注条数。**调用方有义务印出来**（`d2_floorplan` 的读数行）。
+   *
+   * 它是个容易看着像「这一层门少」的数：缩略图是 12:1 的长条，
+   * 一排 15 间房的 28 个门洞全标上会糊成一片，所以筛是必须的 ——
+   * 但**筛掉多少必须说出来**，否则「图上门标注只有 12 条」和
+   * 「这一层只有 12 扇门」在现场是同一种画面。
+   */
+  labelsDropped: number
 }
 
 /**
- * 把整层楼按比例缩进一个盒子。
+ * 缩略图上那一行标签：**位置 · 关别**，例 `侧室·宝箱关`。
  *
- * **按比例，不是按 1:1** —— 整层宽近 3000px（15 间房串在一条主干道上），
- * 塞进 1280×720 必然要缩。缩略图回答的是「房间怎么串、门开在哪个方向、
- * 走廊通不通」，不是「课桌摆在离墙第几像素」—— 后者是 `d2_classroom` 的活。
+ * 两个字段回答两个问题，而这张图两个都要答：
+ *
+ * | 字段 | 在这张图上的样子 |
+ * |---|---|
+ * | `branch`（位置） | 位置词 + 底色（主干蓝 / 侧室绿） |
+ * | `kind`（内容） | `ROOM_KIND_LABELS` 的中文名 + 非战斗关别的紫色描边 |
+ *
+ * 早先这里只印位置词（`侧室` / `主干` / `起点` / `首领`），理由是「侧室和主干
+ * 都写着 main，照原值印反而分不出来」。那句话在对 `kind` 的**原值**说事，
+ * 而关别表落地之后原值不再是唯一的选择 —— 读 `ROOM_KIND_LABELS` 就有中文名，
+ * 于是两个字段可以并列写出来，不必二选一。
+ *
+ * ⚠️ **中文名从 `ROOM_KIND_LABELS` 读，不许在这里写第二份关别名册**：
+ * 三处各写一遍就是三份会漂移的事实，而漂移的表现是「同一个关别在两块画面上
+ * 写着两个词」，谁都不会注意到（spec `procgen-config-contract` 有这一条）。
+ */
+function roleLabel(room: Room): string {
+  const where = room.branch === 'side' ? '侧室' : '主干'
+  return `${where}·${ROOM_KIND_LABELS[room.kind]}`
+}
+
+/**
+ * 一间房描边的颜色与线宽。
+ *
+ * 优先级：**起点 / 首领 > 非战斗 > 位置**。
+ *
+ * - 起点与首领优先：「这层的起点在哪、终点在哪」是一眼就要看见的两个位置，
+ *   而它比「这一间打不打架」更基本（默认配置里那两个本来也是战斗房）。
+ * - 非战斗优先于位置：位置已经由**底色**表达了（主干蓝 / 侧室绿），描边空出来
+ *   正好说第二件事 —— 「这一间不打架」。两件事各占一个通道，谁也不挤谁。
+ */
+function roomOutline(cfg: RoomsConfig, room: Room): { color: number; width: number } {
+  if (room.kind === 'start') return { color: COLORS.startEdge, width: 3 }
+  if (room.kind === 'boss') return { color: COLORS.bossEdge, width: 3 }
+  if (!isCombatKind(cfg, room.kind)) return { color: COLORS.nonCombatEdge, width: 3 }
+  return { color: room.branch === 'main' ? COLORS.mainRoomEdge : COLORS.sideRoomEdge, width: 2 }
+}
+
+/**
+ * 缩略图上两个**门标注**之间最少留多少屏幕像素。**14 是量出来的，不是拍的。**
+ *
+ * 依据是这个缩放下两个洞最近能有多近：同一堵墙上相邻的两个洞至少隔
+ * `sideRoomTier.width − roomGap` = 200px（侧室的搭接量 `k`），缩到屏幕上 26px ——
+ * 14 取它的一半，于是同一个洞口两侧的标注不会互相压住。
+ *
+ * 实测（种子 837，984×132 的缩略图 = 缩放 0.13，28 个门洞）：
+ *
+ * | 间隙 | 筛剩 |
+ * |---|---|
+ * | 20 | **1 条** —— 只剩一条门号看着像 bug（「为什么只有这扇门有号」） |
+ * | 14 | 14 条（筛掉的那 14 条，旁边都正好有一条连廊名，说的事一样） |
+ *
+ * 放宽它不会「多标几扇」——门槛一松，字就互相压住，而**糊成一片和没标是一样的**。
+ * 想看清每一扇门，看 `d2_floorplan` 下面那张特写（`DOOR_LABEL_GAP_1TO1`，几乎不筛）。
+ *
+ * ⚠️ 「28 条里留 14 条」这个**具体数目**是阈值卡的，配置动一动（`roomGap`、
+ * `navCellSize`）就会变。能保证的是口径本身：**留下来的两条之间不会叠字**。
+ * 数目变了由读数行报出来（`FloorplanView.labelsDropped`）—— 不静默。
+ */
+const DOOR_LABEL_GAP = 14
+
+/**
+ * 把一个世界矩形按比例缩进一个屏幕盒子。
+ *
+ * **按比例，不是按 1:1** —— 一排 15 间房宽近 8000px，塞进 1280×720 必然要缩。
+ * 缩略图回答的是「房间怎么串、门开在哪个方向、连廊通不通」，
+ * 不是「课桌摆在离墙第几像素」—— 后者是 `d2_classroom` 的活。
+ *
+ * ## 取景框切到的东西，就不许再替它下结论
+ *
+ * `world` 比 `map.bounds` 小的时候，边框上会切出**半间房**。半间房画成
+ * 半间房是对的（那是真的），但**描边和标签不行**：沿取景框画出来的那两条边
+ * 会被读成「这里有一堵墙」，而原图上那儿什么都没有。
+ * 所以规矩是：**填充按 `clipRect` 裁着画，描边/标签/门/刷怪点只画整块在框里的**。
  */
 export function drawFloorplan(
   scene: Phaser.Scene,
@@ -184,62 +334,77 @@ export function drawFloorplan(
   cfg: RoomsConfig,
   opts: FloorplanOptions,
 ): FloorplanView {
+  const world = opts.world ?? map.bounds
   const pad = opts.padding ?? 10
   const innerW = Math.max(1, opts.width - pad * 2)
   const innerH = Math.max(1, opts.height - pad * 2)
-  const bw = Math.max(1, map.bounds.width)
-  const bh = Math.max(1, map.bounds.height)
+  const bw = Math.max(1, world.width)
+  const bh = Math.max(1, world.height)
   const scale = Math.min(innerW / bw, innerH / bh)
 
   // 居中：内容比盒子小的时候两边留一样多，而不是全堆在左上角。
   const screenX = opts.x + pad + (innerW - bw * scale) / 2
   const screenY = opts.y + pad + (innerH - bh * scale) / 2
-  const mapper = mapperFor(map.bounds, screenX, screenY, scale)
+  const mapper = mapperFor(world, screenX, screenY, scale)
 
   const g = scene.add.graphics()
   g.setDepth(-80)
 
-  // 1. 走廊。**先画它**，房间盖在上面 —— 房间与走廊重叠的那一小段
-  //    （门厅）应该显示成房间，那才是玩家实际站在哪儿。
-  fillWorldRect(g, mapper, map.corridorRect, COLORS.corridor)
+  // 1. 连廊。**先画它**，房间盖在上面 —— 房间与连廊交界的那一小段
+  //    应该显示成房间，那才是玩家实际站在哪儿。
+  //
+  //    一段段画，不是画一条贯穿全层的带：连廊是**教室之间**的连接，
+  //    一排里两间教室之间那一段深色就是它。
+  for (const p of map.passages) {
+    const c = clipRect(p.rect, world)
+    if (c !== null) fillWorldRect(g, mapper, c, COLORS.passage)
+  }
 
-  // 2. 房间地面 + 描边
+  // 2. 房间地面（+ 可选障碍物）。半间房裁着画，理由见上面「取景框」那一段。
   for (const room of map.rooms) {
-    const isMain = room.branch === 'main'
-    fillWorldRect(g, mapper, room.rect, isMain ? COLORS.mainRoom : COLORS.sideRoom)
+    const c = clipRect(room.rect, world)
+    if (c === null) continue
+    fillWorldRect(g, mapper, c, room.branch === 'main' ? COLORS.mainRoom : COLORS.sideRoom)
     if (opts.obstacles ?? false) {
       for (const o of room.obstacles) {
-        fillWorldRect(g, mapper, o.rect, o.kind === 'desk' ? COLORS.desk : COLORS.chair, 0.8)
+        const oc = clipRect(o.rect, world)
+        if (oc !== null) {
+          fillWorldRect(g, mapper, oc, o.kind === 'desk' ? COLORS.desk : COLORS.chair, 0.8)
+        }
       }
     }
   }
 
   // 3. 墙。缩略图里墙常常只有两三个像素宽 —— 仍然画，因为**它就是
-  //    「哪几段是封死的」的唯一可视证据**（侧室门厅的封口、走廊尽头）。
+  //    「哪几段是封死的」的唯一可视证据**（侧室的封口、连廊两端）。
+  //    墙是整层连续的（上下两条墙线从头贯到尾），所以必须裁。
   for (const w of map.walls) {
-    fillWorldRect(g, mapper, w, COLORS.wall, 0.9)
+    const c = clipRect(w, world)
+    if (c !== null) fillWorldRect(g, mapper, c, COLORS.wall, 0.9)
   }
 
   // 4. 房间描边。压在墙上面：边界比墙更值得看清。
+  //    只描**整块在取景框里**的房间，否则沿框边画出来的那两条线会被读成墙。
   for (const room of map.rooms) {
+    if (!fullyInside(room.rect, world)) continue
     const p = mapper.toScreen(left(room.rect), top(room.rect))
     const w = room.rect.width * scale
     const h = room.rect.height * scale
-    // 显式标 `number`：`COLORS` 是 `as const`，不标的话 `color` 会被窄成
-    // 那两个字面量类型的联合，下面赋 `startEdge` 会报 TS2322。
-    let color: number = room.branch === 'main' ? COLORS.mainRoomEdge : COLORS.sideRoomEdge
-    if (room.kind === 'start') color = COLORS.startEdge
-    if (room.kind === 'boss') color = COLORS.bossEdge
-    g.lineStyle(room.kind === 'start' || room.kind === 'boss' ? 3 : 2, color, 1)
+    const line = roomOutline(cfg, room)
+    g.lineStyle(line.width, line.color, 1)
     g.strokeRect(p.x, p.y, w, h)
   }
 
   if (opts.doors ?? true) {
-    for (const room of map.rooms) for (const d of room.doors) drawDoor(g, mapper, d)
+    for (const room of map.rooms) {
+      if (!fullyInside(room.rect, world)) continue
+      for (const d of room.doors) drawDoor(g, mapper, d)
+    }
   }
 
   if (opts.spawns ?? true) {
     for (const room of map.rooms) {
+      if (!fullyInside(room.rect, world)) continue
       for (const s of room.spawnPoints) {
         const p = mapper.toScreen(s.x, s.y)
         g.fillStyle(COLORS.spawn, 1)
@@ -248,20 +413,52 @@ export function drawFloorplan(
     }
   }
 
+  let labelsDropped = 0
   if (opts.labels ?? true) {
     // 字号跟着格子走：缩放很小时 12px 的字会糊成一团，把缩略图变成一片字。
     const size = Math.max(10, Math.min(16, Math.round(cfg.navCellSize * 2 * scale)))
-    for (const room of map.rooms) {
-      const p = mapper.toScreen(room.rect.x, room.rect.y)
+    const at = (p: Point, text: string, color: string, fontSize = size): void => {
+      const s = mapper.toScreen(p.x, p.y)
       scene.add
-        .text(p.x, p.y, `#${room.order}\n${room.kind}`, {
+        .text(s.x, s.y, text, {
           fontFamily: 'monospace',
-          fontSize: `${size}px`,
-          color: COLORS.text,
+          fontSize: `${fontSize}px`,
+          color,
           align: 'center',
         })
         .setOrigin(0.5)
         .setDepth(-70)
+    }
+
+    // 顺序即优先级：**房名先印、先占地**，后面的标注让开它。
+    // 反过来的话，缩略图会变成「有门号、没房名」——而房名是这张图上唯一
+    // 说得出「这是第几间、要不要打」的东西。
+    const taken: { at: Point }[] = []
+    for (const room of map.rooms) {
+      if (!fullyInside(room.rect, world)) continue
+      const p = { x: room.rect.x, y: room.rect.y }
+      taken.push({ at: p })
+      // 标的是**位置 · 关别**（见 `roleLabel`）：颜色之外还得有字 ——
+      // 一块 24px 宽的色块，光靠蓝/绿/紫分不出「侧室·精英」和「侧室·宝箱关」。
+      at(p, `#${room.order}\n${roleLabel(room)}`, COLORS.text)
+    }
+
+    if (opts.passageLabels ?? true) {
+      for (const p of passageLabels(map, cfg)) {
+        // 只标**整段在框里**的：取景框切到的地方常常挂着半段连廊，
+        // 给半段贴个「连廊 3→5」会被读成「这儿整条路都在画里」。
+        if (!fullyInside(p.rect, world)) continue
+        taken.push({ at: p.at })
+        at(p.at, p.text, COLORS.passageText)
+      }
+    }
+
+    if (opts.doorLabels ?? true) {
+      // 只标**门洞整块在框里**的 —— 与连廊同理，也让 1:1 特写不会替框外的门贴名字。
+      const all = doorLabels(map, cfg).filter((d) => fullyInside(d.rect, world))
+      const { kept, dropped } = cullLabels(all, scale, DOOR_LABEL_GAP, taken)
+      labelsDropped = dropped.length
+      for (const d of kept) at(d.at, d.text, cssColor(doorColor(d)), Math.max(10, size - 2))
     }
   }
 
@@ -271,6 +468,7 @@ export function drawFloorplan(
       const p = mapper.toScreen(left(room.rect), top(room.rect))
       return { x: p.x, y: p.y, width: room.rect.width * scale, height: room.rect.height * scale }
     },
+    labelsDropped,
   }
 }
 
@@ -279,7 +477,7 @@ export function drawFloorplan(
 export interface Room1to1Options {
   /**
    * 要画的世界矩形（**地图坐标**）。由调用方决定框多大、框在哪 ——
-   * 见 `roomWithCorridorBox`：对称留白对这个场子是错的。
+   * 见 `roomViewBox`：对称留白对这个场子是错的，框要朝门外长出去。
    */
   box: Rect
   /** 框的左上角要落到屏幕的哪儿 */
@@ -298,6 +496,23 @@ export interface Room1to1Options {
   doors?: boolean
   spawns?: boolean
   labels?: boolean
+  /**
+   * 门旁标出**它通向哪一间**（`→5`）。默认 true，随 `labels` 一起关。
+   *
+   * 1:1 这一场几乎不筛（`DOOR_LABEL_GAP_1TO1`）：这里的字是 12px、
+   * 画的是**单间**，一扇门周围有的是地方。缩略图上被筛掉的那些，
+   * 到这儿全都看得见 —— 这正是「两个尺度各看一眼」的意义。
+   */
+  doorLabels?: boolean
+}
+
+/** 1:1 这一场两个门标注之间的间隙（屏幕像素）。比缩略图宽：字号 12px，框里也放得下。 */
+const DOOR_LABEL_GAP_1TO1 = 34
+
+/** `drawRoom1to1` 的返回值。**多带一个筛除计数** —— 调用方有义务印出来。 */
+export interface Room1to1Result extends Mapper {
+  /** 挤不下被筛掉的门标注条数（1:1 上通常是 0；不为 0 说明框里挤了太多门） */
+  readonly labelsDropped: number
 }
 
 /**
@@ -313,7 +528,7 @@ export function drawRoom1to1(
   cfg: RoomsConfig,
   room: Room,
   opts: Room1to1Options,
-): Mapper {
+): Room1to1Result {
   const scale = opts.scale ?? 1
   const box = opts.box
   const mapper = mapperFor(box, opts.screenX, opts.screenY, scale)
@@ -321,17 +536,29 @@ export function drawRoom1to1(
   const g = scene.add.graphics()
   g.setDepth(-80)
 
-  // 1. 底色 + 走廊
+  // 1. 底色 + 连廊
   const p0 = mapper.toScreen(left(box), top(box))
   g.fillStyle(COLORS.outside, 1)
   g.fillRect(p0.x, p0.y, box.width * scale, box.height * scale)
-  if (rectsIntersect(map.corridorRect, box)) {
-    const c = clipRect(map.corridorRect, box)
-    if (c !== null) fillWorldRect(g, mapper, c, COLORS.corridor)
+  // 一段段判，不是判「走廊那条带」：取景框里可能落在两间教室之间（一段连廊），
+  // 也可能整段错开（一间教室挨着下一间，中间什么都不夹）。
+  for (const p of map.passages) {
+    if (!rectsIntersect(p.rect, box)) continue
+    const c = clipRect(p.rect, box)
+    if (c !== null) fillWorldRect(g, mapper, c, COLORS.passage)
   }
 
-  // 2. 房间地面
-  fillWorldRect(g, mapper, room.rect, room.branch === 'main' ? COLORS.mainRoom : COLORS.sideRoom)
+  // 2. 房间地面。**框里出现的每一间都要填**，不只是选中的那一间 ——
+  //    取景框现在朝门外长出去（见 `roomViewBox`），框里必然带着邻居的一条边。
+  //    只填选中的那间，邻居就会是**一块黑**，而黑看起来和「生成器没生成这块地面」
+  //    一模一样 —— 那正是这个场子最不该犯的错。
+  //    邻居填淡一点：画面得能一眼分出「这是要看的那间」和「这是门外的邻居」。
+  for (const other of map.rooms) {
+    const c = clipRect(other.rect, box)
+    if (c === null) continue
+    const color = other.branch === 'main' ? COLORS.mainRoom : COLORS.sideRoom
+    fillWorldRect(g, mapper, c, color, other === room ? 1 : 0.45)
+  }
 
   // 3. **D2 的可走性判定**，压在障碍物**下面**：椅子的格子会红，
   //    但椅子本身还看得见 —— 不然红块会把「是谁把这一格堵了」盖掉。
@@ -428,22 +655,54 @@ export function drawRoom1to1(
   }
 
   // 11. 标签
+  let labelsDropped = 0
   if (opts.labels ?? true) {
-    const at = (wx: number, wy: number, text: string, color: string = COLORS.text): void => {
-      const p = mapper.toScreen(wx, wy)
+    const taken: { at: Point }[] = []
+    const at = (at: Point, text: string, color: string = COLORS.text, fontSize = '12px'): void => {
+      const p = mapper.toScreen(at.x, at.y)
+      taken.push({ at })
       scene.add
-        .text(p.x, p.y, text, { fontFamily: 'monospace', fontSize: '12px', color })
+        .text(p.x, p.y, text, { fontFamily: 'monospace', fontSize, color })
         .setOrigin(0.5)
         .setDepth(-70)
     }
-    at(room.rect.x, top(room.rect) + cfg.navCellSize, `#${room.order} ${room.kind} (${room.branch})`)
+    // 1:1 这一场印的是**中文关别 + 原始 branch**：关别要和场子读数、
+    // 和缩略图说得一样（`ROOM_KIND_LABELS` 那一份），而 branch 是代码里的字段名，
+    // 对着 `Room` 读代码时用得上。这里本来印的是 `kind` 的**原值** ——
+    // 关别表落地后原值有 8 个，中英混排的 `#9 chest (side)` 不如 `#9 宝箱关 (side)`
+    // 好读，而原值在场子读数里照样查得到。
+    at(
+      { x: room.rect.x, y: top(room.rect) + cfg.navCellSize },
+      `#${room.order} ${ROOM_KIND_LABELS[room.kind]} (${room.branch})`,
+    )
 
-    // 走廊那一段标出来。**不标的话它就是一块比周围亮一点的深色** ——
-    // 而这个场子最要紧的一条就是「这扇门外确实有条路」。
-    const corridor = clipRect(map.corridorRect, box)
-    if (corridor !== null) {
-      at(corridor.x, corridor.y, '走廊', '#8a8aa0')
+    // 连廊那一段 + 门标注：**谁上谁下由 `planRoom1to1Labels()` 判**（在 `./framing`，
+    // 那一层不碰 Phaser，所以判断本身进得了 node 测试；这一层只负责印）。
+    //
+    // 为什么这个序要紧：837 里 `→11`（挂在连廊正下方的侧室那扇门）和 `连廊 9→11`
+    // 只差 2px，必然撞掉一条。1:1 这一场要的是**门标注**（用户报的缺口就是它），
+    // 连廊名让位 —— 那段连廊通向哪两间，看两端两条 `→N` 就知道了。详见那个函数。
+    //
+    // 连廊**只标整段在框里的**：取景框朝门外长出去一格，框边上常常挂着半段邻居的
+    // 连廊；照 `clipRect` 判的话标签会落在框外那片黑上，看起来像「这里标注了一段
+    // 不存在的东西」。半段连廊照样画（那是真的），只是不给它贴名字。
+    // （那道筛在 `planRoom1to1Labels` 里，用的是同一个 `box`。）
+    if (opts.doorLabels ?? true) {
+      const plan = planRoom1to1Labels(map, cfg, {
+        box,
+        scale,
+        gap: DOOR_LABEL_GAP_1TO1,
+        occupied: taken,
+      })
+      labelsDropped = plan.dropped
+      // 连廊名先印、门标注压在上面 —— 两者已经互不重叠了（上面那道筛保证了这点），
+      // 这个先后只决定万一将来筛漏了谁盖住谁。名字底色浅，压在下面更不容易糊。
+      for (const p of plan.passages) at(p.at, p.text, COLORS.passageText)
+      for (const d of plan.doors) at(d.at, d.text, cssColor(doorColor(d)), '11px')
     }
+
+    // `spawn` 字走自己的落点（沿屏幕往上挪固定一段，不走 mapper），
+    // 所以不进 `taken`：它在房间里，门标注在墙上或墙外，两者本来不在一条带上。
     for (const s of room.spawnPoints) {
       const p = mapper.toScreen(s.x, s.y)
       scene.add
@@ -457,5 +716,5 @@ export function drawRoom1to1(
     }
   }
 
-  return mapper
+  return { ...mapper, labelsDropped }
 }
