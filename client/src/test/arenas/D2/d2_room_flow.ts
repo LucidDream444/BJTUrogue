@@ -47,6 +47,11 @@
  * | `Q` | 收起右下角的自检读数（它压着东侧那几扇门的标注，见 `READOUT_X`） |
  * | `R` / `0` / `I` / `空格` | 复位 / 清场 / 无敌 / 暂停（底座给每个场子都有的那几个） |
  *
+ * > **三间那一档今天在 `joint/d1d2_rooms`**：同一套「进房封门 / 清完放行 / 过门 /
+ * > 不回头」的规则，但跑的是 D1 的**真战斗**（`CombatSession` + 三选一），
+ * > 不是这一场底座那几个调试怪。先前继承本类的子类 `d2_three_rooms`
+ * > **2026-10-15 退役删除** —— 本类仍然独立可用，只是今天没有子类。
+ *
  * ## ⚠️ 「最后一只怪是分裂怪」是**每一间**都在发生的事，不是特例（4.10）
  *
  * 每间战斗房刷的是 **一代分裂怪**（`gen 1`），它死掉之后**隔 160ms** 才放出 4 只子代
@@ -171,11 +176,13 @@ const FLOOR_PAD = 12
  * 门标记的两种颜色。**与底座那两种同色**（`ArenaBase` 里的 `DOOR_OPEN_STROKE` /
  * `DOOR_SHUT_FILL`）：底座那两块矩形被这里盖住，颜色不一致会看起来像两套状态。
  *
- * `export`：子类 `d2_three_rooms` 的小地图也要画「这扇门现在封没封」，
- * 而**同一件事在画面里不该有两种颜色** —— 它 import 这两个，不另写一份。
+ * 这两个数**不再 export**（原先 import 它们的是子类 `d2_three_rooms`，2026-10-15 退役）：
+ * 「同一件事在画面里不该有两种颜色」这条**照旧算数**，只是今天的实现是
+ * 跨域那一场自己持一份、在注释里互相点名（`joint/d1d2_rooms` 的 `DOOR_COLOR`）——
+ * 它跨域，本来就不该 import 一个 D2 的**场子**文件。
  */
-export const DOOR_MARK_OPEN = 0x44dd88
-export const DOOR_MARK_SHUT = 0xff4466
+const DOOR_MARK_OPEN = 0x44dd88
+const DOOR_MARK_SHUT = 0xff4466
 /**
  * 门标记的深度。底座的挡板可视化在 `-45`（`DOOR_DEPTH`），要盖住它；
  * 人物在 `0`，不能盖住人。
@@ -227,11 +234,12 @@ const MASK_ALPHA = 0.75
  * 会**落到画布外面**（看起来像「读数没画出来」，而它其实只是画在屏幕外）。
  * **行宽预算 21 个全角**：272px / 11px ≈ 24，留三格富余。
  *
- * `export`：子类 `d2_three_rooms` 的小地图要摆在这条栏的左边（不压住它），
- * 它得知道这条栏有多宽 —— 这里写一份、那边再抄一份的话，
- * 对不上时**不报错**，只表现为「小地图压住读数」。
+ * 宽度同样**不再 export**（理由与上面那两个门色一样：import 它的是已经退役的子类）。
+ * 谁要挨着这条栏摆东西，就得知道它有多宽 —— 各写一份的话**不报错**，
+ * 只表现为「小地图压住读数」；真要共用，把这两个数提进 `_shared.ts` 才算数
+ * （那一份是**兄弟场子之间**的共用面，比 export 一个场子文件里的常数值当）。
  */
-export const READOUT_WIDTH = 272
+const READOUT_WIDTH = 272
 /** 每行的高度。11px 字 + 4px 行距（与 `d2_classroom` 同一个值）。 */
 const READOUT_LINE = 15
 
@@ -307,8 +315,8 @@ function mouthOf(b: DoorBarrier): DoorMouth {
  *
  * | 钩子 | 默认 | 谁用 |
  * |---|---|---|
- * | `seed` | `DEFAULT_SEED`（837） | `d2_three_rooms` 的 `N` 换种子 |
- * | `roomCount` | `undefined`（= 配置表里的 15） | `d2_three_rooms` 要三间 |
+ * | `seed` | `DEFAULT_SEED`（837） | 换种子的子类（`N` 键那一路）会覆盖它；今天没有子类，就用默认这一颗 |
+ * | `roomCount` | `undefined`（= 配置表里的 15） | 要**短层**的子类（三间那一档）会覆盖它；今天没有子类，所以恒是 15 |
  * | `keyHints()` | 本场那四个键 | 子类自己加的键得印出来 |
  * | `extraReadoutLines()` | 空 | 子类自己那几行读数 |
  *
@@ -316,7 +324,10 @@ function mouthOf(b: DoorBarrier): DoorMouth {
  * 是最不该各写各的** —— 两份一旦分叉，症状是「同一扇门在两个场子里一个过得去
  * 一个过不去」，而那种问题没有报错，只能靠人碰巧看见。
  *
- * ⚠️ 这个类 export **只是为了让子类继承它**（`d2_three_rooms`）。
+ * ⚠️ 这个类 export **是为了让子类继承它** —— 但今天**没有子类了**：唯一那个
+ * （`d2_three_rooms`）2026-10-15 退役，而接过「三间那一档」的 `joint/d1d2_rooms`
+ * **不是它的子类**（那一场要跟 D1 的 `CombatSession` 接头，走的是另一条装配路）。
+ * 四个钩子照旧留着，因为**本场自己就靠它们的默认值**（`seed` / `roomCount` 都在用）。
  * 目录只认下面那个 `arena` 常量，export 一个类不影响注册 —— 但每个场子文件
  * 仍然必须有自己的 `arena` 导出（`arenaCatalog.ts` 会当场抛）。
  */
@@ -359,7 +370,7 @@ export class D2RoomFlowArena extends ArenaBase {
     return arena
   }
 
-  /** 生成哪一层。子类换种子就覆盖它（`d2_three_rooms` 的 `N` 键）。 */
+  /** 生成哪一层。子类换种子（`N` 键那一路）就覆盖它；今天没有子类，就是 `DEFAULT_SEED`。 */
   protected get seed(): number {
     return DEFAULT_SEED
   }
@@ -453,7 +464,7 @@ export class D2RoomFlowArena extends ArenaBase {
    *
    * ## 为什么这件事非做不可
    *
-   * `scene.restart()`（底座的 `R`、`d2_three_rooms` 的 `N`）**不会重建场子实例** ——
+   * `scene.restart()`（底座的 `R`、以及各场子自己那个「换一张牌」的键）**不会重建场子实例** ——
    * 它对这个实例再跑一遍 `preload → create`。而类字段的初始值
    * （`= []`、`= new Set()`、`= 0`）是**构造时**赋的，只跑一次。于是第二次
    * `create()` 是在**上一局的残骸上**装配：`mask` 从 4 块变成 8 块，
@@ -489,7 +500,7 @@ export class D2RoomFlowArena extends ArenaBase {
    * （异常从 `SceneManager.processQueue` 冲出、连下一帧都不再排），两者都是
    * 「`restart()` 会把装配期的异常放大成看起来不像装配问题的东西」。
    *
-   * ⚠️ **跨 `restart()` 该活下来的东西不在这里**：比如 `d2_three_rooms` 的
+   * ⚠️ **跨 `restart()` 该活下来的东西不在这里**：比如三间那一档（`joint/d1d2_rooms`）的
    * 「第几张牌」是**模块级**变量（`_shared.ts` 的 `D2_SEEDS` / 各场子那份 `seedIndex`），
    * 实例字段留不住它，也不该留。
    */

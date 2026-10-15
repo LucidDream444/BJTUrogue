@@ -442,7 +442,7 @@ class D2ClassroomArena extends ArenaBase {
       `种子 ${L.map.seed} · 房间 ${rooms.length}（主干 ${rooms.filter((r) => r.branch === 'main').length} · 侧室 ${rooms.filter((r) => r.branch === 'side').length}）`,
       `生成 ${elapsedText(L.elapsedMs)}`,
       // 关别印**中文**（`ROOM_KIND_LABELS`，全项目唯一那份表）—— 缩略图、
-      // d2_room_kinds 和这里读的是同一份名字，三处对不上就没法互相指。
+      // 小地图和这里读的是同一份名字，几处对不上就没法互相指。
       `房间 #${L.room.order} ${L.room.branch === 'side' ? '侧室' : '主干'}·${ROOM_KIND_LABELS[L.room.kind]} · ${L.room.rect.width}×${L.room.rect.height}px · 档位 ${L.room.sizeTier}`,
       `桌椅 ${L.room.obstacles.length} · 刷怪点 ${L.room.spawnPoints.length} · 威胁预算 ${L.room.budget}`,
       `门 ${L.room.doors.map((d) => `${d.kind}→${d.toOrder}`).join(' ')}`,
@@ -467,7 +467,7 @@ class D2ClassroomArena extends ArenaBase {
       // 任何一个非零值打回来）。不写这一行的话，看的人会以为「道具关没有敌人」
       // 是生成器没生成，而它是**配置说的**。
       `打架的关别 = combatKinds：${kindNames(L.cfg.combatKinds)}`,
-      `不在里面的不摆桌椅、不给刷怪点、预算 0 —— 侧室这一层能抽到：${kindNames(Object.keys(L.cfg.sideKindWeights))}（见 d2_room_kinds）`,
+      `不在里面的不摆桌椅、不给刷怪点、预算 0 —— 侧室这一层能抽到：${kindNames(Object.keys(L.cfg.sideKindWeights))}（这张表在 rooms.json 的 sideKindWeights）`,
       '',
       // 出生点那一格是什么，必须**报出来**：生成器说它站得住、网格也这么说，
       // 才算两边一致（见 `cellStateAt`）。不一致时这一行是红的。
