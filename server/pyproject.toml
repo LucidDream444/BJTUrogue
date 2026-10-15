@@ -1,0 +1,12 @@
+[project]
+name = "bjtu-rogue-server"
+version = "1.0.0"
+description = "《课后勇者：异次元校园》服务端（D5）"
+requires-python = ">=3.12"
+
+[tool.ruff]
+line-length = 110
+target-version = "py312"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "W"]

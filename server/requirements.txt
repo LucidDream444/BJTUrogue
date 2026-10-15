@@ -1,0 +1,7 @@
+# 服务端依赖（锁定小版本，与《技术选型》§12 一致；版本以本地已验证为准）
+Django~=5.2
+djangorestframework~=3.18
+djangorestframework-simplejwt~=5.5
+drf-spectacular~=0.30
+psycopg[binary]~=3.2
+gunicorn~=23.0
