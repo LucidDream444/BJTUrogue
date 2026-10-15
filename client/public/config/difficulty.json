@@ -1,11 +1,8 @@
 {
   "schemaVersion": 1,
-
   "_comment": "难度乘数的唯一来源。enemies.json 里禁止出现任何难度相关字段（契约测试会断言）。",
-  "_owner_warning": "⚠️ 《人员分工方案》§三 把「难度曲线：入门/普通/困难的数值差异」列为 **D1 的设计输出**。本文件目前由 D3 起草，只是为了先让派生公式有输入。**冻结前必须与 D1 对齐**：要么并入 D1 签字的 balance.json，要么由 D1 拍这些数。在此之前契约测试只断言不变式，不对具体乘数产物做快照断言。",
-
+  "_owner_warning": "D1 2026-10-12首版调参起点，保留D3原四轴倍率。数量仅由房间入口乘算一次，阶段节奏见combat.json；非实测平衡结论。",
   "_derivation": "敌人派生血量 = round_half_up(hpValue × 基线子弹伤害 × enemyHp)（hpMode:shots）；round_half_up(ttkSeconds × baselineDps × contactFactor × enemyHp)（hpMode:ttkSeconds）",
-
   "difficulties": {
     "easy": {
       "enemyHp": 0.85,

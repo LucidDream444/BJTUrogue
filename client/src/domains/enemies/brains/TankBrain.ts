@@ -144,6 +144,13 @@ export function makeTankBrain(model: EnemyModel, params: TankBrainParams): Brain
 
     // ---- 前摇：站定，倒计时结束就砸 ----
     if (next === 'windup') {
+      // A retreating player cancels the attack instead of leaving an attack loop running at range.
+      if (!target?.alive || Math.hypot(target.x - self.x, target.y - self.y) > params.slamRange) {
+        out.vx = 0
+        out.vy = 0
+        out.nextState = 'chase'
+        return out
+      }
       if (model.stateAgeMs(nowMs) < params.slamWindupMs) {
         out.vx = 0
         out.vy = 0
@@ -230,11 +237,7 @@ export function makeTankBrain(model: EnemyModel, params: TankBrainParams): Brain
     // 后者在「减速一直叠满」时会变成无限踉跄：踉跄一结束就立刻再次满足，
     // 肉盾从此彻底站定 —— 而配置里 `minSpeedMult` 那道速度地板正是为了
     // 防止「被罚站死」，这个 bug 会绕过它，且完全不报错。
-    if (
-      isSlowSaturated(model) &&
-      params.staggerMs > 0 &&
-      nowMs >= model.staggerReadyAtMs
-    ) {
+    if (isSlowSaturated(model) && params.staggerMs > 0 && nowMs >= model.staggerReadyAtMs) {
       model.staggerUntilMs = nowMs + params.staggerMs
       model.staggerReadyAtMs = nowMs + params.staggerCooldownMs
       out.nextState = 'stagger'
