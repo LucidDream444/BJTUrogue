@@ -144,12 +144,15 @@ export interface RoomsConfig {
   doorWidth: number
   doorClearance: number
 
-  // 障碍物
+  // 障碍物（**桌椅组**：一张桌 + 正下方紧贴的一把椅子，见 `gen/obstacles.ts`）
   deskWidthCells: number
-  deskLenCells: [number, number]
+  deskHeightCells: number
+  /** 同一排相邻两张桌之间留几格走道 */
+  deskGapCells: number
+  /** 两排桌椅之间留几格走道 */
+  deskRowGapCells: number
   deskRowsMin: number
   deskRowsMax: number
-  chairChance: number
   obstacleDensityMax: number
 
   // 刷怪点
@@ -484,20 +487,37 @@ export function parseRoomsConfig(raw: unknown): RoomsConfig {
   }
 
   // 门洞必须比最宽的障碍物宽，否则「门被课桌堵住」会变成几何上不可避免的事。
+  // ⚠️ 量的是课桌的**短边**（`min(宽, 高)`），不是宽 —— 门是给人过的一道口子，
+  // 挡住它的是桌子的任意一维。课桌从「1 格宽的长条」改成「一张桌 + 一把椅子」之后
+  // 宽的那一维大于短边，照宽去要求门洞会凭空把下限抬高。
   const deskWidthCells = needNumber(
     need(root.deskWidthCells, 'rooms.deskWidthCells'),
     'rooms.deskWidthCells',
     { integer: true, min: 1 },
   )
-  if (doorWidth < deskWidthCells * navCellSize * 2) {
+  const deskHeightCells = needNumber(
+    need(root.deskHeightCells, 'rooms.deskHeightCells'),
+    'rooms.deskHeightCells',
+    { integer: true, min: 1 },
+  )
+  const deskShortCells = Math.min(deskWidthCells, deskHeightCells)
+  if (doorWidth < deskShortCells * navCellSize * 2) {
     throw new ConfigError(
       'rooms.doorWidth',
-      `门洞（${doorWidth}）太窄了：课桌宽 ${deskWidthCells} 格 = ${deskWidthCells * navCellSize}px，` +
-        `门至少要有两张桌子宽（${deskWidthCells * navCellSize * 2}px），否则门必然堵`,
+      `门洞（${doorWidth}）太窄了：课桌短边 ${deskShortCells} 格 = ${deskShortCells * navCellSize}px，` +
+        `门至少要有两张桌子宽（${deskShortCells * navCellSize * 2}px），否则门必然堵`,
     )
   }
 
-  const deskLenCells = needLenPair(need(root.deskLenCells, 'rooms.deskLenCells'), 'rooms.deskLenCells')
+  const deskGapCells = needNumber(need(root.deskGapCells, 'rooms.deskGapCells'), 'rooms.deskGapCells', {
+    integer: true,
+    min: 0,
+  })
+  const deskRowGapCells = needNumber(
+    need(root.deskRowGapCells, 'rooms.deskRowGapCells'),
+    'rooms.deskRowGapCells',
+    { integer: true, min: 0 },
+  )
   const deskRowsMin = needNumber(need(root.deskRowsMin, 'rooms.deskRowsMin'), 'rooms.deskRowsMin', {
     integer: true,
     min: 0,
@@ -513,10 +533,6 @@ export function parseRoomsConfig(raw: unknown): RoomsConfig {
     )
   }
 
-  const chairChance = needNumber(need(root.chairChance, 'rooms.chairChance'), 'rooms.chairChance', {
-    min: 0,
-    max: 1,
-  })
   const obstacleDensityMax = needNumber(
     need(root.obstacleDensityMax, 'rooms.obstacleDensityMax'),
     'rooms.obstacleDensityMax',
@@ -580,10 +596,11 @@ export function parseRoomsConfig(raw: unknown): RoomsConfig {
     doorWidth,
     doorClearance,
     deskWidthCells,
-    deskLenCells,
+    deskHeightCells,
+    deskGapCells,
+    deskRowGapCells,
     deskRowsMin,
     deskRowsMax,
-    chairChance,
     obstacleDensityMax,
     spawnPointsMin,
     spawnPointsMax,
@@ -672,15 +689,6 @@ function needCombatKinds(value: unknown, path: string): RoomKind[] {
   return out
 }
 
-function needLenPair(value: unknown, path: string): [number, number] {
-  const arr = needArray(value, path, 2)
-  if (arr.length !== 2) throw new ConfigError(path, `要恰好两项 [最少, 最多]，拿到 ${arr.length} 项`)
-  const lo = needNumber(arr[0], `${path}[0]`, { integer: true, min: 1 })
-  const hi = needNumber(arr[1], `${path}[1]`, { integer: true, min: 1 })
-  if (hi < lo) throw new ConfigError(`${path}[1]`, `不能小于 ${path}[0]（${lo}），拿到 ${hi}`)
-  return [lo, hi]
-}
-
 // ---------------------------------------------------------------- 加载
 
 /**
@@ -720,7 +728,7 @@ export function roomsConfigFromCache(cache: { get(key: string): unknown }): Room
 /**
  * 同上一份，但先把配置改成「整层只要 `roomCount` 间」的版本，**再走一遍校验器**。
  *
- * 用途是测试场要的**短层**：`d2_three_rooms` 要三间（= 起点 / 普通战 / 首领）。
+ * 用途是测试场要的**短层**：`joint/d1d2_rooms` 要三间（= 起点 / 普通战 / 首领）。
  * 侧室数 = `totalRooms − 主干数`，所以三个数一起钉成 N，侧室自然是 0 间
  * —— 想要的那三间就都在主干上，生成器一行都不用动。
  *

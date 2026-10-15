@@ -24,6 +24,9 @@ import { gridOfMap } from '../walkability'
 import type { DungeonMap, Rect } from '../model/types'
 import { ROOM_KINDS, ROOM_KIND_LABELS, mainRooms, sideRooms } from '../model/types'
 import { left, right, top, bottom } from '../model/rect'
+import { chairBelongsTo, countObstacles, furnitureUnits } from '../model/furniture'
+import { placeObstacles } from './obstacles'
+import type { Room } from '../model/types'
 
 const CONFIG_DIR = fileURLToPath(new URL('../../../../public/config/', import.meta.url))
 
@@ -581,16 +584,58 @@ describe('D2 校验器 — 负样本（证明它不是永远通过）', () => {
     expectFails(m, 'obstacles[0]', '格边界')
   })
 
-  it('课桌短边不统一被拒', () => {
+  it('课桌尺寸不合契约被拒（桌 2×1、椅 1×1）', () => {
     const m = broken(SEED, (x) => {
       const room = x.rooms.find((r) =>
         (r.obstacles as AnyRec[]).some((o) => o.kind === 'desk'),
       )!
       const desk = (room.obstacles as AnyRec[]).find((o) => o.kind === 'desk')!
       const r = desk.rect as Rect
-      desk.rect = { x: r.x, y: r.y, width: r.width, height: cfg.navCellSize * 2 }
+      // 加宽**整两格**（不是一格、也不是加高）：桌椅是居中在格边界上的，
+      // 加一格或改高度都会让边界落到格中心，先红的就是上面那条**对齐** ——
+      // 那样这条尺寸检查永远测不到。
+      desk.rect = { x: r.x, y: r.y, width: r.width + cfg.navCellSize * 2, height: r.height }
     })
-    expect(() => validateContract(m, cfg)).toThrow()
+    expectFails(m, 'obstacles', '尺寸不统一')
+  })
+
+  it('课桌底下没有椅子被拒 —— 桌椅是成组的', () => {
+    const m = broken(SEED, (x) => {
+      const room = x.rooms.find((r) =>
+        (r.obstacles as AnyRec[]).some((o) => o.kind === 'chair'),
+      )!
+      const obstacles = room.obstacles as AnyRec[]
+      // 把一把椅子**抽走**，桌子留在原地。生成侧构造上不可能产出这种数据，
+      // 这条守的是"别处塞进来的家具"（D1 的宝箱落点、将来的新家具）。
+      const chair = obstacles.find((o) => o.kind === 'chair')!
+      obstacles.splice(obstacles.indexOf(chair), 1)
+    })
+    expectFails(m, 'obstacles', '底下没有椅子')
+  })
+
+  it('孤零零的椅子被拒 —— 每把椅子都要属于某张桌', () => {
+    const cell = cfg.navCellSize
+    const wt = cfg.wallThickness
+    const m = broken(SEED, (x) => {
+      const room = x.rooms.find((r) =>
+        (r.obstacles as AnyRec[]).some((o) => o.kind === 'chair'),
+      )!
+      const r = room.rect as Rect
+      // **加**一把，而不是把某把挪走 —— 挪走会让它那张桌子变成"底下没有椅子"，
+      // 而桌子在 `obstacles` 里排在椅子前面，先红的就成了桌子那条。
+      // 摆在房间内部的**左上角那一格**：居中排布保证这一列（和这一行）永远是走道，
+      // 所以它上面不可能有桌子。
+      ;(room.obstacles as AnyRec[]).push({
+        kind: 'chair',
+        rect: {
+          x: left(r) + wt / 2 + cell / 2,
+          y: top(r) + wt / 2 + cell / 2,
+          width: cell,
+          height: cell,
+        },
+      })
+    })
+    expectFails(m, 'obstacles', '孤零零')
   })
 
   it('门口被堵死 —— 层 2 抓得住（这是墙厚=1 格时真正会红的那条）', () => {
@@ -630,14 +675,34 @@ describe('D2 校验器 — 负样本（证明它不是永远通过）', () => {
     //    `wallThickness` 被调大之后没人再想起这件事。
     const thickCfg = { ...cfg, wallThickness: cfg.navCellSize * 2 }
     const cell = cfg.navCellSize
+    const dw = cfg.deskWidthCells
+    const dh = cfg.deskHeightCells
     const m = broken(SEED, (x) => {
       const room = x.rooms.find((r) => (r.doors as AnyRec[]).length > 0)!
       const door = (room.doors as AnyRec[])[0]! as { x: number; y: number; axis: string }
-      const inward = Math.sign((room.rect as Rect).y - door.y) || 1
-      const rect: Rect =
-        door.axis === 'h'
-          ? { x: door.x, y: door.y + inward * cell, width: cell * 3, height: cell }
-          : { x: door.x + inward * cell, y: door.y, width: cell, height: cell * 3 }
+      const r = room.rect as Rect
+      const inward =
+        Math.sign((door.axis === 'h' ? r.y : r.x) - (door.axis === 'h' ? door.y : door.x)) || 1
+
+      // ⚠️ 这一条要绕两个弯，都是上面那三条同类检查造成的：
+      //    ① 尺寸必须是**合法的课桌尺寸**（`deskWidthCells × deskHeightCells`）——
+      //       尺寸、格对齐、在房间内三条都在「挡住门」之前，随便一个矩形撞不到这一条；
+      //    ② 偶数格宽（2 格）的桌子**居中在门心上是格错位的**（门心在格中心，
+      //       而偶数宽的边界要落在格边界上），所以桌子从门内侧那一格**整格起摆**。
+      //    墙厚 2 格时门矩形往房间里多探出半格，所以"门内侧第一格"确实与门**按面积重叠**。
+      const grid = gridOfMap(x as unknown as DungeonMap)
+      const gx = Math.floor((door.x - grid.originX) / cell)
+      const gy = Math.floor((door.y - grid.originY) / cell)
+      // 门洞所在的那一格是**骑在房间边界上**的（房间边界落在格中心），所以
+      // 2 格宽的桌子在 'v' 门这一侧只有一种摆法：**整两格都落在房间里**。
+      const gx0 = door.axis === 'h' ? gx - 1 : inward > 0 ? gx + 1 : gx - dw
+      const gy0 = door.axis === 'h' ? gy + inward : gy
+      const rect: Rect = {
+        x: grid.originX + (gx0 + dw / 2) * cell,
+        y: grid.originY + (gy0 + dh / 2) * cell,
+        width: dw * cell,
+        height: dh * cell,
+      }
       ;(room.obstacles as AnyRec[]).push({ kind: 'desk', rect })
     })
     expectFails(m, '挡住了', '堵在门口', thickCfg)
@@ -887,7 +952,7 @@ describe('D2 配置 — 关别表（schemaVersion 3）', () => {
   })
 })
 
-describe('D2 关别与家具（schemaVersion 3）', () => {
+describe('D2 关别与桌椅（schemaVersion 4）', () => {
   /** 换掉 `combatKinds` 再解析一遍 —— 别的字段一个都不动。 */
   const cfgWithCombat = (kinds: string[]): RoomsConfig => {
     const raw = JSON.parse(readFileSync(CONFIG_DIR + 'rooms.json', 'utf8')) as Record<string, unknown>
@@ -990,24 +1055,22 @@ describe('D2 关别与家具（schemaVersion 3）', () => {
     }
     expect(nonCombatRooms, '真表里道具关/宝箱关一间都没抽到？').toBeGreaterThan(0)
 
-    // ⚠️ 这里**不是** 100%，而原因与本 change 无关。
-    // 会空的只有一类：最小档（400×280）的**普通战**主干教室，实测约 45%
-    // （挂侧室的更空，多一扇门就多一块禁区）。tier1 / tier2 从不空；
-    // 起点与首领房从不空 —— 它们只有一扇竖门。
+    // ⚠️ 这里**不是** 100%，但只剩一类，而且原因与关别表无关。
     //
-    // 原因是**门禁区**把那一档房子吃得只剩放不下桌子的缝：400×280 的内部只有 9×6 格，
-    // 而每扇门的禁区是 240×160（`doorWidth` 120 + 两侧各 `doorClearance` 60）。
-    // 西、东两扇竖门各吃掉 3 格宽，北/南那扇侧室门再横着吃掉 6 格 ——
-    // 剩下的缝要么只有 3 格宽，要么落在摆桌循环「跳过一张桌就 `ix += len + 1`」
-    // 的步进之外（从 `ix=1` 起步，`ix=2` 那个恰好放得下的位置永远走不到）。
+    // 实测（1000 个种子、11009 间战斗房）：0.9866，空的**全部**是最小档
+    // （400×240）的**精英侧室** —— 540 间里空 148 间（27%）。
+    // 原因还是**门禁区**：那一档内部只有 9×5 格，而侧室有两扇门（入口 + 汇回主干那道），
+    // 每扇的禁区是 240×160（`doorWidth` 120 + 两侧各 `doorClearance` 60）——
+    // 两扇门斜着一放，剩下的缝里就摆不下「2 格宽的桌 + 正下方 1 格椅」这一组。
     //
-    // 这是 `rework-layout-to-classroom-row` 之后就存在的事实，不是关别表引进的。
-    // 要不要处理（把禁区改成圆、让小教室摆 1 格桌、还是干脆接受空场地）是
-    // **另一个 change 的决定** —— 它一动，所有种子的桌椅与刷怪点都会重排。
+    // 主干教室的三档、起点 / 首领 / 普通战**一间都不空了**。这是桌椅改版顺带修掉的：
+    // 早先桌椅从 `ix = 1` / `iy = 1` 起一格一格试，400×280 那一档约 45% 的房子
+    // 一张桌都摆不下（"跳过一张桌就步进一格"会走不到那个恰好放得下的位置）；
+    // 现在排布是**先算出几排几张、再整块居中**，位置不再依赖步进顺序。
     //
-    // 写成 `> 0.85` 而不是 `=== 1`：断言要描述**现在为真的事实**，
+    // 写成 `> 0.98` 而不是 `=== 1`：断言要描述**现在为真的事实**，
     // 一个恒假的断言会被下一个人直接删掉，连带把上面那三条也删了。
-    expect(combatRoomsWithDesks / combatRooms, '战斗房有桌椅的比例').toBeGreaterThan(0.85)
+    expect(combatRoomsWithDesks / combatRooms, '战斗房有桌椅的比例').toBeGreaterThan(0.98)
     console.log(
       `[读] 1000 个种子：战斗房 ${combatRooms} 间（${((combatRoomsWithDesks / combatRooms) * 100).toFixed(1)}% 有桌椅）、` +
         `非战斗房 ${nonCombatRooms} 间（全部三空）`,
@@ -1039,6 +1102,103 @@ describe('D2 关别与家具（schemaVersion 3）', () => {
       expect(got, `${kind} 抽到的次数`).toBeGreaterThan(want * 0.5)
     }
     console.log(`[读] 侧室 ${sides} 间 —— ${report.join('，')}`)
+  })
+
+  // --------------------------------------------------------------- 桌椅组
+
+  it('每张桌配一把椅子，椅子贴桌子正下方、且在桌子那一跨里 —— 200 个种子', () => {
+    // 这一条与校验器那条是**同一个事实的两个方向**：校验器守"别处塞进来的坏家具"，
+    // 这里守"生成器自己吐出来的就是成组的"。`furnitureUnits` 找不到椅子会抛，
+    // 所以它本身就是一条断言；再显式比一次桌/椅数量，是防"两件都没了"这种同时漏掉的形态。
+    for (const seed of SEEDS.slice(0, 200)) {
+      for (const room of generateDungeon(seed, cfg).rooms) {
+        const where = `种子 ${seed} 房间 #${room.order}（${room.kind}）`
+        const units = furnitureUnits(room)
+        const counted = countObstacles(room.obstacles)
+        expect(counted.desk, `${where} 桌/椅数量不对`).toBe(counted.chair)
+        expect(units.length, `${where} 桌椅组数 ≠ 桌子数`).toBe(counted.desk)
+        for (const u of units) {
+          expect(u.desk.width, `${where} 桌宽`).toBe(cfg.deskWidthCells * cfg.navCellSize)
+          expect(u.desk.height, `${where} 桌高`).toBe(cfg.deskHeightCells * cfg.navCellSize)
+          expect(u.chair.width, `${where} 椅宽`).toBe(cfg.navCellSize)
+          expect(chairBelongsTo(u.chair, u.desk), `${where} 椅子没贴在桌子正下方`).toBe(true)
+        }
+      }
+    }
+  })
+
+  it('桌椅整块居中 —— 左右 / 上下留的走道一样宽（差 ≤ 1 格）', () => {
+    // 「居中」是**刻意的**（见 `gen/obstacles.ts` 文件头）：早先桌椅从左上角一格一格试，
+    // 右下角余出一大片空当，看起来像生成器只会从角上摆。这条把它钉死。
+    //
+    // ⚠️ 量的是 `placeObstacles` 本身、房间**没有门** —— 不是在整张图上量。
+    // 门禁区会**单独跳过某一张桌**（`touchesDoor` 那一支，刻意的），跳过之后
+    // 剩下的桌椅当然不居中；那是门的形状，不是排布规则。给一间没有门的房间，
+    // 量到的才是规则本身。
+    const cell = cfg.navCellSize
+    const wt = cfg.wallThickness
+    const bare = (w: number, h: number): Room => ({
+      order: 0,
+      kind: 'main',
+      branch: 'main',
+      rect: { x: w / 2, y: h / 2, width: w, height: h },
+      sizeTier: 0,
+      doors: [],
+      obstacles: [],
+      spawnPoints: [],
+      budget: 1,
+      anchoredTo: null,
+    })
+    for (const [w, h] of [
+      [400, 240],
+      [400, 280],
+      [520, 280],
+      [640, 280],
+      [640, 320],
+    ] as const) {
+      for (const seed of [1, 2, 3, 13, 837, 7919]) {
+        const room = bare(w, h)
+        const obstacles = placeObstacles(seed, cfg, room)
+        const units = furnitureUnits({ ...room, obstacles })
+        expect(units.length, `${w}×${h} 种 ${seed} 一组都摆不下？`).toBeGreaterThan(0)
+        const where = `${w}×${h} 种 ${seed}`
+        const dl = Math.min(...units.map((u) => left(u.desk)))
+        const dr = Math.max(...units.map((u) => right(u.desk)))
+        const dt = Math.min(...units.map((u) => top(u.desk)))
+        const db = Math.max(...units.map((u) => bottom(u.chair)))
+        const il = left(room.rect) + wt / 2
+        const ir = right(room.rect) - wt / 2
+        const it = top(room.rect) + wt / 2
+        const ib = bottom(room.rect) - wt / 2
+        // 量的是**两侧之差**（不是"边距 ≤ 1 格"）：`usedX` 与内部宽度不同奇偶时
+        // `floor` 会让一侧多出一格，所以差 ≤ 1 格。
+        // ⚠️ 成立的前提是**密度上限没有截断最后一排**。现在的配置下不会：最挤的一档
+        //    是 640×280，8 组 = 24 格 = 38400px²，而上限 0.22 × 179200 = 39424。
+        expect(Math.abs(dl - il - (ir - dr)), `${where} 左右边距差太多`).toBeLessThanOrEqual(cell)
+        expect(Math.abs(dt - it - (ib - db)), `${where} 上下边距差太多`).toBeLessThanOrEqual(cell)
+      }
+    }
+  })
+
+  it('排数由房间高度封顶 —— 抽到 2 排的房间一定真的有 2 排，而不是摆到下墙外面', () => {
+    const cell = cfg.navCellSize
+    for (const seed of SEEDS.slice(0, 200)) {
+      for (const room of generateDungeon(seed, cfg).rooms) {
+        const units = furnitureUnits(room)
+        if (units.length === 0) continue
+        const rows = [...new Set(units.map((u) => u.desk.y))].sort((a, b) => a - b)
+        expect(rows.length, `种子 ${seed} 房间 #${room.order} 排数超了`).toBeLessThanOrEqual(
+          cfg.deskRowsMax,
+        )
+        // 排距 = 桌椅组占的两行 + deskRowGapCells。**这一条防的是"下一排的桌子压在
+        // 上一排的椅子上"** —— 两件障碍物重叠在寻路里不报错，只表现为"这块过不去"。
+        for (let i = 1; i < rows.length; i++) {
+          expect(rows[i]! - rows[i - 1]!, `种子 ${seed} 房间 #${room.order} 排距`).toBeGreaterThanOrEqual(
+            (cfg.deskHeightCells + 1) * cell,
+          )
+        }
+      }
+    }
   })
 })
 
