@@ -43,9 +43,21 @@
 
 import Phaser from 'phaser'
 import { Actor } from '@/core/actor/Actor'
-import { DamageLedger, type DamageSourceKind, type HitResult, type TickTarget } from '@/core/actor/damage'
+import {
+  DamageLedger,
+  type DamageSourceKind,
+  type HitResult,
+  type TickTarget,
+} from '@/core/actor/damage'
 import type { ActorEventSink, DamageEventInfo, KillEventInfo } from '@/core/actor/ActorModel'
-import type { ActorSnapshot, Brain, BrainAttack, BrainContext, BrainSelfInfo, NavView } from '@/core/actor/types'
+import type {
+  ActorSnapshot,
+  Brain,
+  BrainAttack,
+  BrainContext,
+  BrainSelfInfo,
+  NavView,
+} from '@/core/actor/types'
 import type { GameClock } from '@/core/time'
 import type { GameEvents, EnemyKind, TypedBus } from '@/core/events'
 import { Rng } from '@/core/rng'
@@ -110,6 +122,8 @@ export interface EnemySystemNavOptions {
   cols: number
   rows: number
   isWalkable: (x: number, y: number) => boolean
+  /** Map owner snaps all spawns, including split children, to safe ground. */
+  safeSpawn?: (x: number, y: number, radius: number) => { x: number; y: number }
 }
 
 export interface EnemySystemOptions {
@@ -176,6 +190,8 @@ export class EnemySystem implements ActorEventSink {
   private readonly bundle: ConfigBundle
   private readonly diffMods: DifficultyModifiers
   private readonly playerOf: PlayerProvider
+  private readonly patrolOrigins = new Map<number, { x: number; y: number }>()
+  private readonly safeSpawn?: EnemySystemNavOptions['safeSpawn']
   private readonly hooks: EnemySystemHooks
   private readonly rng: Rng
 
@@ -199,12 +215,15 @@ export class EnemySystem implements ActorEventSink {
    * remove 回调，又意味着下次出生还要再 `add()` 一次，而 `add` 回调会重置
    * `maxVelocity`（见 `createActor`）。
    */
+  private readonly crowdCollider: Phaser.Physics.Arcade.Collider
   readonly group: Phaser.Physics.Arcade.Group
 
   private readonly hash = new SpatialHash<ActorSnapshot>(48)
   private readonly nav: FlowField | null
 
   /** 模型 id → 池槽位。sink 回调只给 id，得靠它找回表现对象 */
+  private readonly finalBosses = new Set<number>()
+  private readonly bossStages = new Map<number, number>()
   private readonly byId = new Map<number, Entry>()
   private readonly brains = new Map<EnemyModel, Brain>()
   /** 每只怪一份复用的快照。**同时**喂 `ctx.self` 和空间哈希 —— 两者必须是同一份数据 */
@@ -250,6 +269,7 @@ export class EnemySystem implements ActorEventSink {
     this.bundle = opts.bundle
     this.diffMods = opts.bundle.difficulty.difficulties[opts.difficulty]
     this.playerOf = opts.player
+    this.safeSpawn = opts.nav?.safeSpawn
     this.hooks = opts.hooks ?? {}
     this.rng = new Rng(opts.rngSeed ?? 0x5eed)
 
@@ -281,12 +301,16 @@ export class EnemySystem implements ActorEventSink {
         this.snaps.delete(model)
         this.nextAiAt.delete(model)
         this.byId.delete(model.id)
+        this.bossStages.delete(model.id)
+        this.finalBosses.delete(model.id)
+        this.patrolOrigins.delete(model.id)
       },
     })
 
     // 不传 defaults：Arcade Group 的 add 回调会把 defaults 里每一项往 body 上打一遍，
     // 而默认值包含 maxVelocity(10000,10000) —— 见 `createActor`。
     this.group = opts.scene.physics.add.group({ runChildUpdate: false })
+    this.crowdCollider = opts.scene.physics.add.collider(this.group, this.group)
 
     this.nav = opts.nav
       ? new FlowField({
@@ -551,10 +575,26 @@ export class EnemySystem implements ActorEventSink {
       if (nowMs < due) continue
 
       const actor = entry.view
-      const isNear = target
-        ? (actor.x - target.x) * (actor.x - target.x) + (actor.y - target.y) * (actor.y - target.y) <=
+      const origin = this.patrolOrigins.get(model.id)
+      const alertRadius =
+        model.enemyKind === 'tank'
+          ? this.bundle.enemies.enemies.tank.aggroRadius
+          : this.bundle.enemies.enemies.splitter.aggroRadius
+      const distanceFromOrigin =
+        origin && target ? Math.hypot(actor.x - origin.x, actor.y - origin.y) : 0
+      const distanceToPlayer = target
+        ? Math.hypot(actor.x - target.x, actor.y - target.y)
+        : Infinity
+      const activityRadius = this.bundle.enemies.enemies.tank.aggroRadius
+      const alertTarget =
+        target && distanceFromOrigin <= activityRadius && distanceToPlayer <= alertRadius
+          ? target
+          : null
+      const isNear = alertTarget
+        ? (actor.x - alertTarget.x) * (actor.x - alertTarget.x) +
+            (actor.y - alertTarget.y) * (actor.y - alertTarget.y) <=
           NEAR_RADIUS_SQ
-        : true
+        : false
       const ai = this.aiCfgFor(model)
       this.nextAiAt.set(model, nowMs + 1000 / Math.max(1, isNear ? ai.nearTickHz : ai.farTickHz))
 
@@ -567,6 +607,7 @@ export class EnemySystem implements ActorEventSink {
       this.selfInfo.speed = model.speedNow(nowMs)
       this.selfInfo.spawnedAtMs = 0
 
+      this.ctx.target = alertTarget ? this.targetSnap : null
       const out = brain(this.ctx)
 
       // **brain 只输出意图**：写回 model，由 `onWorldStep` 的末尾统一交给物理体。
@@ -581,8 +622,26 @@ export class EnemySystem implements ActorEventSink {
       // 而 `graceMs: 0` 的怪（第三代分裂怪、肉盾）出生就是 `chase`、
       // **从头到尾没切换过状态**，于是速度一次都没写过 —— 原地不动。
       // 唯一的写入点是 `onWorldStep` 末尾那个循环，见那里的注释。
-      model.velIntent.x = out.vx
-      model.velIntent.y = out.vy
+      if (!alertTarget && origin) {
+        // Smooth circular patrol. It does not chase the player and does not add the old target-point zigzag.
+        const patrolRadius = Math.min(activityRadius * 0.45, alertRadius * 0.65)
+        const phase = nowMs / 2600 + model.id * 0.73
+        const speed = model.speedNow(nowMs)
+        const offsetX = actor.x - origin.x,
+          offsetY = actor.y - origin.y
+        const outside = Math.hypot(offsetX, offsetY) > patrolRadius
+        if (outside) {
+          const distance = Math.max(1, Math.hypot(offsetX, offsetY))
+          model.velIntent.x = (-offsetX / distance) * speed
+          model.velIntent.y = (-offsetY / distance) * speed
+        } else {
+          model.velIntent.x = -Math.sin(phase) * speed
+          model.velIntent.y = Math.cos(phase) * speed
+        }
+      } else {
+        model.velIntent.x = out.vx
+        model.velIntent.y = out.vy
+      }
       const next = out.nextState
       if (next !== undefined && next !== model.state) {
         model.setState(next as EnemyState, nowMs)
@@ -653,37 +712,45 @@ export class EnemySystem implements ActorEventSink {
    * 而 brain 是按 `nearTickHz` 降频跑的 —— 照 brain 来就会出现
    * 「远处的怪摸到你却不掉血」，而那个 bug 只在玩家往回跑的时候才出现。
    */
+  /** Solid collision reports contact after separating bodies, so overlap is no longer required. */
+  playerContact(enemyGO: Phaser.GameObjects.GameObject): void {
+    if (this.disposed || this.clock.paused || this.clock.frozen) return
+    const actor = enemyGO as EnemyActor
+    const model = actor.model as EnemyModel | undefined
+    if (!model || this.byId.get(model.id)?.view !== actor) return
+    const target = this.playerOf()
+    if (target?.alive) this.registerPlayerContact(model, target, this.clock.nowMs)
+  }
+
+  private registerPlayerContact(model: EnemyModel, target: PlayerView, nowMs: number): void {
+    if (!model.alive || model.state === 'spawning') return
+    const amountPerTick = this.contactDamagePerTick(model)
+    if (amountPerTick <= 0) return
+    this.ledger.touch(
+      model.id,
+      target.model,
+      {
+        sourceKind: 'contact',
+        amountPerTick,
+        maxTicks: this.bundle.balance.frameDamage.contactMaxTicks,
+      },
+      nowMs,
+    )
+  }
+
   private touchContact(nowMs: number): void {
     const target = this.playerOf()
-    if (!target || !target.alive) return
-
-    for (let i = 0; i < this.frameEntries.length; i++) {
-      const model = this.frameEntries[i]!.model
-      if (!model.alive || model.state === 'spawning') continue
-
-      const dmg = this.contactDamagePerTick(model)
-      if (dmg <= 0) continue
-
-      const snap = this.snaps.get(model)
-      if (!snap) continue
-      const dx = target.x - snap.x
-      const dy = target.y - snap.y
-      const reach = model.stats.radius + target.radius
+    if (!target?.alive) return
+    for (const entry of this.frameEntries) {
+      if (!entry.model.alive || !entry.view.body.enable) continue
+      // Read the post-separation body center, not the AI snapshot from an earlier step.
+      const center = entry.view.body.center
+      const dx = target.x - center.x,
+        dy = target.y - center.y
+      // Arcade circle separation can leave a sub-pixel gap; this is numerical slop, not attack range.
+      const reach = entry.model.stats.radius + target.radius + 1
       if (dx * dx + dy * dy > reach * reach) continue
-
-      this.ledger.touch(
-        model.id,
-        target.model,
-        {
-          sourceKind: 'contact',
-          amountPerTick: dmg,
-          // 「接触」是**持续存在**的源（怪贴着你）。限制它结算次数的应该是
-          // 玩家的无敌帧，不是这个上限 —— 所以用 contactMaxTicks 而不是默认的 8。
-          // 用默认值的话表现是「贴身站久了之后怪就不咬人了」。
-          maxTicks: this.bundle.balance.frameDamage.contactMaxTicks,
-        },
-        nowMs,
-      )
+      this.registerPlayerContact(entry.model, target, nowMs)
     }
   }
 
@@ -722,6 +789,89 @@ export class EnemySystem implements ActorEventSink {
       enqueuedAtMs: nowMs,
       reason,
     })
+  }
+
+  requestBoss(stage: number, x: number, y: number, maxHp: number, finalBoss = false): boolean {
+    const spec = this.specFor('tank', 0)
+    return this.spawns.push({
+      spec: { ...spec, stats: { ...spec.stats, maxHp } },
+      x,
+      y,
+      bossStage: stage,
+      finalBoss,
+      reason: 'wave',
+      atMs: this.clock.nowMs,
+      enqueuedAtMs: this.clock.nowMs,
+    })
+  }
+  bossStatus(
+    stage: number,
+  ): { id: number; hp: number; maxHp: number; x: number; y: number } | null {
+    for (const [id, bossStage] of this.bossStages) {
+      const entry = this.byId.get(id)
+      if (bossStage === stage && entry?.model.alive)
+        return {
+          id,
+          hp: entry.model.hp,
+          maxHp: entry.model.maxHp,
+          x: entry.view.x,
+          y: entry.view.y,
+        }
+    }
+    return null
+  }
+  /** Stable public snapshots; consumers never hold pooled EnemyModel references. */
+  weaponTarget(id: number): { id: number; x: number; y: number; radius: number } | null {
+    const e = this.byId.get(id)
+    if (!e?.model.alive || !e.view.body.enable) return null
+    return { id, x: e.view.body.center.x, y: e.view.body.center.y, radius: e.view.body.halfWidth }
+  }
+  weaponTargets(): { id: number; x: number; y: number; radius: number }[] {
+    const result: { id: number; x: number; y: number; radius: number }[] = []
+    for (const id of this.byId.keys()) {
+      const target = this.weaponTarget(id)
+      if (target) result.push(target)
+    }
+    return result
+  }
+  weaponHit(id: number, sourceId: number, amount: number, tick: number | null): HitResult {
+    const e = this.byId.get(id)
+    if (!e?.model.alive) return { applied: 0, killed: false, consumed: false }
+    // Fixed weapon damage follows the existing heavy-cannon rule, while still using takeHit.
+    const multiplier = e.model.state === 'recover' ? e.model.vulnerableMult : 1
+    return e.model.takeHit({
+      sourceId,
+      hitKey: 'weapon:' + sourceId + ':' + (tick ?? 'impact'),
+      sourceKind: 'aoe',
+      mode: tick === null ? 'instant' : 'tick',
+      amount: amount / multiplier,
+      nowMs: this.clock.nowMs,
+      frameId: this.clock.frameId,
+    })
+  }
+  weaponSlow(id: number, multiplier: number, untilMs: number): void {
+    const e = this.byId.get(id)
+    if (!e?.model.alive) return
+    e.model.weaponSlowMultiplier = multiplier
+    e.model.weaponSlowUntilMs = untilMs
+  }
+
+  /** Pulse shot has one exact impact, without armor tick damage or vulnerability amplification. */
+  pulseContact(sourceId: number, enemy: Phaser.GameObjects.GameObject, amount: number): HitResult {
+    const model = (enemy as EnemyActor).model as EnemyModel | undefined
+    if (!model || !model.alive || !this.byId.has(model.id))
+      return { applied: 0, killed: false, consumed: true }
+    const multiplier = model.state === 'recover' ? model.vulnerableMult : 1
+    const result = model.takeHit({
+      sourceId,
+      hitKey: 'pulse:' + sourceId,
+      sourceKind: 'bullet',
+      mode: 'instant',
+      amount: amount / multiplier,
+      nowMs: this.clock.nowMs,
+      frameId: this.clock.frameId,
+    })
+    return { ...result, consumed: true }
   }
 
   /** 测试场 / 调试用：立刻就要（仍然受单帧限额与软/硬上限约束）。 */
@@ -781,28 +931,35 @@ export class EnemySystem implements ActorEventSink {
       }
 
       const model = entry.model
+      const position = this.safeSpawn?.(req.x, req.y, model.stats.radius) ?? req
       entry.view.spawnAt({
-        x: req.x,
-        y: req.y,
+        x: position.x,
+        y: position.y,
+        collideWorldBounds: this.nav !== null,
         textureKey: this.textureKeyFor(model.enemyKind, model.gen),
+        visualScale: this.visualScaleFor(model.enemyKind, model.gen),
         // 速度上限：Arcade 默认 maxVelocity 是 (10000,10000)，分离力 + 击退叠起来
         // 能把怪甩出房间。这只是兜底，不参与正常移动。
         speedCap: model.stats.speed * 3,
       })
 
       this.byId.set(model.id, entry)
+      if (req.bossStage !== undefined) this.bossStages.set(model.id, req.bossStage)
+      if (req.finalBoss) this.finalBosses.add(model.id)
+      this.patrolOrigins.set(model.id, { x: position.x, y: position.y })
       model.sink = this
       this.brains.set(model, this.makeBrain(model))
       this.nextAiAt.set(model, 0) // 出生的下一帧立刻跑一次 AI，别等满一个降频周期
       this.snaps.set(model, { ...this.blank })
 
       this.bus.emit('entity_spawned', {
+        bossStage: req.bossStage,
         id: model.id,
         kind: 'enemy',
         enemyKind: model.enemyKind,
         gen: model.gen,
-        x: req.x,
-        y: req.y,
+        x: position.x,
+        y: position.y,
       })
     }
   }
@@ -811,6 +968,12 @@ export class EnemySystem implements ActorEventSink {
     if (kind === 'tank') return this.bundle.enemies.enemies.tank.textureKey
     const gens = this.bundle.enemies.enemies.splitter.generations
     return (gens[gen] ?? gens[gens.length - 1]!).textureKey
+  }
+
+  private visualScaleFor(kind: EnemyKind, gen: number): number {
+    if (kind === 'tank') return this.derivedTank(this.bundle.enemies.enemies.tank).visualScale
+    const gens = this.bundle.enemies.enemies.splitter.generations
+    return (gens[gen] ?? gens[gens.length - 1]!).visualScale
   }
 
   /**
@@ -968,6 +1131,7 @@ export class EnemySystem implements ActorEventSink {
     const y = entry.view.y
 
     this.bus.emit('entity_killed', {
+      bossStage: this.bossStages.get(model.id),
       id: model.id,
       kind: 'enemy',
       enemyKind: model.enemyKind,
@@ -1120,6 +1284,30 @@ export class EnemySystem implements ActorEventSink {
   }
 
   /** 池里活着的敌人（只读快照）。遍历时不要在里面刷怪 */
+  /** Horizontal target direction for enemy presentation; zero retains its current facing. */
+  isFinalBoss(id: number): boolean {
+    return this.finalBosses.has(id)
+  }
+  isBoss(id: number): boolean {
+    return this.bossStages.has(id)
+  }
+
+  playerDirectionX(id: number): number {
+    const target = this.playerOf(),
+      entry = this.byId.get(id)
+    if (!target?.alive || !entry) return 0
+    const dx = target.x - entry.view.body.center.x
+    return Math.abs(dx) > 1 ? Math.sign(dx) : 0
+  }
+
+  isPlayerInRange(id: number, radius: number): boolean {
+    const target = this.playerOf(),
+      entry = this.byId.get(id)
+    if (!target?.alive || !entry) return false
+    const center = entry.view.body.center
+    return Math.hypot(target.x - center.x, target.y - center.y) <= radius
+  }
+
   get liveEnemies(): readonly Entry[] {
     return this.pool.activeEntries()
   }

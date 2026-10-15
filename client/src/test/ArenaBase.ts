@@ -263,7 +263,7 @@ export interface ArenaDefinition {
   displayName: string
   /** 一句话说明：这个场子是干什么的、该看什么 */
   description: string
-  scene: new () => ArenaBase
+  scene: new () => Phaser.Scene
 }
 
 /** 一块门洞挡板的运行时状态：物理体 + 它的样子。**开关只翻 `body.enable`。** */

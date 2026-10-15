@@ -1,0 +1,138 @@
+{
+  "schemaVersion": 1,
+  "rewards": [
+    {
+      "id": "lunch",
+      "name": "强健体魄",
+      "category": "survival",
+      "icon": "heart",
+      "headline": "生命上限 +10",
+      "description": "提升生命上限；当前生命仍通过拾取爱心恢复。",
+      "weight": 12,
+      "maxStacks": 0,
+      "effects": [
+        {
+          "stat": "maxHp",
+          "amount": 0.2
+        }
+      ],
+      "weapons": [],
+      "requires": [],
+      "excludes": []
+    },
+    {
+      "id": "sharp",
+      "name": "强化弹头",
+      "category": "firepower",
+      "icon": "icon_crosshair",
+      "headline": "基础伤害 +20%",
+      "description": "强化所携带武器的伤害，按各武器基础伤害叠加。",
+      "weight": 12,
+      "maxStacks": 0,
+      "effects": [
+        {
+          "stat": "damage",
+          "amount": 0.2
+        }
+      ],
+      "weapons": [],
+      "requires": [],
+      "excludes": []
+    },
+    {
+      "id": "tempo",
+      "name": "快速击发",
+      "category": "firepower",
+      "icon": "energy",
+      "headline": "攻击频率 +15%",
+      "description": "缩短连续射击间隔；加成按基础攻击频率叠加。",
+      "weight": 12,
+      "maxStacks": 8,
+      "effects": [
+        {
+          "stat": "fireRate",
+          "amount": 0.15
+        }
+      ],
+      "weapons": [],
+      "requires": [],
+      "excludes": []
+    },
+    {
+      "id": "double_shot",
+      "name": "多重射击",
+      "category": "firepower",
+      "icon": "star_badge",
+      "headline": "每次射击 +1 弹丸",
+      "description": "一次射击发出更多子弹，整次射击仍消耗 4 点体力。",
+      "weight": 10,
+      "maxStacks": 3,
+      "effects": [
+        {
+          "stat": "pellets",
+          "amount": 1
+        }
+      ],
+      "weapons": ["pencil"],
+      "requires": [],
+      "excludes": []
+    },
+    {
+      "id": "reserves",
+      "name": "充沛体力",
+      "category": "survival",
+      "icon": "energy",
+      "headline": "体力上限 +20",
+      "description": "扩大射击体力储备，体力仍按每秒 6 点恢复。",
+      "weight": 8,
+      "maxStacks": 0,
+      "effects": [
+        {
+          "stat": "maxStamina",
+          "amount": 0.2
+        }
+      ],
+      "weapons": [],
+      "requires": [],
+      "excludes": []
+    },
+    {
+      "id": "sneakers",
+      "name": "轻盈步伐",
+      "category": "utility",
+      "icon": "skill_orb_speed",
+      "headline": "移动速度 +8%",
+      "description": "更快拉开距离、躲开近身攻击，移动不消耗体力。",
+      "weight": 6,
+      "maxStacks": 5,
+      "effects": [
+        {
+          "stat": "move",
+          "amount": 0.08
+        }
+      ],
+      "weapons": [],
+      "requires": [],
+      "excludes": []
+    },
+    {
+      "id": "grace",
+      "name": "从容应对",
+      "category": "utility",
+      "icon": "shield",
+      "headline": "受击保护 +0.1 秒",
+      "description": "受到有效伤害后的保护时间更长，减少连续受击。",
+      "weight": 6,
+      "maxStacks": 3,
+      "effects": [
+        {
+          "stat": "iframeMs",
+          "amount": 100
+        }
+      ],
+      "weapons": [],
+      "requires": [],
+      "excludes": []
+    }
+  ]
+}

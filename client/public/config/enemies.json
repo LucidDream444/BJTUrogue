@@ -1,30 +1,24 @@
 {
   "schemaVersion": 1,
-
   "_comment": "敌人表。**内容归 D3，字段定义归 D2（契约 C2）。**",
   "_no_hp_field": "这里没有 maxHp —— 血量是由 hpMode + hpValue 派生的，见 core/config.ts 顶部说明。改武器伤害时敌人数值会自动跟随。",
   "_no_difficulty_field": "这里也禁止出现任何难度字段（enemyHp / enemyDamage / …），难度乘数唯一来源是 difficulty.json。契约测试会断言这一点。",
-
   "enemies": {
     "splitter": {
       "displayName": "分裂怪",
       "kind": "splitter",
       "threatLevel": 2,
       "hpMode": "shots",
-
       "_design": "死亡后分裂：2 → 每个再分 4 → 终止，共三代。越分裂体型越小、速度越快、血越低。设计目标是让玩家打群怪割草的爽感，所以**每一代都是一枪一个**（oneShot: true）。",
-
       "aggroRadius": 340,
       "loseTargetRadius": 520,
-
       "ai": {
         "nearTickHz": 30,
         "farTickHz": 5,
         "flinchMs": 90,
-        "separationPad": 4,
-        "separationStrength": 40
+        "separationPad": 8,
+        "separationStrength": 120
       },
-
       "generations": [
         {
           "gen": 0,
@@ -32,7 +26,8 @@
           "hpValue": 0.7,
           "speed": 62,
           "radius": 18,
-          "textureKey": "enemy_splitter_t1_idle",
+          "visualScale": 1.0,
+          "textureKey": "enemy_slime_t1_idle",
           "contactDamagePerTick": 6,
           "childCount": 2,
           "splitDelayMs": 180,
@@ -51,7 +46,8 @@
           "hpValue": 0.5,
           "speed": 92,
           "radius": 12,
-          "textureKey": "enemy_splitter_t2_idle",
+          "visualScale": 0.78,
+          "textureKey": "enemy_slime_t2_idle",
           "contactDamagePerTick": 4,
           "childCount": 4,
           "splitDelayMs": 160,
@@ -70,7 +66,8 @@
           "hpValue": 0.3,
           "speed": 120,
           "radius": 8,
-          "textureKey": "enemy_splitter_t3_idle",
+          "visualScale": 0.58,
+          "textureKey": "enemy_slime_t3_idle",
           "contactDamagePerTick": 3,
           "childCount": 0,
           "splitDelayMs": 0,
@@ -78,13 +75,12 @@
           "spawnRadius": 0,
           "fanAngleDeg": 0,
           "graceMs": 0,
-          "graceMoveMult": 1.0,
+          "graceMoveMult": 1,
           "hitstopMs": 0,
           "trauma": 0.05,
           "particles": 5
         }
       ],
-
       "juice": {
         "comboWindowMs": 1200,
         "comboFlourishAt": 5,
@@ -92,32 +88,28 @@
         "flourishFlash": 0.6
       }
     },
-
     "tank": {
       "displayName": "巨型肉盾怪",
       "kind": "tank",
       "threatLevel": 4,
       "hpMode": "ttkSeconds",
-
       "_design": "体型大、速度慢、血厚。**子弹不被它消耗 —— 直接穿透**，穿透过程中每 100ms 结算一次帧伤，每次结算都触发受击动画与音效。这是它作为「重甲」的手感：别的敌人挡下子弹，它挡不住，但有硬甲。近战同理，接触期间持续结算。受击会越打越慢（有地板防罚站死），slam 有 700ms 前摇、900ms 恢复窗（此时受伤 ×1.25）——那是玩家的输出窗口。",
-
       "ttkSeconds": 10,
       "contactFactor": 1.3,
       "speed": 52,
       "radius": 40,
+      "visualScale": 1.15,
       "textureKey": "enemy_tank_idle",
       "contactDamagePerTick": 0,
       "aggroRadius": 480,
       "loseTargetRadius": 620,
-
       "ai": {
         "nearTickHz": 30,
         "farTickHz": 5,
         "flinchMs": 0,
-        "separationPad": 6,
-        "separationStrength": 30
+        "separationPad": 12,
+        "separationStrength": 100
       },
-
       "frameDamage": {
         "tickMs": 100,
         "bullet": {
@@ -131,11 +123,10 @@
           "maxTicksPerSource": 8
         }
       },
-
       "slam": {
-        "range": 96,
+        "range": 64,
         "windupMs": 700,
-        "radius": 110,
+        "radius": 64,
         "damage": 22,
         "knockback": 240,
         "cooldownMs": 2400,
@@ -143,7 +134,6 @@
         "vulnerableDamageMult": 1.25,
         "hitstopMs": 60
       },
-
       "hitSlow": {
         "stackPerHit": 1,
         "maxStacks": 12,
@@ -155,7 +145,6 @@
         "staggerCooldownMs": 3000,
         "staggerSpeedMult": 0.2
       },
-
       "antiPin": {
         "unstuckMs": 400,
         "lateralEscapeMs": 600,
@@ -163,7 +152,6 @@
         "stuckSpeedThreshold": 4,
         "lateralSpeedMult": 1.2
       },
-
       "juice": {
         "hitSfxMinIntervalMs": 250,
         "damageEventBatchMs": 200,

@@ -111,6 +111,7 @@ export interface SplitterGenerationDef {
   hpValue: number
   speed: number
   radius: number
+  visualScale: number
   textureKey: string
   contactDamagePerTick: number
   childCount: number
@@ -212,6 +213,7 @@ export interface TankDef {
   contactFactor: number
   speed: number
   radius: number
+  visualScale: number
   textureKey: string
   contactDamagePerTick: number
   aggroRadius: number
@@ -242,6 +244,7 @@ export interface DerivedSplitterGeneration {
   /** 已乘难度 `enemySpeed` */
   speed: number
   radius: number
+  visualScale: number
   textureKey: string
   /** 已乘难度 `enemyDamage` */
   contactDamagePerTick: number
@@ -262,6 +265,7 @@ export interface DerivedTank {
   /** 已乘难度 `enemySpeed` */
   speed: number
   radius: number
+  visualScale: number
   textureKey: string
   /** 已乘难度 `enemyDamage` */
   slamDamage: number
@@ -320,6 +324,7 @@ export function deriveSplitterGeneration(
     maxHp,
     speed: Math.round(def.speed * diff.enemySpeed),
     radius: def.radius,
+    visualScale: def.visualScale,
     textureKey: def.textureKey,
     contactDamagePerTick: roundHalfUp(def.contactDamagePerTick * diff.enemyDamage),
     childCount: def.childCount,
@@ -358,6 +363,7 @@ export function deriveTank(
     maxHp,
     speed: Math.round(def.speed * diff.enemySpeed),
     radius: def.radius,
+    visualScale: def.visualScale,
     textureKey: def.textureKey,
     slamDamage: roundHalfUp(def.slam.damage * diff.enemyDamage),
     damagePerBullet,
@@ -665,6 +671,7 @@ function validateGeneration(raw: unknown, path: string): SplitterGenerationDef {
     hpValue: needNumber(g.hpValue, `${path}.hpValue`, { min: 0.01 }),
     speed: needNumber(g.speed, `${path}.speed`, { min: 1 }),
     radius: needNumber(g.radius, `${path}.radius`, { min: 1 }),
+    visualScale: needNumber(g.visualScale, `${path}.visualScale`, { min: 0.1 }),
     textureKey: validateTextureKey(needString(g.textureKey, `${path}.textureKey`), `${path}.textureKey`, 'image'),
     contactDamagePerTick: needNumber(g.contactDamagePerTick, `${path}.contactDamagePerTick`, { min: 0 }),
     childCount,
@@ -735,6 +742,7 @@ function validateTank(raw: unknown): TankDef {
     contactFactor: needNumber(r.contactFactor, `${path}.contactFactor`, { min: 0.1 }),
     speed: needNumber(r.speed, `${path}.speed`, { min: 1 }),
     radius: needNumber(r.radius, `${path}.radius`, { min: 1 }),
+    visualScale: needNumber(r.visualScale, `${path}.visualScale`, { min: 0.1 }),
     textureKey: validateTextureKey(needString(r.textureKey, `${path}.textureKey`), `${path}.textureKey`, 'image'),
     contactDamagePerTick: needNumber(r.contactDamagePerTick, `${path}.contactDamagePerTick`, { min: 0 }),
     aggroRadius: needNumber(r.aggroRadius, `${path}.aggroRadius`, { min: 1 }),

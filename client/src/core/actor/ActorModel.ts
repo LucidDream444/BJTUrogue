@@ -146,7 +146,8 @@ export class ActorModel<S extends string = string> implements TickTarget {
     if (this.isDuplicateHit(req)) return { applied: 0, killed: false, consumed }
 
     const amount = Math.max(0, this.modifyIncomingDamage(req.amount, req))
-    const applied = Math.min(amount, this.hp)
+    const remaining = Math.max(0, this.absorbIncomingDamage(amount, req))
+    const applied = Math.min(remaining, this.hp)
     this.hp -= applied
 
     const killed = this.hp <= 0
@@ -208,6 +209,11 @@ export class ActorModel<S extends string = string> implements TickTarget {
 
   /** 减伤 / 易伤。肉盾的 `recover` 状态在这里乘 1.25。 */
   protected modifyIncomingDamage(amount: number, _req: HitRequest): number {
+    return amount
+  }
+
+  /** Optional resource layer such as a player shield. The returned amount reaches HP. */
+  protected absorbIncomingDamage(amount: number, _req: HitRequest): number {
     return amount
   }
 
