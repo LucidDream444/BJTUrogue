@@ -74,7 +74,7 @@ export interface ArenaMap {
  *
  * `roomCount` 给了就生成**短层**（整层只有这么多间）—— 走 `roomsConfigWithRoomCount`，
  * 也就是「改原始 JSON、**再过一遍配置校验器**」；不给就是配置表里那个数（15）。
- * 这一条是 `d2_three_rooms` 要的，见那个函数的 ⚠️。
+ * 这一条是三间那一档测试场（今天跑的是 `joint/d1d2_rooms`）要的，见那个函数的 ⚠️。
  *
  * 配置取不到时 `roomsConfigFromCache` 会抛 `ConfigError`，
  * 那个错误会被 `ArenaBase.create()` 接住画在屏幕上（见 `showFatal`）——

@@ -156,9 +156,15 @@ export type ObstacleKind =
 /**
  * 室内障碍物。玩家与怪物 MUST NOT 能穿过它。
  *
- * 尺寸契约（见 `docs/地牢生成设计.md`）：课桌**宽度固定 1 格**、长度取整数格、
- * **只横竖**、按格对齐；椅子恒为 1 格。**"可视 = 可走性"** —— 一张看着能挤过去的缝，
- * 寻路也必须认为能过去。按格对齐正是为了消掉「看着能过、实际整格封死」的错位。
+ * 尺寸契约（见 `docs/地牢生成设计.md`）：课桌恒为 `deskWidthCells × deskHeightCells` 格
+ * （配表里是 2×1），**只横竖**、按格对齐；椅子恒为 1 格。**"可视 = 可走性"** ——
+ * 一张看着能挤过去的缝，寻路也必须认为能过去。按格对齐正是为了消掉
+ * 「看着能过、实际整格封死」的错位。
+ *
+ * ⚠️ **桌椅是成组的**（schemaVersion 4）：每一张 `'desk'` 的正下方紧贴着一把 `'chair'`，
+ * 而且椅子横向落在桌子那一跨里。地图里**没有**「组」这个字段 —— 组是从这一条几何关系
+ * **读**出来的（`model/furniture.ts` 的 `furnitureUnits()`）。存一个字段就多一个真值来源，
+ * 而两个来源分岔的那天不会报错，只会有一张桌子的椅子画歪。
  */
 export interface Obstacle {
   readonly kind: ObstacleKind
@@ -250,8 +256,14 @@ export interface Room {
  *   见 `openspec/changes/room-kinds-and-furniture`。
  *   **这是语义变化而不是新增字段**：同一份 15 间房的地图，v2 里侧室恒为 `main`
  *   （「要清图」），v3 里是一组取值之一 —— 按 v2 的理解去读 v3 的数据会得到错的答案。
+ * - `4`：**课桌换了形状、桌椅成了组**。v3 的课桌是「1 格宽 × 2—4 格长的横条」，
+ *   椅子按 `chairChance` 随机撒；v4 照 D1 三张手绘关里的家具关系改成
+ *   「2×1 格的桌 + 正下方紧贴的 1 格椅子」，椅子必有。同样是**语义变化**：
+ *   `kind` 的两个取值一个没变，但同一串 `{ kind, rect }` 在 v3 与 v4 下
+ *   描述的不是同一种教室（v3 的一张桌可能底下什么都没有，v4 的不可能）。
+ *   见 `model/furniture.ts` 与 `gen/obstacles.ts`。
  */
-export const DUNGEON_SCHEMA_VERSION = 3
+export const DUNGEON_SCHEMA_VERSION = 4
 
 /**
  * 一段连廊 —— 相邻两间主干教室之间的连接。
