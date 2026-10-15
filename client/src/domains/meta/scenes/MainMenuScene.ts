@@ -106,7 +106,9 @@ export class MainMenuScene extends Phaser.Scene {
   private static readonly OVERLAY_HEIGHTS = {
     help: 320,
     settings: 360,
-    upgrade: 470,
+    // 内容有四段（金币 / 三条角色成长线 / 技能 / 可解锁三项）+ 底部一行说明，
+    // 470 会让最后一条解锁行溢出面板底 —— 实测过，所以留足余量。
+    upgrade: 500,
     'confirm-quit': 360,
   } as const
 
