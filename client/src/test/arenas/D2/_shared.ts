@@ -22,6 +22,7 @@ import {
   ROOMS_CONFIG_NAME,
   ROOMS_CONFIG_URL,
   roomsConfigFromCache,
+  roomsConfigWithRoomCount,
   type RoomsConfig,
 } from '@/domains/procgen/config'
 import type { DungeonMap, Point, Rect, Room } from '@/domains/procgen/model/types'
@@ -71,11 +72,15 @@ export interface ArenaMap {
 /**
  * 从 Phaser 缓存里取 `rooms.json`，按种子生成一层楼，并量出耗时。
  *
+ * `roomCount` 给了就生成**短层**（整层只有这么多间）—— 走 `roomsConfigWithRoomCount`，
+ * 也就是「改原始 JSON、**再过一遍配置校验器**」；不给就是配置表里那个数（15）。
+ * 这一条是 `d2_three_rooms` 要的，见那个函数的 ⚠️。
+ *
  * 配置取不到时 `roomsConfigFromCache` 会抛 `ConfigError`，
  * 那个错误会被 `ArenaBase.create()` 接住画在屏幕上（见 `showFatal`）——
  * 场景建不起来的时候，空白的画布和「配置写错了」在现场长得一模一样。
  */
-export function generateForArena(scene: Phaser.Scene, seed: number): ArenaMap {
+export function generateForArena(scene: Phaser.Scene, seed: number, roomCount?: number): ArenaMap {
   // ⚠️ `scene.cache.json`，不是 `scene.cache` —— `CacheManager` 上没有 `get()`。
   // 读之前先 `exists()`：直接 `get()` 拿到 `undefined` 的话，
   // 报出来的是配置校验器那句「要一个对象，拿到 undefined」，
@@ -87,7 +92,10 @@ export function generateForArena(scene: Phaser.Scene, seed: number): ArenaMap {
         `请走 npm run dev 或任意静态服务器。`,
     )
   }
-  const cfg = roomsConfigFromCache(scene.cache.json)
+  const cfg =
+    roomCount === undefined
+      ? roomsConfigFromCache(scene.cache.json)
+      : roomsConfigWithRoomCount(scene.cache.json, roomCount)
   const t0 = performance.now()
   const map = generateDungeon(seed, cfg, () => performance.now())
   return { map, cfg, elapsedMs: performance.now() - t0 }

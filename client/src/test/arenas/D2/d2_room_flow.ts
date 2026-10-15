@@ -170,9 +170,12 @@ const FLOOR_PAD = 12
 /**
  * 门标记的两种颜色。**与底座那两种同色**（`ArenaBase` 里的 `DOOR_OPEN_STROKE` /
  * `DOOR_SHUT_FILL`）：底座那两块矩形被这里盖住，颜色不一致会看起来像两套状态。
+ *
+ * `export`：子类 `d2_three_rooms` 的小地图也要画「这扇门现在封没封」，
+ * 而**同一件事在画面里不该有两种颜色** —— 它 import 这两个，不另写一份。
  */
-const DOOR_MARK_OPEN = 0x44dd88
-const DOOR_MARK_SHUT = 0xff4466
+export const DOOR_MARK_OPEN = 0x44dd88
+export const DOOR_MARK_SHUT = 0xff4466
 /**
  * 门标记的深度。底座的挡板可视化在 `-45`（`DOOR_DEPTH`），要盖住它；
  * 人物在 `0`，不能盖住人。
@@ -223,8 +226,12 @@ const MASK_ALPHA = 0.75
  * 那两个常数：画布是 `Scale.RESIZE` 的，窗口比 1280×720 矮时固定的那条
  * 会**落到画布外面**（看起来像「读数没画出来」，而它其实只是画在屏幕外）。
  * **行宽预算 21 个全角**：272px / 11px ≈ 24，留三格富余。
+ *
+ * `export`：子类 `d2_three_rooms` 的小地图要摆在这条栏的左边（不压住它），
+ * 它得知道这条栏有多宽 —— 这里写一份、那边再抄一份的话，
+ * 对不上时**不报错**，只表现为「小地图压住读数」。
  */
-const READOUT_WIDTH = 272
+export const READOUT_WIDTH = 272
 /** 每行的高度。11px 字 + 4px 行距（与 `d2_classroom` 同一个值）。 */
 const READOUT_LINE = 15
 
@@ -295,13 +302,32 @@ function mouthOf(b: DoorBarrier): DoorMouth {
   return { x: b.rect.x, y: b.rect.y, axis: b.axis }
 }
 
-class D2RoomFlowArena extends ArenaBase {
-  private layout: FlowLayout | null = null
+/**
+ * 「整层转接」这台机器。**子类能改的只有四个参数**，四个都给好了默认值：
+ *
+ * | 钩子 | 默认 | 谁用 |
+ * |---|---|---|
+ * | `seed` | `DEFAULT_SEED`（837） | `d2_three_rooms` 的 `N` 换种子 |
+ * | `roomCount` | `undefined`（= 配置表里的 15） | `d2_three_rooms` 要三间 |
+ * | `keyHints()` | 本场那四个键 | 子类自己加的键得印出来 |
+ * | `extraReadoutLines()` | 空 | 子类自己那几行读数 |
+ *
+ * 为什么给钩子而不是让新场子复制一份：**门的状态机、镜头推移、清房判定这三样
+ * 是最不该各写各的** —— 两份一旦分叉，症状是「同一扇门在两个场子里一个过得去
+ * 一个过不去」，而那种问题没有报错，只能靠人碰巧看见。
+ *
+ * ⚠️ 这个类 export **只是为了让子类继承它**（`d2_three_rooms`）。
+ * 目录只认下面那个 `arena` 常量，export 一个类不影响注册 —— 但每个场子文件
+ * 仍然必须有自己的 `arena` 导出（`arenaCatalog.ts` 会当场抛）。
+ */
+export class D2RoomFlowArena extends ArenaBase {
+  /** 子类要照着它画自己的东西（小地图 / 观感层），所以是 `protected` */
+  protected layout: FlowLayout | null = null
 
   /** 玩家现在在第几间。**唯一的进度状态** —— 「不回头」由它比大小推出来 */
-  private currentOrder = 0
+  protected currentOrder = 0
   /** 已经清掉的（或 `C` 模拟清掉的）房间 */
-  private readonly clearedRooms = new Set<number>()
+  protected readonly clearedRooms = new Set<number>()
   /** 已经刷过怪的房间。**刷过就不刷第二次**（`V` 会把它撤掉） */
   private readonly spawnedRooms = new Set<number>()
   /** 走过的房间（读数的「已走过 N 间」）。**只用来显示**，不参与任何判定 */
@@ -316,7 +342,7 @@ class D2RoomFlowArena extends ArenaBase {
    * 门在这一场是**互动点**：`shut` 说「站到门前按 `F` 能不能走」，物理体说
    * 「门洞永远走不过去」。两者故意不同，见 `sealAllDoors`。
    */
-  private shut: boolean[] = []
+  protected shut: boolean[] = []
   /** 门标记：一扇门一块，颜色跟着 `shut` 走（底座那两块矩形被它们盖住） */
   private doorMarks: Phaser.GameObjects.Rectangle[] = []
   /** 「这一间之外」压暗的 4 块（上 / 下 / 西 / 东），跟着当前房间走。见 `MASK_DEPTH` */
@@ -331,6 +357,19 @@ class D2RoomFlowArena extends ArenaBase {
 
   protected get definition(): ArenaDefinition {
     return arena
+  }
+
+  /** 生成哪一层。子类换种子就覆盖它（`d2_three_rooms` 的 `N` 键）。 */
+  protected get seed(): number {
+    return DEFAULT_SEED
+  }
+
+  /**
+   * 整层生成几间。`undefined` = 配置表里那个数（15）——
+   * 子类给个数就是**短层**，走 `roomsConfigWithRoomCount`（改原始 JSON，校验器照跑）。
+   */
+  protected get roomCount(): number | undefined {
+    return undefined
   }
 
   override preload(): void {
@@ -351,7 +390,7 @@ class D2RoomFlowArena extends ArenaBase {
    *    记着一次真实的账：所有碰撞体整体平移了几百像素，一行报错都没有）。
    */
   protected configure(): ArenaConfig {
-    const { map, cfg } = generateForArena(this, DEFAULT_SEED)
+    const { map, cfg } = generateForArena(this, this.seed, this.roomCount)
 
     // 「一间房一屏」的缩放：由**配置里最大的教室本体 + 一圈留白 + 画布尺寸**反推，
     // 全层一个值（相邻两间同档位的房不会算出两个浮点不同的 zoom 而抖一下）。
@@ -409,7 +448,73 @@ class D2RoomFlowArena extends ArenaBase {
     }
   }
 
+  /**
+   * 把「一局的状态」打回开局。**必须在 `onArenaCreate` 的第一行**，见下面的 ⚠️。
+   *
+   * ## 为什么这件事非做不可
+   *
+   * `scene.restart()`（底座的 `R`、`d2_three_rooms` 的 `N`）**不会重建场子实例** ——
+   * 它对这个实例再跑一遍 `preload → create`。而类字段的初始值
+   * （`= []`、`= new Set()`、`= 0`）是**构造时**赋的，只跑一次。于是第二次
+   * `create()` 是在**上一局的残骸上**装配：`mask` 从 4 块变成 8 块，
+   * 而 `placeMask` 解构的是**头 4 块** —— 那 4 块已经被上一次 shutdown 销毁了。
+   * `Rectangle.setSize` 转手去调 `this.geom.setSize`，而销毁后 `geom` 是 null：
+   *
+   * ```
+   * TypeError: Cannot read properties of null (reading 'setSize')
+   *     at Rectangle.setSize (phaser.js)
+   *     at D2RoomFlowArena.placeMask (d2_room_flow.ts:264)
+   *     at D2RoomFlowArena.enterRoom (d2_room_flow.ts:469)
+   *     at D2RoomFlowArena.onArenaCreate (d2_room_flow.ts:167)
+   *     at SceneManager2.loadComplete (phaser.js)
+   * ```
+   *
+   * （2026-10-15 用无头 CDP 实测复现：`d2_room_flow` 按底座 `R`、`d2_three_rooms` 按
+   * `N`，两条路都一样。）
+   *
+   * ## 为什么要写成「一处清干净」，而不是给 `mask` 加一句
+   *
+   * `placeMask` 里那句 `this.mask.length < 4` 本来是「还没铺」，可**第二局之后
+   * 它恒不成立**（8 ≥ 4），于是守卫放行、把死对象交了出去。**数数的守卫分不清
+   * 「这一局的 4 块」和「上一局的 4 块」** —— 同一句话对 `doorMarks`、`readout`
+   * 也成立。所以清的地方只有一个：开局第一行，把这一局要用的东西全部归零。
+   *
+   * ## 为什么失败现场看起来不像「重启坏了」
+   *
+   * 异常是从 `create()` 里抛出去的，`create()` 就此中断。但 **场景状态已经是
+   * `RUNNING`、`Game.step` 也照常跑**（这次实测：帧号在走、60fps），于是看到的是
+   * **「按了 `R` 之后场子不动了」**：画面停在半装配的一间房里、读数栏是个空框、
+   * 小地图没了、按键一个都不应 —— 而**控制台里那句 TypeError 是唯一的线索**。
+   * 这一条不要只看一眼就过去：`d2_seed_sweep` 的文件头记着同一条路上的另一种死法
+   * （异常从 `SceneManager.processQueue` 冲出、连下一帧都不再排），两者都是
+   * 「`restart()` 会把装配期的异常放大成看起来不像装配问题的东西」。
+   *
+   * ⚠️ **跨 `restart()` 该活下来的东西不在这里**：比如 `d2_three_rooms` 的
+   * 「第几张牌」是**模块级**变量（`_shared.ts` 的 `D2_SEEDS` / 各场子那份 `seedIndex`），
+   * 实例字段留不住它，也不该留。
+   */
+  private resetRunState(): void {
+    this.currentOrder = 0
+    this.clearedRooms.clear() // 三个 Set 都是 `readonly` 的**引用**，`clear()` 合法
+    this.spawnedRooms.clear()
+    this.visitedRooms.clear()
+    this.lastKillMs = 0
+    this.shut = []
+    // 下面这些装的是**上一局的对象**（已被 shutdown 销毁），必须丢引用而不是复用：
+    // 复用死对象正是这条路径上唯一会抛异常的地方。
+    this.doorMarks = []
+    this.mask = []
+    this.readout = []
+    this.prompt = null
+    this.pan = null
+    this.clearRecord = null
+    // `layout` 不在这里清：它是 `configure()` 每局重新赋的，而 `configure()`
+    // 一定跑在 `create()` 之前（底座 `create()` 的第一句）。清成 null 反而会让
+    // `onArenaCreate` 开头那个 `if (L === null) return` 悄悄吃掉整局。
+  }
+
   protected override onArenaCreate(ctx: ArenaContext): void {
+    this.resetRunState() // 第一行，理由见上 —— 在第一句**之前**，它不读任何一局的残骸
     const L = this.layout
     if (L === null) return
 
@@ -1028,7 +1133,8 @@ class D2RoomFlowArena extends ArenaBase {
       `门 本房可过 ${open}/${mine.length} · 全层 ${openAll}/${L.barriers.length}`,
       `走过 ${this.visitedRooms.size}/${L.map.rooms.length} 间`,
       this.clearLine(),
-      `F 过门 · C 清图 · V 重刷 · Q 收起`,
+      ...this.extraReadoutLines(),
+      this.keyHints(),
     ]
 
     text.setText(lines.join('\n'))
@@ -1038,6 +1144,21 @@ class D2RoomFlowArena extends ArenaBase {
     const y = ctx.scene.scale.height - 8 - h
     bg.setPosition(x, y).setSize(READOUT_WIDTH, h)
     text.setPosition(x + 8, y + 4)
+  }
+
+  /**
+   * 最后一行：这一场认的键。**子类加了键就得覆盖它** —— 键不在读数里，
+   * 就等于没有那个键（看场子的人不会去翻代码）。
+   *
+   * ⚠️ 行宽预算 **21 个全角**（见上面那张表），加词之前先数字符。
+   */
+  protected keyHints(): string {
+    return 'F 过门 · C 清图 · V 重刷 · Q 收起'
+  }
+
+  /** 子类自己那几行读数，插在「清房记录」和按键之间。默认没有。 */
+  protected extraReadoutLines(): string[] {
+    return []
   }
 
   /** 4.10 那一行：清房记录。**没有记录时也说话**，免得「没印出来」和「没发生过」分不清。 */
@@ -1122,12 +1243,12 @@ class D2RoomFlowArena extends ArenaBase {
   }
 
   /** 世界坐标 → 地图坐标。`mapperFor` 没有逆变换，而这一场的映射是**等比缩放 + 原点平移**。 */
-  private toMap(wx: number, wy: number): Point {
+  protected toMap(wx: number, wy: number): Point {
     const L = this.layout!
     return { x: wx / L.scale + left(L.map.bounds), y: wy / L.scale + top(L.map.bounds) }
   }
 
-  private playerMap(ctx: ArenaContext): Point {
+  protected playerMap(ctx: ArenaContext): Point {
     return this.toMap(ctx.player.x, ctx.player.y)
   }
 

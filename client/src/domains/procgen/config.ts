@@ -717,6 +717,37 @@ export function roomsConfigFromCache(cache: { get(key: string): unknown }): Room
   return parseRoomsConfig(cache.get(ROOMS_CONFIG_NAME))
 }
 
+/**
+ * 同上一份，但先把配置改成「整层只要 `roomCount` 间」的版本，**再走一遍校验器**。
+ *
+ * 用途是测试场要的**短层**：`d2_three_rooms` 要三间（= 起点 / 普通战 / 首领）。
+ * 侧室数 = `totalRooms − 主干数`，所以三个数一起钉成 N，侧室自然是 0 间
+ * —— 想要的那三间就都在主干上，生成器一行都不用动。
+ *
+ * ## ⚠️ 改的是**原始 JSON**，不是展开已经解析好的 `RoomsConfig`
+ *
+ * `{ ...cfg, totalRooms: 3 }` 看着更短，但它**绕过了 `parseRoomsConfig`** ——
+ * 字段类型、`mainRoomMax ≤ totalRooms`、档位与寻路格对齐那些守护全在那个函数里。
+ * 展开之后拿到的是一个**没人校验过**的对象，下一步就进生成器了；
+ * 它错了不会报错，只会生成出一层「看着像那么回事」的怪地图。
+ *
+ * 三个数也必须**一起**改：只改 `totalRooms` 会被校验器当场挡下
+ * （`mainRoomMax` 还是 15 > 3）；只改主干那两条则还剩 12 间侧室，不是要的三间。
+ * 三种改法只有一种自洽 —— 所以这里替调用方把它定下来，并让校验器照常说话。
+ */
+export function roomsConfigWithRoomCount(
+  cache: { get(key: string): unknown },
+  roomCount: number,
+): RoomsConfig {
+  const raw = needObject(cache.get(ROOMS_CONFIG_NAME), 'rooms')
+  return parseRoomsConfig({
+    ...raw,
+    totalRooms: roomCount,
+    mainRoomMin: roomCount,
+    mainRoomMax: roomCount,
+  })
+}
+
 /** 便利取数器：某个尺寸档位的世界矩形（`x` / `y` 是中心，见 `model/types.ts`）。 */
 export function tierRect(tier: RoomSizeTier, x: number, y: number): Rect {
   return { x, y, width: tier.width, height: tier.height }
