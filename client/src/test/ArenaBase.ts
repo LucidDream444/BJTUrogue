@@ -133,7 +133,7 @@ export interface ArenaDefinition {
   displayName: string
   /** 一句话说明：这个场子是干什么的、该看什么 */
   description: string
-  scene: new () => ArenaBase
+  scene: new () => Phaser.Scene
 }
 
 export abstract class ArenaBase extends Phaser.Scene {

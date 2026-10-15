@@ -93,6 +93,7 @@ import type { DamageSourceKind, DamageMode } from './actor/damage'
  */
 export interface GameEvents extends EventMap {
   entity_spawned: {
+    bossStage?: number
     id: number
     kind: ActorKind
     enemyKind?: EnemyKind
@@ -120,6 +121,7 @@ export interface GameEvents extends EventMap {
   }
 
   entity_killed: {
+    bossStage?: number
     id: number
     kind: ActorKind
     enemyKind?: EnemyKind
