@@ -6,6 +6,8 @@ import { allocActorId } from '@/core/actor/ActorModel'
 import type { ConfigBundle, Difficulty } from '@/core/config'
 import { Player } from './Player'
 import { TerrainMap } from './TerrainMap'
+import { StageColliders } from './StageColliders'
+import { stageGeometry, type StageCollisionConfig } from './StageGeometry'
 import { EnemyBridge } from './EnemyBridge'
 import { Weapons } from './Weapons'
 import { CombatFeedback } from './CombatFeedback'
@@ -28,6 +30,7 @@ export class CombatSession {
   readonly bus = new TypedBus<CombatEvents>()
   readonly runId = `run-${allocActorId()}`
   readonly terrain: TerrainMap
+  private readonly stageColliders: StageColliders
   readonly player: Player
   readonly enemies: EnemyBridge
   readonly weapons: Weapons
@@ -54,22 +57,22 @@ export class CombatSession {
     readonly cfg: CombatConfig,
     readonly rewardDefs: RewardDef[],
     readonly difficulty: Difficulty,
+    private readonly stageConfig: StageCollisionConfig,
   ) {
-    this.terrain = new TerrainMap(cfg)
+    this.terrain = new TerrainMap(cfg, stageConfig.navigationCellSize)
+    const firstRoom = stageGeometry(stageConfig, 1, cfg.arena.width, cfg.arena.height)
+    this.terrain.setStage(firstRoom)
+    const spawn = this.terrain.safeSpawn(
+      firstRoom.playerSpawn.x,
+      firstRoom.playerSpawn.y,
+      bundle.balance.baseline.player.radius,
+    )
     this.weapon = cfg.weapons[0]!
     this.rewards = new RewardRun(rewardDefs, new Rng(cfg.arena.seed))
     this.stats = deriveStats(bundle.balance, cfg, this.weapon, rewardDefs, this.rewards.stacks)
     scene.physics.world.resume()
     scene.physics.world.setBounds(0, 0, cfg.arena.width, cfg.arena.height)
-    this.player = new Player(
-      scene,
-      this.clock,
-      cfg,
-      bundle.balance,
-      this.bus,
-      cfg.terrain.playerSpawn.x,
-      cfg.terrain.playerSpawn.y,
-    )
+    this.player = new Player(scene, this.clock, cfg, bundle.balance, this.bus, spawn.x, spawn.y)
     this.previousFeet = { x: this.player.x, y: this.player.feetY }
     const largestEnemyRadius = Math.max(
       bundle.enemies.enemies.tank.radius,
@@ -105,7 +108,16 @@ export class CombatSession {
       this.waterZones.push(zone)
       this.waterColliders.push(scene.physics.add.collider(this.enemies.group, zone))
     }
-    this.player.body.setImmovable(true)
+    // Non-pushable by enemies, but still separable from static desks and walls.
+    this.player.body.setImmovable(false)
+    this.player.body.pushable = false
+    this.stageColliders = new StageColliders(
+      scene,
+      this.player.anchor,
+      this.enemies.group,
+      Math.max(...stageConfig.stages.map((s) => s.solids.length)) + 4,
+    )
+    this.stageColliders.rebuild(this.terrain)
     this.playerCollider = scene.physics.add.collider(
       this.player.anchor,
       this.enemies.group,
@@ -118,6 +130,7 @@ export class CombatSession {
       new Rng(cfg.arena.seed + 1),
       this.enemies,
       this.player,
+      this.terrain,
     )
     this.feedback = new CombatFeedback(scene, this.bus, this.clock, cfg, (id) =>
       id === this.player.model.id
@@ -159,6 +172,28 @@ export class CombatSession {
     window.addEventListener('blur', this.onBlur)
     document.addEventListener('visibilitychange', this.onVisibility)
   }
+  enterStage(stage: number): void {
+    const layout = stageGeometry(
+      this.stageConfig,
+      stage,
+      this.cfg.arena.width,
+      this.cfg.arena.height,
+    )
+    this.weapons.clear()
+    this.drops.clear()
+    this.terrain.setStage(layout)
+    this.stageColliders.rebuild(this.terrain)
+    const spawn = this.terrain.safeSpawn(
+      layout.playerSpawn.x,
+      layout.playerSpawn.y,
+      this.player.model.stats.radius,
+    )
+    this.player.clearInput()
+    this.player.body.reset(spawn.x, spawn.y)
+    this.player.draw()
+    this.previousFeet = { x: this.player.x, y: this.player.feetY }
+  }
+
   private onDown(pointer: Phaser.Input.Pointer): void {
     if (pointer.leftButtonDown() && !this.clock.paused && this.player.model.alive)
       this.weapons.firing = true
@@ -196,6 +231,7 @@ export class CombatSession {
     this.enemies.update(delta)
     this.drops.update()
     this.player.draw()
+    this.weapons.resolveTerrain()
     this.weapons.draw()
     this.feedback.update()
   }
@@ -367,6 +403,7 @@ export class CombatSession {
     document.removeEventListener('visibilitychange', this.onVisibility)
     for (const off of this.unsubs) off()
     this.playerCollider.destroy()
+    this.stageColliders.destroy()
     for (const collider of this.waterColliders) collider.destroy()
     for (const zone of this.waterZones) zone.destroy()
     this.weapons.destroy()

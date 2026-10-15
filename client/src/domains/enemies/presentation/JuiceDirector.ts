@@ -358,7 +358,7 @@ export class JuiceDirector {
     if (entry) {
       entry.view.setAlpha(1)
       entry.view.setFlipX(this.enemies.playerDirectionX(e.id) > 0)
-      entry.view.setScale(1, 1)
+      entry.view.setScale(entry.view.visualScale, entry.view.visualScale)
       entry.view.rotation = 0
     }
 
@@ -462,7 +462,7 @@ export class JuiceDirector {
           view.setTexture(texture, frame)
           // Texture size changes from 96 to 128 for the last boss; preserve its circular collision center.
           const radius = model.stats.radius
-          view.body.setCircle(radius, view.width / 2 - radius, view.height / 2 - radius)
+          view.body.setCircle(radius, view.frame.realWidth / 2 - radius, view.frame.realHeight / 2 - radius)
           view.body.updateFromGameObject()
         } else if (String(view.frame.name) !== String(frame)) view.setFrame(frame)
         continue
@@ -502,7 +502,7 @@ export class JuiceDirector {
 
       if (ageMs > tankTailMs) {
         view.setAlpha(1)
-        view.setScale(1, 1)
+        view.setScale(view.visualScale, view.visualScale)
         view.rotation = 0
         this.visuals.delete(id)
         continue
@@ -518,12 +518,12 @@ export class JuiceDirector {
         const squash = 1 + Math.sin(t * tankJuice.squashHz) * TANK_SQUASH_AMPLITUDE
         // 挤压保持面积：横着压扁就竖着拉长。只缩不拉会看成「它在缩小」，
         // 而我们要表达的是「它被压了一下」，不是「它变小了」。
-        view.setScale(1 / squash, squash)
+        view.setScale(view.visualScale / squash, view.visualScale * squash)
       } else {
         // 分裂怪一击必杀，触发式的缩放冲击才对：快速回弹的「砰」。
         // `k` 从 1 线性衰减到 0，超过窗口就是 0（不回弹、不残留）。
         const k = Math.max(0, 1 - ageMs / HIT_GLOW_MS)
-        const s = 1 + SPLITTER_PUNCH * k
+        const s = view.visualScale * (1 + SPLITTER_PUNCH * k)
         view.setScale(s)
         view.setAlpha(1)
         view.rotation = 0

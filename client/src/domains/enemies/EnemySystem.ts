@@ -789,6 +789,42 @@ export class EnemySystem implements ActorEventSink {
     }
     return null
   }
+  /** Stable public snapshots; consumers never hold pooled EnemyModel references. */
+  weaponTarget(id: number): { id: number; x: number; y: number; radius: number } | null {
+    const e = this.byId.get(id)
+    if (!e?.model.alive || !e.view.body.enable) return null
+    return { id, x: e.view.body.center.x, y: e.view.body.center.y, radius: e.view.body.halfWidth }
+  }
+  weaponTargets(): { id: number; x: number; y: number; radius: number }[] {
+    const result: { id: number; x: number; y: number; radius: number }[] = []
+    for (const id of this.byId.keys()) {
+      const target = this.weaponTarget(id)
+      if (target) result.push(target)
+    }
+    return result
+  }
+  weaponHit(id: number, sourceId: number, amount: number, tick: number | null): HitResult {
+    const e = this.byId.get(id)
+    if (!e?.model.alive) return { applied: 0, killed: false, consumed: false }
+    // Fixed weapon damage follows the existing heavy-cannon rule, while still using takeHit.
+    const multiplier = e.model.state === 'recover' ? e.model.vulnerableMult : 1
+    return e.model.takeHit({
+      sourceId,
+      hitKey: 'weapon:' + sourceId + ':' + (tick ?? 'impact'),
+      sourceKind: 'aoe',
+      mode: tick === null ? 'instant' : 'tick',
+      amount: amount / multiplier,
+      nowMs: this.clock.nowMs,
+      frameId: this.clock.frameId,
+    })
+  }
+  weaponSlow(id: number, multiplier: number, untilMs: number): void {
+    const e = this.byId.get(id)
+    if (!e?.model.alive) return
+    e.model.weaponSlowMultiplier = multiplier
+    e.model.weaponSlowUntilMs = untilMs
+  }
+
   /** Pulse shot has one exact impact, without armor tick damage or vulnerability amplification. */
   pulseContact(sourceId: number, enemy: Phaser.GameObjects.GameObject, amount: number): HitResult {
     const model = (enemy as EnemyActor).model as EnemyModel | undefined
@@ -870,6 +906,7 @@ export class EnemySystem implements ActorEventSink {
         y: position.y,
         collideWorldBounds: this.nav !== null,
         textureKey: this.textureKeyFor(model.enemyKind, model.gen),
+        visualScale: this.visualScaleFor(model.enemyKind, model.gen),
         // 速度上限：Arcade 默认 maxVelocity 是 (10000,10000)，分离力 + 击退叠起来
         // 能把怪甩出房间。这只是兜底，不参与正常移动。
         speedCap: model.stats.speed * 3,
@@ -900,6 +937,12 @@ export class EnemySystem implements ActorEventSink {
     if (kind === 'tank') return this.bundle.enemies.enemies.tank.textureKey
     const gens = this.bundle.enemies.enemies.splitter.generations
     return (gens[gen] ?? gens[gens.length - 1]!).textureKey
+  }
+
+  private visualScaleFor(kind: EnemyKind, gen: number): number {
+    if (kind === 'tank') return this.derivedTank(this.bundle.enemies.enemies.tank).visualScale
+    const gens = this.bundle.enemies.enemies.splitter.generations
+    return (gens[gen] ?? gens[gens.length - 1]!).visualScale
   }
 
   /**

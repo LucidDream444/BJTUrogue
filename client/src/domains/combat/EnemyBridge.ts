@@ -6,6 +6,7 @@ import type { TypedBus, Unsubscribe, EnemyKind, GameEvents } from '@/core/events
 import type { ConfigBundle, Difficulty } from '@/core/config'
 import type { HitResult, TickTarget } from '@/core/actor/damage'
 import type { CombatEvents } from './events'
+import type { EffectTargetPort, WeaponTarget } from './WeaponMechanics'
 export interface PlayerPort {
   model: TickTarget
   x: number
@@ -15,7 +16,8 @@ export interface PlayerPort {
   radius: number
   alive: boolean
 }
-export interface BulletContactPort {
+export interface BulletContactPort extends EffectTargetPort {
+  targets(): WeaponTarget[]
   group: Phaser.Physics.Arcade.Group
   contact(id: number, target: Phaser.GameObjects.GameObject, damage: number): HitResult
   meleeContact(id: number, target: Phaser.GameObjects.GameObject, damage: number): HitResult
@@ -90,6 +92,18 @@ export class EnemyBridge implements BulletContactPort {
   }
   pulseContact(id: number, target: Phaser.GameObjects.GameObject, damage: number): HitResult {
     return this.system.pulseContact(id, target, damage)
+  }
+  target(id: number): WeaponTarget | null {
+    return this.system.weaponTarget(id)
+  }
+  targets(): WeaponTarget[] {
+    return this.system.weaponTargets()
+  }
+  hit(id: number, sourceId: number, amount: number, tick: number | null): HitResult {
+    return this.system.weaponHit(id, sourceId, amount, tick)
+  }
+  slow(id: number, multiplier: number, untilMs: number): void {
+    this.system.weaponSlow(id, multiplier, untilMs)
   }
   spawnBoss(stage: number, x: number, y: number, maxHp: number, finalBoss = false): void {
     this.system.requestBoss(stage, x, y, maxHp, finalBoss)
