@@ -28,7 +28,7 @@
         },
         {
           "id": "magic",
-          "name": "魔法上限",
+          "name": "能量上限",
           "unit": "point",
           "perLevel": 10,
           "baseCost": 25,

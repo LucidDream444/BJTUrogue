@@ -39,6 +39,7 @@ import { Bar } from '../ui/Bar'
 import { Button } from '../ui/Button'
 import { dashRect } from '../ui/dashed'
 import { buildOverlayFrame } from '../ui/overlayFrame'
+import { OverlayLayer } from '../ui/overlayLayer'
 import {
   applyDisplayModeSelection,
   buildHelpPanel,
@@ -98,6 +99,9 @@ export class PauseOverlay {
   private buttons: Button[] = []
   private sliders: Slider[] = []
   private bars: Bar[] = []
+  /** 这一屏的所有显示对象（**含控件内部那些**），顺序 = 创建顺序，见 `ui/overlayLayer.ts` */
+  private parts: Phaser.GameObjects.GameObject[] = []
+  private layer: OverlayLayer | null = null
   private settingsParts: SettingsPanelParts | null = null
   private noticeText: Phaser.GameObjects.Text | null = null
   private readonly onResize: () => void
@@ -157,6 +161,8 @@ export class PauseOverlay {
     // ⚠️ 顺序：**先暂停再画**。反过来的话，画的过程中世界还在跑，
     // 面板上的数会和画出来的东西差一帧。
     this.host.pause()
+    // 弹层整块要有自己的坐标系：宿主那台相机怎么缩放平移都不该影响它（见 OverlayLayer）
+    this.layer ??= new OverlayLayer(this.scene)
     this.rebuild()
   }
 
@@ -177,6 +183,8 @@ export class PauseOverlay {
     this.scene.scale.off(Phaser.Scale.Events.RESIZE, this.onResize)
     this.clear()
     this.opened = false
+    this.layer?.destroy()
+    this.layer = null
   }
 
   // ------------------------------------------------------------------ 行为
@@ -226,9 +234,19 @@ export class PauseOverlay {
 
   private makeSink(): PanelSink {
     return {
-      track: (obj) => this.objects.push(obj),
-      button: (button) => this.buttons.push(button),
-      slider: (slider) => this.sliders.push(slider),
+      track: (obj) => {
+        this.objects.push(obj)
+        this.parts.push(obj)
+      },
+      button: (button) => {
+        this.buttons.push(button)
+        // 控件的内部对象也要一起搬（见 `Button.parts` 的说明）
+        this.parts.push(...button.parts)
+      },
+      slider: (slider) => {
+        this.sliders.push(slider)
+        this.parts.push(...slider.parts)
+      },
     }
   }
 
@@ -260,6 +278,8 @@ export class PauseOverlay {
       )
     }
     if (this.screen === 'confirm-quit') this.buildQuitConfirm(frame.cx, frame.cy, sink)
+
+    this.layer?.attach(this.parts)
   }
 
   private buildPauseBody(cx: number, cy: number, contentTop: number, sink: PanelSink): void {
@@ -331,12 +351,14 @@ export class PauseOverlay {
     const bars: [string, number | null, number | null][] = [
       ['生命', snapshot?.hp ?? null, snapshot?.maxHp ?? null],
       ['护盾', snapshot?.shield ?? null, snapshot?.maxShield ?? null],
-      ['魔法', snapshot?.magic ?? null, snapshot?.maxMagic ?? null],
+      ['能量', snapshot?.magic ?? null, snapshot?.maxMagic ?? null],
     ]
     bars.forEach(([label, value, max], i) => {
-      this.bars.push(
-        new Bar(this.scene, dataX, contentTop + 44 + i * 30, label, value, max, { width: 80 }),
-      )
+      const bar = new Bar(this.scene, dataX, contentTop + 44 + i * 30, label, value, max, {
+        width: 80,
+      })
+      this.bars.push(bar)
+      this.parts.push(...bar.parts)
     })
 
     const rows = [
@@ -416,6 +438,8 @@ export class PauseOverlay {
     this.sliders = []
     this.bars = []
     this.objects = []
+    this.parts = []
+    this.layer?.detach()
     this.settingsParts = null
     this.noticeText = null
   }

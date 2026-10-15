@@ -1,15 +1,15 @@
 /**
  * 主菜单（需求 §4.1 + §4.6 的入口那一支）。**这是 D4 的第一个产品场景。**
  *
- * ## 它不注册在 `main.ts` 里 —— 刻意的
+ * ## 谁能进到它
  *
- * `main.ts` 的 `scene: []` 是**共用入口**，谁先接第一个真实场景谁填。
- * 那件事要 D1/D4 对齐（见 `持续更新10.14.md` 的待决），所以现在这个场景
- * 由 D4 的测试场**挂起来跑**（`test/arenas/D4/d4_main_menu.ts`）。
+ * 两条路，都走 `init()` 把它需要的东西传进来（`onExit` / `store`），
+ * 所以这个文件里**一行测试场的代码都没有**：
  *
- * 好处不只是"不用吵"：这样主菜单从第一天起就**能在浏览器里单独打开**，
- * 不必等战斗场景。宿主通过 `init()` 把它需要的东西传进来（`onExit` / `store`），
- * 所以这个文件里**一行测试场的代码都没有**。
+ * - **产品**：标题画面（`GameScenes.ts`，key `main-menu`）上的「局外成长」按钮。
+ *   `main.ts` 把它注册成 key `MainMenu`，与标题画面的 `main-menu` 不冲突。
+ * - **测试场**：`test/arenas/D4/d4_main_menu.ts` 挂起来跑（不必等战斗场景，
+ *   也不用 `main.ts` 接谁 —— 它从第一天起就能在浏览器里单独打开）。
  *
  * ## 逻辑与画面是分开的
  *
@@ -106,7 +106,9 @@ export class MainMenuScene extends Phaser.Scene {
   private static readonly OVERLAY_HEIGHTS = {
     help: 320,
     settings: 360,
-    upgrade: 470,
+    // 内容有四段（金币 / 三条角色成长线 / 技能 / 可解锁三项）+ 底部一行说明，
+    // 470 会让最后一条解锁行溢出面板底 —— 实测过，所以留足余量。
+    upgrade: 500,
     'confirm-quit': 360,
   } as const
 
@@ -218,10 +220,19 @@ export class MainMenuScene extends Phaser.Scene {
   private run(action: MenuAction): void {
     switch (action) {
       case 'start':
-        // 战斗场景归 D1，还没接。**说出来**比按下去没反应好 ——
-        // 需求 §4.1 里"开始闯关"是主按钮，按不动会让人以为菜单坏了。
-        this.state = withNotice(this.state, '战斗场景还没接上（归 D1）—— 见「查看升级」旁边的说明')
-        this.refresh()
+        // 「开始闯关」= 进战斗场景，与标题画面的「开始冒险」是同一条路
+        // （需求 §4.1 的主按钮；Esc 之后回到的也是那边那个主菜单）。
+        //
+        // ⚠️ 先确认 `battle` 真的注册过：只有产品入口会注册它（`main.ts` 的 scene
+        // 列表），D4 的测试场（`test.html?arena=d4_main_menu`）里没有战斗场景 ——
+        // 在那边直接 start 是静默什么都不发生，而"按下去没反应"看起来就是菜单坏了。
+        if (!this.scene.manager.keys['battle']) {
+          this.state = withNotice(this.state, '这个入口没有注册战斗场景（产品入口里才有）')
+          this.refresh()
+          break
+        }
+        // 难度一起带上：这张菜单上就摆着难度三选一，不传的话那个选择只是个摆设。
+        this.scene.start('battle', { difficulty: this.store.profile.selected.difficulty })
         break
       case 'upgrade':
         this.state = openScreen(this.state, 'upgrade')
@@ -351,9 +362,14 @@ export class MainMenuScene extends Phaser.Scene {
     })
 
     // 难度（需求 §4.1：简单 / 普通 / 困难，默认普通）
-    const diffY = BUTTON_TOP + cardH + THEME.space.xl + 26
+    //
+    // ⚠️ 标签与按钮之间要留**真正的空隙**：标签是 origin(0,0) 的左对齐文字（高约 18），
+    // 按钮是**以中心定位**的（高 36 → 上沿在 diffY-18）。
+    // 写成 `标签 y = diffY - 28` 时按钮上沿会盖住标签下沿（实测盖掉 7px）。
+    // 要留 8px 空隙就得 `diffY - 44`；+12 是让它整体再往下让一点。
+    const diffY = BUTTON_TOP + cardH + THEME.space.xl + 38
     this.track(
-      this.add.text(areaX, diffY - 28, '选择难度', {
+      this.add.text(areaX, diffY - 44, '选择难度', {
         fontFamily: THEME.font.family,
         fontSize: fontPx(THEME.font.body),
         color: THEME.text.dim,

@@ -62,10 +62,27 @@ export class MainMenuScene extends Phaser.Scene {
     button.on('pointerover', () => button.setFillStyle(0xffdfb5))
     button.on('pointerout', () => button.setFillStyle(0xf2c594))
     button.on('pointerdown', this.startGame, this)
+    // 局外成长（D4）：主菜单 / 存档 / 升级 / 解锁都在那边。
+    // 次按钮样式比「开始冒险」弱一档 —— 它不是主路径，但必须在标题画面上够得着。
+    const metaButton = this.add
+      .text(160, 232, '局外成长（升级 / 解锁）  →', {
+        fontFamily: UI_FONT,
+        fontSize: '16px',
+        color: '#f2c594',
+      })
+      .setOrigin(0.5)
+      .setInteractive({ useHandCursor: true })
+    metaButton.on('pointerover', () => metaButton.setColor('#ffe9c9'))
+    metaButton.on('pointerout', () => metaButton.setColor('#f2c594'))
+    metaButton.on('pointerdown', () =>
+      // `onExit` 交给 D4 的主菜单：它在顶层按 Esc 时会调这个，回到标题画面。
+      // 不传的话 Esc 什么都不做（那是"产品里主菜单就是顶层"的语义）。
+      this.scene.start('MainMenu', { onExit: () => this.scene.start('main-menu') }),
+    )
     const controls = this.add.text(
       0,
       175,
-      'WASD 移动 · 鼠标射击 · 空格暂停\nE 拾取 · Q 切换武器 · Esc 返回标题',
+      'WASD 移动 · 鼠标射击 · 空格暂停\nE 拾取 · Q 切换武器 · Esc 暂停菜单（含返回主菜单）',
       {
         fontFamily: UI_FONT,
         fontSize: '13px',
