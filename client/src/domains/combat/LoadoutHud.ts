@@ -54,7 +54,7 @@ export class LoadoutHud {
       slot.label
         .setText(
           weapon
-            ? i + 1 + '  ' + weapon.name + '\n' + weapon.staminaCost + ' 体力 / 发'
+            ? i + 1 + '  ' + weapon.name + '\n' + weapon.staminaCost + ' 能量 / 发'
             : i + 1 + '  未获得\n拾取新武器可替换',
         )
         .setColor(active ? '#9bf4ff' : '#9aaebe')

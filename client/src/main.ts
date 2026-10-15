@@ -1,6 +1,7 @@
 import Phaser from 'phaser'
 import { MainMenuScene } from '@/GameScenes'
 import { BattleScene } from '@/domains/combat/BattleScene'
+import { MainMenuScene as MetaMenuScene } from '@/domains/meta/scenes/MainMenuScene'
 
 const game = new Phaser.Game({
   type: Phaser.AUTO,
@@ -16,7 +17,10 @@ const game = new Phaser.Game({
     default: 'arcade',
     arcade: { gravity: { x: 0, y: 0 }, debug: false },
   },
-  scene: [MainMenuScene, BattleScene],
+  // `MainMenuScene` 是 D1 的标题画面（key `main-menu`），`MetaMenuScene` 是 D4 的
+  // 局外成长主菜单（key `MainMenu`）—— **两个 key 不冲突**，后者由标题画面上的
+  // 「局外成长」按钮进入。
+  scene: [MainMenuScene, BattleScene, MetaMenuScene],
 })
 
 const warnDuringBattle = (event: BeforeUnloadEvent): void => {

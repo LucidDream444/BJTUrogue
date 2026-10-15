@@ -23,6 +23,7 @@ import type { ProfileStore } from '../profile/ProfileStore'
 import { settleRun, type RunInput, type SettleOutcome } from '../progress/progress'
 import { Button } from '../ui/Button'
 import { buildOverlayFrame, type OverlaySink } from '../ui/overlayFrame'
+import { OverlayLayer } from '../ui/overlayLayer'
 import { THEME, fontPx } from '../ui/theme'
 
 /** 宿主（D1 的战斗场景）必须提供这三件事。 */
@@ -61,8 +62,11 @@ export class SettlementOverlay {
 
   private opened = false
   private settled: SettlementResult | null = null
+  /** 这一屏的所有显示对象（**含控件内部那些**），顺序 = 创建顺序，见 `ui/overlayLayer.ts` */
+  private parts: Phaser.GameObjects.GameObject[] = []
   private objects: Phaser.GameObjects.GameObject[] = []
   private buttons: Button[] = []
+  private layer: OverlayLayer | null = null
 
   constructor(options: SettlementOverlayOptions) {
     this.scene = options.scene
@@ -94,6 +98,8 @@ export class SettlementOverlay {
 
     this.settled = { ...earned, input }
     this.opened = true
+    // 弹层整块要有自己的坐标系：宿主那台相机怎么缩放平移都不该影响它（见 OverlayLayer）
+    this.layer ??= new OverlayLayer(this.scene)
     this.rebuild()
     return this.settled
   }
@@ -106,13 +112,22 @@ export class SettlementOverlay {
   destroy(): void {
     this.clear()
     this.opened = false
+    this.layer?.destroy()
+    this.layer = null
   }
 
   private rebuild(): void {
     this.clear()
     const sink: OverlaySink = {
-      track: (obj) => this.objects.push(obj),
-      button: (button) => this.buttons.push(button),
+      track: (obj) => {
+        this.objects.push(obj)
+        this.parts.push(obj)
+      },
+      button: (button) => {
+        this.buttons.push(button)
+        // 控件的内部对象也要一起搬（见 `Button.parts` 的说明）
+        this.parts.push(...button.parts)
+      },
     }
     const frame = buildOverlayFrame(
       this.scene,
@@ -205,6 +220,8 @@ export class SettlementOverlay {
         { width: 170, height: 40, fontSize: THEME.font.body },
       ),
     )
+
+    this.layer?.attach(this.parts)
   }
 
   private clear(): void {
@@ -212,5 +229,7 @@ export class SettlementOverlay {
     for (const o of this.objects) o.destroy()
     this.buttons = []
     this.objects = []
+    this.parts = []
+    this.layer?.detach()
   }
 }

@@ -64,7 +64,7 @@
       "category": "firepower",
       "icon": "star_badge",
       "headline": "每次射击 +1 弹丸",
-      "description": "一次射击发出更多子弹，整次射击仍消耗 4 点体力。",
+      "description": "一次射击发出更多子弹，整次射击仍消耗 4 点能量。",
       "weight": 10,
       "maxStacks": 3,
       "effects": [
@@ -79,11 +79,11 @@
     },
     {
       "id": "reserves",
-      "name": "充沛体力",
+      "name": "充沛能量",
       "category": "survival",
       "icon": "energy",
-      "headline": "体力上限 +20",
-      "description": "扩大射击体力储备，体力仍按每秒 6 点恢复。",
+      "headline": "能量上限 +20",
+      "description": "扩大射击能量储备，能量仍按每秒 6 点恢复。",
       "weight": 8,
       "maxStacks": 0,
       "effects": [
@@ -102,7 +102,7 @@
       "category": "utility",
       "icon": "skill_orb_speed",
       "headline": "移动速度 +8%",
-      "description": "更快拉开距离、躲开近身攻击，移动不消耗体力。",
+      "description": "更快拉开距离、躲开近身攻击，移动不消耗能量。",
       "weight": 6,
       "maxStacks": 5,
       "effects": [
