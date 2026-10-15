@@ -5,12 +5,14 @@ import { TypedBus, type Unsubscribe } from '@/core/events'
 import { allocActorId } from '@/core/actor/ActorModel'
 import type { ConfigBundle, Difficulty } from '@/core/config'
 import { Player } from './Player'
+import { planReplacement } from './WeaponInventory'
 import { TerrainMap } from './TerrainMap'
 import { StageColliders } from './StageColliders'
 import { stageGeometry, type StageCollisionConfig } from './StageGeometry'
 import { EnemyBridge } from './EnemyBridge'
 import { Weapons } from './Weapons'
 import { CombatFeedback } from './CombatFeedback'
+import { CombatAudio } from './CombatAudio'
 import { RewardRun } from './RewardRun'
 import { RecoveryDrops } from './RecoveryDrops'
 import {
@@ -37,6 +39,7 @@ export class CombatSession {
   readonly drops: RecoveryDrops
   readonly rewards: RewardRun
   readonly feedback: CombatFeedback
+  private readonly audio: CombatAudio
   readonly reasons = new Set<PauseReason>()
   private readonly unsubs: Unsubscribe[] = []
   private readonly waterZones: Phaser.GameObjects.Zone[] = []
@@ -76,6 +79,7 @@ export class CombatSession {
     this.previousFeet = { x: this.player.x, y: this.player.feetY }
     const largestEnemyRadius = Math.max(
       bundle.enemies.enemies.tank.radius,
+      bundle.enemies.stage2Boss.radius,
       ...bundle.enemies.enemies.splitter.generations.map((g) => g.radius),
     )
     this.player.setWeapon(this.weapon)
@@ -95,6 +99,12 @@ export class CombatSession {
         rows: Math.ceil(cfg.arena.height / this.terrain.cellSize),
         isWalkable: (x, y) => this.terrain.isWalkable(x, y, largestEnemyRadius),
         safeSpawn: (x, y, radius) => this.terrain.safeSpawn(x, y, radius),
+        projectileBlocked: (x0, y0, x1, y1, radius) =>
+          x1 < radius ||
+          y1 < radius ||
+          x1 > this.terrain.width - radius ||
+          y1 > this.terrain.height - radius ||
+          this.terrain.crossesSolid({ x: x0, y: y0 }, { x: x1, y: y1 }, radius),
       },
     )
     for (const rect of this.terrain.water) {
@@ -123,6 +133,7 @@ export class CombatSession {
       this.enemies.group,
       (_player, enemy) => this.enemies.touchPlayer(enemy as Phaser.GameObjects.GameObject),
     )
+    this.audio = new CombatAudio(scene, this.bus, cfg.audio)
     this.weapons = new Weapons(
       scene,
       this.clock,
@@ -131,6 +142,7 @@ export class CombatSession {
       this.enemies,
       this.player,
       this.terrain,
+      () => this.audio.fire(),
     )
     this.feedback = new CombatFeedback(scene, this.bus, this.clock, cfg, (id) =>
       id === this.player.model.id
@@ -245,6 +257,10 @@ export class CombatSession {
     this.previousFeet = feet
   }
 
+  setAudioVolumes(bgm: number, sfx: number): void {
+    this.audio.setVolumes(bgm, sfx)
+  }
+
   pause(reason: PauseReason): void {
     if (this.reasons.has(reason)) return
     const already = this.reasons.size > 0
@@ -291,17 +307,28 @@ export class CombatSession {
     return available.length ? available[this.weaponRng.between(0, available.length - 1)]!.id : null
   }
   replaceWeapon(slot: number, id: WeaponId): boolean {
-    if (
-      !this.player.model.alive ||
-      slot < 0 ||
-      slot >= this.inventory.length ||
-      this.inventory.includes(id)
+    if (!this.player.model.alive || this.clock.paused || this.clock.frozen) return false
+    const plan = planReplacement(
+      this.inventory,
+      slot,
+      id,
+      this.cfg.weapons.map((w) => w.id),
     )
-      return false
-    if (!this.cfg.weapons.some((w) => w.id === id)) return false
+    if (!plan) return false
     this.weapons.stopFiring()
     this.inventory[slot] = id
-    return this.equip(id, true)
+    if (!this.equip(id, true)) {
+      this.inventory[slot] = plan.dropped
+      return false
+    }
+    this.bus.emit('weapon_replaced', {
+      dropped: plan.dropped,
+      equipped: id,
+      slot,
+      x: this.player.x,
+      y: this.player.y,
+    })
+    return true
   }
   equipSlot(slot: number): boolean {
     return this.equip(this.inventory[slot]!)
@@ -406,6 +433,7 @@ export class CombatSession {
     this.stageColliders.destroy()
     for (const collider of this.waterColliders) collider.destroy()
     for (const zone of this.waterZones) zone.destroy()
+    this.audio.destroy()
     this.weapons.destroy()
     this.drops.destroy()
     this.feedback.destroy()

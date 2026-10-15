@@ -43,7 +43,7 @@ describe('advanced weapon mechanics', () => {
     for (let frame = 0; frame <= fps * 5 + 1; frame++)
       f.statuses.step((frame * 1000) / fps, frame, () => {})
     expect(f.hits).toHaveLength(10)
-    expect(f.hits.reduce((sum, h) => sum + h.damage, 0)).toBe(30)
+    expect(f.hits.reduce((sum, h) => sum + h.damage, 0)).toBe(venom.poisonTickDamage! * 10)
     expect(f.statuses.poisons.size).toBe(0)
     f.statuses.step(15000, 10000, () => {})
     expect(f.hits).toHaveLength(10)

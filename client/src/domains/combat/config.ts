@@ -85,6 +85,8 @@ export interface CombatConfig {
   }
   drops: {
     chance: number
+    staminaChance: number
+    staminaAmount: number
     healthChance: number
     healthAmount: number
     shieldAmount: number
@@ -99,6 +101,7 @@ export interface CombatConfig {
     pulseRun: [number, number][]
     [key: string]: [number, number][]
   }
+  audio: { bgmVolume: number; shotVolume: number; shotVoices: number }
   projectiles: { capacity: number; radius: number }
   feedback: {
     hurtFlashMs: number
@@ -208,10 +211,20 @@ export function parseCombatConfig(raw: unknown): CombatConfig {
       if (typeof v !== 'number' || !Number.isFinite(v) || v < 0)
         throw new Error(`${path}.${k}: 非法数值`)
   }
+  numeric(c.audio, 'audio')
+  if (
+    ![c.audio.bgmVolume, c.audio.shotVolume].every((v) => Number.isFinite(v) && v >= 0 && v <= 1) ||
+    !Number.isInteger(c.audio.shotVoices) ||
+    c.audio.shotVoices < 1 ||
+    c.audio.shotVoices > 32
+  )
+    throw new Error('audio: 音量必须在 0—1 之间，枪声池容量必须为 1—32 的整数')
   numeric(c.player, 'player')
   numeric(c.drops, 'drops')
   const dropFields = [
     'chance',
+    'staminaChance',
+    'staminaAmount',
     'healthChance',
     'healthAmount',
     'shieldAmount',
@@ -222,7 +235,8 @@ export function parseCombatConfig(raw: unknown): CombatConfig {
   if (
     dropFields.some((key) => !Number.isFinite(c.drops[key])) ||
     c.drops.chance > 1 ||
-    c.drops.healthChance > 1 ||
+    c.drops.healthChance + c.drops.staminaChance > 1 ||
+    c.drops.staminaAmount <= 0 ||
     c.drops.healthAmount <= 0 ||
     c.drops.shieldAmount <= 0 ||
     c.drops.pickupRadius <= 0 ||

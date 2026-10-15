@@ -170,6 +170,130 @@ export class WeaponFx {
   poisonTick(t: WeaponTarget): void {
     this.scatter('venom', t.x, t.y, 8, -Math.PI / 2, 0.45)
   }
+  /** Compact emissive cores and orbiting fragments, with no long opaque projectile trails. */
+  projectile(w: WeaponDef, x: number, y: number, angle: number, born: number): void {
+    if (w.id === 'pencil') return
+    const g = this.glow,
+      c = PALETTE[w.id],
+      phase = (this.clock.nowMs - born) / 140
+    const r =
+      w.id === 'pulse' ? 13 : w.id === 'flare' ? 11 : w.id === 'venom' ? 9 : w.id === 'rail' ? 6 : 5
+    g.fillStyle(c.glow, 0.09).fillCircle(x, y, r * 2.1)
+    g.fillStyle(c.glow, 0.22).fillCircle(x, y, r * 1.4)
+    g.fillStyle(c.core, 0.95).fillCircle(x, y, r * 0.42)
+    if (w.id === 'pulse' || w.id === 'venom') {
+      g.lineStyle(2, c.accent, 0.85).strokeEllipse(x, y, r * 2.1, r * 1.2)
+      for (let i = 0; i < 3; i++) {
+        const a = phase + (i * Math.PI * 2) / 3
+        g.fillStyle(c.glow, 0.95).fillCircle(x + Math.cos(a) * r, y + Math.sin(a) * r * 0.6, 2.5)
+      }
+    } else if (w.id === 'flare') {
+      for (let i = 0; i < 5; i++) {
+        const a = phase * 0.5 + (i * Math.PI * 2) / 5
+        g.fillStyle(c.accent, 0.55).fillCircle(
+          x + Math.cos(a) * r * 0.7,
+          y + Math.sin(a) * r * 0.7,
+          4,
+        )
+      }
+    } else {
+      g.lineStyle(2, c.core, 0.9).lineBetween(
+        x - Math.cos(angle) * r,
+        y - Math.sin(angle) * r,
+        x + Math.cos(angle) * r,
+        y + Math.sin(angle) * r,
+      )
+      g.lineStyle(1, c.glow, 0.8).strokeCircle(x, y, r)
+    }
+  }
+
+  private ornament(b: Burst, t: number): void {
+    const g = this.glow,
+      ink = this.ink,
+      c = PALETTE[b.kind],
+      fade = (1 - t) ** 1.4,
+      r = b.radius * (0.35 + 0.7 * Math.sqrt(t))
+    const a = b.angle + t * 2.8
+    if (b.muzzle) {
+      // A directional crown at the muzzle makes every shot readable even in a crowd.
+      for (const offset of [-0.45, 0, 0.45]) {
+        const q = b.angle + offset,
+          l = (offset === 0 ? 34 : 22) * (1 - t)
+        g.fillStyle(offset === 0 ? c.core : c.glow, fade * 0.75).fillTriangle(
+          b.x + Math.cos(q) * l,
+          b.y + Math.sin(q) * l,
+          b.x - Math.sin(q) * 4,
+          b.y + Math.cos(q) * 4,
+          b.x + Math.sin(q) * 4,
+          b.y - Math.cos(q) * 4,
+        )
+      }
+      return
+    }
+    if (b.kind === 'pulse') {
+      for (let i = 0; i < 3; i++) {
+        const start = a + (i * Math.PI * 2) / 3
+        g.lineStyle(3, c.accent, fade * 0.75)
+          .beginPath()
+          .arc(b.x, b.y, r * 0.92, start, start + 1.25)
+          .strokePath()
+      }
+      for (let i = 0; i < 12; i++) {
+        const q = (i * Math.PI) / 6 + a * 0.4
+        g.lineStyle(2, c.core, fade).lineBetween(
+          b.x + Math.cos(q) * r * 0.82,
+          b.y + Math.sin(q) * r * 0.82,
+          b.x + Math.cos(q) * r,
+          b.y + Math.sin(q) * r,
+        )
+      }
+    } else if (b.kind === 'venom') {
+      for (let i = 0; i < 6; i++) {
+        const q = (i * Math.PI) / 3 + t * 1.5,
+          x = b.x + Math.cos(q) * r * 0.6,
+          y = b.y + Math.sin(q) * r * 0.35 - t * 24
+        ink.fillStyle(c.accent, 0.18 * fade).fillCircle(x, y, 12)
+        g.lineStyle(1, c.glow, fade * 0.9).strokeCircle(x, y, 5 + 3 * Math.sin(q))
+      }
+      g.lineStyle(2, c.glow, 0.65 * fade).strokeEllipse(b.x, b.y + 12, r * 1.8, r * 0.65)
+    } else if (b.kind === 'flare') {
+      for (let i = 0; i < 8; i++) {
+        const q = (i * Math.PI) / 4,
+          x = b.x + Math.cos(q) * r * 0.55,
+          y = b.y + Math.sin(q) * r * 0.55
+        ink.fillStyle(0x6c2c20, 0.2 * fade).fillCircle(x, y - 18 * t, 18 * (1 - t))
+        g.fillStyle(i % 2 ? c.glow : c.accent, 0.24 * fade).fillCircle(x, y, 13 * (1 - t))
+      }
+      g.lineStyle(2, c.core, 0.7 * fade).strokeEllipse(b.x, b.y + 6, r * 2.3, r * 0.8)
+    } else if (b.kind === 'rail') {
+      for (let i = 0; i < 2; i++) {
+        const x = b.x + Math.cos(b.angle) * (i - 0.5) * 14,
+          y = b.y + Math.sin(b.angle) * (i - 0.5) * 14
+        g.lineStyle(2, i ? c.accent : c.glow, fade).strokeEllipse(x, y, r * 1.4, r * 0.65)
+      }
+      for (let i = 0; i < 4; i++) {
+        const q = a + (i * Math.PI) / 2
+        g.fillStyle(c.core, fade).fillTriangle(
+          b.x + Math.cos(q) * r * 1.3,
+          b.y + Math.sin(q) * r * 1.3,
+          b.x + Math.cos(q - 0.12) * r * 0.75,
+          b.y + Math.sin(q - 0.12) * r * 0.75,
+          b.x + Math.cos(q + 0.12) * r * 0.75,
+          b.y + Math.sin(q + 0.12) * r * 0.75,
+        )
+      }
+    } else {
+      for (let i = 0; i < 6; i++) {
+        const q = (i * Math.PI) / 3 + a * 0.3,
+          x = b.x + Math.cos(q) * r,
+          y = b.y + Math.sin(q) * r
+        g.lineStyle(1, c.core, fade)
+          .lineBetween(x, y, x - Math.cos(q - 0.6) * 7, y - Math.sin(q - 0.6) * 7)
+          .lineBetween(x, y, x - Math.cos(q + 0.6) * 7, y - Math.sin(q + 0.6) * 7)
+      }
+    }
+  }
+
   draw(statuses: {
     poison: { target: WeaponTarget; remaining: number; duration: number }[]
     chill: WeaponTarget[]
@@ -187,6 +311,7 @@ export class WeaponFx {
         fade = (1 - t) ** 2,
         p = PALETTE[b.kind],
         r = b.radius * (0.2 + 0.8 * Math.sqrt(t))
+      this.ornament(b, t)
       if (b.muzzle) {
         g.fillStyle(p.glow, 0.18 * fade).fillCircle(b.x, b.y, r)
         g.lineStyle(3, p.core, fade)

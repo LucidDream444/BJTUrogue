@@ -191,6 +191,20 @@ export class Player {
     )
   }
 
+  restoreStamina(amount: number): number {
+    if (
+      !this.model.alive ||
+      this.clock.paused ||
+      this.clock.frozen ||
+      !Number.isFinite(amount) ||
+      amount <= 0
+    )
+      return 0
+    const restored = Math.min(amount, this.maxStamina - this.stamina)
+    this.stamina += restored
+    return restored
+  }
+
   spendStamina(amount: number): boolean {
     if (
       !Number.isFinite(amount) ||

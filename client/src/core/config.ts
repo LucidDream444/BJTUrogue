@@ -228,8 +228,35 @@ export interface TankDef {
 
 export type EnemyDef = SplitterDef | TankDef
 
+export interface RadialProjectileConfig {
+  count: number
+  speed: number
+  radius: number
+  damage: number
+  lifetimeMs: number
+  maxActive: number
+  spawnRadius: number
+  volleyOffsetDeg: number
+}
+
+export interface Stage2BossDef {
+  strafeSpeedMult: number
+  strafeTurnMs: number
+  displayName: string
+  speed: number
+  radius: number
+  visualScale: number
+  aggroRadius: number
+  keepDistance: number
+  windupMs: number
+  recoverMs: number
+  cooldownMs: number
+  projectile: RadialProjectileConfig
+}
+
 export interface EnemiesConfig {
   schemaVersion: number
+  stage2Boss: Stage2BossDef
   enemies: {
     splitter: SplitterDef
     tank: TankDef
@@ -386,7 +413,11 @@ function need<T>(value: T | undefined | null, path: string): T {
   return value
 }
 
-function needNumber(value: unknown, path: string, opts: { min?: number; max?: number } = {}): number {
+function needNumber(
+  value: unknown,
+  path: string,
+  opts: { min?: number; max?: number } = {},
+): number {
   if (typeof value !== 'number' || !Number.isFinite(value)) {
     throw new ConfigError(path, `期望有限数值，实际是 ${JSON.stringify(value)}`)
   }
@@ -431,9 +462,13 @@ export function validateBalance(raw: unknown): BalanceConfig {
   const juice = need(r.juice as Record<string, unknown>, 'balance.juice')
 
   const damage = needNumber(bullet.damage, 'balance.baseline.bullet.damage', { min: 1 })
-  const fireIntervalMs = needNumber(bullet.fireIntervalMs, 'balance.baseline.bullet.fireIntervalMs', {
-    min: 1,
-  })
+  const fireIntervalMs = needNumber(
+    bullet.fireIntervalMs,
+    'balance.baseline.bullet.fireIntervalMs',
+    {
+      min: 1,
+    },
+  )
   const baselineDps = needNumber(baseline.baselineDps, 'balance.baseline.baselineDps', { min: 1 })
 
   // baselineDps 必须等于由伤害与射速推出的值，否则单位化血量会两套口径打架
@@ -499,7 +534,9 @@ export function validateBalance(raw: unknown): BalanceConfig {
         min: 0,
         max: 1,
       }),
-      hitstopWindowMs: needNumber(juice.hitstopWindowMs, 'balance.juice.hitstopWindowMs', { min: 1 }),
+      hitstopWindowMs: needNumber(juice.hitstopWindowMs, 'balance.juice.hitstopWindowMs', {
+        min: 1,
+      }),
       traumaCap: needNumber(juice.traumaCap, 'balance.juice.traumaCap', { min: 0, max: 1 }),
       shakeMinIntervalMs: needNumber(juice.shakeMinIntervalMs, 'balance.juice.shakeMinIntervalMs', {
         min: 0,
@@ -522,7 +559,9 @@ export function validateDifficulty(raw: unknown): DifficultyConfig {
     const m = need(table[d] as Record<string, unknown>, `difficulty.difficulties.${d}`)
     out[d] = {
       enemyHp: needNumber(m.enemyHp, `difficulty.difficulties.${d}.enemyHp`, { min: 0.1 }),
-      enemyDamage: needNumber(m.enemyDamage, `difficulty.difficulties.${d}.enemyDamage`, { min: 0 }),
+      enemyDamage: needNumber(m.enemyDamage, `difficulty.difficulties.${d}.enemyDamage`, {
+        min: 0,
+      }),
       enemySpeed: needNumber(m.enemySpeed, `difficulty.difficulties.${d}.enemySpeed`, { min: 0.1 }),
       enemyCount: needNumber(m.enemyCount, `difficulty.difficulties.${d}.enemyCount`, { min: 0 }),
     }
@@ -543,7 +582,50 @@ export function validateEnemies(raw: unknown): EnemiesConfig {
 
   return {
     schemaVersion: needNumber(r.schemaVersion, 'enemies.schemaVersion', { min: 1 }),
+    stage2Boss: validateStage2Boss(r.stage2Boss),
     enemies: { splitter, tank },
+  }
+}
+
+function validateStage2Boss(raw: unknown): Stage2BossDef {
+  const path = 'enemies.stage2Boss'
+  const r = need(raw as Record<string, unknown>, path)
+  const p = need(r.projectile as Record<string, unknown>, `${path}.projectile`)
+  const count = needNumber(p.count, `${path}.projectile.count`, { min: 4, max: 128 })
+  const maxActive = needNumber(p.maxActive, `${path}.projectile.maxActive`, {
+    min: count,
+    max: 512,
+  })
+  if (!Number.isInteger(count) || !Number.isInteger(maxActive))
+    throw new ConfigError(`${path}.projectile`, '弹粒数量和池容量必须为整数')
+  const windupMs = needNumber(r.windupMs, `${path}.windupMs`, { min: 1 })
+  const recoverMs = needNumber(r.recoverMs, `${path}.recoverMs`, { min: 1 })
+  const aggroRadius = needNumber(r.aggroRadius, `${path}.aggroRadius`, { min: 1 })
+  return {
+    displayName: needString(r.displayName, `${path}.displayName`),
+    strafeSpeedMult: needNumber(r.strafeSpeedMult, `${path}.strafeSpeedMult`, { min: 0.1 }),
+    strafeTurnMs: needNumber(r.strafeTurnMs, `${path}.strafeTurnMs`, { min: 1 }),
+    speed: needNumber(r.speed, `${path}.speed`, { min: 1 }),
+    radius: needNumber(r.radius, `${path}.radius`, { min: 1 }),
+    visualScale: needNumber(r.visualScale, `${path}.visualScale`, { min: 0.1 }),
+    aggroRadius,
+    keepDistance: needNumber(r.keepDistance, `${path}.keepDistance`, { min: 1, max: aggroRadius }),
+    windupMs,
+    recoverMs,
+    cooldownMs: needNumber(r.cooldownMs, `${path}.cooldownMs`, { min: windupMs + recoverMs }),
+    projectile: {
+      count,
+      maxActive,
+      speed: needNumber(p.speed, `${path}.projectile.speed`, { min: 1 }),
+      radius: needNumber(p.radius, `${path}.projectile.radius`, { min: 1 }),
+      damage: needNumber(p.damage, `${path}.projectile.damage`, { min: 0 }),
+      lifetimeMs: needNumber(p.lifetimeMs, `${path}.projectile.lifetimeMs`, { min: 1 }),
+      spawnRadius: needNumber(p.spawnRadius, `${path}.projectile.spawnRadius`, { min: 0 }),
+      volleyOffsetDeg: needNumber(p.volleyOffsetDeg, `${path}.projectile.volleyOffsetDeg`, {
+        min: 0,
+        max: 360,
+      }),
+    },
   }
 }
 
@@ -552,7 +634,10 @@ function validateAi(raw: unknown, path: string): AiConfig {
   const nearTickHz = needNumber(a.nearTickHz, `${path}.nearTickHz`, { min: 1 })
   const farTickHz = needNumber(a.farTickHz, `${path}.farTickHz`, { min: 0.1 })
   if (farTickHz > nearTickHz) {
-    throw new ConfigError(`${path}.farTickHz`, `远处的 tick 频率不能高于近处（${farTickHz} > ${nearTickHz}）`)
+    throw new ConfigError(
+      `${path}.farTickHz`,
+      `远处的 tick 频率不能高于近处（${farTickHz} > ${nearTickHz}）`,
+    )
   }
   return {
     nearTickHz,
@@ -602,7 +687,10 @@ function validateSplitter(raw: unknown): SplitterDef {
   for (let i = 0; i < generations.length; i++) {
     const g = generations[i]!
     if (g.gen !== i) {
-      throw new ConfigError(`${path}.generations[${i}].gen`, `期望 ${i}，实际是 ${g.gen}（必须从 0 连续递增）`)
+      throw new ConfigError(
+        `${path}.generations[${i}].gen`,
+        `期望 ${i}，实际是 ${g.gen}（必须从 0 连续递增）`,
+      )
     }
     if (i === 0) continue
     const prev = generations[i - 1]!
@@ -662,7 +750,10 @@ function validateGeneration(raw: unknown, path: string): SplitterGenerationDef {
   const splitDelayMs = needNumber(g.splitDelayMs, `${path}.splitDelayMs`, { min: 0 })
 
   if (childCount > 0 && splitDelayMs <= 0) {
-    throw new ConfigError(`${path}.splitDelayMs`, `会分裂（childCount ${childCount}）就必须有正的延迟`)
+    throw new ConfigError(
+      `${path}.splitDelayMs`,
+      `会分裂（childCount ${childCount}）就必须有正的延迟`,
+    )
   }
 
   return {
@@ -672,8 +763,14 @@ function validateGeneration(raw: unknown, path: string): SplitterGenerationDef {
     speed: needNumber(g.speed, `${path}.speed`, { min: 1 }),
     radius: needNumber(g.radius, `${path}.radius`, { min: 1 }),
     visualScale: needNumber(g.visualScale, `${path}.visualScale`, { min: 0.1 }),
-    textureKey: validateTextureKey(needString(g.textureKey, `${path}.textureKey`), `${path}.textureKey`, 'image'),
-    contactDamagePerTick: needNumber(g.contactDamagePerTick, `${path}.contactDamagePerTick`, { min: 0 }),
+    textureKey: validateTextureKey(
+      needString(g.textureKey, `${path}.textureKey`),
+      `${path}.textureKey`,
+      'image',
+    ),
+    contactDamagePerTick: needNumber(g.contactDamagePerTick, `${path}.contactDamagePerTick`, {
+      min: 0,
+    }),
     childCount,
     splitDelayMs,
     spawnStaggerMs: needNumber(g.spawnStaggerMs, `${path}.spawnStaggerMs`, { min: 0 }),
@@ -693,7 +790,10 @@ function validateTank(raw: unknown): TankDef {
 
   const hpMode = needString(r.hpMode, `${path}.hpMode`)
   if (hpMode !== 'ttkSeconds') {
-    throw new ConfigError(`${path}.hpMode`, `肉盾怪必须是 'ttkSeconds'（几秒击杀），实际是 "${hpMode}"`)
+    throw new ConfigError(
+      `${path}.hpMode`,
+      `肉盾怪必须是 'ttkSeconds'（几秒击杀），实际是 "${hpMode}"`,
+    )
   }
 
   const fd = need(r.frameDamage as Record<string, unknown>, `${path}.frameDamage`)
@@ -714,11 +814,18 @@ function validateTank(raw: unknown): TankDef {
   const juice = need(r.juice as Record<string, unknown>, `${path}.juice`)
 
   const maxStacks = needNumber(hitSlow.maxStacks, `${path}.hitSlow.maxStacks`, { min: 0 })
-  const speedMultPerStack = needNumber(hitSlow.speedMultPerStack, `${path}.hitSlow.speedMultPerStack`, {
-    min: 0,
+  const speedMultPerStack = needNumber(
+    hitSlow.speedMultPerStack,
+    `${path}.hitSlow.speedMultPerStack`,
+    {
+      min: 0,
+      max: 1,
+    },
+  )
+  const minSpeedMult = needNumber(hitSlow.minSpeedMult, `${path}.hitSlow.minSpeedMult`, {
+    min: 0.01,
     max: 1,
   })
-  const minSpeedMult = needNumber(hitSlow.minSpeedMult, `${path}.hitSlow.minSpeedMult`, { min: 0.01, max: 1 })
 
   // 满层减速不能低于地板，否则「罚站死」（玩家提问里担心的手感问题）
   const fullSlow = Math.pow(speedMultPerStack, maxStacks)
@@ -743,8 +850,14 @@ function validateTank(raw: unknown): TankDef {
     speed: needNumber(r.speed, `${path}.speed`, { min: 1 }),
     radius: needNumber(r.radius, `${path}.radius`, { min: 1 }),
     visualScale: needNumber(r.visualScale, `${path}.visualScale`, { min: 0.1 }),
-    textureKey: validateTextureKey(needString(r.textureKey, `${path}.textureKey`), `${path}.textureKey`, 'image'),
-    contactDamagePerTick: needNumber(r.contactDamagePerTick, `${path}.contactDamagePerTick`, { min: 0 }),
+    textureKey: validateTextureKey(
+      needString(r.textureKey, `${path}.textureKey`),
+      `${path}.textureKey`,
+      'image',
+    ),
+    contactDamagePerTick: needNumber(r.contactDamagePerTick, `${path}.contactDamagePerTick`, {
+      min: 0,
+    }),
     aggroRadius: needNumber(r.aggroRadius, `${path}.aggroRadius`, { min: 1 }),
     loseTargetRadius: needNumber(r.loseTargetRadius, `${path}.loseTargetRadius`, { min: 1 }),
     ai: validateAi(r.ai, `${path}.ai`),
@@ -765,9 +878,13 @@ function validateTank(raw: unknown): TankDef {
         ),
       },
       melee: {
-        tickDamageRatio: needNumber(fdMelee.tickDamageRatio, `${path}.frameDamage.melee.tickDamageRatio`, {
-          min: 0,
-        }),
+        tickDamageRatio: needNumber(
+          fdMelee.tickDamageRatio,
+          `${path}.frameDamage.melee.tickDamageRatio`,
+          {
+            min: 0,
+          },
+        ),
         maxTicksPerSource: needNumber(
           fdMelee.maxTicksPerSource,
           `${path}.frameDamage.melee.maxTicksPerSource`,
@@ -795,12 +912,20 @@ function validateTank(raw: unknown): TankDef {
       maxStacks,
       speedMultPerStack,
       minSpeedMult,
-      stackDurationMs: needNumber(hitSlow.stackDurationMs, `${path}.hitSlow.stackDurationMs`, { min: 1 }),
-      decayIntervalMs: needNumber(hitSlow.decayIntervalMs, `${path}.hitSlow.decayIntervalMs`, { min: 1 }),
-      staggerMs: needNumber(hitSlow.staggerMs, `${path}.hitSlow.staggerMs`, { min: 0 }),
-      staggerCooldownMs: needNumber(hitSlow.staggerCooldownMs, `${path}.hitSlow.staggerCooldownMs`, {
-        min: 0,
+      stackDurationMs: needNumber(hitSlow.stackDurationMs, `${path}.hitSlow.stackDurationMs`, {
+        min: 1,
       }),
+      decayIntervalMs: needNumber(hitSlow.decayIntervalMs, `${path}.hitSlow.decayIntervalMs`, {
+        min: 1,
+      }),
+      staggerMs: needNumber(hitSlow.staggerMs, `${path}.hitSlow.staggerMs`, { min: 0 }),
+      staggerCooldownMs: needNumber(
+        hitSlow.staggerCooldownMs,
+        `${path}.hitSlow.staggerCooldownMs`,
+        {
+          min: 0,
+        },
+      ),
       staggerSpeedMult: needNumber(hitSlow.staggerSpeedMult, `${path}.hitSlow.staggerSpeedMult`, {
         min: 0,
         max: 1,
@@ -808,10 +933,16 @@ function validateTank(raw: unknown): TankDef {
     },
     antiPin: {
       unstuckMs: needNumber(antiPin.unstuckMs, `${path}.antiPin.unstuckMs`, { min: 0 }),
-      lateralEscapeMs: needNumber(antiPin.lateralEscapeMs, `${path}.antiPin.lateralEscapeMs`, { min: 0 }),
-      minDistFromPlayer: needNumber(antiPin.minDistFromPlayer, `${path}.antiPin.minDistFromPlayer`, {
+      lateralEscapeMs: needNumber(antiPin.lateralEscapeMs, `${path}.antiPin.lateralEscapeMs`, {
         min: 0,
       }),
+      minDistFromPlayer: needNumber(
+        antiPin.minDistFromPlayer,
+        `${path}.antiPin.minDistFromPlayer`,
+        {
+          min: 0,
+        },
+      ),
       stuckSpeedThreshold: needNumber(
         antiPin.stuckSpeedThreshold,
         `${path}.antiPin.stuckSpeedThreshold`,
@@ -822,9 +953,13 @@ function validateTank(raw: unknown): TankDef {
       }),
     },
     juice: {
-      hitSfxMinIntervalMs: needNumber(juice.hitSfxMinIntervalMs, `${path}.juice.hitSfxMinIntervalMs`, {
-        min: 0,
-      }),
+      hitSfxMinIntervalMs: needNumber(
+        juice.hitSfxMinIntervalMs,
+        `${path}.juice.hitSfxMinIntervalMs`,
+        {
+          min: 0,
+        },
+      ),
       damageEventBatchMs: needNumber(juice.damageEventBatchMs, `${path}.juice.damageEventBatchMs`, {
         min: 0,
       }),

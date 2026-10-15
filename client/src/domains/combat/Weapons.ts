@@ -57,6 +57,7 @@ export class Weapons {
     private readonly port: BulletContactPort,
     private readonly player: Player,
     private readonly terrain: TerrainMap,
+    private readonly onShot: () => void,
   ) {
     this.world = scene.physics.world
     this.lastWeapon = cfg.weapons[0]!
@@ -113,6 +114,7 @@ export class Weapons {
     this.gate.fired(now, stats.cooldownMs)
     this.player.spendStamina(weapon.staminaCost)
     this.shots++
+    this.onShot()
     this.firedAtMs = now
     this.lastWeapon = weapon
     this.player.model.attackUntilMs = now + this.cfg.player.attackPoseMs
@@ -311,6 +313,9 @@ export class Weapons {
       if (target) chill.push(target)
     }
     this.fx.draw({ poison, chill })
+    for (const b of this.bullets)
+      if (b.slot.active && !b.pending)
+        this.fx.projectile(b.weapon, b.body.center.x, b.body.center.y, b.angle, b.slot.bornMs)
     this.muzzleFlash.clear()
     if (
       this.lastWeapon.id === 'pencil' &&
