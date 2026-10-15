@@ -165,6 +165,45 @@ function barrier(rect: Rect, d: Door, ownerOrder: number): DoorBarrier {
 }
 
 /**
+ * 「**第几间房的门**」→「**第几号挡板**」。
+ *
+ * ## 为什么需要它
+ *
+ * 物理层拿到的是一个**数组**，开关门的接口也是按下标来的
+ * （`ArenaBase` 的 `DoorBarrierControl.setClosedAt(index, …)`）。
+ * 而「清完这间的怪，把这间的门打开」这句话里说的是 `ownerOrder`。
+ * 中间那一步 —— 把房间号翻成下标 —— 就是这里。
+ *
+ * ## 为什么不各自推
+ *
+ * 推错的两种写法都**不会报错**：**差一**（`index + 1`）会让「开这间」开到隔壁；
+ * **忘了跳过重复洞口**（同一个洞在宿主与侧室上各记一次，见文件头 ⚠️）
+ * 会让所有下标从某一间开始整体偏移。两种都表现为「门开了，但不是那一扇」，
+ * 而看画面只会以为是判定写错了。
+ *
+ * ## 为什么参数是 `barriers` 本身，不是 `(map, cfg)`
+ *
+ * 因为它算出来的下标**必须**对齐调用方手里那个数组。传 `barriers` 进来，
+ * 「你交给物理层的是哪一份，映射就照哪一份算」是**语法上**成立的；
+ * 传 `(map, cfg)` 的话，函数内部会重新 `collidersOf()` 一次，
+ * 那就等于假设调用方交出去的正是这一份 —— 一个不会报错的假设。
+ *
+ * `collidersOf()` 产出的 `barriers` 已经按 `ownerOrder` 排好序，
+ * 所以同一间的下标是连续的一段；这里不依赖那一点，逐项收集即可。
+ */
+export function barrierIndicesByRoom(
+  barriers: readonly DoorBarrier[],
+): Map<number, number[]> {
+  const out = new Map<number, number[]>()
+  barriers.forEach((b, index) => {
+    const list = out.get(b.ownerOrder)
+    if (list) list.push(index)
+    else out.set(b.ownerOrder, [index])
+  })
+  return out
+}
+
+/**
  * 两个矩形有没有**面积**相交（贴合不算）。
  *
  * `rectsIntersect` 是**含贴合**的（那是对的，见它的注释：留 0px 缝在物理上就是留了缝），

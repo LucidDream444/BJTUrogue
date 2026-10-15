@@ -147,6 +147,28 @@ export interface ArenaConfig {
   /** 碰撞几何。**不填 = 一个物理体都不造**，见 `ArenaCollision` */
   collision?: ArenaCollision
   /**
+   * 这一场的**活动范围**（世界坐标，左上角恒在原点）。默认 `1280×720`。
+   *
+   * ## 为什么它是个可选项，而不是直接写死世界尺寸
+   *
+   * 底座原来把这个范围钉死在 1280×720，而它在两处是**硬的**，不是审美问题：
+   *
+   * | 用在哪 | 钉死的后果 |
+   * |---|---|
+   * | `DummyPlayer` 的四条夹子 | 玩家**出不去**第一屏：`sprite.x` 被夹在 `[r, 1278]`，而物理体每帧从 `GameObject` 同步（`Body.preUpdate → updateFromGameObject`），所以夹的是位置本身 |
+   * | `makeNav()` 的网格行列数 | 网格外的格一律 `isWalkable = false`，于是 x > 1280 的地方**怪一律认为不可走** |
+   *
+   * 前两条的症状都是**没有报错**：玩家贴着看不见的边停住、怪站在几千像素外不动。
+   * 整层的场子（`d2_room_flow`：种子 837 就有 7560×880）必须能在地图坐标里跑，
+   * 否则镜头推不过连廊、门挡板的下标也对不上全层那一份。
+   *
+   * ## 为什么默认值仍然是 1280×720
+   *
+   * **不填的场子行为一个字都不变** —— 这条是这次改动的全部约束。
+   * 已开工的场子（D1/D3/D4）都没有这个字段，走的还是原来那条路。
+   */
+  field?: { width: number; height: number }
+  /**
    * 假玩家的出生点。默认是世界正中心。
    *
    * ⚠️ 造了碰撞体之后，正中心**有可能正好落在一张课桌或一段墙里**
@@ -276,6 +298,11 @@ export abstract class ArenaBase extends Phaser.Scene {
   private colliderObjects: Phaser.GameObjects.GameObject[] = []
   private doorRuntimes: DoorRuntime[] = []
   private colliderInfo: ArenaColliderInfo = { solidCount: 0, bulletStopperCount: 0, doors: null }
+  /**
+   * 这一场的活动范围。**`configure()` 之后定下来，之后只读** ——
+   * 见 `ArenaConfig.field`：整层的场子要靠它才能在地图坐标里跑。
+   */
+  private field: { width: number; height: number } = { width: WORLD_WIDTH, height: WORLD_HEIGHT }
   private started = false
 
   /** 场子的元信息。**子类必须给**，`registry.test.ts` 会检查它存在。 */
@@ -334,6 +361,9 @@ export abstract class ArenaBase extends Phaser.Scene {
     registerAnimations(this)
 
     const cfg = this.configure()
+    // ⚠️ 顺序：`field` 必须在 `drawBackground` / `DummyPlayer` / `makeNav` **之前**定下来
+    // —— 那三处都读它。默认值与原来的写死值逐字相同，所以没填这个字段的场子行为不变。
+    this.field = cfg.field ?? { width: WORLD_WIDTH, height: WORLD_HEIGHT }
     this.clock = new GameClock()
     this.bus = new TypedBus<GameEvents>()
     this.bundle = parseConfigBundle({
@@ -343,17 +373,17 @@ export abstract class ArenaBase extends Phaser.Scene {
     })
     this.hud = new Hud(this)
 
-    this.drawBackground(cfg.walls ?? [])
+    this.drawBackground(cfg.walls ?? [], this.field)
 
     this.player = new DummyPlayer({
       scene: this,
-      x: cfg.playerSpawn?.x ?? WORLD_WIDTH / 2,
-      y: cfg.playerSpawn?.y ?? WORLD_HEIGHT / 2,
+      x: cfg.playerSpawn?.x ?? this.field.width / 2,
+      y: cfg.playerSpawn?.y ?? this.field.height / 2,
       radius: this.bundle.balance.baseline.player.radius,
       maxHp: this.bundle.balance.baseline.player.maxHp,
       speed: cfg.playerSpeed ?? this.bundle.balance.baseline.player.speed,
-      worldWidth: WORLD_WIDTH,
-      worldHeight: WORLD_HEIGHT,
+      worldWidth: this.field.width,
+      worldHeight: this.field.height,
     })
 
     // ⚠️ 必须在 `new DebugGun(...)` **之前**：枪要拿到挡弹那一组才能接上。
@@ -367,7 +397,7 @@ export abstract class ArenaBase extends Phaser.Scene {
       bundle: this.bundle,
       difficulty: cfg.difficulty ?? 'normal',
       player: () => this.player.view(),
-      nav: this.makeNav(cfg),
+      nav: this.makeNav(cfg, this.field),
       rngSeed: cfg.rngSeed ?? 0xd3d3,
       hooks: {
         // 肉盾下砸 → 顿帧 + 震屏 + 音效。产品里由场景接线，测试场由底座接线。
@@ -417,7 +447,7 @@ export abstract class ArenaBase extends Phaser.Scene {
       gun: this.gun,
       player: this.player,
       hud: this.hud,
-      world: { width: WORLD_WIDTH, height: WORLD_HEIGHT },
+      world: this.field,
       tune,
       colliders: this.colliderInfo,
     }
@@ -769,14 +799,16 @@ export abstract class ArenaBase extends Phaser.Scene {
     this.started = false
   }
 
-  private drawBackground(walls: WallSpec[]): void {
+  private drawBackground(walls: WallSpec[], field: { width: number; height: number }): void {
     const g = this.add.graphics()
     g.fillStyle(0x0b0b10, 1)
-    g.fillRect(0, 0, WORLD_WIDTH, WORLD_HEIGHT)
+    g.fillRect(0, 0, field.width, field.height)
     // 网格：纯装饰，但它是「白箱」的一部分 —— 没有网格就看不出怪在不在动。
+    // 铺满活动范围：整层的场子里，只铺左上角那一块会留下「没铺到的地方一片死黑」，
+    // 而那片黑看起来像生成器少生成了一段地板。
     g.lineStyle(1, 0x1e1e2a, 1)
-    for (let x = 0; x <= WORLD_WIDTH; x += GRID_SIZE) g.lineBetween(x, 0, x, WORLD_HEIGHT)
-    for (let y = 0; y <= WORLD_HEIGHT; y += GRID_SIZE) g.lineBetween(0, y, WORLD_WIDTH, y)
+    for (let x = 0; x <= field.width; x += GRID_SIZE) g.lineBetween(x, 0, x, field.height)
+    for (let y = 0; y <= field.height; y += GRID_SIZE) g.lineBetween(0, y, field.width, y)
     g.setDepth(-100)
 
     // 拷一份，不持有 `cfg.walls` 本身：`buildCollision` 之后还要往里加桌椅
@@ -797,13 +829,19 @@ export abstract class ArenaBase extends Phaser.Scene {
     }
   }
 
-  private makeNav(cfg: ArenaConfig): EnemySystemNavOptions | undefined {
+  private makeNav(
+    cfg: ArenaConfig,
+    field: { width: number; height: number },
+  ): EnemySystemNavOptions | undefined {
     const walls = cfg.walls ?? []
     if (walls.length === 0) return undefined // 没有墙 = 不建 BFS 场，省一份纯浪费的开销
 
     const cellSize = GRID_SIZE * 2 // 80px 一格：够粗，BFS 才快；够细，绕得过 40px 的格子
-    const cols = Math.ceil(WORLD_WIDTH / cellSize)
-    const rows = Math.ceil(WORLD_HEIGHT / cellSize)
+    // 网格铺满**整个活动范围**（见 `ArenaConfig.field`）。按画布尺寸铺的话，
+    // 网格外的格一律 `isWalkable = false` —— 整层场子里那是「几千像素外的怪全都站在原地」，
+    // 而这和「寻路坏了」在现场长得一模一样，只是它连一行报错都没有。
+    const cols = Math.ceil(field.width / cellSize)
+    const rows = Math.ceil(field.height / cellSize)
 
     // 把墙印进一张位图：**一格只有在它的中心点落在墙里时才算堵**。
     //
@@ -879,11 +917,11 @@ export abstract class ArenaBase extends Phaser.Scene {
   protected randomPoint(): { x: number; y: number } {
     const pad = 60
     for (let attempt = 0; attempt < 32; attempt++) {
-      const x = Phaser.Math.Between(pad, WORLD_WIDTH - pad)
-      const y = Phaser.Math.Between(pad, WORLD_HEIGHT - pad)
+      const x = Phaser.Math.Between(pad, this.field.width - pad)
+      const y = Phaser.Math.Between(pad, this.field.height - pad)
       if (!this.insideAnyBlocker(x, y, 20)) return { x, y }
     }
-    return { x: WORLD_WIDTH / 2, y: 80 }
+    return { x: this.field.width / 2, y: 80 }
   }
 
   /**
