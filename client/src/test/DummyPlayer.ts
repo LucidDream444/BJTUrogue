@@ -135,6 +135,19 @@ export class DummyPlayer implements TickTarget {
     }
   }
 
+  /**
+   * 物理体的宿主对象。**底座给玩家接 `collider` 要用它。**
+   *
+   * 为什么不在这里自己接：这个类**不知道场上有什么**（墙、课桌、门挡板都是
+   * `configure()` 才知道的东西），也不该知道 —— 一个假玩家去订阅场景里的
+   * 碰撞分组，等于把「场地长什么样」的知识塞进了「人怎么走」里。
+   *
+   * 名字不叫 `sprite` / `body`：那两个是下面已有的私有字段，同名会撞。
+   */
+  get gameObject(): Phaser.Physics.Arcade.Sprite {
+    return this.sprite
+  }
+
   /** 开一段无敌时间（测试场的观察便利，不是产品语义）。 */
   grantGrace(ms: number): void {
     this.graceUntilMs = this.nowMs + ms

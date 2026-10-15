@@ -26,6 +26,7 @@
 
 import type { Point, Room } from '../model/types'
 import type { RoomsConfig } from '../config'
+import { isCombatKind } from '../config'
 import { bottom, left, right, top } from '../model/rect'
 import { cellCenter, cellOf, doorSideCells, isBlockedCell, type NavGrid } from '../walkability'
 import { rngFor } from './seed'
@@ -93,6 +94,14 @@ export function placeSpawnPoints(
   room: Room,
   grid: NavGrid,
 ): Point[] {
+  // 非战斗关别**没有刷怪点** —— 不是「没配上」，是这一层数据里就没有位置这回事。
+  // D1 的「进房关门、清完开门」在空房间上要立刻放行（通知里点名过这一条）：
+  // 判据是 `spawnPoints.length === 0`，而不是去查关别名册。
+  //
+  // 早返回在 flood fill 之前：那一趟是整层网格上最贵的一段，
+  // 而它算出来的东西对一节空教室没有用。
+  if (!isCombatKind(cfg, room.kind)) return []
+
   const reachable = floodFill(grid, doorEntryCells(room, cfg, grid))
   const candidates = interiorCells(room, cfg, grid).filter(
     (c) => reachable.has(c.cy * grid.cols + c.cx) && !isBlockedCell(grid, c.cx, c.cy),

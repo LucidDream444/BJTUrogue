@@ -319,6 +319,7 @@ playHit() {
 | **`roundPixels` 默认 false** | `[源码]` 且有纹理的 GameObject 才受它影响，Graphics 这类无纹理对象忽略它 |
 | **渲染器不用手选** | `[源码]` `renderType` 默认 `AUTO`，自动 WebGL、回退 Canvas |
 | **场景生命周期** | 在 `create()` 里对外部事件源 `on()` 而 `shutdown` 里不 `off()` → **重启 3 次留 3 个 handler**。必须保存函数引用，匿名函数 `off()` 会静默失败 |
+| **`SHUTDOWN` 里做清理时，引擎已经先拆过一遍了** | `[源码]` + `[实证]` `SHUTDOWN` 的监听器**按注册顺序**跑，引擎自己的（`ArcadePhysics`、`UpdateList`、`DisplayList`…）都在场景 `boot` 时就注册好了，**永远排在任何 `create()` 里注册的前面**。所以你的收尾函数跑到时：`scene.physics.world` **已经是 `null`**（`ArcadePhysics.shutdown()` 的 `this.world = null`）、已经进过更新表的 `Group` **已经被销毁**（`children` 是 `undefined`，`UpdateList.shutdown()` 干的）。**碰这两样 = 抛异常，而在这里抛异常的代价是整个页面死掉**：异常在 `SceneManager.processQueue` 里抛出 → `restart()` 的 `stop`/`start` 是**两条 op**，后面那条永远轮不到 → 场景停在 SHUTDOWN；异常再从 `Game.step` 冲出 rAF 回调，而 Phaser 是**先调回调、再排下一帧**，于是下一帧再也不会被排上 —— **帧号冻住，画面停死，点哪儿都不应**。2026-10-15 实测（`EnemySystem.shutdown()` 的 `physics.world.off` 与 `group.clear`）：按 `R` / `N` 都这样。**收尾里不要碰任何可能已被引擎置空的东西**；真要退订 `WORLD_STEP`，写成 `const w = this.scene.physics?.world; if (w) w.off(...)` —— world 真被销毁时 `World.destroy() → shutdown()` 里有 `removeAllListeners()`，不会漏 |
 | **共享动画住在 game 级** | `AnimationManager` 跨场景存活，而播放回调属于场景实例。`create()` 里建动画前先查 key 是否存在 |
 | **顿帧（hitstop）用 `world.pause()`，绝不用 `world.timeScale = 0`** | `[源码]` `World.js` L936：`update()` 第一句 `if (this.isPaused \|\| this.bodies.size === 0) return;`——**在 `_elapsed += delta` 之前就 return**，所以暂停期间不累积时间，恢复后不会追赶补步。而 `timeScale = 0` 会让 `msPerFrame = _frameTimeMS * timeScale` 变成 0，`while (_elapsed >= msPerFrame)` **永不退出**（死循环）。本项目顿帧 = `clock.freeze(ms)`（冻结只解决逻辑层，**不够**）+ `physics.world.pause()`（冻结物理积分、子弹位移、sprite 位置），到期两者一起恢复 |
 
@@ -336,7 +337,7 @@ playHit() {
 - [ ] 高频音效走的是**固定池 + 轮转**吗？
 - [ ] 粒子的 `maxParticles` 设了吗？
 - [ ] 占位纹理与真资源的 **key 冲突**处理了吗？
-- [ ] `scene.shutdown` 里把 `create()` 里 `on()` 的都 `off()` 了吗？
+- [ ] `scene.shutdown` 里把 `create()` 里 `on()` 的都 `off()` 了吗？**而且退订的时候没碰 `physics.world` / `group.children` 这类引擎已经先拆掉的东西吧？**（在 `SHUTDOWN` 里抛异常 = 整页死，见 §7「场景生命周期」下面那条）
 
 ---
 
