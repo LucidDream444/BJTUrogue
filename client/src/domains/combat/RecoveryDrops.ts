@@ -53,7 +53,10 @@ export class RecoveryDrops {
       const dx = this.player.x - item.image.x,
         dy = this.player.y - item.image.y
       if (dx * dx + dy * dy > radiusSquared) continue
-      const restored = this.player.model.restoreFromPickup(item.kind, item.amount)
+      const restored =
+        item.kind === 'stamina'
+          ? this.player.restoreStamina(item.amount)
+          : this.player.model.restoreFromPickup(item.kind, item.amount)
       // A full resource must not waste its pickup, or restore the other resource instead.
       if (restored <= 0) continue
       item.image.destroy()

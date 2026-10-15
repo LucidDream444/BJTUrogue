@@ -51,11 +51,12 @@ import Phaser from 'phaser'
 import type { GameClock } from '@/core/time'
 import type { GameEvents, EnemyKind, TypedBus, Unsubscribe } from '@/core/events'
 import type { ConfigBundle } from '@/core/config'
-import type { EnemySystem } from '../EnemySystem'
+import type { EnemySystem, Entry } from '../EnemySystem'
+import { RadialBurstFx } from './RadialBurstFx'
 import { JuicePolicy, juiceParamsFromConfig } from './JuicePolicy'
 import { SfxPool } from './SfxPool'
 import { EnemyHealthBars } from './EnemyHealthBars'
-import { ASSETS, ANIMS, TANK_ART, FINAL_BOSS_ART } from '@/core/assetManifest'
+import { ASSETS, ANIMS, TANK_ART, FINAL_BOSS_ART, STAGE2_BOSS_ART } from '@/core/assetManifest'
 import { textureKeyFor } from '@/core/assets'
 
 /** 受击冲击淡出用多久。**小于肉盾的 `damageEventBatchMs` 才不会糊成一片常亮** */
@@ -113,6 +114,7 @@ export class JuiceDirector {
   private readonly bundle: ConfigBundle
   private readonly enemies: EnemySystem
   private readonly policy: JuicePolicy
+  private readonly radialFx: RadialBurstFx
   private readonly healthBars: EnemyHealthBars
   private readonly sfx: SfxPool
   private readonly visuals = new Map<number, VisualState>()
@@ -133,6 +135,12 @@ export class JuiceDirector {
     this.clock = opts.clock
     this.bundle = opts.bundle
     this.enemies = opts.enemies
+    this.radialFx = new RadialBurstFx(
+      opts.scene,
+      opts.enemies,
+      opts.clock,
+      opts.bundle.enemies.stage2Boss,
+    )
     this.healthBars = new EnemyHealthBars(opts.scene, opts.enemies)
 
     const enemies = opts.bundle.enemies.enemies
@@ -143,7 +151,10 @@ export class JuiceDirector {
 
     this.sfx = new SfxPool({
       scene: opts.scene,
-      keys: ASSETS.filter((a) => a.kind === 'audio').map((a) => a.key),
+      keys: ASSETS.filter(
+        (a) =>
+          a.kind === 'audio' && (a.key.startsWith('sfx_enemy_') || a.key === 'sfx_kill_flourish'),
+      ).map((a) => a.key),
     })
   }
 
@@ -199,6 +210,7 @@ export class JuiceDirector {
     this.updateAnimations()
     this.updateVisuals(this.clock.realNowMs)
     this.healthBars.update()
+    this.radialFx.update()
   }
 
   /** 场景 `shutdown` 里调。 */
@@ -211,6 +223,7 @@ export class JuiceDirector {
 
     this.sfx.destroy()
     this.healthBars.destroy()
+    this.radialFx.destroy()
     this.visuals.clear()
     // 不要在这里 `world.pause()`：shutdown 之后再 pause，下一个场景就动不了了。
     // 反过来的情况（「要重启了但物理还暂停着」）由 `syncPhysicsPause()` 在 update 里兜住。
@@ -402,10 +415,50 @@ export class JuiceDirector {
     v.lastHitRealMs = realNowMs
   }
 
+  private updateStage2Animation(entry: Entry): void {
+    const { model, view } = entry
+    const cfg = this.bundle.enemies.stage2Boss
+    const attacking = model.state === 'windup' || model.state === 'recover'
+    const key = attacking ? STAGE2_BOSS_ART.attack : STAGE2_BOSS_ART.idle
+    const anim = this.animations.get(key)!
+    const age = model.stateAgeMs(this.clock.nowMs)
+    // The supplied sheet releases its expanding ring at frame 7 (after seven charge frames).
+    const releaseFrame = 7
+    const index =
+      model.state === 'windup'
+        ? Math.min(releaseFrame - 1, Math.floor((age / cfg.windupMs) * releaseFrame))
+        : model.state === 'recover'
+          ? releaseFrame +
+            Math.min(
+              anim.frames.length - releaseFrame - 1,
+              Math.floor((age / cfg.recoverMs) * (anim.frames.length - releaseFrame)),
+            )
+          : Math.floor((this.clock.nowMs * anim.frameRate) / 1000) % anim.frames.length
+    const texture = textureKeyFor(this.scene, key)
+    const frame = anim.frames[index]!
+    // The supplied art faces left. Keep the last facing direction while charging or recovering.
+    const vx = view.body.velocity.x
+    if (Math.abs(vx) > 1) view.setFlipX(vx > 0)
+    if (view.texture.key !== texture) {
+      view.setTexture(texture, frame)
+      const radius = model.stats.radius
+      view.body.setCircle(
+        radius,
+        view.frame.realWidth / 2 - radius,
+        view.frame.realHeight / 2 - radius,
+      )
+      view.body.updateFromGameObject()
+    } else if (String(view.frame.name) !== String(frame)) view.setFrame(frame)
+  }
+
   /** Use logical time so the imported bounce freezes during pause and hitstop. */
   private updateAnimations(): void {
     for (const { model, view } of this.enemies.liveEnemies) {
       if (!model.alive) continue
+      if (this.enemies.isStage2Boss(model.id)) {
+        this.updateStage2Animation({ model, view })
+        continue
+      }
       const inAttack =
         model.enemyKind === 'tank' &&
         (model.state === 'windup' || model.state === 'recover') &&
@@ -462,7 +515,11 @@ export class JuiceDirector {
           view.setTexture(texture, frame)
           // Texture size changes from 96 to 128 for the last boss; preserve its circular collision center.
           const radius = model.stats.radius
-          view.body.setCircle(radius, view.frame.realWidth / 2 - radius, view.frame.realHeight / 2 - radius)
+          view.body.setCircle(
+            radius,
+            view.frame.realWidth / 2 - radius,
+            view.frame.realHeight / 2 - radius,
+          )
           view.body.updateFromGameObject()
         } else if (String(view.frame.name) !== String(frame)) view.setFrame(frame)
         continue

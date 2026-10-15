@@ -153,16 +153,16 @@ describe('D1 pool with existing damage bridge', () => {
   })
 })
 describe('pulse loadout balance', () => {
-  it('contains only the original pistol and the chest cannon, at exactly 30 stamina per cannon shot', () => {
+  it('includes all six weapons with reduced cannon stamina cost', () => {
     expect(cfg.weapons.map((w) => w.id)).toEqual(
       expect.arrayContaining(['pencil', 'pulse', 'venom', 'flare', 'rail', 'smg']),
     )
-    expect(cfg.weapons.find((w) => w.id === 'pulse')!.staminaCost).toBe(30)
+    expect(cfg.weapons.find((w) => w.id === 'pulse')!.staminaCost).toBe(18)
   })
-  it('base cannon impact is half first-boss health and remains a single shot after pistol multishot', () => {
+  it('boosted cannon impact uses the configured boss ratio and remains single-shot after pistol multishot', () => {
     const gun = cfg.weapons.find((w) => w.id === 'pulse')!
     const before = deriveStats(bundle.balance, cfg, gun, defs, new Map())
-    expect(before.damage).toBe(cfg.encounter.bossHp / 2)
+    expect(before.damage).toBe(cfg.encounter.bossHp * gun.bossDamageRatio!)
     expect(before.pellets).toBe(1)
     const after = deriveStats(
       bundle.balance,

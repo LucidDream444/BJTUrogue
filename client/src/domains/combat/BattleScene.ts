@@ -23,7 +23,12 @@ import { LoadoutHud } from '@/domains/combat/LoadoutHud'
 // 「暂停语义」「这一局打了多少」由战斗场景提供，界面与规则归 D4。
 // 它们本来只能在测试场里跑（`?arena=d4_pause` / `?arena=d4_settlement`），
 // 这里接上之后才是产品里的那一份。
-import { META_CONFIG_NAME, META_CONFIG_URL, parseMetaConfig, type MetaConfig } from '@/domains/meta/metaConfig'
+import {
+  META_CONFIG_NAME,
+  META_CONFIG_URL,
+  parseMetaConfig,
+  type MetaConfig,
+} from '@/domains/meta/metaConfig'
 import { PauseOverlay } from '@/domains/meta/pause/PauseOverlay'
 import { ProfileStore } from '@/domains/meta/profile/ProfileStore'
 import { LocalStorageProfileStorage } from '@/domains/meta/profile/storage'
@@ -157,7 +162,7 @@ export class BattleScene extends Phaser.Scene {
         .setDepth(4500)
       this.session.bus.on('entity_killed', (event) => {
         if (event.bossStage === this.stage) {
-          this.loot.reset()
+          this.loot.cancelReplacement()
           this.loot.spawn(event.x, event.y)
           this.notice.setText('Boss 已击败 · 找到宝箱，按 E 开启并拾取随机武器')
         }
@@ -190,6 +195,13 @@ export class BattleScene extends Phaser.Scene {
       // 档只在"这一局结束"和"打开暂停菜单"这两个时刻被碰，核心循环里一个字都没有。
       this.store = new ProfileStore({ storage: new LocalStorageProfileStorage() })
       this.store.load()
+      const syncAudio = (): void => {
+        const { bgmVolume, sfxVolume } = this.store.profile.settings
+        this.session.setAudioVolumes(bgmVolume, sfxVolume)
+      }
+      syncAudio()
+      const unsubscribeAudio = this.store.subscribe(syncAudio)
+      this.events.once(Phaser.Scenes.Events.SHUTDOWN, unsubscribeAudio)
       try {
         this.meta = parseMetaConfig(this.cache.json.get(META_CONFIG_NAME))
       } catch (err) {
@@ -292,7 +304,11 @@ export class BattleScene extends Phaser.Scene {
           '第 ' +
             this.stage +
             ' 层 · ' +
-            (this.stage === this.cfg.arena.maxStages ? '终焉蛛王' : '蘑菇首领') +
+            (this.stage === this.cfg.arena.maxStages
+              ? '终焉蛛王'
+              : this.stage === 2
+                ? this.bundle.enemies.stage2Boss.displayName
+                : '蘑菇首领') +
             '\n' +
             Math.ceil(boss.hp) +
             ' / ' +
@@ -486,7 +502,10 @@ export class BattleScene extends Phaser.Scene {
       k.addCapture(['SPACE', 'ESC', 'UP', 'DOWN', 'ENTER'])
       // ⚠️ 暂停的键盘入口**只有这一处**（`togglePauseMenu`）。宿主自己再绑一个
       // "Esc 关菜单"，按一下就会同时又关又开 —— 见 `PauseOverlay` 文件头。
-      k.on('keydown-ESC', () => this.togglePauseMenu())
+      k.on('keydown-ESC', () => {
+        if (this.loot.replacementPending) this.loot.cancelReplacement()
+        else this.togglePauseMenu()
+      })
       k.on('keydown-SPACE', () => this.togglePauseMenu())
       k.on('keydown-UP', () => this.pauseMenu.handleMoveFocus(-1))
       k.on('keydown-DOWN', () => this.pauseMenu.handleMoveFocus(1))

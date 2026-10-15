@@ -1,5 +1,7 @@
+import type { WeaponId } from './config'
 import type { GameEvents } from '@/core/events'
 export interface CombatEvents extends GameEvents {
+  weapon_replaced: { dropped: WeaponId; equipped: WeaponId; slot: number; x: number; y: number }
   player_hurt: {
     id: number
     hpDamage: number

@@ -87,6 +87,16 @@ export const PROJECTILE_ART: Record<string, string> = {
   smg: 'smg_projectile',
 }
 
+export const GAME_AUDIO = {
+  bgm: 'bgm_pixel_dungeon_rush',
+  shot: 'sfx_player_shot',
+} as const
+
+export const STAGE2_BOSS_ART = {
+  idle: 'enemy_stage2_idle',
+  attack: 'enemy_stage2_attack',
+} as const
+
 export const FINAL_BOSS_ART = {
   walk: 'boss_final_walk',
   attack: 'boss_final_attack',
@@ -102,6 +112,41 @@ export const CAMPAIGN_ART = {
 } as const
 
 export const ASSETS: readonly AssetEntry[] = [
+  {
+    key: GAME_AUDIO.bgm,
+    path: 'audio/bgm/bgm_pixel_dungeon_rush',
+    kind: 'audio',
+    placeholder: false,
+    codecs: ['mp3'],
+  },
+  {
+    key: GAME_AUDIO.shot,
+    path: 'audio/sfx/player/sfx_player_shot',
+    kind: 'audio',
+    placeholder: false,
+    codecs: ['mp3'],
+  },
+  {
+    key: 'enemy_stage2_idle',
+    path: 'sprites/enemies/stage2_boss/enemy_stage2_idle.png',
+    placeholder: false,
+    kind: 'spritesheet',
+    width: 128,
+    height: 128,
+    frameWidth: 128,
+    frameHeight: 128,
+  },
+  {
+    key: 'enemy_stage2_attack',
+    path: 'sprites/enemies/stage2_boss/enemy_stage2_attack.png',
+    placeholder: false,
+    kind: 'spritesheet',
+    width: 128,
+    height: 128,
+    frameWidth: 128,
+    frameHeight: 128,
+  },
+
   {
     key: 'game_title',
     path: 'maps/game_title.png',
@@ -1185,6 +1230,21 @@ export interface AnimDef {
 }
 
 export const ANIMS: readonly AnimDef[] = [
+  {
+    animKey: 'enemy_stage2_idle_anim',
+    textureKey: 'enemy_stage2_idle',
+    frames: [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15],
+    frameRate: 8,
+    repeat: -1,
+  },
+  {
+    animKey: 'enemy_stage2_attack_anim',
+    textureKey: 'enemy_stage2_attack',
+    frames: [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15],
+    frameRate: 8,
+    repeat: 0,
+  },
+
   {
     animKey: 'boss_final_poison_loop',
     textureKey: 'boss_final_poison',

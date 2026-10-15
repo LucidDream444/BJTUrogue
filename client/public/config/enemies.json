@@ -3,6 +3,29 @@
   "_comment": "敌人表。**内容归 D3，字段定义归 D2（契约 C2）。**",
   "_no_hp_field": "这里没有 maxHp —— 血量是由 hpMode + hpValue 派生的，见 core/config.ts 顶部说明。改武器伤害时敌人数值会自动跟随。",
   "_no_difficulty_field": "这里也禁止出现任何难度字段（enemyHp / enemyDamage / …），难度乘数唯一来源是 difficulty.json。契约测试会断言这一点。",
+  "stage2Boss": {
+    "displayName": "霜翼使徒",
+    "strafeSpeedMult": 1.35,
+    "strafeTurnMs": 1200,
+    "speed": 48,
+    "radius": 34,
+    "visualScale": 1.3,
+    "aggroRadius": 900,
+    "keepDistance": 250,
+    "windupMs": 875,
+    "recoverMs": 1125,
+    "cooldownMs": 3400,
+    "projectile": {
+      "count": 24,
+      "speed": 190,
+      "radius": 6,
+      "damage": 14,
+      "lifetimeMs": 4600,
+      "maxActive": 96,
+      "spawnRadius": 28,
+      "volleyOffsetDeg": 7.5
+    }
+  },
   "enemies": {
     "splitter": {
       "displayName": "分裂怪",

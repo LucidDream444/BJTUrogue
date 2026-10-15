@@ -87,6 +87,9 @@ import { SpatialHash } from './nav/spatialHash'
 import { FlowField } from './nav/flowField'
 import { makeSplitterBrain } from './brains/SplitterBrain'
 import { makeTankBrain } from './brains/TankBrain'
+import { makeRadialBossBrain } from './brains/RadialBossBrain'
+import { RadialProjectiles } from './projectiles/RadialProjectiles'
+import { STAGE2_BOSS_ART } from '@/core/assetManifest'
 
 type EnemyActor = Actor<EnemyState>
 export type Entry = PooledEnemy<EnemyActor>
@@ -124,6 +127,8 @@ export interface EnemySystemNavOptions {
   isWalkable: (x: number, y: number) => boolean
   /** Map owner snaps all spawns, including split children, to safe ground. */
   safeSpawn?: (x: number, y: number, radius: number) => { x: number; y: number }
+  /** Projectile geometry is narrower than enemy navigation clearance. */
+  projectileBlocked?: (x0: number, y0: number, x1: number, y1: number, radius: number) => boolean
 }
 
 export interface EnemySystemOptions {
@@ -192,9 +197,11 @@ export class EnemySystem implements ActorEventSink {
   private readonly playerOf: PlayerProvider
   private readonly patrolOrigins = new Map<number, { x: number; y: number }>()
   private readonly safeSpawn?: EnemySystemNavOptions['safeSpawn']
+  private readonly projectileBlocked?: EnemySystemNavOptions['projectileBlocked']
   private readonly hooks: EnemySystemHooks
   private readonly rng: Rng
 
+  readonly radialShots: RadialProjectiles
   readonly ledger: DamageLedger
   readonly spawns: SpawnQueue
   readonly pool: EnemyPool<EnemyActor>
@@ -267,9 +274,11 @@ export class EnemySystem implements ActorEventSink {
     this.bus = opts.bus
     this.clock = opts.clock
     this.bundle = opts.bundle
+    this.radialShots = new RadialProjectiles(opts.bundle.enemies.stage2Boss.projectile)
     this.diffMods = opts.bundle.difficulty.difficulties[opts.difficulty]
     this.playerOf = opts.player
     this.safeSpawn = opts.nav?.safeSpawn
+    this.projectileBlocked = opts.nav?.projectileBlocked
     this.hooks = opts.hooks ?? {}
     this.rng = new Rng(opts.rngSeed ?? 0x5eed)
 
@@ -296,6 +305,7 @@ export class EnemySystem implements ActorEventSink {
       // ⚠️ 账本配对（不变式 ④）。池的 `release()` 一定会调到这里，所以
       // 「怪回池了但账本还记着它」在结构上就不可能发生 —— 不需要任何调用方记得。
       onRelease: (model) => {
+        this.radialShots.removeOwner(model.id)
         this.ledger.releaseTarget(model)
         this.brains.delete(model)
         this.snaps.delete(model)
@@ -417,13 +427,17 @@ export class EnemySystem implements ActorEventSink {
 
     // `?.` 两层都要：`physics` 是场景插件本身（关了也还在），被置 null 的是 `.world`
     const world = this.scene.physics?.world
-    if (world) world.off(Phaser.Physics.Arcade.Events.WORLD_STEP, this.onWorldStep, this)
+    if (world) {
+      world.off(Phaser.Physics.Arcade.Events.WORLD_STEP, this.onWorldStep, this)
+      this.crowdCollider.destroy()
+    }
     this.pool.releaseAll() // 每只怪都走 release() → ledger.releaseTarget，不用另写一套清理
     this.spawns.clear()
     this.pendingDeaths.length = 0
     this.contacts.clear()
     this.frameEntries.length = 0
     this.ledger.clear()
+    this.radialShots.clear()
     this.hash.clear()
     // `clear(false, false)`：只移出组，**不销毁**对象 —— Actor 归池管。
     // 传 true 会把它们 destroy 掉，下次 acquire 复用就是一个已销毁的 Sprite。
@@ -461,6 +475,7 @@ export class EnemySystem implements ActorEventSink {
       const target = this.playerOf()
       this.nav?.update(target?.x ?? 0, target?.y ?? 0, nowMs)
       this.runAi(target, nowMs)
+      this.stepRadialShots(target, nowMs)
       // 先让到点的尸体分裂（要用它的当前坐标），再刷怪 —— 这样新生的孩子
       // 当帧就能被 `drainSpawns` 取走（受单帧限额约束，多余的顺延）。
       this.reapDead(nowMs)
@@ -576,8 +591,9 @@ export class EnemySystem implements ActorEventSink {
 
       const actor = entry.view
       const origin = this.patrolOrigins.get(model.id)
-      const alertRadius =
-        model.enemyKind === 'tank'
+      const alertRadius = this.isStage2Boss(model.id)
+        ? this.bundle.enemies.stage2Boss.aggroRadius
+        : model.enemyKind === 'tank'
           ? this.bundle.enemies.enemies.tank.aggroRadius
           : this.bundle.enemies.enemies.splitter.aggroRadius
       const distanceFromOrigin =
@@ -585,7 +601,9 @@ export class EnemySystem implements ActorEventSink {
       const distanceToPlayer = target
         ? Math.hypot(actor.x - target.x, actor.y - target.y)
         : Infinity
-      const activityRadius = this.bundle.enemies.enemies.tank.aggroRadius
+      const activityRadius = this.isStage2Boss(model.id)
+        ? this.bundle.enemies.stage2Boss.aggroRadius
+        : this.bundle.enemies.enemies.tank.aggroRadius
       const alertTarget =
         target && distanceFromOrigin <= activityRadius && distanceToPlayer <= alertRadius
           ? target
@@ -666,7 +684,41 @@ export class EnemySystem implements ActorEventSink {
    * 而玩家可能在那 700ms 里已经跑开了 —— 前摇存在的全部意义就是「跑得掉」。
    * 拿 brain 里的旧距离判定，前摇就退化成了一个纯装饰。
    */
+  private stepRadialShots(target: PlayerView | null, nowMs: number): void {
+    if (this.clock.paused || this.clock.frozen) return
+    this.radialShots.step(
+      nowMs,
+      target,
+      (id) => this.byId.get(id)?.model.alive ?? false,
+      (x0, y0, x1, y1) =>
+        this.projectileBlocked
+          ? !this.projectileBlocked(x0, y0, x1, y1, this.radialShots.cfg.radius)
+          : !this.nav || this.nav.hasLineOfSight(x0, y0, x1, y1),
+      (shot) =>
+        target?.model.takeHit({
+          sourceId: shot.ownerId,
+          hitKey: `radial:${shot.id}`,
+          mode: 'instant',
+          amount: shot.damage,
+          frameId: this.clock.frameId,
+          nowMs,
+          sourceKind: 'bullet',
+        }),
+    )
+  }
+
   private resolveAttack(entry: Entry, attack: BrainAttack): void {
+    if (attack.kind === 'radial') {
+      if (!this.clock.paused && !this.clock.frozen && this.playerOf()?.alive)
+        this.radialShots.emit(
+          entry.model.id,
+          entry.view.body.center.x,
+          entry.view.body.center.y,
+          this.clock.nowMs,
+          attack.damage,
+        )
+      return
+    }
     const target = this.playerOf()
     if (!target || !target.alive) return
 
@@ -793,8 +845,18 @@ export class EnemySystem implements ActorEventSink {
 
   requestBoss(stage: number, x: number, y: number, maxHp: number, finalBoss = false): boolean {
     const spec = this.specFor('tank', 0)
+    const ranged = stage === 2 && !finalBoss ? this.bundle.enemies.stage2Boss : null
     return this.spawns.push({
-      spec: { ...spec, stats: { ...spec.stats, maxHp } },
+      spec: {
+        ...spec,
+        stats: {
+          ...spec.stats,
+          maxHp,
+          ...(ranged
+            ? { speed: ranged.speed * this.diffMods.enemySpeed, radius: ranged.radius }
+            : {}),
+        },
+      },
       x,
       y,
       bossStage: stage,
@@ -936,8 +998,14 @@ export class EnemySystem implements ActorEventSink {
         x: position.x,
         y: position.y,
         collideWorldBounds: this.nav !== null,
-        textureKey: this.textureKeyFor(model.enemyKind, model.gen),
-        visualScale: this.visualScaleFor(model.enemyKind, model.gen),
+        textureKey:
+          req.bossStage === 2 && !req.finalBoss
+            ? STAGE2_BOSS_ART.idle
+            : this.textureKeyFor(model.enemyKind, model.gen),
+        visualScale:
+          req.bossStage === 2 && !req.finalBoss
+            ? this.bundle.enemies.stage2Boss.visualScale
+            : this.visualScaleFor(model.enemyKind, model.gen),
         // 速度上限：Arcade 默认 maxVelocity 是 (10000,10000)，分离力 + 击退叠起来
         // 能把怪甩出房间。这只是兜底，不参与正常移动。
         speedCap: model.stats.speed * 3,
@@ -998,6 +1066,14 @@ export class EnemySystem implements ActorEventSink {
   }
 
   private makeBrain(model: EnemyModel): Brain {
+    if (this.isStage2Boss(model.id)) {
+      const cfg = this.bundle.enemies.stage2Boss
+      return makeRadialBossBrain(
+        model,
+        cfg,
+        Math.round(cfg.projectile.damage * this.diffMods.enemyDamage),
+      )
+    }
     const def = this.bundle.enemies.enemies
     if (model.enemyKind === 'tank') {
       const t = def.tank
@@ -1124,6 +1200,7 @@ export class EnemySystem implements ActorEventSink {
   onKilled(info: KillEventInfo): void {
     const entry = this.byId.get(info.targetId)
     if (!entry) return
+    this.radialShots.removeOwner(info.targetId)
 
     const model = entry.model
     const nowMs = this.clock.nowMs
@@ -1285,6 +1362,9 @@ export class EnemySystem implements ActorEventSink {
 
   /** 池里活着的敌人（只读快照）。遍历时不要在里面刷怪 */
   /** Horizontal target direction for enemy presentation; zero retains its current facing. */
+  isStage2Boss(id: number): boolean {
+    return this.bossStages.get(id) === 2 && !this.finalBosses.has(id)
+  }
   isFinalBoss(id: number): boolean {
     return this.finalBosses.has(id)
   }
