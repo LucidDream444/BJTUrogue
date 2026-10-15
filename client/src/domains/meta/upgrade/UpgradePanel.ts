@@ -61,7 +61,11 @@ export function buildUpgradePanel(
     }),
   )
 
-  let y = frame.contentTop + 44
+  // ⚠️ 这里的每一段都**接着上一段的返回值往下排**，最后那句提示也接在 y 后面 ——
+  // 曾经底部那句提示用的是写死的 `面板底 - 58`，而内容是从上往下顺的：
+  // 可解锁项一多，两者就撞在一起（实测 3 个占位角色时正好压在第 2 行上）。
+  // 写死的锚点和"顺下来的内容"必然会对不上，**这个面板里不许再有第二个真值来源**。
+  let y = frame.contentTop + 36
   y = drawSection(
     scene,
     sink,
@@ -74,7 +78,7 @@ export function buildUpgradePanel(
     characterId,
   )
 
-  y += 10
+  y += 8
   for (const [skillId, skill] of Object.entries(meta.skills)) {
     // MVP 里技能默认就是解锁的（见 progress.ts 的简化说明），所以这里只管升级。
     y = drawSection(
@@ -90,19 +94,14 @@ export function buildUpgradePanel(
     )
   }
 
-  y = drawUnlockSection(scene, sink, frame, store, meta, onChanged, y + 10)
+  y = drawUnlockSection(scene, sink, frame, store, meta, onChanged, y + 8)
 
   sink.track(
-    scene.add.text(
-      frame.contentLeft,
-      frame.cy + frame.panelHeight / 2 - 58,
-      '币只在对局中获得；死亡不丢币。',
-      {
-        fontFamily: THEME.font.family,
-        fontSize: fontPx(THEME.font.small),
-        color: THEME.text.dim,
-      },
-    ),
+    scene.add.text(frame.contentLeft, y + 6, '币只在对局中获得；死亡不丢币。', {
+      fontFamily: THEME.font.family,
+      fontSize: fontPx(THEME.font.small),
+      color: THEME.text.dim,
+    }),
   )
 }
 
@@ -133,7 +132,7 @@ function drawUnlockSection(
       color: THEME.text.body,
     }),
   )
-  let rowY = y + 26
+  let rowY = y + 22
   for (const c of locked) {
     const cost = meta.characters[c.id]?.unlockCost ?? 0
     const affordable = store.profile.currency.coins >= cost
@@ -160,7 +159,7 @@ function drawUnlockSection(
     )
     button.setDisabled(!affordable)
     sink.button(button)
-    rowY += 40
+    rowY += 34
   }
   return rowY
 }
@@ -184,7 +183,7 @@ function drawSection(
       color: THEME.text.body,
     }),
   )
-  let rowY = y + 26
+  let rowY = y + 22
 
   for (const track of tracks) {
     const level = levelOf(store.profile, ownerId, track.id)
@@ -225,7 +224,7 @@ function drawSection(
     )
     button.setDisabled(maxed || !affordable)
     sink.button(button)
-    rowY += 40
+    rowY += 34
   }
   return rowY
 }
