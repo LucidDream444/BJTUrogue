@@ -353,9 +353,14 @@ export class MainMenuScene extends Phaser.Scene {
     })
 
     // 难度（需求 §4.1：简单 / 普通 / 困难，默认普通）
-    const diffY = BUTTON_TOP + cardH + THEME.space.xl + 26
+    //
+    // ⚠️ 标签与按钮之间要留**真正的空隙**：标签是 origin(0,0) 的左对齐文字（高约 18），
+    // 按钮是**以中心定位**的（高 36 → 上沿在 diffY-18）。
+    // 写成 `标签 y = diffY - 28` 时按钮上沿会盖住标签下沿（实测盖掉 7px）。
+    // 要留 8px 空隙就得 `diffY - 44`；+12 是让它整体再往下让一点。
+    const diffY = BUTTON_TOP + cardH + THEME.space.xl + 38
     this.track(
-      this.add.text(areaX, diffY - 28, '选择难度', {
+      this.add.text(areaX, diffY - 44, '选择难度', {
         fontFamily: THEME.font.family,
         fontSize: fontPx(THEME.font.body),
         color: THEME.text.dim,
