@@ -6,7 +6,7 @@
     "hurtMs": 450,
     "attackPoseMs": 220,
     "spawnGraceMs": 1200,
-    "visualScale": 1.15,
+    "visualScale": 1.3,
     "gunIdleFrame": 4,
     "maxStamina": 500,
     "staminaRegenPerSec": 6,
@@ -63,7 +63,7 @@
     {
       "id": "pulse",
       "name": "星核重炮",
-      "description": "单发能量重炮 · 基础伤害为首关 Boss 最大生命的 50%",
+      "description": "星核冲击 · 命中后向附近两名敌人连锁放电",
       "damageScale": 1,
       "cooldownScale": 4.8,
       "speedScale": 1.2,
@@ -77,13 +77,17 @@
       "effect": "energy",
       "range": 100,
       "arcDeg": 0,
-      "effectMs": 280,
-      "bossDamageRatio": 0.5
+      "effectMs": 650,
+      "bossDamageRatio": 0.5,
+      "chainTargets": 2,
+      "chainRadius": 190,
+      "chainDamageRatio": 0.22,
+      "pierceTargets": 1
     },
     {
       "id": "venom",
       "name": "幽影毒炮",
-      "description": "毒液弹：命中后持续造成毒伤",
+      "description": "幽影毒液 · 命中后每 0.5 秒毒伤一次，持续 5 秒；重复命中刷新",
       "damageScale": 1.7,
       "cooldownScale": 2.3,
       "speedScale": 0.9,
@@ -97,18 +101,19 @@
       "effect": "poison",
       "range": 90,
       "arcDeg": 0,
-      "effectMs": 600,
+      "effectMs": 850,
       "poisonTickDamage": 3,
-      "poisonTicks": 4,
-      "poisonTickMs": 120,
+      "poisonTicks": 10,
+      "poisonTickMs": 500,
       "splashRadius": 0,
       "splashDamageRatio": 0,
-      "pierceTargets": 1
+      "pierceTargets": 1,
+      "poisonDurationMs": 5000
     },
     {
       "id": "flare",
       "name": "黄金爆裂炮",
-      "description": "爆炸弹：命中时对周围敌人造成溅射",
+      "description": "黄金爆裂 · 92 范围火焰溅射，邻近敌人承受 45% 伤害",
       "damageScale": 3.6,
       "cooldownScale": 3.8,
       "speedScale": 0.8,
@@ -122,7 +127,7 @@
       "effect": "explosion",
       "range": 90,
       "arcDeg": 0,
-      "effectMs": 450,
+      "effectMs": 850,
       "poisonTickDamage": 0,
       "poisonTicks": 0,
       "poisonTickMs": 0,
@@ -133,7 +138,7 @@
     {
       "id": "rail",
       "name": "黄铜贯星枪",
-      "description": "穿透弹：最多穿透三个敌人",
+      "description": "贯星穿刺 · 高速弹道连续穿透 3 名敌人，每个目标只命中一次",
       "damageScale": 4.2,
       "cooldownScale": 4.4,
       "speedScale": 1.7,
@@ -147,7 +152,7 @@
       "effect": "pierce",
       "range": 90,
       "arcDeg": 0,
-      "effectMs": 350,
+      "effectMs": 480,
       "poisonTickDamage": 0,
       "poisonTicks": 0,
       "poisonTickMs": 0,
@@ -158,7 +163,7 @@
     {
       "id": "smg",
       "name": "冰蓝冲锋枪",
-      "description": "高频连射：快速消耗体力换取压制力",
+      "description": "冰蓝压制 · 冰晶连射，命中后减速 25%，持续 1.2 秒",
       "damageScale": 0.62,
       "cooldownScale": 0.42,
       "speedScale": 1.35,
@@ -172,13 +177,15 @@
       "effect": "rapid",
       "range": 90,
       "arcDeg": 0,
-      "effectMs": 180,
+      "effectMs": 360,
       "poisonTickDamage": 0,
       "poisonTicks": 0,
       "poisonTickMs": 0,
       "splashRadius": 0,
       "splashDamageRatio": 0,
-      "pierceTargets": 1
+      "pierceTargets": 1,
+      "slowMultiplier": 0.75,
+      "slowDurationMs": 1200
     }
   ],
   "arena": {
@@ -519,5 +526,18 @@
     "pickupRadius": 32,
     "visualSize": 56,
     "openFxMs": 1000
+  },
+  "weaponEffects": {
+    "maxParticles": 480,
+    "maxBursts": 48,
+    "maxBeams": 32,
+    "maxStatuses": 256,
+    "trailIntervalMs": 34,
+    "particleLifeMs": 600,
+    "particleSpeed": 140,
+    "burstParticles": 28,
+    "trailParticles": 2,
+    "muzzleParticles": 10,
+    "glowAlpha": 0.2
   }
 }

@@ -61,9 +61,13 @@ export class RecoveryDrops {
     }
   }
 
-  destroy(): void {
+  clear(): void {
     for (const item of this.items) item.image.destroy()
     this.items.length = 0
+  }
+
+  destroy(): void {
+    this.clear()
     this.defeated.clear()
   }
 }

@@ -16,6 +16,17 @@ export interface WeaponDef {
   id: WeaponId
   name: string
   description: string
+  poisonDurationMs?: number
+  poisonTickMs?: number
+  poisonTickDamage?: number
+  splashRadius?: number
+  splashDamageRatio?: number
+  pierceTargets?: number
+  chainTargets?: number
+  chainRadius?: number
+  chainDamageRatio?: number
+  slowMultiplier?: number
+  slowDurationMs?: number
   bossDamageRatio?: number
   damageScale: number
   cooldownScale: number
@@ -41,7 +52,21 @@ export interface WeaponDef {
   arcDeg: number
   effectMs: number
 }
+export interface WeaponEffectsConfig {
+  maxParticles: number
+  maxBursts: number
+  maxBeams: number
+  maxStatuses: number
+  trailIntervalMs: number
+  particleLifeMs: number
+  particleSpeed: number
+  burstParticles: number
+  trailParticles: number
+  muzzleParticles: number
+  glowAlpha: number
+}
 export interface CombatConfig {
+  weaponEffects: WeaponEffectsConfig
   schemaVersion: number
   player: {
     acceleration: number
@@ -245,6 +270,34 @@ export function parseCombatConfig(raw: unknown): CombatConfig {
     throw new Error('player: 持枪静止帧/缩放无效')
   numeric(c.projectiles, 'projectiles')
   numeric(c.feedback, 'feedback')
+  if (!c.weaponEffects) throw new Error('weaponEffects: 缺少特效配置')
+  for (const key of [
+    'maxParticles',
+    'maxBursts',
+    'maxBeams',
+    'maxStatuses',
+    'trailIntervalMs',
+    'particleLifeMs',
+    'particleSpeed',
+    'burstParticles',
+    'trailParticles',
+    'muzzleParticles',
+  ] as const) {
+    if (!Number.isFinite(c.weaponEffects[key]) || c.weaponEffects[key] <= 0)
+      throw new Error('weaponEffects: 数值必须为正数')
+  }
+  for (const key of [
+    'maxParticles',
+    'maxBursts',
+    'maxBeams',
+    'maxStatuses',
+    'burstParticles',
+    'trailParticles',
+    'muzzleParticles',
+  ] as const)
+    if (!Number.isInteger(c.weaponEffects[key])) throw new Error('weaponEffects: 容量必须为整数')
+  if (!(c.weaponEffects.glowAlpha > 0 && c.weaponEffects.glowAlpha <= 1))
+    throw new Error('weaponEffects: 光晕透明度无效')
   numeric(c.limits, 'limits')
   numeric(c.arena, 'arena')
   if (!Number.isInteger(c.arena.maxStages) || c.arena.maxStages < 1)
@@ -330,6 +383,29 @@ export function parseCombatConfig(raw: unknown): CombatConfig {
       (!Number.isFinite(w.bossDamageRatio) || w.bossDamageRatio! <= 0 || w.bossDamageRatio! > 1)
     )
       throw new Error('weapon: 重炮伤害比例无效')
+    if (w.id !== 'pencil') {
+      if (
+        !Number.isInteger(w.pierceTargets) ||
+        w.pierceTargets! < 1 ||
+        !Number.isFinite(w.effectMs) ||
+        w.effectMs <= 0
+      )
+        throw new Error('weapon: 穿透数量或特效时长无效')
+      const fields: Partial<Record<WeaponId, (keyof WeaponDef)[]>> = {
+        venom: ['poisonDurationMs', 'poisonTickMs', 'poisonTickDamage'],
+        flare: ['splashRadius', 'splashDamageRatio'],
+        pulse: ['chainTargets', 'chainRadius', 'chainDamageRatio'],
+        smg: ['slowDurationMs', 'slowMultiplier'],
+      }
+      for (const key of fields[w.id] ?? [])
+        if (typeof w[key] !== 'number' || !Number.isFinite(w[key]) || (w[key] as number) <= 0)
+          throw new Error('weapon: 特殊攻击数值无效')
+      if (w.id === 'venom' && w.poisonDurationMs! < w.poisonTickMs!)
+        throw new Error('weapon: 毒伤时长不能短于间隔')
+      if (w.id === 'pulse' && !Number.isInteger(w.chainTargets))
+        throw new Error('weapon: 连锁数量无效')
+      if (w.id === 'smg' && w.slowMultiplier! > 1) throw new Error('weapon: 减速倍率无效')
+    }
     ids.add(w.id)
     if (!['projectile', 'melee'].includes(w.mode) || !w.artKey)
       throw new Error('weapon: 模式/素材无效')

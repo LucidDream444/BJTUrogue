@@ -62,10 +62,7 @@ export interface EnemySpec {
   vulnerableMult: number
 }
 
-export function specFromSplitter(
-  g: DerivedSplitterGeneration,
-  def: SplitterDef,
-): EnemySpec {
+export function specFromSplitter(g: DerivedSplitterGeneration, def: SplitterDef): EnemySpec {
   return {
     kind: 'splitter',
     gen: g.gen,
@@ -151,6 +148,8 @@ export class EnemyModel extends ActorModel<EnemyState> {
 
   // ---- 减速叠层 ----
 
+  weaponSlowMultiplier = 1
+  weaponSlowUntilMs = 0
   slowStacks = 0
   /** 整批一起到期的时刻（Arcade 风格：不逐层独立计时） */
   slowExpireAtMs = 0
@@ -227,6 +226,7 @@ export class EnemyModel extends ActorModel<EnemyState> {
       if (nowMs >= this.slowExpireAtMs) this.slowStacks = 0
       else m *= this.slowMult()
     }
+    if (nowMs < this.weaponSlowUntilMs) m *= this.weaponSlowMultiplier
     // 前摇时钉在原地：这是「要砸了」的唯一信号，不能让它边走边蓄力
     if (this.state === 'windup') m = 0
     return m
