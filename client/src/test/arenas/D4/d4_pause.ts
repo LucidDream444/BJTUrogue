@@ -81,7 +81,7 @@ class D4PauseArena extends ArenaBase {
         },
         quitToMenu: () => this.scene.start(MENU_SCENE_KEY),
         // 假快照 + 真实血量：血量取假玩家的真值，所以"血量会变"看得见；
-        // 护盾 / 魔法 / 武器 / 技能当前没有任何来源，用占位值，界面会照实显示。
+        // 护盾 / 能量 / 武器 / 技能当前没有任何来源，用占位值，界面会照实显示。
         snapshot: () =>
           placeholderRunSnapshot({
             characterId: this.store.profile.selected.characterId,

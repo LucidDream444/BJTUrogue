@@ -82,7 +82,7 @@ export class MainMenuScene extends Phaser.Scene {
     const controls = this.add.text(
       0,
       175,
-      'WASD 移动 · 鼠标射击 · 空格暂停\nE 拾取 · Q 切换武器 · Esc 返回标题',
+      'WASD 移动 · 鼠标射击 · 空格暂停\nE 拾取 · Q 切换武器 · Esc 暂停菜单（含返回主菜单）',
       {
         fontFamily: UI_FONT,
         fontSize: '13px',

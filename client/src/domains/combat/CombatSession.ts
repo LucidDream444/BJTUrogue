@@ -375,7 +375,7 @@ export class CombatSession {
       { key: 'damage', label: '单颗伤害', format: display },
       { key: 'cooldownMs', label: '每秒攻击次数', format: (v) => display(1000 / v) + ' 次/秒' },
       { key: 'pellets', label: '每次射击弹丸', format: (v) => display(v) + ' 颗' },
-      { key: 'maxStamina', label: '体力上限', format: display },
+      { key: 'maxStamina', label: '能量上限', format: display },
       { key: 'moveSpeed', label: '移动速度', format: (v) => display(v) + ' px/s' },
       { key: 'iframeMs', label: '受击保护', format: (v) => display(v / 1000) + ' 秒' },
       { key: 'bulletSpeed', label: '弹丸速度', format: display },
