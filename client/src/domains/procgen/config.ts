@@ -100,6 +100,30 @@ export interface RoomsConfig {
    */
   combatKinds: RoomKind[]
 
+  /**
+   * **清房宽限窗口（毫秒）**：房间静下来之后，再等这么久才宣告「已清」、开门。
+   *
+   * ## 为什么不能一空就开门
+   *
+   * 「房间空了」和「清完了」不是同一件事。最后一只**分裂怪**死掉时，
+   * 它的人际上还有一段延迟：`enemies.json` 的 `splitDelayMs` 走完之后，
+   * 子代才会进入刷怪队列（`EnemySystem.reapDead` → `requestSpawn`）。
+   * 在那之前 `存活 = 0`、`队列 = 0` 都是**真的**，房间看起来就是空的。
+   *
+   * 所以判据要**等一小段安静**再说：连续 `settleMs` 毫秒没有新的击杀，
+   * 才认定「不会再有东西冒出来了」。
+   *
+   * ## 取值来自哪
+   *
+   * MUST **大于** `enemies.json` 里最大的 `splitDelayMs`（今天是 180ms，第一代分裂怪）。
+   * 这条跨文件的约束由 `roomFlow.test.ts` 盯着：D3 要是把分裂延迟调大到越过它，
+   * 那里会当场炸，而不是等玩家发现「门提前开了、身后冒出一只怪」。
+   *
+   * ⚠️ 这是**用时间换正确性**。真正的解法是问 D3 要一个「本房还有几只没出来」的查询
+   * （见 `openspec/changes/room-transitions` 的 Open Questions），那时这个窗口可以退成 0。
+   */
+  settleMs: number
+
   // 几何（px）
   /**
    * **连廊沿 x 的长度** —— 精确地说，是相邻两间主干教室**面向彼此的两条边界
@@ -530,6 +554,15 @@ export function parseRoomsConfig(raw: unknown): RoomsConfig {
     { min: 1 },
   )
 
+  // 清房宽限窗口。上界不是随口定的：2 秒的「安静」在画面上已经是「门卡住了」，
+  // 而不是「它还在等最后一只」。配到那个量级一定是写错了，所以定为硬上限，
+  // 让它在这里炸，而不是变成一条「打完了门不开」的玄学反馈。
+  const settleMs = needNumber(need(root.settleMs, 'rooms.settleMs'), 'rooms.settleMs', {
+    integer: true,
+    min: 1,
+    max: 2000,
+  })
+
   return {
     schemaVersion,
     totalRooms,
@@ -540,6 +573,7 @@ export function parseRoomsConfig(raw: unknown): RoomsConfig {
     sideRoomTiers,
     sideKindWeights,
     combatKinds,
+    settleMs,
     minPassageWidth,
     roomGap,
     wallThickness,
