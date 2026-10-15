@@ -1,0 +1,1280 @@
+{
+  "schemaVersion": 1,
+  "sourceSize": {
+    "width": 2048,
+    "height": 1152
+  },
+  "stages": [
+    {
+      "stage": 1,
+      "playerSpawn": {
+        "x": 540,
+        "y": 680
+      },
+      "solids": [
+        {
+          "id": "wall_left",
+          "x": 0,
+          "y": 0,
+          "width": 380,
+          "height": 1152
+        },
+        {
+          "id": "wall_top",
+          "x": 380,
+          "y": 0,
+          "width": 1420,
+          "height": 354
+        },
+        {
+          "id": "wall_bottom",
+          "x": 380,
+          "y": 1048,
+          "width": 1420,
+          "height": 104
+        },
+        {
+          "id": "wall_right_upper",
+          "x": 1748,
+          "y": 354,
+          "width": 52,
+          "height": 146
+        },
+        {
+          "id": "wall_right_lower",
+          "x": 1748,
+          "y": 814,
+          "width": 52,
+          "height": 234
+        },
+        {
+          "id": "outside_upper_right",
+          "x": 1800,
+          "y": 0,
+          "width": 248,
+          "height": 500
+        },
+        {
+          "id": "outside_right",
+          "x": 1950,
+          "y": 500,
+          "width": 98,
+          "height": 652
+        },
+        {
+          "id": "outside_bottom_right",
+          "x": 1800,
+          "y": 824,
+          "width": 150,
+          "height": 328
+        },
+        {
+          "id": "teacher_desk",
+          "x": 778,
+          "y": 326,
+          "width": 300,
+          "height": 170
+        },
+        {
+          "id": "lectern",
+          "x": 1118,
+          "y": 328,
+          "width": 120,
+          "height": 154
+        },
+        {
+          "id": "cabinet_left",
+          "x": 384,
+          "y": 267,
+          "width": 132,
+          "height": 122
+        },
+        {
+          "id": "bookcase",
+          "x": 1548,
+          "y": 240,
+          "width": 166,
+          "height": 198
+        },
+        {
+          "id": "desk_front_left",
+          "x": 708,
+          "y": 560,
+          "width": 184,
+          "height": 158
+        },
+        {
+          "id": "chair_front_left",
+          "x": 754,
+          "y": 670,
+          "width": 92,
+          "height": 102
+        },
+        {
+          "id": "desk_front_right",
+          "x": 1134,
+          "y": 560,
+          "width": 188,
+          "height": 158
+        },
+        {
+          "id": "chair_front_right",
+          "x": 1182,
+          "y": 670,
+          "width": 90,
+          "height": 102
+        },
+        {
+          "id": "desk_back_left",
+          "x": 704,
+          "y": 788,
+          "width": 188,
+          "height": 162
+        },
+        {
+          "id": "chair_back_left",
+          "x": 750,
+          "y": 896,
+          "width": 96,
+          "height": 108
+        },
+        {
+          "id": "desk_back_right",
+          "x": 1132,
+          "y": 788,
+          "width": 190,
+          "height": 162
+        },
+        {
+          "id": "chair_back_right",
+          "x": 1180,
+          "y": 896,
+          "width": 94,
+          "height": 108
+        },
+        {
+          "id": "plant_left",
+          "x": 380,
+          "y": 898,
+          "width": 76,
+          "height": 88
+        },
+        {
+          "id": "plant_right",
+          "x": 1636,
+          "y": 918,
+          "width": 100,
+          "height": 90
+        },
+        {
+          "id": "door_leaf_upper",
+          "x": 1766,
+          "y": 458,
+          "width": 32,
+          "height": 198
+        },
+        {
+          "id": "door_leaf_middle",
+          "x": 1736,
+          "y": 488,
+          "width": 30,
+          "height": 198
+        },
+        {
+          "id": "door_leaf_lower",
+          "x": 1706,
+          "y": 518,
+          "width": 30,
+          "height": 210
+        }
+      ],
+      "furniture": [
+        {
+          "id": "front_left",
+          "parts": ["desk_front_left", "chair_front_left"],
+          "bounds": {
+            "x": 700,
+            "y": 554,
+            "width": 211,
+            "height": 226
+          },
+          "repair": {
+            "x": 1380,
+            "width": 220,
+            "margin": 16
+          },
+          "polygons": [
+            [
+              [706, 558],
+              [896, 558],
+              [896, 670],
+              [706, 670]
+            ],
+            [
+              [712, 662],
+              [734, 662],
+              [734, 720],
+              [712, 720]
+            ],
+            [
+              [872, 662],
+              [894, 662],
+              [894, 720],
+              [872, 720]
+            ],
+            [
+              [750, 668],
+              [846, 668],
+              [846, 774],
+              [750, 774]
+            ]
+          ],
+          "scale": 0.4,
+          "offset": {
+            "x": 0,
+            "y": -22
+          }
+        },
+        {
+          "id": "front_right",
+          "parts": ["desk_front_right", "chair_front_right"],
+          "bounds": {
+            "x": 1128,
+            "y": 554,
+            "width": 212,
+            "height": 226
+          },
+          "repair": {
+            "x": 1380,
+            "width": 220,
+            "margin": 16
+          },
+          "polygons": [
+            [
+              [1132, 558],
+              [1324, 558],
+              [1324, 670],
+              [1132, 670]
+            ],
+            [
+              [1134, 662],
+              [1156, 662],
+              [1156, 720],
+              [1134, 720]
+            ],
+            [
+              [1300, 662],
+              [1322, 662],
+              [1322, 720],
+              [1300, 720]
+            ],
+            [
+              [1178, 668],
+              [1276, 668],
+              [1276, 774],
+              [1178, 774]
+            ]
+          ],
+          "scale": 0.4,
+          "offset": {
+            "x": 0,
+            "y": -22
+          }
+        },
+        {
+          "id": "back_left",
+          "parts": ["desk_back_left", "chair_back_left"],
+          "bounds": {
+            "x": 696,
+            "y": 780,
+            "width": 218,
+            "height": 232
+          },
+          "repair": {
+            "x": 1380,
+            "width": 220,
+            "margin": 16
+          },
+          "polygons": [
+            [
+              [702, 786],
+              [896, 786],
+              [896, 898],
+              [702, 898]
+            ],
+            [
+              [710, 892],
+              [732, 892],
+              [732, 952],
+              [710, 952]
+            ],
+            [
+              [870, 892],
+              [894, 892],
+              [894, 952],
+              [870, 952]
+            ],
+            [
+              [748, 894],
+              [848, 894],
+              [848, 1006],
+              [748, 1006]
+            ]
+          ],
+          "scale": 0.4,
+          "offset": {
+            "x": 0,
+            "y": 22
+          }
+        },
+        {
+          "id": "back_right",
+          "parts": ["desk_back_right", "chair_back_right"],
+          "bounds": {
+            "x": 1124,
+            "y": 780,
+            "width": 220,
+            "height": 232
+          },
+          "repair": {
+            "x": 1380,
+            "width": 220,
+            "margin": 16
+          },
+          "polygons": [
+            [
+              [1130, 786],
+              [1324, 786],
+              [1324, 898],
+              [1130, 898]
+            ],
+            [
+              [1136, 892],
+              [1158, 892],
+              [1158, 952],
+              [1136, 952]
+            ],
+            [
+              [1300, 892],
+              [1324, 892],
+              [1324, 952],
+              [1300, 952]
+            ],
+            [
+              [1176, 894],
+              [1278, 894],
+              [1278, 1006],
+              [1176, 1006]
+            ]
+          ],
+          "scale": 0.4,
+          "offset": {
+            "x": 0,
+            "y": 22
+          }
+        },
+        {
+          "id": "teacher",
+          "parts": ["teacher_desk"],
+          "bounds": {
+            "x": 772,
+            "y": 320,
+            "width": 326,
+            "height": 188
+          },
+          "repair": {
+            "x": 766,
+            "width": 8,
+            "margin": 0
+          },
+          "polygons": [
+            [
+              [776, 326],
+              [1080, 326],
+              [1080, 432],
+              [776, 432]
+            ],
+            [
+              [790, 430],
+              [1062, 430],
+              [1062, 490],
+              [790, 490]
+            ],
+            [
+              [780, 428],
+              [804, 428],
+              [804, 496],
+              [780, 496]
+            ],
+            [
+              [1054, 428],
+              [1078, 428],
+              [1078, 496],
+              [1054, 496]
+            ]
+          ],
+          "scale": 0.5,
+          "offset": {
+            "x": 0,
+            "y": 0
+          }
+        },
+        {
+          "id": "lectern",
+          "parts": ["lectern"],
+          "bounds": {
+            "x": 1110,
+            "y": 320,
+            "width": 148,
+            "height": 176
+          },
+          "repair": {
+            "x": 1260,
+            "width": 120,
+            "margin": 0
+          },
+          "polygons": [
+            [
+              [1116, 326],
+              [1240, 326],
+              [1240, 480],
+              [1116, 480]
+            ]
+          ],
+          "scale": 0.5,
+          "offset": {
+            "x": 0,
+            "y": 0
+          }
+        }
+      ]
+    },
+    {
+      "stage": 2,
+      "playerSpawn": {
+        "x": 452,
+        "y": 610
+      },
+      "solids": [
+        {
+          "id": "wall_left",
+          "x": 0,
+          "y": 0,
+          "width": 248,
+          "height": 860
+        },
+        {
+          "id": "wall_left_lower",
+          "x": 0,
+          "y": 860,
+          "width": 88,
+          "height": 292
+        },
+        {
+          "id": "wall_top",
+          "x": 248,
+          "y": 0,
+          "width": 1402,
+          "height": 350
+        },
+        {
+          "id": "closed_door",
+          "x": 1650,
+          "y": 0,
+          "width": 166,
+          "height": 386
+        },
+        {
+          "id": "wall_bottom",
+          "x": 88,
+          "y": 1048,
+          "width": 1728,
+          "height": 104
+        },
+        {
+          "id": "wall_right",
+          "x": 1810,
+          "y": 0,
+          "width": 40,
+          "height": 1152
+        },
+        {
+          "id": "outside_right_top",
+          "x": 1850,
+          "y": 0,
+          "width": 198,
+          "height": 492
+        },
+        {
+          "id": "outside_right_edge",
+          "x": 2000,
+          "y": 492,
+          "width": 48,
+          "height": 660
+        },
+        {
+          "id": "outside_right_bottom",
+          "x": 1850,
+          "y": 1076,
+          "width": 150,
+          "height": 76
+        },
+        {
+          "id": "bookcase",
+          "x": 376,
+          "y": 250,
+          "width": 198,
+          "height": 128
+        },
+        {
+          "id": "teacher_desk",
+          "x": 838,
+          "y": 300,
+          "width": 286,
+          "height": 140
+        },
+        {
+          "id": "specimen_cabinet",
+          "x": 1368,
+          "y": 270,
+          "width": 210,
+          "height": 148
+        },
+        {
+          "id": "lab_front_left",
+          "x": 588,
+          "y": 476,
+          "width": 266,
+          "height": 204
+        },
+        {
+          "id": "chair_front_left",
+          "x": 660,
+          "y": 628,
+          "width": 92,
+          "height": 118
+        },
+        {
+          "id": "lab_front_right",
+          "x": 1120,
+          "y": 476,
+          "width": 276,
+          "height": 204
+        },
+        {
+          "id": "chair_front_right",
+          "x": 1210,
+          "y": 628,
+          "width": 94,
+          "height": 118
+        },
+        {
+          "id": "lab_back_left",
+          "x": 570,
+          "y": 768,
+          "width": 280,
+          "height": 216
+        },
+        {
+          "id": "chair_back_left",
+          "x": 658,
+          "y": 924,
+          "width": 98,
+          "height": 122
+        },
+        {
+          "id": "lab_back_right",
+          "x": 1118,
+          "y": 768,
+          "width": 282,
+          "height": 216
+        },
+        {
+          "id": "chair_back_right",
+          "x": 1210,
+          "y": 924,
+          "width": 98,
+          "height": 122
+        },
+        {
+          "id": "sink_left",
+          "x": 94,
+          "y": 630,
+          "width": 138,
+          "height": 208
+        },
+        {
+          "id": "sink_right",
+          "x": 1650,
+          "y": 466,
+          "width": 160,
+          "height": 450
+        },
+        {
+          "id": "plant_window",
+          "x": 248,
+          "y": 474,
+          "width": 80,
+          "height": 72
+        },
+        {
+          "id": "plant_window_small",
+          "x": 190,
+          "y": 548,
+          "width": 72,
+          "height": 76
+        },
+        {
+          "id": "plant_bottom_left",
+          "x": 32,
+          "y": 920,
+          "width": 142,
+          "height": 112
+        },
+        {
+          "id": "planter_bottom",
+          "x": 192,
+          "y": 940,
+          "width": 138,
+          "height": 76
+        },
+        {
+          "id": "plant_right",
+          "x": 1734,
+          "y": 894,
+          "width": 64,
+          "height": 72
+        },
+        {
+          "id": "door_corridor_leaf",
+          "x": 1850,
+          "y": 366,
+          "width": 46,
+          "height": 190
+        }
+      ],
+      "furniture": [
+        {
+          "id": "front_left",
+          "parts": ["lab_front_left", "chair_front_left"],
+          "bounds": {
+            "x": 578,
+            "y": 468,
+            "width": 302,
+            "height": 286
+          },
+          "repair": {
+            "x": 900,
+            "width": 200,
+            "margin": 16
+          },
+          "polygons": [
+            [
+              [586, 474],
+              [856, 474],
+              [856, 620],
+              [586, 620]
+            ],
+            [
+              [588, 612],
+              [616, 612],
+              [616, 684],
+              [588, 684]
+            ],
+            [
+              [828, 612],
+              [856, 612],
+              [856, 684],
+              [828, 684]
+            ],
+            [
+              [660, 624],
+              [756, 624],
+              [756, 748],
+              [660, 748]
+            ]
+          ],
+          "scale": 0.4,
+          "offset": {
+            "x": 0,
+            "y": -22
+          }
+        },
+        {
+          "id": "front_right",
+          "parts": ["lab_front_right", "chair_front_right"],
+          "bounds": {
+            "x": 1110,
+            "y": 466,
+            "width": 310,
+            "height": 288
+          },
+          "repair": {
+            "x": 900,
+            "width": 200,
+            "margin": 16
+          },
+          "polygons": [
+            [
+              [1118, 474],
+              [1400, 474],
+              [1400, 620],
+              [1118, 620]
+            ],
+            [
+              [1118, 612],
+              [1146, 612],
+              [1146, 684],
+              [1118, 684]
+            ],
+            [
+              [1374, 612],
+              [1402, 612],
+              [1402, 684],
+              [1374, 684]
+            ],
+            [
+              [1210, 624],
+              [1308, 624],
+              [1308, 748],
+              [1210, 748]
+            ]
+          ],
+          "scale": 0.4,
+          "offset": {
+            "x": 0,
+            "y": -22
+          }
+        },
+        {
+          "id": "back_left",
+          "parts": ["lab_back_left", "chair_back_left"],
+          "bounds": {
+            "x": 558,
+            "y": 758,
+            "width": 316,
+            "height": 292
+          },
+          "repair": {
+            "x": 900,
+            "width": 200,
+            "margin": 16
+          },
+          "polygons": [
+            [
+              [568, 766],
+              [852, 766],
+              [852, 922],
+              [568, 922]
+            ],
+            [
+              [570, 914],
+              [598, 914],
+              [598, 988],
+              [570, 988]
+            ],
+            [
+              [826, 914],
+              [854, 914],
+              [854, 988],
+              [826, 988]
+            ],
+            [
+              [658, 922],
+              [758, 922],
+              [758, 1048],
+              [658, 1048]
+            ]
+          ],
+          "scale": 0.4,
+          "offset": {
+            "x": 0,
+            "y": 22
+          }
+        },
+        {
+          "id": "back_right",
+          "parts": ["lab_back_right", "chair_back_right"],
+          "bounds": {
+            "x": 1108,
+            "y": 758,
+            "width": 314,
+            "height": 292
+          },
+          "repair": {
+            "x": 900,
+            "width": 200,
+            "margin": 16
+          },
+          "polygons": [
+            [
+              [1116, 766],
+              [1402, 766],
+              [1402, 922],
+              [1116, 922]
+            ],
+            [
+              [1118, 914],
+              [1146, 914],
+              [1146, 988],
+              [1118, 988]
+            ],
+            [
+              [1374, 914],
+              [1402, 914],
+              [1402, 988],
+              [1374, 988]
+            ],
+            [
+              [1208, 922],
+              [1308, 922],
+              [1308, 1048],
+              [1208, 1048]
+            ]
+          ],
+          "scale": 0.4,
+          "offset": {
+            "x": 0,
+            "y": 22
+          }
+        },
+        {
+          "id": "teacher",
+          "parts": ["teacher_desk"],
+          "bounds": {
+            "x": 830,
+            "y": 274,
+            "width": 308,
+            "height": 172
+          },
+          "repair": {
+            "x": 1140,
+            "width": 8,
+            "margin": 0
+          },
+          "polygons": [
+            [
+              [838, 298],
+              [1126, 298],
+              [1126, 384],
+              [838, 384]
+            ],
+            [
+              [850, 380],
+              [1114, 380],
+              [1114, 440],
+              [850, 440]
+            ],
+            [
+              [856, 278],
+              [898, 278],
+              [898, 324],
+              [856, 324]
+            ],
+            [
+              [1048, 282],
+              [1112, 282],
+              [1112, 344],
+              [1048, 344]
+            ]
+          ],
+          "scale": 0.5,
+          "offset": {
+            "x": 0,
+            "y": 0
+          }
+        }
+      ]
+    },
+    {
+      "stage": 3,
+      "playerSpawn": {
+        "x": 540,
+        "y": 690
+      },
+      "solids": [
+        {
+          "id": "wall_top",
+          "x": 0,
+          "y": 0,
+          "width": 2048,
+          "height": 380
+        },
+        {
+          "id": "wall_left",
+          "x": 0,
+          "y": 380,
+          "width": 272,
+          "height": 260
+        },
+        {
+          "id": "wall_left_lower",
+          "x": 0,
+          "y": 640,
+          "width": 72,
+          "height": 432
+        },
+        {
+          "id": "wall_bottom",
+          "x": 0,
+          "y": 1050,
+          "width": 2048,
+          "height": 102
+        },
+        {
+          "id": "wall_right",
+          "x": 1974,
+          "y": 380,
+          "width": 74,
+          "height": 670
+        },
+        {
+          "id": "wall_right_lower",
+          "x": 1700,
+          "y": 570,
+          "width": 274,
+          "height": 262
+        },
+        {
+          "id": "teacher_desk",
+          "x": 914,
+          "y": 330,
+          "width": 176,
+          "height": 146
+        },
+        {
+          "id": "bookcase",
+          "x": 1462,
+          "y": 220,
+          "width": 226,
+          "height": 236
+        },
+        {
+          "id": "cabinet_left",
+          "x": 74,
+          "y": 656,
+          "width": 196,
+          "height": 294
+        },
+        {
+          "id": "desk_front_left",
+          "x": 770,
+          "y": 572,
+          "width": 172,
+          "height": 170
+        },
+        {
+          "id": "chair_front_left",
+          "x": 814,
+          "y": 698,
+          "width": 78,
+          "height": 86
+        },
+        {
+          "id": "desk_front_right",
+          "x": 1064,
+          "y": 574,
+          "width": 166,
+          "height": 168
+        },
+        {
+          "id": "chair_front_right",
+          "x": 1106,
+          "y": 698,
+          "width": 84,
+          "height": 88
+        },
+        {
+          "id": "desk_back_left",
+          "x": 758,
+          "y": 788,
+          "width": 182,
+          "height": 174
+        },
+        {
+          "id": "chair_back_left",
+          "x": 806,
+          "y": 910,
+          "width": 86,
+          "height": 98
+        },
+        {
+          "id": "desk_back_right",
+          "x": 1058,
+          "y": 788,
+          "width": 182,
+          "height": 174
+        },
+        {
+          "id": "chair_back_right",
+          "x": 1104,
+          "y": 912,
+          "width": 88,
+          "height": 96
+        },
+        {
+          "id": "plant_left",
+          "x": 80,
+          "y": 948,
+          "width": 106,
+          "height": 82
+        },
+        {
+          "id": "plant_right",
+          "x": 1664,
+          "y": 902,
+          "width": 134,
+          "height": 98
+        },
+        {
+          "id": "books_stack",
+          "x": 1794,
+          "y": 852,
+          "width": 134,
+          "height": 210
+        },
+        {
+          "id": "door_leaf_upper",
+          "x": 1908,
+          "y": 388,
+          "width": 30,
+          "height": 126
+        },
+        {
+          "id": "door_leaf_lower",
+          "x": 1938,
+          "y": 418,
+          "width": 34,
+          "height": 140
+        }
+      ],
+      "furniture": [
+        {
+          "id": "front_left",
+          "parts": ["desk_front_left", "chair_front_left"],
+          "bounds": {
+            "x": 760,
+            "y": 564,
+            "width": 204,
+            "height": 226
+          },
+          "repair": {
+            "x": 1400,
+            "width": 220,
+            "margin": 16
+          },
+          "polygons": [
+            [
+              [768, 570],
+              [944, 570],
+              [944, 688],
+              [768, 688]
+            ],
+            [
+              [770, 678],
+              [794, 678],
+              [794, 744],
+              [770, 744]
+            ],
+            [
+              [920, 678],
+              [944, 678],
+              [944, 744],
+              [920, 744]
+            ],
+            [
+              [810, 694],
+              [898, 694],
+              [898, 788],
+              [810, 788]
+            ]
+          ],
+          "scale": 0.4,
+          "offset": {
+            "x": 0,
+            "y": -22
+          }
+        },
+        {
+          "id": "front_right",
+          "parts": ["desk_front_right", "chair_front_right"],
+          "bounds": {
+            "x": 1054,
+            "y": 566,
+            "width": 200,
+            "height": 224
+          },
+          "repair": {
+            "x": 1400,
+            "width": 220,
+            "margin": 16
+          },
+          "polygons": [
+            [
+              [1062, 572],
+              [1234, 572],
+              [1234, 688],
+              [1062, 688]
+            ],
+            [
+              [1064, 678],
+              [1088, 678],
+              [1088, 744],
+              [1064, 744]
+            ],
+            [
+              [1210, 678],
+              [1234, 678],
+              [1234, 744],
+              [1210, 744]
+            ],
+            [
+              [1102, 694],
+              [1194, 694],
+              [1194, 788],
+              [1102, 788]
+            ]
+          ],
+          "scale": 0.4,
+          "offset": {
+            "x": 0,
+            "y": -22
+          }
+        },
+        {
+          "id": "back_left",
+          "parts": ["desk_back_left", "chair_back_left"],
+          "bounds": {
+            "x": 748,
+            "y": 778,
+            "width": 212,
+            "height": 236
+          },
+          "repair": {
+            "x": 1400,
+            "width": 220,
+            "margin": 16
+          },
+          "polygons": [
+            [
+              [756, 786],
+              [944, 786],
+              [944, 904],
+              [756, 904]
+            ],
+            [
+              [758, 898],
+              [782, 898],
+              [782, 966],
+              [758, 966]
+            ],
+            [
+              [918, 898],
+              [944, 898],
+              [944, 966],
+              [918, 966]
+            ],
+            [
+              [802, 908],
+              [896, 908],
+              [896, 1010],
+              [802, 1010]
+            ]
+          ],
+          "scale": 0.4,
+          "offset": {
+            "x": 0,
+            "y": 22
+          }
+        },
+        {
+          "id": "back_right",
+          "parts": ["desk_back_right", "chair_back_right"],
+          "bounds": {
+            "x": 1048,
+            "y": 778,
+            "width": 216,
+            "height": 236
+          },
+          "repair": {
+            "x": 1400,
+            "width": 220,
+            "margin": 16
+          },
+          "polygons": [
+            [
+              [1056, 786],
+              [1244, 786],
+              [1244, 904],
+              [1056, 904]
+            ],
+            [
+              [1058, 898],
+              [1082, 898],
+              [1082, 966],
+              [1058, 966]
+            ],
+            [
+              [1218, 898],
+              [1244, 898],
+              [1244, 966],
+              [1218, 966]
+            ],
+            [
+              [1100, 908],
+              [1194, 908],
+              [1194, 1012],
+              [1100, 1012]
+            ]
+          ],
+          "scale": 0.4,
+          "offset": {
+            "x": 0,
+            "y": 22
+          }
+        },
+        {
+          "id": "teacher",
+          "parts": ["teacher_desk"],
+          "bounds": {
+            "x": 906,
+            "y": 304,
+            "width": 200,
+            "height": 180
+          },
+          "repair": {
+            "x": 1110,
+            "width": 8,
+            "margin": 0
+          },
+          "polygons": [
+            [
+              [912, 328],
+              [1094, 328],
+              [1094, 400],
+              [912, 400]
+            ],
+            [
+              [914, 394],
+              [1090, 394],
+              [1090, 478],
+              [914, 478]
+            ],
+            [
+              [1030, 304],
+              [1086, 304],
+              [1086, 364],
+              [1030, 364]
+            ]
+          ],
+          "scale": 0.5,
+          "offset": {
+            "x": 0,
+            "y": 0
+          }
+        }
+      ]
+    }
+  ],
+  "navigationCellSize": 16
+}

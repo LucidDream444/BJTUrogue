@@ -44,6 +44,8 @@ export interface SpawnRequest {
    * 队里每一条都被推成了「刚入队」，于是永远不积压、永远不丢，队列无限增长。
    */
   enqueuedAtMs: number
+  bossStage?: number
+  finalBoss?: boolean
   reason: SpawnReason
   /** 来源怪的 id（分裂时是父亲）。只为调试时能回答「这只为什么刷出来了」 */
   fromId?: number

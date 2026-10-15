@@ -219,6 +219,19 @@ describe('SplitterBrain', () => {
 // ---------------------------------------------------------------- 肉盾怪
 
 describe('TankBrain — 下砸循环', () => {
+  it('only chases outside attack range and cancels windup when the target retreats', () => {
+    const far = tankFixture({ x: 0, y: 0, target: makePlayerSnapshot(300, 0) })
+    expect(far.step().attack).toBeUndefined()
+    expect(far.model.state).toBe('chase')
+    const target = makePlayerSnapshot(60, 0)
+    const close = tankFixture({ x: 0, y: 0, target })
+    close.step()
+    expect(close.model.state).toBe('windup')
+    target.x = 400
+    const out = close.step()
+    expect(out.attack).toBeUndefined()
+    expect(out.nextState).toBe('chase')
+  })
   it('进入射程且冷却好了 → 起手前摇，站定不动', () => {
     // 目标距离 60 < slamRange 96
     const f = tankFixture({ x: 0, y: 0, target: makePlayerSnapshot(60, 0) })

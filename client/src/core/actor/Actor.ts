@@ -76,6 +76,8 @@ export interface ActorSpawnOptions {
   speedCap?: number
   /** 撞墙停住。房间边界由 D2 提供，默认关闭 */
   collideWorldBounds?: boolean
+  /** 仅影响精灵显示，不改变碰撞体半径。 */
+  visualScale?: number
 }
 
 /** 速度上限相对基础速度的倍数。够宽松，正常玩不会碰到。 */
@@ -100,6 +102,8 @@ export class Actor<S extends string = string> extends Phaser.Physics.Arcade.Spri
 
   /** 是否处于回池状态。`wake()` / `park()` 靠它做幂等。 */
   private _parked = true
+  /** 当前槽位的基础视觉缩放；受击挤压在此基础上叠加。 */
+  private baseVisualScale = 1
 
   constructor(scene: Phaser.Scene, model: ActorModel<S>) {
     // 先给一个占位 texture key，`spawnAt()` 会用真实 key 覆盖。
@@ -139,6 +143,10 @@ export class Actor<S extends string = string> extends Phaser.Physics.Arcade.Spri
     return this._parked
   }
 
+  get visualScale(): number {
+    return this.baseVisualScale
+  }
+
   /** 本实体是否正参与物理模拟。与 `model.alive` 不同：死亡过场里 body 可能还在。 */
   get simulating(): boolean {
     return !this._parked && this.body.enable
@@ -161,6 +169,8 @@ export class Actor<S extends string = string> extends Phaser.Physics.Arcade.Spri
     const radius = this.model.stats.radius
 
     this.setTexture(textureKeyFor(this.scene, opts.textureKey))
+    this.baseVisualScale = opts.visualScale ?? 1
+    this.setScale(this.baseVisualScale)
     this.applyCircleBody(radius)
 
     this.setActive(true)

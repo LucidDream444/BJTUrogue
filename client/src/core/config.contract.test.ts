@@ -219,11 +219,16 @@ describe('契约 — 肉盾怪：击杀时间必须真的等于 ttkSeconds', () 
   it('穿透是硬性要求：pierce 为 false 时加载直接失败', () => {
     const raw = readJson('enemies.json') as Record<string, never>
     const broken = structuredClone(raw)
-    const t = (broken as never as { enemies: { tank: { frameDamage: { bullet: { pierce: boolean } } } } })
-      .enemies.tank
+    const t = (
+      broken as never as { enemies: { tank: { frameDamage: { bullet: { pierce: boolean } } } } }
+    ).enemies.tank
     t.frameDamage.bullet.pierce = false
     expect(() =>
-      parseConfigBundle({ balance: readJson('balance.json'), difficulty: readJson('difficulty.json'), enemies: broken }),
+      parseConfigBundle({
+        balance: readJson('balance.json'),
+        difficulty: readJson('difficulty.json'),
+        enemies: broken,
+      }),
     ).toThrow(/pierce/)
   })
 
@@ -303,9 +308,10 @@ describe('契约 — balance.json 的内部自洽（派生公式的度量衡）'
     expect(balance.frameDamage.pairTtlMs).toBeGreaterThanOrEqual(balance.frameDamage.tickMs)
   })
 
-  it('玩家血量与接触伤害的量级：站在一只杂兵里活不出 3 秒，但也不会瞬死', () => {
+  it('玩家血量与接触伤害：计入受击保护后既不瞬死也不无限存活', () => {
     const gens = bundle().enemies.enemies.splitter.generations
-    const dps = (gens[0]!.contactDamagePerTick / balance.frameDamage.tickMs) * 1000
+    const intervalMs = Math.max(balance.frameDamage.tickMs, balance.baseline.player.iframeMs)
+    const dps = (gens[0]!.contactDamagePerTick / intervalMs) * 1000
     const ttlSeconds = balance.baseline.player.maxHp / dps
     expect(ttlSeconds).toBeGreaterThan(2)
     expect(ttlSeconds).toBeLessThan(20)
@@ -318,7 +324,11 @@ describe('契约 — ConfigError 必须指出出问题的字段路径', () => {
     const broken = structuredClone(raw)
     delete (broken as never as { enemies: { tank: { speed?: number } } }).enemies.tank.speed
     try {
-      parseConfigBundle({ balance: readJson('balance.json'), difficulty: readJson('difficulty.json'), enemies: broken })
+      parseConfigBundle({
+        balance: readJson('balance.json'),
+        difficulty: readJson('difficulty.json'),
+        enemies: broken,
+      })
       expect.unreachable('应该抛 ConfigError')
     } catch (e) {
       expect((e as Error).message).toContain('enemies.enemies.tank.speed')
@@ -332,7 +342,11 @@ describe('契约 — ConfigError 必须指出出问题的字段路径', () => {
     }
     broken.difficulties.normal.enemyHp = 0
     expect(() =>
-      parseConfigBundle({ balance: readJson('balance.json'), difficulty: broken, enemies: readJson('enemies.json') }),
+      parseConfigBundle({
+        balance: readJson('balance.json'),
+        difficulty: broken,
+        enemies: readJson('enemies.json'),
+      }),
     ).toThrow(/enemyHp/)
   })
 })

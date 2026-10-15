@@ -54,7 +54,9 @@ import type { ConfigBundle } from '@/core/config'
 import type { EnemySystem } from '../EnemySystem'
 import { JuicePolicy, juiceParamsFromConfig } from './JuicePolicy'
 import { SfxPool } from './SfxPool'
-import { ASSETS } from '@/core/assetManifest'
+import { EnemyHealthBars } from './EnemyHealthBars'
+import { ASSETS, ANIMS, TANK_ART, FINAL_BOSS_ART } from '@/core/assetManifest'
+import { textureKeyFor } from '@/core/assets'
 
 /** 受击冲击淡出用多久。**小于肉盾的 `damageEventBatchMs` 才不会糊成一片常亮** */
 const HIT_GLOW_MS = 140
@@ -111,8 +113,10 @@ export class JuiceDirector {
   private readonly bundle: ConfigBundle
   private readonly enemies: EnemySystem
   private readonly policy: JuicePolicy
+  private readonly healthBars: EnemyHealthBars
   private readonly sfx: SfxPool
   private readonly visuals = new Map<number, VisualState>()
+  private readonly animations = new Map(ANIMS.map((anim) => [anim.textureKey, anim]))
   private readonly unsubs: Unsubscribe[] = []
 
   /** 肉盾满血。**只算一次** —— `specFor()` 每次都走派生 + 缓存查找，不该每帧问 */
@@ -129,6 +133,7 @@ export class JuiceDirector {
     this.clock = opts.clock
     this.bundle = opts.bundle
     this.enemies = opts.enemies
+    this.healthBars = new EnemyHealthBars(opts.scene, opts.enemies)
 
     const enemies = opts.bundle.enemies.enemies
     this.policy = new JuicePolicy(
@@ -191,7 +196,9 @@ export class JuiceDirector {
     const dtMs = Number.isFinite(realDeltaMs) ? Math.min(MAX_DT_MS, Math.max(0, realDeltaMs)) : 0
     this.policy.decayTrauma(dtMs)
     this.applyShake()
+    this.updateAnimations()
     this.updateVisuals(this.clock.realNowMs)
+    this.healthBars.update()
   }
 
   /** 场景 `shutdown` 里调。 */
@@ -203,6 +210,7 @@ export class JuiceDirector {
     this.unsubs.length = 0
 
     this.sfx.destroy()
+    this.healthBars.destroy()
     this.visuals.clear()
     // 不要在这里 `world.pause()`：shutdown 之后再 pause，下一个场景就动不了了。
     // 反过来的情况（「要重启了但物理还暂停着」）由 `syncPhysicsPause()` 在 update 里兜住。
@@ -272,7 +280,11 @@ export class JuiceDirector {
         // 血越少音越高 —— 这是「它快死了」的听觉线索，
         // 比血条更早被玩家感知到（玩家打架时视线在准星上，不在 HUD 上）。
         const ratio = this.tankMaxHp > 0 ? clamp01(e.hpAfter / this.tankMaxHp) : 1
-        this.sfx.play('sfx_enemy_tank_hit', (1 - ratio) * this.bundle.enemies.enemies.tank.juice.hpPitchCents, 0.55)
+        this.sfx.play(
+          'sfx_enemy_tank_hit',
+          (1 - ratio) * this.bundle.enemies.enemies.tank.juice.hpPitchCents,
+          0.55,
+        )
       }
     } else {
       // 分裂怪一击必杀，所以「受击」和「死亡」几乎总是同一帧发生，
@@ -345,7 +357,8 @@ export class JuiceDirector {
     const entry = this.enemies.entryOf(e.id)
     if (entry) {
       entry.view.setAlpha(1)
-      entry.view.setScale(1, 1)
+      entry.view.setFlipX(this.enemies.playerDirectionX(e.id) > 0)
+      entry.view.setScale(entry.view.visualScale, entry.view.visualScale)
       entry.view.rotation = 0
     }
 
@@ -389,6 +402,80 @@ export class JuiceDirector {
     v.lastHitRealMs = realNowMs
   }
 
+  /** Use logical time so the imported bounce freezes during pause and hitstop. */
+  private updateAnimations(): void {
+    for (const { model, view } of this.enemies.liveEnemies) {
+      if (!model.alive) continue
+      const inAttack =
+        model.enemyKind === 'tank' &&
+        (model.state === 'windup' || model.state === 'recover') &&
+        this.enemies.isPlayerInRange(model.id, this.bundle.enemies.enemies.tank.slam.range)
+      const vx = view.body.velocity.x
+      const direction = inAttack
+        ? this.enemies.playerDirectionX(model.id)
+        : Math.abs(vx) > 1
+          ? Math.sign(vx)
+          : 0
+      // Supplied enemies face left in their source art. Mirror only the sprite, never the body.
+      // Keep the last direction when idle or moving vertically, avoiding rapid left/right flicker.
+      if (direction !== 0) view.setFlipX(direction > 0)
+      if (model.enemyKind === 'tank') {
+        const slam = this.bundle.enemies.enemies.tank.slam
+        const close = this.enemies.isPlayerInRange(model.id, slam.range)
+        const attacking = close && (model.state === 'windup' || model.state === 'recover')
+        const finalBoss = this.enemies.isFinalBoss(model.id)
+        const attackStart =
+          model.state === 'windup' ? model.stateEnteredAtMs : model.stateEnteredAtMs - slam.windupMs
+        const finalAttack =
+          Math.floor(attackStart / Math.max(1, slam.cooldownMs)) % 2 === 0
+            ? FINAL_BOSS_ART.attack
+            : FINAL_BOSS_ART.poison
+        const key = finalBoss
+          ? attacking
+            ? finalAttack
+            : view.body.velocity.lengthSq() > 1
+              ? FINAL_BOSS_ART.walk
+              : FINAL_BOSS_ART.idle
+          : attacking
+            ? TANK_ART.attack
+            : TANK_ART.walk
+        const anim = this.animations.get(key)!
+        let index = 0
+        if (attacking) {
+          const age = model.stateAgeMs(this.clock.nowMs)
+          // First half prepares the hit; the second half follows the actual damage event.
+          const half = Math.floor(anim.frames.length / 2)
+          index =
+            model.state === 'windup'
+              ? Math.min(half - 1, Math.floor((age / slam.windupMs) * half))
+              : half +
+                Math.min(
+                  anim.frames.length - half - 1,
+                  Math.floor((age / slam.recoverMs) * (anim.frames.length - half)),
+                )
+        } else if (view.body.velocity.lengthSq() > 1) {
+          index = Math.floor((this.clock.nowMs * anim.frameRate) / 1000) % anim.frames.length
+        }
+        const texture = textureKeyFor(this.scene, key),
+          frame = anim.frames[index]!
+        if (view.texture.key !== texture) {
+          view.setTexture(texture, frame)
+          // Texture size changes from 96 to 128 for the last boss; preserve its circular collision center.
+          const radius = model.stats.radius
+          view.body.setCircle(radius, view.frame.realWidth / 2 - radius, view.frame.realHeight / 2 - radius)
+          view.body.updateFromGameObject()
+        } else if (String(view.frame.name) !== String(frame)) view.setFrame(frame)
+        continue
+      }
+      const anim = this.animations.get(view.texture.key)
+      if (!anim || !anim.frames.length) continue
+      const index =
+        (Math.floor((this.clock.nowMs * anim.frameRate) / 1000) + model.id) % anim.frames.length
+      const frame = anim.frames[index]!
+      if (String(view.frame.name) !== String(frame)) view.setFrame(frame)
+    }
+  }
+
   /**
    * 每帧把「受击中的怪」的视觉变换写一遍。
    *
@@ -415,7 +502,7 @@ export class JuiceDirector {
 
       if (ageMs > tankTailMs) {
         view.setAlpha(1)
-        view.setScale(1, 1)
+        view.setScale(view.visualScale, view.visualScale)
         view.rotation = 0
         this.visuals.delete(id)
         continue
@@ -431,12 +518,12 @@ export class JuiceDirector {
         const squash = 1 + Math.sin(t * tankJuice.squashHz) * TANK_SQUASH_AMPLITUDE
         // 挤压保持面积：横着压扁就竖着拉长。只缩不拉会看成「它在缩小」，
         // 而我们要表达的是「它被压了一下」，不是「它变小了」。
-        view.setScale(1 / squash, squash)
+        view.setScale(view.visualScale / squash, view.visualScale * squash)
       } else {
         // 分裂怪一击必杀，触发式的缩放冲击才对：快速回弹的「砰」。
         // `k` 从 1 线性衰减到 0，超过窗口就是 0（不回弹、不残留）。
         const k = Math.max(0, 1 - ageMs / HIT_GLOW_MS)
-        const s = 1 + SPLITTER_PUNCH * k
+        const s = view.visualScale * (1 + SPLITTER_PUNCH * k)
         view.setScale(s)
         view.setAlpha(1)
         view.rotation = 0
