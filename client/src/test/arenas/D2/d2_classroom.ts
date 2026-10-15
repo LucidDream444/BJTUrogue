@@ -54,6 +54,11 @@
  * - **怪撞得住桌椅和墙**（2026-10-15 补的）—— 底座给怪也接了同一组静态体
  *   （`ArenaBase.attachEnemyColliders`）。怪是**按速度积分**走的，所以这是真挡，
  *   不是摆样子：把它们往课桌上赶，会停在桌子前沿。
+ * - **门标注 / 连廊标注读得出**（2026-10-15 补的，`room-transitions`）—— 就是
+ *   「分支关的门没连上下一个主干道关」那一条在 1:1 尺度上的样子：`→N` = 穿过去到哪一间
+ *   （同一个洞只标一次、标在宿主那一侧），`连廊 a→b` = 那一段连廊。推导与缩略图是
+ *   **同一份**（`presentation/framing.ts`），所以两个尺度上写着同一个号。
+ *   实测：被右侧读数压住的正是东侧那几条，按 `Q` 收起读数就能看见。
  *
  * ## 这个场子**仍然验不了**什么（不许含糊过去）
  *
@@ -71,6 +76,8 @@
  * 在这一场里还能看见的是**几何本身**：门开在哪条边、墙上留没留缺口、
  * 桌子有没有压住门、刷怪点是不是都落在空地上、红格和青线对不对得上。
  */
+
+import type Phaser from 'phaser'
 
 import type { ArenaConfig, ArenaContext, ArenaDefinition, ArenaSpawnSpec } from '../../ArenaBase'
 import { ArenaBase, GRID_SIZE, WORLD_HEIGHT, WORLD_WIDTH } from '../../ArenaBase'
@@ -113,6 +120,14 @@ const MAX_ENEMIES = 4
  * 而「字叠在一起」在现场看起来就是「读数没印出来」。
  * ⚠️ 上面两条都依赖「主干教室最宽 640」：档位表将来要是出了更宽的房间，
  * 教室本体就会伸进读数栏底下，而那时表现是**读数被地图压住**，不是报错。
+ *
+ * ⚠️ **2026-10-15：压住的正是新加的门标注，所以补了 `Q` 一键收起。** 读数栏盖的是
+ * 「东侧那段连廊」—— 而门标注（`→10` / `→11`）**就落在那段连廊上**（种子 837 实测：
+ * `→11` 落在屏幕 x≈1060，栏从 1008 起）。两边都是要读的字，叠在一起就都读不出来，
+ * 而且现场看起来像「这一扇门没标」——正是这一轮要修的那类错觉。
+ *
+ * 收起而不是挪走：取景框宽 1120、消不掉（上面那段），栏宽 272 是长行的下限，
+ * 所以**没有任何一种摆法是两全的**。给一个开关，两种看法各按各的。
  */
 const READOUT_X = WORLD_WIDTH - 272
 const READOUT_WIDTH = 272
@@ -244,6 +259,19 @@ class D2ClassroomArena extends ArenaBase {
   /** `configure()` 里算好、`onArenaCreate()` 里画 —— **两处必须用同一份几何**。 */
   private layout: ClassroomLayout | null = null
 
+  /**
+   * 读数栏的两个对象（底板 + 字），`Q` 一起收/展。
+   *
+   * 存引用而不是「按深度去场景里捞」：场景根上还有底座画的一堆方块，
+   * 捞错一个的失败模式是**收起了不该收的东西**（地图少一块），而不报错。
+   *
+   * 类型写具体而不是 `GameObject`：`visible` / `setVisible` 在 Phaser 里是
+   * `Components.Visible` 这个 mixin 带来的，**基类 `GameObject` 上没有** ——
+   * 写成 `GameObject[]` 就得在循环里强转，而强转会把「哪天换成没这个组件的对象」
+   * 变成运行时静默（那个对象收不起来，画面看着像键无效）。
+   */
+  private readoutParts: (Phaser.GameObjects.Rectangle | Phaser.GameObjects.Text)[] = []
+
   protected get definition(): ArenaDefinition {
     return arena
   }
@@ -360,7 +388,7 @@ class D2ClassroomArena extends ArenaBase {
     // 怪走动的过程中才看得见。
     ctx.player.setInvulnerable(true)
 
-    drawRoom1to1(ctx.scene, L.map, L.cfg, L.room, {
+    const drawn = drawRoom1to1(ctx.scene, L.map, L.cfg, L.room, {
       box: L.box,
       screenX: L.screenX,
       screenY: L.screenY,
@@ -372,7 +400,10 @@ class D2ClassroomArena extends ArenaBase {
       harnessGridCell: GRID_SIZE * 2,
     })
 
-    this.drawReadout(ctx, L)
+    // 筛掉的条数**必须印出来**：1:1 这一场的规则是「门标注赢、连廊名让位」，
+    // 于是这一屏上少掉的那条连廊名是**设计**，不是没生成出来。不印的话，
+    // 看到「东边那段连廊没有名字」的人只会得到一个可能的结论：生成器没生成。
+    this.drawReadout(ctx, L, drawn.labelsDropped)
     // 提示写成**能照做的三件事**：这一场是给人自己动手试的。
     // 站着不动看到的是「什么都没发生」，而那和「撞上去会停 / 子弹会被挡住」
     // 在现场长得一模一样 —— 所以每一句都得是「按哪个键、看什么」。
@@ -381,15 +412,30 @@ class D2ClassroomArena extends ArenaBase {
     // 不说的话，看的人第一反应是「怪的 AI 坏了 / 碰撞接错了」—— 而那是底座
     // `makeNav` 只吃 `cfg.walls` 造的（见文件头那张表），不是 D2 的几何错了。
     //
-    // 提示条是 20px、**一行不折**且没有宽度上限（`Hud.setNotice`），
-    // 所以这句话的长度是算过的：与原来那句差不多宽（约 950px / 1280）。
-    // 再加词就会顶出画布 —— 想加先量。
+    // 提示条是 20px、**一行不折**且没有宽度上限（`Hud.setNotice`），而且是
+    // **横向居中**的（`setOrigin(0.5, 0)`，`x = 画布宽/2`）—— 所以长度是算过的：
+    // 2026-10-15 用同一个字体串（`20px monospace`）在页面里 `measureText` 量过，
+    // 加 `Q 收起读数` 这半句之后 **1100px / 1280**（原句 980px），
+    // 半边 550，落在 `x 90..1190`，两边都还有 90px。
+    // 再加词就得先量（超过 1280 是**两头同时被切**，而切掉的是哪几个字看不出来）。
     ctx.hud.setNotice(
-      'WASD 撞桌椅、左键打一枪看课桌挡弹 / 椅子放行、E 开关门 —— 怪撞得住桌子但绕不开（底座网格只吃墙）',
+      'WASD 撞桌椅、左键打一枪看课桌挡弹 / 椅子放行、E 开关门、Q 收起读数 —— 怪撞得住桌子但绕不开（底座网格只吃墙）',
     )
+
+    // `Q` 收起右侧读数 —— 它和**东侧连廊上的门标注**压在同一块地方（见 `READOUT_X` 的注释）。
+    //
+    // 挂在**这一场自己**的 `onArenaCreate()` 里，没进底座：别的场子没有「读数压着门标注」
+    // 这件事，而这个键对它们也没有第二个意思。
+    //
+    // ⚠️ `ev.repeat` 必须挡掉：按住不放会按系统重复率一直发 keydown，
+    // 于是读数**抖**成一片（松手时是收是展全看次数奇偶）。
+    ctx.scene.input.keyboard?.on('keydown-Q', (ev: KeyboardEvent) => {
+      if (ev.repeat) return
+      for (const o of this.readoutParts) o.setVisible(!o.visible)
+    })
   }
 
-  private drawReadout(ctx: ArenaContext, L: ClassroomLayout): void {
+  private drawReadout(ctx: ArenaContext, L: ClassroomLayout, labelsDropped: number): void {
     const rooms = L.map.rooms
     const raw = [
       `D2 · 一间教室 1:1`,
@@ -400,6 +446,12 @@ class D2ClassroomArena extends ArenaBase {
       `房间 #${L.room.order} ${L.room.branch === 'side' ? '侧室' : '主干'}·${ROOM_KIND_LABELS[L.room.kind]} · ${L.room.rect.width}×${L.room.rect.height}px · 档位 ${L.room.sizeTier}`,
       `桌椅 ${L.room.obstacles.length} · 刷怪点 ${L.room.spawnPoints.length} · 威胁预算 ${L.room.budget}`,
       `门 ${L.room.doors.map((d) => `${d.kind}→${d.toOrder}`).join(' ')}`,
+      // 「哪个号没印出来」也是读数的一部分：这一场的规则是**门标注赢、连廊名让位**
+      // （`planRoom1to1Labels`），837 里让位的正是东边那段的 `连廊 9→11`。
+      // 不报的话，看的人会以为是生成器没生成那一段。
+      labelsDropped === 0
+        ? '门标注与连廊名**全印上了**'
+        : `标注挤不下筛掉 ${labelsDropped} 条（门标注优先，让位的是连廊名 —— 看两端那两条 →N）`,
       // 碰撞体是**裁进取景框之后**造出来的块数，不是「这一层楼有几段墙」
       // （见 `collisionInBox`）。三个数一起报：单看任何一个都读不出对错，
       // 而「挡人 − 挡弹」必须**正好**是椅子 —— 差出别的数就是分组错了。
@@ -429,12 +481,12 @@ class D2ClassroomArena extends ArenaBase {
     const h = lines.length * READOUT_LINE + 12
     // 贴底往上排：底部才是**一定**没有东西的地方（顶上有底座标题和提示条）。
     const panelY = WORLD_HEIGHT - 8 - h
-    ctx.scene.add
+    const bg = ctx.scene.add
       .rectangle(READOUT_X, panelY, READOUT_WIDTH, h, 0x000000, 0.72)
       .setOrigin(0, 0)
       .setDepth(999)
 
-    ctx.scene.add
+    const text = ctx.scene.add
       .text(READOUT_X + 8, panelY + 6, lines.join('\n'), {
         fontFamily: 'monospace',
         fontSize: '11px',
@@ -444,6 +496,9 @@ class D2ClassroomArena extends ArenaBase {
         lineSpacing: 4,
       })
       .setDepth(1000)
+
+    // 记下来给 `Q` 用（见 `readoutParts` 的注释）。
+    this.readoutParts = [bg, text]
   }
 }
 
