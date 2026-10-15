@@ -28,7 +28,7 @@ export class CombatAudio {
     this.unsubs = [
       bus.on('app_paused', () => {
         this.paused = true
-        this.music?.pause()
+        // Pause combat effects while the BGM continues through menus and rewards.
         for (const shot of this.shots) shot.stop()
       }),
       bus.on('app_resumed', () => {
@@ -41,7 +41,7 @@ export class CombatAudio {
   }
 
   private startMusic(): void {
-    if (this.disposed || this.paused || this.scene.sound.locked || !this.music) return
+    if (this.disposed || this.scene.sound.locked || !this.music) return
     if (this.music.isPaused) this.music.resume()
     else if (!this.music.isPlaying) this.music.play()
   }
