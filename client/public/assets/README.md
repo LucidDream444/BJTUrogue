@@ -51,6 +51,15 @@ audio/sfx/enemies/sfx_enemy_tank_hurt_loop.ogg
 **分隔符统一用下划线，不用空格、不用大写、不用中文。** 文件名即资源 id，跨平台（Windows / macOS / Linux /
 CI）大小写敏感差异会因此消失。
 
+### 校园教室与走廊资源
+
+教室背景沿用关卡碰撞的 2048×1152 参考坐标，运行时文件保持 3840×2160；当前 `level_1_classroom` 与
+`level_3_classroom` 使用米白反光地砖、绿色黑板、浅色课桌和蓝色翻板椅。独立家具资源包括
+`furniture_classroom_desk`、`furniture_lecture_chair_folded`（座面收起）与
+`furniture_lecture_chair_down`（座面拉下）。走廊和电子屏资源由 `CAMPUS_ART` 统一索引：
+`corridor_hallway` 是小图，`prop_corridor_screen_small` 是墙面屏，`ui_corridor_screen_full` 是整屏课程信息界面。
+接入地图或交互时只使用这些清单 key，不要在业务代码中写文件路径。
+
 ## 三、规格约定（初版，D4 可以改）
 
 | 类型 | 约定 |

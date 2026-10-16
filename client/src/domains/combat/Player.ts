@@ -158,6 +158,7 @@ export class Player {
   view(): PlayerPort {
     return {
       model: this.model,
+      bite: (amount, sourceId, nowMs) => this.model.takeGrabBite(amount, sourceId, nowMs),
       x: this.x,
       y: this.y,
       vx: this.body.velocity.x,

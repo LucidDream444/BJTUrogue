@@ -3,6 +3,7 @@ import { fileURLToPath } from 'node:url'
 import { describe, expect, it } from 'vitest'
 import {
   DIFFICULTIES,
+  deriveGrabber,
   deriveSplitterGeneration,
   deriveTank,
   oneShotHpCap,
@@ -339,6 +340,24 @@ describe('契约 — ConfigError 必须指出出问题的字段路径', () => {
     }
   })
 
+  it('抓取怪的 `pressDamageRatio` ≥ 1 会被拦住（一下就能脱离 = 机制不存在）', () => {
+    const raw = readJson('enemies.json') as Record<string, never>
+    const broken = structuredClone(raw)
+    const g = (
+      broken as never as {
+        enemies: { grabber: { grab: { pressDamageRatio: number } } }
+      }
+    ).enemies.grabber
+    g.grab.pressDamageRatio = 1
+    expect(() =>
+      parseConfigBundle({
+        balance: readJson('balance.json'),
+        difficulty: readJson('difficulty.json'),
+        enemies: broken,
+      }),
+    ).toThrow(/pressDamageRatio/)
+  })
+
   it('难度乘数写 0 会被拦住（enemyHp 有下界 0.1）', () => {
     const raw = readJson('difficulty.json') as Record<string, unknown>
     const broken = structuredClone(raw) as never as {
@@ -352,5 +371,95 @@ describe('契约 — ConfigError 必须指出出问题的字段路径', () => {
         enemies: readJson('enemies.json'),
       }),
     ).toThrow(/enemyHp/)
+  })
+})
+
+describe('契约 — 抓取怪：血量是双重职责的旋钮', () => {
+  const { balance, difficulty, enemies } = bundle()
+  const def = enemies.enemies.grabber
+
+  it('预警窗口内集火**打不死**它（打死了抓取就不发生，机制见不到）', () => {
+    const d = deriveGrabber(def, difficulty.difficulties.normal, balance)
+    const dps = (balance.baseline.bullet.damage / balance.baseline.bullet.fireIntervalMs) * 1000
+    const windowDamage = (dps * def.grab.telegraphMs) / 1000
+    expect(d.maxHp, '预警那段时间的集火伤害应当打不死它').toBeGreaterThan(windowDamage)
+  })
+
+  it('但也只能多活一点点（不然「打它还是跑」就不是个真选择）', () => {
+    const d = deriveGrabber(def, difficulty.difficulties.normal, balance)
+    const dps = (balance.baseline.bullet.damage / balance.baseline.bullet.fireIntervalMs) * 1000
+    const windowDamage = (dps * def.grab.telegraphMs) / 1000
+    expect(d.maxHp).toBeLessThanOrEqual(windowDamage * 1.5)
+  })
+
+  it('连点口径：满血脱离的按下次数落在「连点得动」的区间里', () => {
+    const d = deriveGrabber(def, difficulty.difficulties.normal, balance)
+    expect(d.pressDamage, '每次按下扣的是**最大血量**的百分比').toBe(
+      Math.floor(d.maxHp * def.grab.pressDamageRatio + 0.5),
+    )
+    expect(d.pressesToEscape).toBeGreaterThanOrEqual(12)
+    expect(d.pressesToEscape).toBeLessThanOrEqual(30)
+  })
+
+  it('预警期打掉的血直接缩短连点次数（80% 血被抓 = 只需按两成）', () => {
+    const d = deriveGrabber(def, difficulty.difficulties.normal, balance)
+    const remaining = d.maxHp * 0.2
+    expect(Math.ceil(remaining / d.pressDamage)).toBeLessThan(d.pressesToEscape)
+    expect(Math.ceil(remaining / d.pressDamage)).toBeGreaterThan(0)
+  })
+
+  it('咬人口径：normal 难度下正好按配置的意图咬死满血玩家，更难的难度只会更少口', () => {
+    const normal = difficulty.difficulties.normal
+    const d = deriveGrabber(def, normal, balance)
+    expect(d.bitesToKillPlayer, 'normal 必须等于配置写的口数').toBe(def.grab.bitesToKillPlayer)
+
+    for (const diff of DIFFICULTIES) {
+      const m = difficulty.difficulties[diff]
+      const dd = deriveGrabber(def, m, balance)
+      expect(dd.bitesToKillPlayer, diff).toBeGreaterThanOrEqual(1)
+      // ⚠️ 只对**不低于 normal** 的难度断言「不会更多口」。
+      //    简单难度的 `enemyDamage` 小于 1，每口更轻、自然要更多口才咬死 ——
+      //    那不是 bug，是难度在起作用（写成全难度单调就会误报）。
+      if (m.enemyDamage >= normal.enemyDamage) {
+        expect(dd.bitesToKillPlayer, diff).toBeLessThanOrEqual(def.grab.bitesToKillPlayer)
+      }
+    }
+  })
+
+  it('甩出速度 = 距离 ÷ 时长，且落点看得清（速度不荒谬）', () => {
+    const d = deriveGrabber(def, difficulty.difficulties.normal, balance)
+    expect(d.flingSpeed).toBe(
+      Math.round((def.grab.flingDistance / def.grab.flingTimeMs) * 1000),
+    )
+    expect(d.flingSpeed).toBeGreaterThan(200)
+    expect(d.flingSpeed).toBeLessThan(2000)
+  })
+
+  it('落地爆炸「范围很大」：直径至少盖得住一间主干教室的高度', () => {
+    const rooms = JSON.parse(readFileSync(CONFIG_DIR + 'rooms.json', 'utf8')) as {
+      mainRoomHeight: number
+    }
+    expect(
+      def.grab.blastRadius * 2,
+      `爆炸直径 ${def.grab.blastRadius * 2} 小于一间主干教室的高 ${rooms.mainRoomHeight}`,
+    ).toBeGreaterThanOrEqual(rooms.mainRoomHeight)
+  })
+
+  it('它比杂兵慢、比肉盾快（三个模板的速度阶梯不能乱）', () => {
+    const splitters = enemies.enemies.splitter.generations
+    const tank = enemies.enemies.tank
+    expect(def.speed).toBeLessThan(splitters[0]!.speed)
+    expect(def.speed).toBeGreaterThan(tank.speed)
+  })
+
+  it('它不靠接触伤害构成威胁（威胁只有抓取）', () => {
+    expect(def.contactDamagePerTick).toBe(0)
+  })
+
+  it('它的贴图 key 在资源清单里有条目（否则占位方块生成不出来）', () => {
+    const art = findAsset(def.textureKey)
+    expect(art, `${def.textureKey} 不在 assetManifest 里`).toBeTruthy()
+    expect(art!.placeholder, '缠抱怪笔记本电脑美术已交付').toBe(false)
+    expect(art!.kind, '缠抱怪动作需要 spritesheet').toBe('spritesheet')
   })
 })

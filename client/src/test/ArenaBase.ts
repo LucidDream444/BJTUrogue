@@ -484,7 +484,12 @@ export abstract class ArenaBase extends Phaser.Scene {
     this.clock.advance(delta)
 
     this.player.update(delta, this.gun.aimX, this.gun.aimY)
-    this.gun.update()
+    // ⚠️ 世界冻着（我们自己的暂停 / 抓取定格）时**不许开火**：调试枪用 `realNowMs`
+    // 判间隔、不看 `clock.paused`，于是冻结期间子弹会**原地堆在玩家脚下**，
+    // 解冻的第一步就全部命中 —— 而抓取怪挣脱时只剩 1 血，正好被当场打死，
+    // 「落地才死 → 落地爆炸」整条链静默消失。产品里的武器系统本来就尊重暂停，
+    // 这条是给测试场补上同样的口径。
+    if (!this.clock.paused) this.gun.update()
     this.juice.update(delta)
     this.hud.update(delta)
 

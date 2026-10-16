@@ -51,13 +51,17 @@ import Phaser from 'phaser'
 import type { GameClock } from '@/core/time'
 import type { GameEvents, EnemyKind, TypedBus, Unsubscribe } from '@/core/events'
 import type { ConfigBundle } from '@/core/config'
+import { GRAB_PRESS_SOURCE_ID } from '../EnemySystem'
 import type { EnemySystem } from '../EnemySystem'
 import { RadialBurstFx } from './RadialBurstFx'
 import { JuicePolicy, juiceParamsFromConfig } from './JuicePolicy'
 import { SfxPool } from './SfxPool'
 import { EnemyHealthBars } from './EnemyHealthBars'
+import { GrabAlertFx } from './GrabAlertFx'
 import { PaperDeathFx } from './PaperDeathFx'
-import { ASSETS, ANIMS, TANK_ART } from '@/core/assetManifest'
+import { EmpBlastFx } from './EmpBlastFx'
+import { GrabImpactFx } from './GrabImpactFx'
+import { ASSETS, ANIMS, GRABBER_ART, TANK_ART } from '@/core/assetManifest'
 import { textureKeyFor } from '@/core/assets'
 
 /** 受击冲击淡出用多久。**小于肉盾的 `damageEventBatchMs` 才不会糊成一片常亮** */
@@ -117,9 +121,14 @@ export class JuiceDirector {
   private readonly policy: JuicePolicy
   private readonly radialFx: RadialBurstFx
   private readonly healthBars: EnemyHealthBars
+  /** 抓取怪头顶的「!」与红色咬人倒计时（抓取期间世界是冻的，这两样是唯一还在动的东西） */
+  private readonly grabAlerts: GrabAlertFx
   private readonly paperDeaths: PaperDeathFx
+  private readonly grabImpact: GrabImpactFx
+  private readonly empBlast: EmpBlastFx
   private readonly sfx: SfxPool
   private readonly visuals = new Map<number, VisualState>()
+  private readonly grabPhases = new Map<number, string>()
   private readonly animations = new Map(
     ANIMS.filter((anim) => anim.repeat === -1).map((anim) => [anim.textureKey, anim]),
   )
@@ -146,11 +155,14 @@ export class JuiceDirector {
       opts.bundle.enemies.stage2Boss,
     )
     this.healthBars = new EnemyHealthBars(opts.scene, opts.enemies)
+    this.grabAlerts = new GrabAlertFx(opts.scene, opts.enemies, opts.bundle.enemies.enemies.grabber)
     this.paperDeaths = new PaperDeathFx(
       opts.scene,
       opts.clock,
       opts.bundle.balance.spawn.maxAliveHard,
     )
+    this.grabImpact = new GrabImpactFx(opts.scene)
+    this.empBlast = new EmpBlastFx(opts.scene)
 
     const enemies = opts.bundle.enemies.enemies
     this.policy = new JuicePolicy(
@@ -164,6 +176,7 @@ export class JuiceDirector {
         (a) =>
           a.kind === 'audio' && (a.key.startsWith('sfx_enemy_') || a.key === 'sfx_kill_flourish'),
       ).map((a) => a.key),
+      voicesPerKey: 8,
     })
   }
 
@@ -219,7 +232,11 @@ export class JuiceDirector {
     this.updateAnimations()
     this.updateVisuals(this.clock.realNowMs)
     this.paperDeaths.update()
+    this.grabImpact.update(this.clock.realNowMs)
+    this.empBlast.update(this.clock.realNowMs)
     this.healthBars.update()
+    // 用表现时间：抓取期间逻辑时钟是停的，而倒计时必须继续走
+    this.grabAlerts.update(this.clock.realNowMs)
     this.radialFx.update()
   }
 
@@ -233,9 +250,13 @@ export class JuiceDirector {
 
     this.sfx.destroy()
     this.healthBars.destroy()
+    this.grabAlerts.destroy()
     this.paperDeaths.destroy()
+    this.grabImpact.destroy()
+    this.empBlast.destroy()
     this.radialFx.destroy()
     this.visuals.clear()
+    this.grabPhases.clear()
     // 不要在这里 `world.pause()`：shutdown 之后再 pause，下一个场景就动不了了。
     // 反过来的情况（「要重启了但物理还暂停着」）由 `syncPhysicsPause()` 在 update 里兜住。
     // 同理不要在这里动相机 —— 相机可能已经归下一个场景了。
@@ -310,6 +331,13 @@ export class JuiceDirector {
           0.55,
         )
       }
+    } else if (entry.model.enemyKind === 'grabber' && e.sourceId === GRAB_PRESS_SOURCE_ID) {
+      // 每次 QTE 按下都会走 entity_damaged；固定池保证短促砍击声可以重叠。
+      this.sfx.play('sfx_enemy_grabber_qte_hit', 0, 0.9)
+      this.grabImpact.play(entry.view.x, entry.view.y, realNowMs)
+    } else if (entry.model.enemyKind === 'grabber') {
+      // 预警阶段的普通攻击仍有放大反馈，但不冒充 QTE 的砍击音。
+      this.grabImpact.play(entry.view.x, entry.view.y, realNowMs)
     } else {
       // 分裂怪一击必杀，所以「受击」和「死亡」几乎总是同一帧发生，
       // 受击音和爆裂音会叠在一起 —— 这正是想要的：闷响 + 脆响。
@@ -335,9 +363,11 @@ export class JuiceDirector {
     if (kind === 'splitter') {
       this.paperDeaths.play(e.x, e.y, gen, genDef.visualScale, genDef.splitDelayMs)
     }
-    const baseHitstopMs = kind === 'tank' ? juice.tank.slam.hitstopMs : genDef.hitstopMs
+    const baseHitstopMs =
+      kind === 'tank' ? juice.tank.slam.hitstopMs : kind === 'grabber' ? 0 : genDef.hitstopMs
     // 肉盾的死亡是这一场里最大的事，创伤直接给满（`traumaCap` 也来自配置）。
-    const baseTrauma = kind === 'tank' ? this.bundle.balance.juice.traumaCap : genDef.trauma
+    const baseTrauma =
+      kind === 'tank' ? this.bundle.balance.juice.traumaCap : kind === 'grabber' ? 0 : genDef.trauma
 
     const feedback = this.policy.onHit(
       { enemyKind: kind, gen, killed: true, baseHitstopMs, baseTrauma },
@@ -349,6 +379,8 @@ export class JuiceDirector {
 
     if (kind === 'tank') {
       this.sfx.play('sfx_enemy_tank_death', 0, 1)
+    } else if (kind === 'grabber') {
+      // 落地时已经由 onGrabBlast 播放 EMP；不再叠加分裂怪的爆裂音。
     } else {
       // 连杀的音调逐级升高（`pitchCentsFor`）。这是「连杀」唯一的听觉线索 ——
       // 同一个音连响 8 次听起来只是 8 个音，升调才让玩家**听出自己在连杀**。
@@ -368,6 +400,7 @@ export class JuiceDirector {
     }
 
     this.visuals.delete(e.id)
+    this.grabPhases.delete(e.id)
   }
 
   private onSpawned(e: GameEvents['entity_spawned']): void {
@@ -388,6 +421,7 @@ export class JuiceDirector {
       entry.view.setFlipX(false)
       entry.view.setScale(entry.view.visualScale, entry.view.visualScale)
       entry.view.rotation = 0
+      this.grabPhases.delete(e.id)
     }
 
     // 分裂出来的孩子（gen > 0）出生给一声轻「啵」。
@@ -419,6 +453,17 @@ export class JuiceDirector {
     this.scene.cameras.main.shake(160, TRAUMA_TO_INTENSITY * 2, false)
   }
 
+  /** 抓取怪落地的电磁脉冲：只负责表现，伤害仍由 EnemySystem 结算。 */
+  onGrabBlast(x: number, y: number, radius: number): void {
+    if (this.disposed) return
+    this.empBlast.play(x, y, radius, this.clock.realNowMs)
+    // 两个可重叠声部：电磁放电 + 笔记本砸地的低频重击。
+    this.sfx.play('sfx_enemy_grabber_emp', 0, 1)
+    this.sfx.play('sfx_enemy_grabber_land', 0, 1)
+    this.policy.addTrauma(this.bundle.balance.juice.traumaCap * 0.55)
+    this.scene.cameras.main.shake(180, TRAUMA_TO_INTENSITY * 1.5, false)
+  }
+
   // ------------------------------------------------------------ 视觉
 
   private markHit(id: number, realNowMs: number): void {
@@ -438,6 +483,7 @@ export class JuiceDirector {
       view.setFlipX(false)
       let key = view.texture.key
       let index = 0
+      let directFrame: number | null = null
       if (model.enemyKind === 'tank') {
         const slam = this.bundle.enemies.enemies.tank.slam
         const attacking =
@@ -461,6 +507,40 @@ export class JuiceDirector {
           index =
             (Math.floor((this.clock.nowMs * anim.frameRate) / 1000) + model.id) % anim.frames.length
         }
+      } else if (model.enemyKind === 'grabber') {
+        key = GRABBER_ART.texture
+        const hit = this.visuals.get(model.id)
+        if (hit && this.clock.realNowMs - hit.lastHitRealMs < HIT_GLOW_MS) {
+          directFrame = GRABBER_ART.frames.hurt
+        } else if (model.state === 'windup') {
+          directFrame = GRABBER_ART.frames.windup
+        } else if (model.state === 'flung') {
+          directFrame = GRABBER_ART.frames.flung
+        } else {
+          const grab = this.enemies.grabStatus()
+          if (grab?.enemyId === model.id) {
+            const phase = grab.phase
+            const previous = this.grabPhases.get(model.id)
+            if (previous !== phase) {
+              this.sfx.play(
+                phase === 'pounce' ? 'sfx_enemy_grabber_pounce' : 'sfx_enemy_grabber_latch',
+                0,
+                0.8,
+              )
+              this.grabPhases.set(model.id, phase)
+            }
+            directFrame =
+              grab.phase === 'pounce' ? GRABBER_ART.frames.pounce : GRABBER_ART.frames.holding
+          } else if (model.state === 'chase') {
+            this.grabPhases.delete(model.id)
+            directFrame =
+              (Math.floor((this.clock.nowMs * 8) / 1000) + model.id) % 2 === 0
+                ? GRABBER_ART.frames.walkA
+                : GRABBER_ART.frames.walkB
+          } else {
+            directFrame = GRABBER_ART.frames.idle
+          }
+        }
       } else {
         const anim = this.animations.get(key)
         if (!anim) continue
@@ -468,9 +548,9 @@ export class JuiceDirector {
           (Math.floor((this.clock.nowMs * anim.frameRate) / 1000) + model.id) % anim.frames.length
       }
       const anim = this.animations.get(key)
-      if (!anim) continue
+      if (!anim && directFrame === null) continue
       const texture = textureKeyFor(this.scene, key)
-      const frame = anim.frames[index]!
+      const frame = directFrame ?? anim!.frames[index]!
       // A missing or intentionally placeholder sheet has no numbered animation frames.
       if (!this.scene.textures.get(texture).has(String(frame))) continue
       if (view.texture.key !== texture) view.setTexture(texture, frame)
@@ -522,10 +602,11 @@ export class JuiceDirector {
         // 而我们要表达的是「它被压了一下」，不是「它变小了」。
         view.setScale(view.visualScale / squash, view.visualScale * squash)
       } else {
-        // 分裂怪一击必杀，触发式的缩放冲击才对：快速回弹的「砰」。
+        // 分裂怪与抓取 QTE 都用触发式缩放冲击：快速回弹的「砰」。
         // `k` 从 1 线性衰减到 0，超过窗口就是 0（不回弹、不残留）。
         const k = Math.max(0, 1 - ageMs / HIT_GLOW_MS)
-        const s = view.visualScale * (1 + SPLITTER_PUNCH * k)
+        const punch = entry.model.enemyKind === 'grabber' ? 0.18 : SPLITTER_PUNCH
+        const s = view.visualScale * (1 + punch * k)
         view.setScale(s)
         view.setAlpha(1)
         view.rotation = 0

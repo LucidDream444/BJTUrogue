@@ -54,6 +54,7 @@ const TANK_SPEC: EnemySpec = {
   gen: 0,
   stats: { maxHp: 520, speed: 52, radius: 40 },
   pierceImmune: false,
+  windupMoveMult: 0,
   graceMs: 0,
   graceMoveMult: 1,
   flinchMs: 0,

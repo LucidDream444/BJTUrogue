@@ -49,6 +49,7 @@ import {
   type HitResult,
   type TickTarget,
 } from '@/core/actor/damage'
+import { allocActorId } from '@/core/actor/ActorModel'
 import type { ActorEventSink, DamageEventInfo, KillEventInfo } from '@/core/actor/ActorModel'
 import type {
   ActorSnapshot,
@@ -62,18 +63,23 @@ import type { GameClock } from '@/core/time'
 import type { GameEvents, EnemyKind, TypedBus } from '@/core/events'
 import { Rng } from '@/core/rng'
 import {
+  deriveGrabber,
   deriveSplitterGeneration,
   deriveTank,
   type ConfigBundle,
+  type DerivedGrabber,
   type DerivedSplitterGeneration,
   type DerivedTank,
   type Difficulty,
   type DifficultyModifiers,
+  type EnemyDef,
+  type GrabberDef,
   type SplitterGenerationDef,
   type TankDef,
 } from '@/core/config'
 import {
   EnemyModel,
+  specFromGrabber,
   specFromSplitter,
   specFromTank,
   type EnemySpec,
@@ -85,14 +91,62 @@ import { ContactResolver } from './contact/ContactResolver'
 import { planSplitChildren } from './spawn/splitFan'
 import { SpatialHash } from './nav/spatialHash'
 import { FlowField } from './nav/flowField'
+import { makeGrabberBrain } from './brains/GrabberBrain'
 import { makeSplitterBrain } from './brains/SplitterBrain'
 import { makeTankBrain } from './brains/TankBrain'
+import { GrabQte } from './grab/grabQte'
+import { pickFlingDirection, shouldLand } from './grab/fling'
+import { targetsInBlast } from './grab/blast'
 import { makeRadialBossBrain } from './brains/RadialBossBrain'
 import { RadialProjectiles } from './projectiles/RadialProjectiles'
 import { bossArt } from './presentation/bossArt'
 
 type EnemyActor = Actor<EnemyState>
 export type Entry = PooledEnemy<EnemyActor>
+
+/**
+ * 抓取中的那一只的全部状态。
+ *
+ * ⚠️ `movieMs` 是**电影时间**（由 D1 每帧喂 dt 攒出来的），不是 `clock.nowMs` ——
+ * 抓取期间世界是冻结的，逻辑时钟停在那一刻，用它算咬人节拍会永远到不了点（静默死锁）。
+ * 它同时也是「切走标签页时时间也停」的保证：rAF 停了，D1 不喂 dt，电影时间就不走。
+ */
+interface GrabRun {
+  entry: Entry
+  /** 吸附阶段才有（扑向期间还没有玩法判定） */
+  qte: GrabQte | null
+  phase: 'pounce' | 'holding'
+  movieMs: number
+  /** 扑向的起点（它站定的那个位置） */
+  fromX: number
+  fromY: number
+}
+
+interface FlightRun {
+  entry: Entry
+  /** 甩出那一刻的逻辑时间（飞行发生在**解冻之后**，用逻辑时钟是对的） */
+  startedAtMs: number
+  stuckMs: number
+  lastX: number
+  lastY: number
+  /** 上一次采样时的逻辑时间（算 dt 用） */
+  lastAtMs: number
+}
+
+/** 抓取状态快照。D1 每帧读它决定冻结 / 镜头 / 表现。 */
+export interface GrabStatus {
+  enemyId: number
+  /** 抓取者的显示名（表现层与提示行用） */
+  displayName: string
+  /** `pounce` = 扑向动画中（还没有玩法判定）；`holding` = 吸附完成 */
+  phase: 'pounce' | 'holding'
+  /** 它当前的**血量比例**（抓取进度条就是这条血） */
+  hpRatio: number
+  /** 下一次咬击还有多久（毫秒） */
+  msUntilBite: number
+  /** 玩家已经按了多少下（表现层读数用） */
+  presses: number
+}
 
 /** 敌人系统眼里的玩家。**D1 提供**（玩家角色归 D1），测试场塞一个假目标。 */
 export interface PlayerView {
@@ -116,6 +170,17 @@ export type PlayerProvider = () => PlayerView | null
 export interface EnemySystemHooks {
   /** 肉盾砸下来了。表现层据此做顿帧 / 震屏 / 烟尘 */
   onSlam?: (x: number, y: number, radius: number, hitstopMs: number) => void
+  /** 抓取怪落地时的电磁脉冲表现；伤害结算仍留在本域。 */
+  onGrabBlast?: (x: number, y: number, radius: number) => void
+  /**
+   * 抓取怪咬玩家一口。
+   *
+   * ⚠️ **不能走 `PlayerView.model.takeHit`**：那个入口在 `clock.paused` 时直接返回
+   * （「暂停时什么都不该发生」是它对的设计），而抓取期间世界**正是冻结的** ——
+   * 走那条路咬击会被静默吞掉，玩家永远咬不死，机制整个失效。
+   * 所以由 D1 提供一个「剧本站定伤害」的入口：**绕过暂停守卫，但护盾 / 无敌帧 / 死亡照旧**。
+   */
+  onGrabBite?: (amount: number, sourceId: number, nowMs: number) => void
 }
 
 export interface EnemySystemNavOptions {
@@ -179,6 +244,14 @@ interface PendingDeath {
 const NEAR_RADIUS_SQ = 520 * 520
 
 /**
+ * 抓取时「玩家按下攻击键」用的攻击源 id。
+ *
+ * 用一个**负数常量**：它不参与伤害账本（那一套是给子弹/挥砍的持续接触用的），
+ * 只出现在 `HitResult` 与伤害事件里给调试与人看。负数不会和任何实体 id 撞。
+ */
+export const GRAB_PRESS_SOURCE_ID = -11
+
+/**
  * 邻居查询半径的额外余量（px）。
  *
  * `separation()` 的判据是 `self.radius + other.radius + pad < dist`，
@@ -231,6 +304,17 @@ export class EnemySystem implements ActorEventSink {
   /** 模型 id → 池槽位。sink 回调只给 id，得靠它找回表现对象 */
   private readonly finalBosses = new Set<number>()
   private readonly bossStages = new Map<number, number>()
+  /**
+   * **同类冷却**：所有抓取怪共享的「最早可以起手」时刻（逻辑时间）。
+   *
+   * 一次抓取结束（挣脱）之后写一次，于是连锁抓取被挡住。字段挂在系统上而不是模型上 ——
+   * 它是**这一局所有同类共享**的一格状态，跟「谁抓的」无关。
+   */
+  private grabberReadyAtMs = 0
+  /** 正在抓的那一只（**同一时刻最多一只**）。null = 没有抓取。 */
+  private grab: GrabRun | null = null
+  /** 正在飞的被甩飞者。落地那一刻做两件事：它死、以及炸一圈。 */
+  private flight: FlightRun | null = null
   private readonly byId = new Map<number, Entry>()
   private readonly brains = new Map<EnemyModel, Brain>()
   /** 每只怪一份复用的快照。**同时**喂 `ctx.self` 和空间哈希 —— 两者必须是同一份数据 */
@@ -241,6 +325,7 @@ export class EnemySystem implements ActorEventSink {
   /** 派生结果按 (代际, 难度) 缓存。配置整局不变，没理由每只怪出生都重算一遍 15 个字段 */
   private readonly splitterCache = new Map<number, DerivedSplitterGeneration>()
   private tankCache: DerivedTank | null = null
+  private grabberCache: DerivedGrabber | null = null
 
   /** 每渲染帧重建一次的在用槽位列表。免得每个物理步都 `[...checkedOut]` 分配一个数组 */
   private readonly frameEntries: Entry[] = []
@@ -478,6 +563,7 @@ export class EnemySystem implements ActorEventSink {
       this.stepRadialShots(target, nowMs)
       // 先让到点的尸体分裂（要用它的当前坐标），再刷怪 —— 这样新生的孩子
       // 当帧就能被 `drainSpawns` 取走（受单帧限额约束，多余的顺延）。
+      this.stepFlight(nowMs)
       this.reapDead(nowMs)
       this.drainSpawns(nowMs)
     }
@@ -593,9 +679,7 @@ export class EnemySystem implements ActorEventSink {
       const origin = this.patrolOrigins.get(model.id)
       const alertRadius = this.isStage2Boss(model.id)
         ? this.bundle.enemies.stage2Boss.aggroRadius
-        : model.enemyKind === 'tank'
-          ? this.bundle.enemies.enemies.tank.aggroRadius
-          : this.bundle.enemies.enemies.splitter.aggroRadius
+        : this.defFor(model.enemyKind).aggroRadius
       const distanceFromOrigin =
         origin && target ? Math.hypot(actor.x - origin.x, actor.y - origin.y) : 0
       const distanceToPlayer = target
@@ -707,7 +791,253 @@ export class EnemySystem implements ActorEventSink {
     )
   }
 
+  // ------------------------------------------------------------ 抓取序列
+
+  /** 抓取怪那一份配置。取用点很多，收在这里免得到处都是三段下标。 */
+  private grabberConfig() {
+    return this.bundle.enemies.enemies.grabber.grab
+  }
+
+  /**
+   * 开始一次抓取。**同一时刻最多一只** —— 已经有抓取在跑时，这一只白起手了：
+   * 它的 brain 已经把状态写回 `chase`（`resolveAttack` 跑在状态写回之后），这里什么都不做。
+   */
+  private startGrab(entry: Entry): void {
+    const model = entry.model
+    if (!model.alive || this.grab) return
+    model.setState('grabbing', this.clock.nowMs)
+    model.velIntent.x = 0
+    model.velIntent.y = 0
+    this.grab = {
+      entry,
+      qte: null,
+      phase: 'pounce',
+      movieMs: 0,
+      fromX: entry.view.x,
+      fromY: entry.view.y,
+    }
+  }
+
+  /**
+   * **每帧由 D1 喂一次**（抓取期间世界冻结，这是唯一还活着的时间线）。
+   * 没有抓取时是空转。
+   *
+   * ⚠️ `dtMs` 用渲染帧的 delta，不是 `clock.nowMs` 的差：冻结时后者是 0（永远到不了咬人时刻），
+   * 而渲染帧的 delta 在**切走标签页时也会停**（rAF 停）—— 玩家不会在看不见的时候被咬。
+   */
+  tickGrab(dtMs: number): void {
+    const g = this.grab
+    if (!g) return
+    if (!g.entry.model.alive) {
+      this.endGrab()
+      return
+    }
+    const cfg = this.grabberConfig()
+    g.movieMs += Math.max(0, dtMs)
+    const target = this.playerOf()
+
+    if (g.phase === 'pounce') {
+      // 扑向：**脚本化位移**。冻结期间物理是停的，所以这一段只动表现；
+      // 吸附完成那一刻把唯一的位置真值（物理体）对齐过去。
+      const t = Math.min(1, g.movieMs / cfg.pounceMs)
+      const to = target ?? { x: g.fromX, y: g.fromY }
+      g.entry.view.setPosition(g.fromX + (to.x - g.fromX) * t, g.fromY + (to.y - g.fromY) * t)
+      if (t < 1) return
+      g.entry.view.body.reset(to.x, to.y)
+      g.phase = 'holding'
+      // **玩法判定从「吸附完成」这一刻才开始**：咬人节拍与连点都从这时起算
+      const d = this.derivedGrabber(this.bundle.enemies.enemies.grabber)
+      g.qte = new GrabQte(
+        {
+          pressDamage: d.pressDamage,
+          biteIntervalMs: cfg.biteIntervalMs,
+          biteDamage: d.biteDamage,
+          hardLimitMs: cfg.biteIntervalMs * 2,
+        },
+        g.movieMs,
+      )
+      return
+    }
+
+    const r = g.qte!.tick(g.movieMs)
+    if (r.bite && target?.alive) {
+      this.hooks.onGrabBite?.(r.damage, g.entry.model.id, this.clock.nowMs)
+    }
+    // 两条无条件出口：硬上限到了、或者玩家已经死了 —— 抓取**一定要能解开**
+    if (r.timedOut || (target && !target.alive)) this.endGrab()
+  }
+
+  /**
+   * 玩家按下一次攻击键（D1 转发，只在吸附阶段有效）。
+   *
+   * 扣的是 `pressDamage`（= 最大血量 × 5%，派生好的），**与武器无关、也不看武器冷却**。
+   */
+  grabPress(): void {
+    const g = this.grab
+    if (!g || g.phase !== 'holding' || !g.qte) return
+    const model = g.entry.model
+    if (!model.alive) return
+    const r = g.qte.press(model.hp)
+    // 挣脱阈值不是死亡阈值：那一下**只把它打到 1 血**。
+    // 它要活着飞出去、落地才死 —— 死了的实体会被立刻 park（位置冻住），尸体飞不起来。
+    const damage = r.escaped ? Math.max(0, model.hp - 1) : r.damage
+    if (damage > 0) {
+      model.takeHit({
+        sourceId: GRAB_PRESS_SOURCE_ID,
+        // 每按一次换一个 key：`frameId` 在冻结期间是不变的，
+        // 同一个 key 会被「同帧去重」静默吃掉后面的按下
+        hitKey: `grab-press:${g.qte.presses}`,
+        mode: 'instant',
+        amount: damage,
+        frameId: this.clock.frameId,
+        nowMs: this.clock.nowMs,
+        sourceKind: 'melee',
+      })
+    }
+    if (r.escaped) this.releaseGrab(g)
+  }
+
+  /** 抓取状态快照。D1 每帧读它决定冻结 / 镜头 / 表现；`null` = 没有抓取。 */
+  grabStatus(): GrabStatus | null {
+    const g = this.grab
+    if (!g) return null
+    const model = g.entry.model
+    return {
+      enemyId: model.id,
+      displayName: this.bundle.enemies.enemies.grabber.displayName,
+      phase: g.phase,
+      hpRatio: model.maxHp > 0 ? Math.max(0, Math.min(1, model.hp / model.maxHp)) : 0,
+      msUntilBite: g.qte
+        ? g.qte.msUntilNextBite(g.movieMs)
+        : this.grabberConfig().biteIntervalMs,
+      presses: g.qte?.presses ?? 0,
+    }
+  }
+
+  /**
+   * **无条件结束抓取** —— D1 的兜底出口。
+   *
+   * 抓取期间世界冻结、敌人系统整体停机，「解冻」只能由 D1 的时间线来按。
+   * 万一 D3 这边的结束条件没走到（bug、异常路径），D1 会用这个把抓取强制拆掉 ——
+   * 一个解不开的抓取就是永久卡死，这条通道必须存在。
+   */
+  abortGrab(): void {
+    this.endGrab()
+  }
+
+  /** 抓取结束（没挣脱的那些路径：硬上限、玩家死、抓取者死）。 */
+  private endGrab(): void {
+    const g = this.grab
+    if (!g) return
+    const model = g.entry.model
+    if (model.alive && model.state === 'grabbing') model.setState('chase', this.clock.nowMs)
+    // 同类冷却**从抓取结束起算** —— 异常结束同样要挡住连锁抓
+    this.grabberReadyAtMs = this.clock.nowMs + this.grabberConfig().sameTypeCooldownMs
+    this.grab = null
+  }
+
+  /** 挣脱：把它甩出去。它飞出去之后才落地、才死、才炸。 */
+  private releaseGrab(g: GrabRun): void {
+    const cfg = this.grabberConfig()
+    const model = g.entry.model
+    const player = this.playerOf()
+    const origin = player
+      ? { x: player.x, y: player.y }
+      : { x: g.entry.view.x, y: g.entry.view.y }
+    const others = this.weaponTargets().filter((t) => t.id !== model.id)
+    const dir = pickFlingDirection(
+      origin,
+      cfg.flingDistance,
+      cfg.blastRadius,
+      others,
+      this.nav ? (a, b) => !this.nav!.hasLineOfSight(a.x, a.y, b.x, b.y) : undefined,
+    )
+    const speed = this.derivedGrabber(this.bundle.enemies.enemies.grabber).flingSpeed
+    // 飞行是**意图**，不是一次性冲量：`applyVelocityIntent()` 每步都会覆盖物理体的速度，
+    // 设一次等于下一帧就被抹掉（brain 的 `flung` 分支负责把它原样喂回去）。
+    model.flingVx = dir.x * speed
+    model.flingVy = dir.y * speed
+    model.setState('flung', this.clock.nowMs)
+    this.grabberReadyAtMs = this.clock.nowMs + cfg.sameTypeCooldownMs
+    this.grab = null
+    this.flight = {
+      entry: g.entry,
+      startedAtMs: this.clock.nowMs,
+      stuckMs: 0,
+      lastX: g.entry.view.x,
+      lastY: g.entry.view.y,
+      lastAtMs: this.clock.nowMs,
+    }
+  }
+
+  /**
+   * 飞行与落地。**跑在解冻之后**（挂在每帧那一段，物理是活的）——
+   * 位置由物理体走，这里只回答「这一帧算不算落地了」。
+   */
+  private stepFlight(nowMs: number): void {
+    const f = this.flight
+    if (!f) return
+    const model = f.entry.model
+    if (!model.alive || model.state !== 'flung') {
+      // 它在半空中就没了（被补枪、被别的爆炸卷进去、被清场……）：
+      // **爆炸照放**，摆在它最后待过的位置。甩出去那一下是挣脱的回报，
+      // 不能因为「它提前死了」就悄无声息地取消掉。
+      this.blastAt(f.lastX, f.lastY, model.id)
+      this.flight = null
+      return
+    }
+    const cfg = this.grabberConfig()
+    const x = f.entry.view.x
+    const y = f.entry.view.y
+    const r = shouldLand(
+      { flingTimeMs: cfg.flingTimeMs },
+      nowMs - f.startedAtMs,
+      Math.hypot(x - f.lastX, y - f.lastY),
+      f.stuckMs,
+      Math.max(0, nowMs - f.lastAtMs),
+    )
+    f.stuckMs = r.stuckForMs
+    f.lastX = x
+    f.lastY = y
+    f.lastAtMs = nowMs
+    if (!r.land) return
+
+    this.flight = null
+    // 落地：**它死在这儿**（挣脱时特意留了 1 血），炸在它落下的位置
+    this.blastAt(x, y, model.id)
+    // ⚠️ 用 `dieOnLanding()` 而不是 `takeHit()`：飞行的整段免疫外来伤害
+    //（它只剩 1 血，玩家正握着枪），而落地这一下必须**一定生效** ——
+    // 走 takeHit 会被那条免伤挡掉，它就会带着 1 血永远飞下去（实测踩过）。
+    model.dieOnLanding(nowMs)
+  }
+
+  /**
+   * 落点爆炸。**只打其它敌人** —— 爆炸半径内的玩家不掉血、不被击退，
+   * 这是挣脱这件事的正反馈（规格里专门有一条）。玩家不在 `weaponTargets()` 里，
+   * 所以这条规则是结构性的，不是靠调用方记得跳过。
+   */
+  private blastAt(x: number, y: number, excludeId: number): void {
+    const cfg = this.grabberConfig()
+    this.hooks.onGrabBlast?.(x, y, cfg.blastRadius)
+    const damage = this.derivedGrabber(this.bundle.enemies.enemies.grabber).blastDamage
+    if (damage <= 0) return
+    const ids = targetsInBlast({ x, y }, cfg.blastRadius, this.weaponTargets()).filter(
+      (id) => id !== excludeId,
+    )
+    if (!ids.length) return
+    // 一次性源：每次落地**新分配**一个 sourceId（`weaponHit` 的接口注释要求）
+    const source = allocActorId()
+    for (const id of ids) this.weaponHit(id, source, damage, null)
+  }
+
   private resolveAttack(entry: Entry, attack: BrainAttack): void {
+    if (attack.kind === 'grab') {
+      // ⚠️ **不重新量距离。** 肉盾的下砸要在这一帧重量一次（前摇的意义就是「跑得掉」），
+      //    抓取相反：预警到点就锁死、必定扑中。躲的窗口是那 2 秒预警本身，
+      //    最后一帧翻盘只会让玩家学不到任何确定的规则。
+      this.startGrab(entry)
+      return
+    }
     if (attack.kind === 'radial') {
       if (!this.clock.paused && !this.clock.frozen && this.playerOf()?.alive)
         this.radialShots.emit(
@@ -746,9 +1076,7 @@ export class EnemySystem implements ActorEventSink {
   }
 
   private aiCfgFor(model: EnemyModel) {
-    return model.enemyKind === 'tank'
-      ? this.bundle.enemies.enemies.tank.ai
-      : this.bundle.enemies.enemies.splitter.ai
+    return this.defFor(model.enemyKind).ai
   }
 
   private navView(): NavView | null {
@@ -806,15 +1134,16 @@ export class EnemySystem implements ActorEventSink {
     }
   }
 
+  /** 接触伤害。**分裂怪按代际**（每一代不一样），其余按模板。 */
   private contactDamagePerTick(model: EnemyModel): number {
-    if (model.enemyKind === 'tank') {
-      return Math.round(
-        this.bundle.enemies.enemies.tank.contactDamagePerTick * this.diffMods.enemyDamage,
-      )
+    if (model.enemyKind === 'splitter') {
+      const gens = this.bundle.enemies.enemies.splitter.generations
+      const g = gens[model.gen] ?? gens[gens.length - 1]!
+      return Math.round(g.contactDamagePerTick * this.diffMods.enemyDamage)
     }
-    const gens = this.bundle.enemies.enemies.splitter.generations
-    const g = gens[model.gen] ?? gens[gens.length - 1]!
-    return Math.round(g.contactDamagePerTick * this.diffMods.enemyDamage)
+    return Math.round(
+      this.unitDefFor(model.enemyKind).contactDamagePerTick * this.diffMods.enemyDamage,
+    )
   }
 
   // ------------------------------------------------------------ 刷怪
@@ -945,16 +1274,66 @@ export class EnemySystem implements ActorEventSink {
     return this.requestSpawn(kind, gen, x, y, 'debug')
   }
 
+  /**
+   * **三种模板的公共取值入口。**
+   *
+   * 谁要读「这个 kind 的某条数值」都走这里，别在别处再写一遍
+   * `kind === 'tank' ? A : B` —— 那种写法在加第三种模板时**不报错**，
+   * 只会让新怪静默继承分裂怪的那份数值（aggro 半径、接触伤害、贴图……）。
+   *
+   * `default` 里那句 `const never: never = kind` 是刻意的：将来再加模板时，
+   * **这里会当场编译不过**，而不是安静地走错分支。
+   */
+  private defFor(kind: EnemyKind): EnemyDef {
+    switch (kind) {
+      case 'splitter':
+        return this.bundle.enemies.enemies.splitter
+      case 'tank':
+        return this.bundle.enemies.enemies.tank
+      case 'grabber':
+        return this.bundle.enemies.enemies.grabber
+      default: {
+        const never: never = kind
+        throw new Error(`未处理的敌人模板：${String(never)}`)
+      }
+    }
+  }
+
+  /**
+   * 数值**直接挂在 def 上**的那两个模板（肉盾、抓取怪）。
+   *
+   * 分裂怪不在这里：它的 `textureKey` / `visualScale` / 接触伤害是**每一代各一份**
+   * （`generations[]`），拿不到一个平坦值 —— 所以它的那几处永远走「按代际」的支路。
+   * 这个类型收窄不是洁癖：它让「以后再加模板时忘了补支路」变成编译错误。
+   */
+  private unitDefFor(kind: 'tank' | 'grabber'): TankDef | GrabberDef {
+    return kind === 'tank'
+      ? this.bundle.enemies.enemies.tank
+      : this.bundle.enemies.enemies.grabber
+  }
+
   /** **配置 → 模型参数的唯一入口。** 派生结果按 (代际, 难度) 缓存。 */
   specFor(kind: EnemyKind, gen: number): EnemySpec {
-    if (kind === 'tank') {
-      const def = this.bundle.enemies.enemies.tank
-      return specFromTank(this.derivedTank(def), def)
+    switch (kind) {
+      case 'splitter': {
+        const def = this.bundle.enemies.enemies.splitter
+        const gens = def.generations
+        const g = gens[gen] ?? gens[gens.length - 1]!
+        return specFromSplitter(this.derivedGen(g), def)
+      }
+      case 'tank': {
+        const def = this.bundle.enemies.enemies.tank
+        return specFromTank(this.derivedTank(def), def)
+      }
+      case 'grabber': {
+        const def = this.bundle.enemies.enemies.grabber
+        return specFromGrabber(this.derivedGrabber(def), def)
+      }
+      default: {
+        const never: never = kind
+        throw new Error(`未处理的敌人模板：${String(never)}`)
+      }
     }
-    const def = this.bundle.enemies.enemies.splitter
-    const gens = def.generations
-    const g = gens[gen] ?? gens[gens.length - 1]!
-    return specFromSplitter(this.derivedGen(g), def)
   }
 
   private derivedGen(g: SplitterGenerationDef): DerivedSplitterGeneration {
@@ -969,6 +1348,13 @@ export class EnemySystem implements ActorEventSink {
   private derivedTank(def: TankDef): DerivedTank {
     if (!this.tankCache) this.tankCache = deriveTank(def, this.diffMods, this.bundle.balance)
     return this.tankCache
+  }
+
+  private derivedGrabber(def: GrabberDef): DerivedGrabber {
+    if (!this.grabberCache) {
+      this.grabberCache = deriveGrabber(def, this.diffMods, this.bundle.balance)
+    }
+    return this.grabberCache
   }
 
   /** 每发子弹打在肉盾身上的穿透 tick 伤害。D1 从这取，别在武器代码里写死 */
@@ -1037,16 +1423,21 @@ export class EnemySystem implements ActorEventSink {
     }
   }
 
+  /** 贴图 key。**分裂怪按代际**（每一代是一张图），其余按模板。 */
   private textureKeyFor(kind: EnemyKind, gen: number): string {
-    if (kind === 'tank') return this.bundle.enemies.enemies.tank.textureKey
-    const gens = this.bundle.enemies.enemies.splitter.generations
-    return (gens[gen] ?? gens[gens.length - 1]!).textureKey
+    if (kind === 'splitter') {
+      const gens = this.bundle.enemies.enemies.splitter.generations
+      return (gens[gen] ?? gens[gens.length - 1]!).textureKey
+    }
+    return this.unitDefFor(kind).textureKey
   }
 
   private visualScaleFor(kind: EnemyKind, gen: number): number {
-    if (kind === 'tank') return this.derivedTank(this.bundle.enemies.enemies.tank).visualScale
-    const gens = this.bundle.enemies.enemies.splitter.generations
-    return (gens[gen] ?? gens[gens.length - 1]!).visualScale
+    if (kind === 'splitter') {
+      const gens = this.bundle.enemies.enemies.splitter.generations
+      return (gens[gen] ?? gens[gens.length - 1]!).visualScale
+    }
+    return this.unitDefFor(kind).visualScale
   }
 
   /**
@@ -1080,6 +1471,19 @@ export class EnemySystem implements ActorEventSink {
       )
     }
     const def = this.bundle.enemies.enemies
+    if (model.enemyKind === 'grabber') {
+      const g = def.grabber
+      return makeGrabberBrain(model, {
+        sepStrength: g.ai.separationStrength,
+        sepPad: g.ai.separationPad,
+        grabRange: g.grab.range,
+        telegraphMs: g.grab.telegraphMs,
+        cooldownMs: g.grab.cooldownMs,
+        releaseRangeMult: g.grab.releaseRangeMult,
+        // 同类冷却是**所有 grabber 共享**的，所以读系统上那一个字段，不是这只怪自己的
+        sameTypeReadyAtMs: () => this.grabberReadyAtMs,
+      })
+    }
     if (model.enemyKind === 'tank') {
       const t = def.tank
       return makeTankBrain(model, {
