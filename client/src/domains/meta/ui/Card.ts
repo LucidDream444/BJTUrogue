@@ -1,4 +1,5 @@
 import Phaser from 'phaser'
+import { GOOSE_ART } from '@/core/assetManifest'
 import type { CharacterDef } from '../catalog'
 import { THEME, fontPx } from './theme'
 
@@ -38,14 +39,14 @@ export class Card {
     this.frame = scene.add.graphics()
     const art: Record<string, string> = {
       student: 'player_student_idle_s',
-      athlete: 'ui_campus_shield',
+      athlete: GOOSE_ART.portrait,
       scholar: 'ui_campus_book',
       leader: 'ui_campus_star_badge',
     }
     const key = art[def.id]
     this.portrait = key && scene.textures.exists(key) ? scene.add.image(x, y - 14, key, 0) : null
     if (this.portrait) {
-      const size = def.id === 'student' ? 118 : 65
+      const size = def.id === GOOSE_ART.characterId ? GOOSE_ART.portraitSize : def.id === 'student' ? 118 : 65
       this.portrait.setScale(size / Math.max(this.portrait.width, this.portrait.height))
       this.portrait.texture.setFilter(Phaser.Textures.FilterMode.NEAREST)
     }
@@ -57,7 +58,7 @@ export class Card {
       })
       .setOrigin(0.5)
     this.blurbText = scene.add
-      .text(x, y + this.height / 2 - 30, def.id === 'student' ? '均衡 · 初始角色' : '等待解锁', {
+      .text(x, y + this.height / 2 - 30, def.blurb, {
         fontFamily: THEME.font.family,
         fontSize: fontPx(11),
         color: THEME.text.dim,

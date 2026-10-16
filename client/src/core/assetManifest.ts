@@ -74,6 +74,50 @@ export const TANK_ART = { walk: 'enemy_tank_walk', attack: 'enemy_tank_idle' } a
 
 export const WEAPON_ART = { chest: 'chest', pistol: 'weapon_pistol' } as const
 
+/** 大鹅保留 athlete 存档身份；这里只定义美术几何，不定义角色数值。 */
+export const GOOSE_ART = {
+  characterId: 'athlete',
+  portrait: 'player_goose_portrait',
+  portraitSize: 92,
+  frameSize: 96,
+  visualScale: 0.5,
+  foot: [48, 86],
+  neck: { texture: 'player_goose_neck', pivot: [14, 48], mouth: [84, 48], axis: 0 },
+  directions: {
+    right: { body: 'player_goose_body_right', socket: [60, 60] },
+    left: { body: 'player_goose_body_left', socket: [34, 60] },
+    up: { body: 'player_goose_body_up', socket: [48, 58] },
+    down: { body: 'player_goose_body_down', socket: [48, 62] },
+  },
+  states: {
+    idle: { start: 0, count: 4, frameRate: 4, loop: true },
+    run: { start: 4, count: 8, frameRate: 10, loop: true },
+    shoot: { start: 12, count: 4, frameRate: 18, loop: false },
+    hurt: { start: 16, count: 4, frameRate: 9, loop: false },
+    death: { start: 20, count: 4, frameRate: 8, loop: false },
+  },
+  guns: {
+    pencil: 'player_goose_gun_pencil', pulse: 'player_goose_gun_pulse',
+    venom: 'player_goose_gun_venom', flare: 'player_goose_gun_flare',
+    rail: 'player_goose_gun_rail', smg: 'player_goose_gun_smg',
+  },
+  gunSize: [48, 32],
+  grip: [12, 16],
+  muzzle: [44, 16],
+} as const
+
+function gooseAssets(): AssetEntry[] {
+  return [
+    ...[...Object.values(GOOSE_ART.directions).map((d) => d.body), GOOSE_ART.neck.texture].map((key) => ({
+      key, path: `sprites/player/goose/${key}.png`, placeholder: false,
+      kind: 'spritesheet' as const, frameWidth: GOOSE_ART.frameSize, frameHeight: GOOSE_ART.frameSize,
+    })),
+    ...[GOOSE_ART.portrait, ...Object.values(GOOSE_ART.guns)].map((key) => ({
+      key, path: `sprites/player/goose/${key}.png`, placeholder: false, kind: 'image' as const,
+    })),
+  ]
+}
+
 export const GAME_CURSOR_ART = {
   arrow: { key: 'ui_cursor_arrow_game', hotspotX: 7, hotspotY: 6 },
   hand: { key: 'ui_cursor_hand_game', hotspotX: 13, hotspotY: 5 },
@@ -195,9 +239,9 @@ export const ASSETS: readonly AssetEntry[] = [
   {
     key: 'enemy_stage2_idle',
     path: 'sprites/enemies/stage2_boss/enemy_stage2_idle.png',
-    placeholder: false,
+    placeholder: true,
     kind: 'spritesheet',
-    width: 128,
+    width: 96,
     height: 128,
     frameWidth: 128,
     frameHeight: 128,
@@ -205,9 +249,9 @@ export const ASSETS: readonly AssetEntry[] = [
   {
     key: 'enemy_stage2_attack',
     path: 'sprites/enemies/stage2_boss/enemy_stage2_attack.png',
-    placeholder: false,
+    placeholder: true,
     kind: 'spritesheet',
-    width: 128,
+    width: 96,
     height: 128,
     frameWidth: 128,
     frameHeight: 128,
@@ -249,9 +293,9 @@ export const ASSETS: readonly AssetEntry[] = [
   {
     key: 'boss_final_poison',
     path: 'sprites/enemies/final_boss/boss_final_poison.png',
-    placeholder: false,
+    placeholder: true,
     kind: 'spritesheet',
-    width: 128,
+    width: 96,
     height: 128,
     frameWidth: 128,
     frameHeight: 128,
@@ -260,9 +304,9 @@ export const ASSETS: readonly AssetEntry[] = [
   {
     key: 'boss_final_walk',
     path: 'sprites/enemies/final_boss/boss_final_walk.png',
-    placeholder: false,
+    placeholder: true,
     kind: 'spritesheet',
-    width: 128,
+    width: 96,
     height: 128,
     frameWidth: 128,
     frameHeight: 128,
@@ -270,9 +314,9 @@ export const ASSETS: readonly AssetEntry[] = [
   {
     key: 'boss_final_attack',
     path: 'sprites/enemies/final_boss/boss_final_attack.png',
-    placeholder: false,
+    placeholder: true,
     kind: 'spritesheet',
-    width: 128,
+    width: 96,
     height: 128,
     frameWidth: 128,
     frameHeight: 128,
@@ -280,9 +324,9 @@ export const ASSETS: readonly AssetEntry[] = [
   {
     key: 'boss_final_idle',
     path: 'sprites/enemies/final_boss/boss_final_idle.png',
-    placeholder: false,
+    placeholder: true,
     kind: 'spritesheet',
-    width: 128,
+    width: 96,
     height: 128,
     frameWidth: 128,
     frameHeight: 128,
@@ -552,7 +596,7 @@ export const ASSETS: readonly AssetEntry[] = [
   },
   {
     key: 'enemy_tank_walk',
-    path: 'sprites/enemies/enemy_tank_walk.png',
+    path: 'sprites/enemies/enemy_tank_textbook_walk.png',
     placeholder: false,
     kind: 'spritesheet',
     width: 96,
@@ -1184,10 +1228,10 @@ export const ASSETS: readonly AssetEntry[] = [
       frameHeight: 64,
     },
   ] as const),
-  // ---- 敌人：皇冠史莱姆分裂怪三代。统一使用 64×64 四行四列动画图集，代际用 visualScale 区分 ----
+  // ---- 敌人：纸团三代。64×64，4 列 8 行；0–7 待机，8–31 展开分裂 / 淡出 ----
   {
-    key: 'enemy_slime_t1_idle',
-    path: 'sprites/enemies/enemy_slime_idle.png',
+    key: 'enemy_splitter_t1_idle',
+    path: 'sprites/enemies/enemy_splitter_paper.png',
     placeholder: false,
     kind: 'spritesheet',
     width: 64,
@@ -1196,8 +1240,8 @@ export const ASSETS: readonly AssetEntry[] = [
     frameHeight: 64,
   },
   {
-    key: 'enemy_slime_t2_idle',
-    path: 'sprites/enemies/enemy_slime_idle.png',
+    key: 'enemy_splitter_t2_idle',
+    path: 'sprites/enemies/enemy_splitter_paper.png',
     placeholder: false,
     kind: 'spritesheet',
     width: 64,
@@ -1206,8 +1250,8 @@ export const ASSETS: readonly AssetEntry[] = [
     frameHeight: 64,
   },
   {
-    key: 'enemy_slime_t3_idle',
-    path: 'sprites/enemies/enemy_slime_idle.png',
+    key: 'enemy_splitter_t3_idle',
+    path: 'sprites/enemies/enemy_splitter_paper.png',
     placeholder: false,
     kind: 'spritesheet',
     width: 64,
@@ -1216,10 +1260,10 @@ export const ASSETS: readonly AssetEntry[] = [
     frameHeight: 64,
   },
 
-  // ---- 敌人：巨型肉盾怪 ----
+  // ---- 敌人：厚课本（保留 tank 逻辑身份与 key）----
   {
     key: 'enemy_tank_idle',
-    path: 'sprites/enemies/enemy_tank_idle.png',
+    path: 'sprites/enemies/enemy_tank_textbook_attack.png',
     placeholder: false,
     kind: 'spritesheet',
     width: 96,
@@ -1269,6 +1313,7 @@ export const ASSETS: readonly AssetEntry[] = [
 
   // ---- 玩家分层：身体层 / 手臂+枪层（由 PLAYER_LAYER_BASES 展开，见上）----
   ...playerLayerAssets(),
+  ...gooseAssets(),
 ]
 
 function audio(key: string, path: string): AssetEntry {
@@ -1298,7 +1343,41 @@ export interface AnimDef {
   yoyo?: boolean
 }
 
+export const GOOSE_ANIMS: readonly AnimDef[] = [
+  ...Object.values(GOOSE_ART.directions).map((d) => d.body), GOOSE_ART.neck.texture,
+].flatMap((textureKey) => Object.entries(GOOSE_ART.states).map(([state, a]) => ({
+  animKey: `${textureKey}_${state}`, textureKey,
+  frames: Array.from({ length: a.count }, (_, i) => a.start + i),
+  frameRate: a.frameRate, repeat: a.loop ? -1 : 0,
+})))
+
+export const PAPER_DEATH_ANIMS: readonly AnimDef[] = [
+  {
+    animKey: 'enemy_splitter_unfold_two',
+    textureKey: 'enemy_splitter_t1_idle',
+    frames: [8, 9, 10, 11, 12, 13, 14, 15],
+    frameRate: 24,
+    repeat: 0,
+  },
+  {
+    animKey: 'enemy_splitter_unfold_four',
+    textureKey: 'enemy_splitter_t1_idle',
+    frames: [16, 17, 18, 19, 20, 21, 22, 23],
+    frameRate: 24,
+    repeat: 0,
+  },
+  {
+    animKey: 'enemy_splitter_unfold_fade',
+    textureKey: 'enemy_splitter_t1_idle',
+    frames: [24, 25, 26, 27, 28, 29, 30, 31],
+    frameRate: 24,
+    repeat: 0,
+  },
+]
+
 export const ANIMS: readonly AnimDef[] = [
+  ...GOOSE_ANIMS,
+  ...PAPER_DEATH_ANIMS,
   {
     animKey: 'enemy_stage2_idle_anim',
     textureKey: 'enemy_stage2_idle',
@@ -1452,7 +1531,7 @@ export const ANIMS: readonly AnimDef[] = [
     animKey: 'enemy_tank_walk_loop',
     textureKey: 'enemy_tank_walk',
     frames: [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15],
-    frameRate: 8,
+    frameRate: 16,
     repeat: -1,
   },
   {
@@ -1463,24 +1542,24 @@ export const ANIMS: readonly AnimDef[] = [
     repeat: 0,
   },
   {
-    animKey: 'enemy_slime_t1_idle_loop',
-    textureKey: 'enemy_slime_t1_idle',
-    frames: [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15],
-    frameRate: 8,
+    animKey: 'enemy_splitter_t1_idle_loop',
+    textureKey: 'enemy_splitter_t1_idle',
+    frames: [0, 1, 2, 3, 4, 5, 6, 7],
+    frameRate: 12,
     repeat: -1,
   },
   {
-    animKey: 'enemy_slime_t2_idle_loop',
-    textureKey: 'enemy_slime_t2_idle',
-    frames: [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15],
-    frameRate: 8,
+    animKey: 'enemy_splitter_t2_idle_loop',
+    textureKey: 'enemy_splitter_t2_idle',
+    frames: [0, 1, 2, 3, 4, 5, 6, 7],
+    frameRate: 12,
     repeat: -1,
   },
   {
-    animKey: 'enemy_slime_t3_idle_loop',
-    textureKey: 'enemy_slime_t3_idle',
-    frames: [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15],
-    frameRate: 8,
+    animKey: 'enemy_splitter_t3_idle_loop',
+    textureKey: 'enemy_splitter_t3_idle',
+    frames: [0, 1, 2, 3, 4, 5, 6, 7],
+    frameRate: 12,
     repeat: -1,
   },
   {

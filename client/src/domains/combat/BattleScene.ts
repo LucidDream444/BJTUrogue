@@ -291,6 +291,7 @@ export class BattleScene extends Phaser.Scene {
       // 档只在"这一局结束"和"打开暂停菜单"这两个时刻被碰，核心循环里一个字都没有。
       this.store = new ProfileStore({ storage: new LocalStorageProfileStorage() })
       this.store.load()
+      this.session.player.setCharacter(this.store.profile.selected.characterId)
       const syncAudio = (): void => {
         const { bgmVolume, sfxVolume } = this.store.profile.settings
         this.session.setAudioVolumes(bgmVolume, sfxVolume)
