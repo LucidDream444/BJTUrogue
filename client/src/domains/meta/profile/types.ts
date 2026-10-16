@@ -46,9 +46,11 @@ export const PROFILE_STORAGE_KEY = 'bjtu-rogue:profile'
 export const PROFILE_BACKUP_KEY = 'bjtu-rogue:profile:backup'
 
 /**
- * 显示模式。默认 `fullscreen`（需求 §4.5），但**它只是一个偏好值，
- * 应用它必须发生在一次用户点击里** —— 浏览器不许页面在加载时自动进全屏
- * （`AGENTS.md` §九 第 3 条）。
+ * 显示模式。默认 **`windowed`** —— **不是**需求 §4.5 草图上写的 `fullscreen`，
+ * 理由见 [`defaults.ts`](./defaults.ts) 文件头那条 ⚠️（一句话：浏览器不许页面
+ * 在加载时自动进全屏，默认值写全屏 = 设置界面第一帧就在说假话）。
+ *
+ * **它只是一个偏好值**，应用它必须发生在一次用户点击里（`AGENTS.md` §九 第 3 条）。
  */
 export type DisplayMode = 'fullscreen' | 'windowed'
 
