@@ -270,7 +270,7 @@ export class PauseOverlay {
     )
     this.noticeText = frame.notice
 
-    if (this.screen === 'paused') this.buildPauseBody(frame.cx, frame.cy, frame.contentTop, sink)
+    if (this.screen === 'paused') this.buildPauseBody(frame.cx, frame.contentTop, sink)
     if (this.screen === 'help') buildHelpPanel(this.scene, sink, frame)
     if (this.screen === 'settings') {
       this.settingsParts = buildSettingsPanel(this.scene, sink, frame, this.store, (mode) =>
@@ -282,7 +282,7 @@ export class PauseOverlay {
     this.layer?.attach(this.parts)
   }
 
-  private buildPauseBody(cx: number, cy: number, contentTop: number, sink: PanelSink): void {
+  private buildPauseBody(cx: number, contentTop: number, sink: PanelSink): void {
     // ---- 左栏：四个按钮 ----
     const buttonX = cx - PANEL_WIDTH / 2 + THEME.space.lg + 130
     MENU_LABELS.forEach((label, i) => {
@@ -295,21 +295,15 @@ export class PauseOverlay {
       )
     })
 
-    // ---- 左下：游戏音量 ----
-    // ⚠️ 这个滑杆绑的是档里的 `bgmVolume`，**不是第三份音量**。
-    // 需求 §4.5 的备注写得很明确：「BGM 音量 …… 与暂停菜单的『游戏音量』同步」。
-    // 两个界面读的是同一份档，所以"改一处两边同步"不需要任何同步代码 ——
-    // 它只有一个真值来源。
-    sink.slider(
-      new Slider(
-        this.scene,
-        cx - PANEL_WIDTH / 2 + THEME.space.lg,
-        cy + 90,
-        '游戏音量',
-        this.store.profile.settings.bgmVolume,
-        { width: 240, onChange: (v) => this.store.setSettings({ bgmVolume: v }) },
-      ),
-    )
+    // ---- 左下：**这里原来是「游戏音量」滑杆，2026-10-16 删掉了** ----
+    // 它和「设置 → BGM 音量」绑的是同一个 `bgmVolume`（需求 §4.5 的备注要求两者同步），
+    // 也就是说同一份数据在同一个弹层里有两个入口：一个是本体上的滑杆，
+    // 一个是「设置」里的那条。用户报"按钮下面单独的游戏音量"是多余的 —— 说得对，
+    // 而且它格外容易让人以为"游戏音量"是第三种音量（BGM 之外的一种）。
+    // 现在只剩设置里那一条，**真值来源仍然只有 `bgmVolume` 一个**。
+    //
+    // 删除后左下留出的空档**不补别的东西**：面板高度 440 是按"四个按钮 + 一块角色卡"
+    // 定的，塞满反而更挤。
 
     // ---- 右栏：当前角色数据 ----
     const snapshot = this.snapshot
