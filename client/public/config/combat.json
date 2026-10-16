@@ -14,7 +14,8 @@
     "maxShield": 5,
     "gunRunFirstFrame": 0,
     "gunRunFrameCount": 14,
-    "gunRunFrameRate": 8
+    "gunRunFrameRate": 8,
+    "facingDeadzonePx": 10
   },
   "projectiles": {
     "capacity": 160,
@@ -1067,6 +1068,20 @@
         41.5
       ]
     ]
+  },
+  "gunPivots": {
+    "shoot": [50, 41],
+    "runGun": [46, 40.5],
+    "pulseShoot": [52, 43.5],
+    "pulseRun": [56, 42],
+    "venomShoot": [52, 43.5],
+    "venomRun": [56, 42],
+    "flareShoot": [52, 43.5],
+    "flareRun": [56, 42],
+    "railShoot": [52, 43.5],
+    "railRun": [56, 42],
+    "smgShoot": [52, 43.5],
+    "smgRun": [56, 42]
   },
   "drops": {
     "chance": 0.5,
