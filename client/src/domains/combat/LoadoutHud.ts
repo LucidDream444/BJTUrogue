@@ -17,16 +17,16 @@ export class LoadoutHud {
     for (let i = 0; i < 2; i++) {
       const x = i * 192
       const panel = scene.add
-        .rectangle(x, 0, 181, 63, 0x071321, 0.9)
+        .rectangle(x, 0, 181, 63, 0x15231b, 0.9)
         .setOrigin(0)
-        .setStrokeStyle(1, 0x294b67)
+        .setStrokeStyle(1, 0x756144)
       const icon = scene.add
         .image(x + 31, 30, textureKeyFor(scene, WEAPON_ART.pistol))
         .setDisplaySize(42, 40)
       const label = scene.add.text(x + 59, 11, '', {
         fontFamily: 'Microsoft YaHei',
         fontSize: '12px',
-        color: '#c8deee',
+        color: '#eddfbf',
         lineSpacing: 6,
       })
       this.root.add([panel, icon, label])
@@ -47,7 +47,7 @@ export class LoadoutHud {
         weapon = id ? this.session.cfg.weapons.find((w) => w.id === id) : undefined,
         active = id === this.session.weapon.id,
         slot = this.slots[i]!
-      slot.panel.setStrokeStyle(active ? 2 : 1, active ? 0x77ebff : 0x294b67)
+      slot.panel.setStrokeStyle(active ? 2 : 1, active ? 0xd5b274 : 0x756144)
       slot.icon
         .setTexture(textureKeyFor(this.scene, weapon?.artKey ?? WEAPON_ART.pistol))
         .setAlpha(weapon ? 1 : 0.2)
@@ -57,7 +57,7 @@ export class LoadoutHud {
             ? i + 1 + '  ' + weapon.name + '\n' + weapon.staminaCost + ' 能量 / 发'
             : i + 1 + '  未获得\n拾取新武器可替换',
         )
-        .setColor(active ? '#9bf4ff' : '#9aaebe')
+        .setColor(active ? '#efd198' : '#a8b69d')
     }
   }
 }

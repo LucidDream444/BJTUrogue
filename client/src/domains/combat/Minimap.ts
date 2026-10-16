@@ -195,7 +195,9 @@ export class Minimap {
     const x = wv.x + (camera.width - PANEL.inset - PANEL.width) / camera.zoom
     const y = wv.y + PANEL.inset / camera.zoom
     this.gfx.setScale(1 / camera.zoom).setPosition(x, y)
-    this.title.setScale(1 / camera.zoom).setPosition(x + PANEL.padding / camera.zoom, y + (PANEL.height - 14) / camera.zoom)
+    this.title
+      .setScale(1 / camera.zoom)
+      .setPosition(x + PANEL.padding / camera.zoom, y + (PANEL.height - 14) / camera.zoom)
   }
 
   destroy(): void {
