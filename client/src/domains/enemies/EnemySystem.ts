@@ -89,7 +89,7 @@ import { makeSplitterBrain } from './brains/SplitterBrain'
 import { makeTankBrain } from './brains/TankBrain'
 import { makeRadialBossBrain } from './brains/RadialBossBrain'
 import { RadialProjectiles } from './projectiles/RadialProjectiles'
-import { STAGE2_BOSS_ART } from '@/core/assetManifest'
+import { bossArt } from './presentation/bossArt'
 
 type EnemyActor = Actor<EnemyState>
 export type Entry = PooledEnemy<EnemyActor>
@@ -998,14 +998,13 @@ export class EnemySystem implements ActorEventSink {
 
       const model = entry.model
       const position = this.safeSpawn?.(req.x, req.y, model.stats.radius) ?? req
+      const portrait =
+        req.bossStage === undefined ? null : bossArt(req.bossStage, req.finalBoss ?? false)
       entry.view.spawnAt({
         x: position.x,
         y: position.y,
         collideWorldBounds: this.nav !== null,
-        textureKey:
-          req.bossStage === 2 && !req.finalBoss
-            ? STAGE2_BOSS_ART.idle
-            : this.textureKeyFor(model.enemyKind, model.gen),
+        textureKey: portrait?.key ?? this.textureKeyFor(model.enemyKind, model.gen),
         visualScale:
           req.bossStage === 2 && !req.finalBoss
             ? this.bundle.enemies.stage2Boss.visualScale
@@ -1014,6 +1013,8 @@ export class EnemySystem implements ActorEventSink {
         // 能把怪甩出房间。这只是兜底，不参与正常移动。
         speedCap: model.stats.speed * 3,
       })
+      // Bosses and textbooks share pool buckets. Never carry a boss tint into a normal enemy.
+      entry.view.clearTint().setTint(portrait?.tint ?? 0xffffff)
 
       this.byId.set(model.id, entry)
       if (req.bossStage !== undefined) this.bossStages.set(model.id, req.bossStage)
