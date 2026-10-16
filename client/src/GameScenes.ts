@@ -60,104 +60,41 @@ export class MainMenuScene extends Phaser.Scene {
     )
     this.title = this.add.container(0, 0, [titleText, flourish])
 
-    const frame = this.drawButton(false)
-    const highlight = this.drawButton(true).setAlpha(0)
-    const label = this.add
-      .text(0, 0, '开 始 冒 险', {
+    const hint = this.add
+      .text(0, 0, '点击任意位置开始游戏', {
         fontFamily: UI_FONT,
-        fontSize: '26px',
-        color: '#fff0d9',
-        padding: { top: 6, bottom: 6 },
+        fontSize: '18px',
+        color: '#f0dcc2',
+        padding: { left: 22, right: 22, top: 10, bottom: 10 },
         shadow: { color: '#111827', blur: 8, fill: true, offsetY: 2, offsetX: 0 },
       })
       .setOrigin(0.5)
       .setResolution(Math.min(window.devicePixelRatio || 1, 2))
-    const hitArea = this.add.zone(0, 0, 304, 68).setInteractive({ useHandCursor: true })
-    const button = this.add.container(0, 0, [frame, highlight, label, hitArea])
-    const metaButton = this.add
-      .text(0, 72, '局外成长', {
-        fontFamily: UI_FONT,
-        fontSize: '16px',
-        color: '#e2cdb5',
-        padding: { left: 22, right: 22, top: 10, bottom: 10 },
-      })
-      .setOrigin(0.5)
-      .setInteractive({ useHandCursor: true })
-    metaButton.on('pointerover', () => metaButton.setColor('#fff3df'))
-    metaButton.on('pointerout', () => metaButton.setColor('#e2cdb5'))
-    metaButton.on('pointerup', () =>
-      this.scene.start('MainMenu', {
-        onExit: () => this.scene.start('main-menu'),
-      }),
-    )
-    this.content = this.add.container(0, 0, [button, metaButton])
-
-    let pressed = false
-    const setHover = (hover: boolean): void => {
-      this.tweens.killTweensOf([button, highlight])
-      this.tweens.add({ targets: button, y: hover ? -3 : 0, duration: 180, ease: 'Sine.easeOut' })
-      this.tweens.add({ targets: highlight, alpha: hover ? 1 : 0, duration: 180 })
-    }
-    hitArea.on('pointerover', () => setHover(true))
-    hitArea.on('pointerout', () => {
-      pressed = false
-      setHover(false)
-    })
-    hitArea.on('pointerdown', () => {
-      pressed = true
-      this.tweens.killTweensOf(button)
-      button.setY(1)
-    })
-    hitArea.on('pointerup', () => {
-      if (pressed) this.startGame()
-      pressed = false
+    this.content = this.add.container(0, 0, [hint])
+    // 没有按钮可点了，这一屏的可点性只剩这行字来交代 —— 让它慢慢呼吸一下。
+    // 不用手动停它：场景关掉时 Phaser 会连带清掉自己名下的 tween。
+    this.tweens.add({
+      targets: hint,
+      alpha: { from: 0.55, to: 1 },
+      duration: 1400,
+      yoyo: true,
+      repeat: -1,
+      ease: 'Sine.easeInOut',
     })
 
-    this.input.keyboard?.on('keydown-ENTER', this.startGame, this)
+    // **整屏都是「开始」**：点哪儿都行，按哪个键都行。
+    // `enterMainMenu()` 里的 `entering` 既挡重复触发，也挡长按的连发
+    // （按住一个键时 Phaser 会重复派发 `keydown`）。
+    this.input.on('pointerup', this.enterMainMenu, this)
+    this.input.keyboard?.on('keydown', this.enterMainMenu, this)
+
     this.scale.on('resize', this.layout, this)
     this.events.once(Phaser.Scenes.Events.SHUTDOWN, () => {
       this.scale.off('resize', this.layout, this)
-      this.input.keyboard?.off('keydown-ENTER', this.startGame, this)
+      this.input.off('pointerup', this.enterMainMenu, this)
+      this.input.keyboard?.off('keydown', this.enterMainMenu, this)
     })
     this.layout()
-  }
-
-  private drawButton(highlight: boolean): Phaser.GameObjects.Graphics {
-    const graphics = this.add.graphics()
-    const edge = 0xf3d4ac
-    const outline = [
-      { x: -140, y: -34 },
-      { x: 152, y: -34 },
-      { x: 152, y: 22 },
-      { x: 140, y: 34 },
-      { x: -152, y: 34 },
-      { x: -152, y: -22 },
-    ]
-
-    graphics.fillStyle(highlight ? 0x655465 : 0x171e34, highlight ? 0.85 : 0.78)
-    graphics.fillPoints(outline, true)
-    graphics.lineStyle(1, edge, highlight ? 1 : 0.7)
-    graphics.strokePoints(outline, true)
-    graphics.lineStyle(1, edge, highlight ? 0.4 : 0.2)
-    graphics.strokeRect(-145, -27, 290, 54)
-
-    // Small ornaments keep the frame light against the sunset illustration.
-    graphics.lineStyle(1, edge, 0.5)
-    graphics.lineBetween(-195, 0, -174, 0)
-    graphics.lineBetween(174, 0, 195, 0)
-    for (const x of [-167, 167]) {
-      graphics.fillStyle(edge, 0.9)
-      graphics.fillPoints(
-        [
-          { x, y: -3 },
-          { x: x + 3, y: 0 },
-          { x, y: 3 },
-          { x: x - 3, y: 0 },
-        ],
-        true,
-      )
-    }
-    return graphics
   }
 
   private layout(): void {
@@ -185,9 +122,16 @@ export class MainMenuScene extends Phaser.Scene {
     this.content.setScale(scale).setPosition(x, height * (width < height ? 0.86 : 0.68))
   }
 
-  private startGame(): void {
+  /**
+   * 去**主界面**（D4 的 `MainMenu`），**不是**直接开打。
+   *
+   * 标题画面不再持有进战斗的路径 —— 选角色、选难度、进升级页都在主界面上，
+   * 「开始闯关」是主界面那一件事（`MainMenuScene` 里的 `scene.start('battle', …)`）。
+   * 这里给它 `onExit`：主界面上按 Esc 退回标题画面。
+   */
+  private enterMainMenu(): void {
     if (this.entering) return
     this.entering = true
-    this.scene.start('battle')
+    this.scene.start('MainMenu', { onExit: () => this.scene.start('main-menu') })
   }
 }
