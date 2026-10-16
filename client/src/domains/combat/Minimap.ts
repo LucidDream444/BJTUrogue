@@ -59,7 +59,7 @@ export class Minimap {
       .text(0, 0, '', {
         fontFamily: 'Microsoft YaHei, sans-serif',
         fontSize: '12px',
-        color: '#dcecff',
+        color: '#e8d6ae',
       })
       .setDepth(4601)
     this.setState(1)
@@ -114,8 +114,8 @@ export class Minimap {
   private redraw(): void {
     const g = this.gfx
     g.clear()
-    g.fillStyle(0x0a0e18, 0.82).fillRect(0, 0, PANEL.width, PANEL.height)
-    g.lineStyle(1, 0x3a4a66, 1).strokeRect(0, 0, PANEL.width, PANEL.height)
+    g.fillStyle(0x15231b, 0.94).fillRect(0, 0, PANEL.width, PANEL.height)
+    g.lineStyle(1, 0x9c8459, 1).strokeRect(0, 0, PANEL.width, PANEL.height)
 
     const inner = {
       x: PANEL.padding,
@@ -195,7 +195,7 @@ export class Minimap {
     const x = wv.x + (camera.width - PANEL.inset - PANEL.width) / camera.zoom
     const y = wv.y + PANEL.inset / camera.zoom
     this.gfx.setScale(1 / camera.zoom).setPosition(x, y)
-    this.title.setScale(1 / camera.zoom).setPosition(x + PANEL.padding, y + PANEL.height - 14)
+    this.title.setScale(1 / camera.zoom).setPosition(x + PANEL.padding / camera.zoom, y + (PANEL.height - 14) / camera.zoom)
   }
 
   destroy(): void {

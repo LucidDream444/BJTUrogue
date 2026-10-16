@@ -1,3 +1,4 @@
+import { applyPaintedRooms, parsePaintedRoomConfig, paintedGateSide } from './PaintedRooms'
 import Phaser from 'phaser'
 import { preloadAssets, ensurePlaceholderTextures, registerAnimations } from '@/core/assets'
 import { parseConfigBundle, type ConfigBundle, type Difficulty } from '@/core/config'
@@ -167,6 +168,7 @@ export class BattleScene extends Phaser.Scene {
       'enemies.json',
       'combat.json',
       'stage-collisions.json',
+      'painted-rooms.json',
       'rewards.json',
       // D2 的地牢生成配置。**必须走 Phaser 的 loader，不能 fetch** ——
       // 场景生命周期保证 `create()` 一定在所有加载完成之后才跑。
@@ -195,14 +197,14 @@ export class BattleScene extends Phaser.Scene {
       //    （它本来是给测试场复现用的），拿它当每局的种子 = 每局都生成一模一样的一层楼，
       //    「随机生成」四个字就没了。下面把用到的种子留在场上，方便复现同一层。
       this.runSeed = (Math.random() * 0x7fffffff) | 0
-      this.dungeon = buildDungeonStages(
+      this.dungeon = applyPaintedRooms(buildDungeonStages(
         this.runSeed,
         parseRoomsConfig({
           ...(this.cache.json.get(ROOMS_CONFIG_NAME) as object),
           ...ROOMS_PER_RUN,
         }),
         this.cfg,
-      )
+      ), parseStageCollisions(this.cache.json.get('stage-collisions.json'), 3), parsePaintedRoomConfig(this.cache.json.get('painted-rooms.json')), this.cfg)
       // 过 D1 自己的校验器。**不是形式**：关编号、标识唯一、矩形不越界、
       // 出生点不在墙里 —— 四条都是这个接法最容易错的地方，而错了都不报错。
       this.stageConfig = parseStageCollisions(this.dungeon.stages, this.roomCount)
@@ -495,6 +497,7 @@ export class BattleScene extends Phaser.Scene {
         kind: r.room.kind,
         rectInBox: r.rectInBox,
         doorTargets: r.doorTargets,
+        gateSides: r.doorTargets.map((_, i) => paintedGateSide(r, i)),
       })),
     )
   }
