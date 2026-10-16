@@ -28,6 +28,7 @@
  */
 
 import Phaser from 'phaser'
+import { CAMPAIGN_ART, findAsset, imageUrl } from '@/core/assetManifest'
 import { CHARACTERS, DIFFICULTY_LABELS, DIFFICULTY_ORDER, characterById } from '../catalog'
 import {
   MENU_ACTIONS,
@@ -78,7 +79,16 @@ export interface MainMenuData {
 }
 
 /** 竖排按钮的起点，给角色区留出上面的空间 */
-const BUTTON_TOP = 170
+const MENU_ART = [
+  CAMPAIGN_ART.title,
+  CAMPAIGN_ART.level1,
+  CAMPAIGN_ART.level2,
+  CAMPAIGN_ART.level3,
+  'player_student_idle_s',
+  'ui_campus_book',
+  'ui_campus_shield',
+  'ui_campus_star_badge',
+]
 
 export class MainMenuScene extends Phaser.Scene {
   private store!: ProfileStore
@@ -135,6 +145,16 @@ export class MainMenuScene extends Phaser.Scene {
     // 配置表必须走 Phaser 的 loader，**不能 import** —— `public/` 下的文件不参与
     // 打包，Vite 遇到指向它的 import 会静默换成空模块（见 `ArenaBase.preload`）。
     this.load.json(META_CONFIG_NAME, META_CONFIG_URL)
+    for (const key of MENU_ART) {
+      const asset = findAsset(key)
+      if (!asset || this.textures.exists(key)) continue
+      if (asset.kind === 'spritesheet')
+        this.load.spritesheet(key, imageUrl(asset), {
+          frameWidth: asset.frameWidth!,
+          frameHeight: asset.frameHeight!,
+        })
+      else this.load.image(key, imageUrl(asset))
+    }
   }
 
   create(): void {
@@ -260,7 +280,16 @@ export class MainMenuScene extends Phaser.Scene {
     // 主菜单**始终建**：需求 §4.5 要求「设置弹窗覆盖在主菜单之上」，
     // 所以弹层是"叠上去"的，不是"换一屏"。挡住下层点击的活儿由
     // `buildOverlay` 里那层压暗矩形干（见那里的说明）。
-    this.buildMain(W, H)
+    const compact = W < 760 || H > W
+    const dw = compact ? 640 : 1120,
+      dh = compact ? 950 : 650
+    const first = this.children.list.length
+    this.buildMain(dw, dh)
+    const content = this.children.list.slice(first)
+    const scale = Math.min((W - 24) / dw, (H - 24) / dh, 1.25)
+    this.track(
+      this.add.container((W - dw * scale) / 2, (H - dh * scale) / 2, content).setScale(scale),
+    )
     if (this.state.screen !== 'main') this.buildOverlay(W, H, this.state.screen)
 
     this.refresh()
@@ -291,123 +320,127 @@ export class MainMenuScene extends Phaser.Scene {
 
   private buildBackdrop(W: number, H: number): void {
     this.track(this.add.rectangle(W / 2, H / 2, W, H, THEME.color.backdrop).setDepth(-10))
+    if (this.textures.exists(CAMPAIGN_ART.title)) {
+      const art = this.track(this.add.image(W / 2, H / 2, CAMPAIGN_ART.title).setDepth(-9))
+      art.setScale(Math.max(W / art.width, H / art.height)).setAlpha(0.5)
+    }
+    const shade = this.track(this.add.graphics().setDepth(-8))
+    shade
+      .fillGradientStyle(0x0d1712, 0x111c18, 0x101810, 0x0b1511, 0.48, 0.26, 0.88, 0.84)
+      .fillRect(0, 0, W, H)
   }
 
   private buildMain(W: number, H: number): void {
-    const pad = THEME.space.xl
-
-    // LOGO / 标题位（需求 §4.1：「LOGO / 标题占位（虚线框）」）
-    this.track(
-      this.add.text(pad, pad, '课后勇者', {
-        fontFamily: THEME.font.family,
-        fontSize: fontPx(THEME.font.title),
-        color: THEME.text.body,
-      }),
-    )
-    this.track(
-      this.add.text(pad, pad + THEME.font.title + THEME.space.sm, '异次元校园 · 主菜单', {
-        fontFamily: THEME.font.family,
-        fontSize: fontPx(THEME.font.small),
-        color: THEME.text.dim,
-      }),
-    )
-
-    // 右上角：设置（需求 §4.1）
+    const compact = W < 800
+    const text = (
+      x: number,
+      y: number,
+      label: string,
+      size = 14,
+      color: string = THEME.text.body,
+    ) =>
+      this.track(
+        this.add
+          .text(x, y, label, {
+            fontFamily: THEME.font.family,
+            fontSize: fontPx(size),
+            color,
+            padding: { top: 3, bottom: 3 },
+          })
+          .setResolution(Math.min(window.devicePixelRatio || 1, 2)),
+      )
+    const g = this.track(this.add.graphics())
+    g.fillStyle(0x0b130f, 0.94).fillRoundedRect(0, 0, W, H, 12)
+    g.lineStyle(1, 0x9b8155, 0.8).strokeRoundedRect(0, 0, W, H, 12)
+    g.lineStyle(1, 0x9b8155, 0.25).strokeRoundedRect(7, 7, W - 14, H - 14, 8)
+    g.fillStyle(0x263a2d, 0.6).fillRoundedRect(22, 22, W - 44, 110, 6)
+    text(40, 31, 'AFTER SCHOOL  /  CAMPUS CHRONICLES', 10, '#cbb785').setLetterSpacing(2)
+    text(36, 53, '课后勇者', 48, '#f3dfb5')
+      .setFontFamily('KaiTi, STKaiti, SimSun, serif')
+      .setLetterSpacing(5)
+    text(42, 110, '下课铃响，冒险才刚刚开始。', 13, '#aebba8')
     this.overlayButtons.push(
-      new Button(this, W - pad - 50, pad + 18, '设置', () => this.open('settings'), {
-        width: 100,
-        height: 36,
-        fontSize: THEME.font.small,
+      new Button(this, W - 82, 66, '设置', () => this.open('settings'), {
+        width: 92,
+        height: 34,
+        fontSize: 13,
       }),
     )
-
-    // 左栏：四个按钮（需求 §4.1 的按钮顺序）
-    MENU_ACTIONS.forEach((action, i) => {
-      const y = BUTTON_TOP + i * (THEME.button.height + THEME.space.md)
-      this.buttons.set(
-        action,
-        new Button(this, pad + THEME.button.width / 2, y, MENU_ACTION_LABELS[action], () =>
-          this.run(action),
+    const ax = compact ? 36 : 394
+    const aw = compact ? W - 72 : W - ax - 36
+    const top = compact ? 170 : 164
+    this.unlockedText = text(ax, top, '', 17, '#e8d6ae')
+    text(ax, top + 30, '带上你的勇气，选择今天的冒险伙伴。', 12, '#9cae99')
+    const gap = 12,
+      cardW = (aw - gap * 3) / 4,
+      cardH = compact ? 210 : 228
+    CHARACTERS.forEach((def, i) => {
+      this.cards.push(
+        new Card(
+          this,
+          ax + cardW / 2 + i * (cardW + gap),
+          top + 65 + cardH / 2,
+          def,
+          () => this.pickCharacter(def.id),
+          { width: cardW, height: cardH },
         ),
       )
     })
-
-    // 角色区
-    const areaX = pad * 2 + THEME.button.width
-    const areaW = Math.max(200, W - areaX - pad)
-    const gap = THEME.space.md
-    const cardW = Math.max(
-      104,
-      Math.min(THEME.card.width, (areaW - gap * (CHARACTERS.length - 1)) / CHARACTERS.length),
-    )
-    const cardH = Math.min(THEME.card.height, H - BUTTON_TOP - 170)
-    const firstX = areaX + cardW / 2
-
-    this.unlockedText = this.track(
-      this.add.text(areaX, BUTTON_TOP - 34, '', {
-        fontFamily: THEME.font.family,
-        fontSize: fontPx(THEME.font.heading),
-        color: THEME.text.body,
-      }),
-    )
-
-    CHARACTERS.forEach((def, i) => {
-      const x = firstX + i * (cardW + gap)
-      this.cards.push(
-        new Card(this, x, BUTTON_TOP + cardH / 2, def, () => this.pickCharacter(def.id), {
-          width: cardW,
-          height: cardH,
-        }),
-      )
-    })
-
-    // 难度（需求 §4.1：简单 / 普通 / 困难，默认普通）
-    //
-    // ⚠️ 标签与按钮之间要留**真正的空隙**：标签是 origin(0,0) 的左对齐文字（高约 18），
-    // 按钮是**以中心定位**的（高 36 → 上沿在 diffY-18）。
-    // 写成 `标签 y = diffY - 28` 时按钮上沿会盖住标签下沿（实测盖掉 7px）。
-    // 要留 8px 空隙就得 `diffY - 44`；+12 是让它整体再往下让一点。
-    const diffY = BUTTON_TOP + cardH + THEME.space.xl + 38
-    this.track(
-      this.add.text(areaX, diffY - 44, '选择难度', {
-        fontFamily: THEME.font.family,
-        fontSize: fontPx(THEME.font.body),
-        color: THEME.text.dim,
-      }),
-    )
-    const diffW = 96
-    DIFFICULTY_ORDER.forEach((d, i) => {
+    const diffY = top + cardH + 113
+    text(ax, diffY, '冒险难度', 16, '#e8d6ae')
+    text(ax, diffY + 29, '按自己的节奏，探索异次元校园。', 12, '#9cae99')
+    const diffW = (aw - 24) / 3
+    DIFFICULTY_ORDER.forEach((d, i) =>
       this.difficultyButtons.set(
         d,
         new Button(
           this,
-          areaX + diffW / 2 + i * (diffW + THEME.space.sm),
-          diffY,
+          ax + diffW / 2 + i * (diffW + 12),
+          diffY + 82,
           DIFFICULTY_LABELS[d],
           () => this.pickDifficulty(d),
-          { width: diffW, height: 36, fontSize: THEME.font.small },
+          { width: diffW, height: 43, fontSize: 15 },
         ),
+      ),
+    )
+    if (!compact) {
+      g.lineStyle(1, 0x89774e, 0.35).lineBetween(364, 167, 364, H - 50)
+      text(38, 166, '放学后的校园', 22, '#f1ddb4')
+      text(40, 206, '熟悉的教室，未知的另一面。', 13, '#aab6a2')
+      const labels = ['日光教室', '奇妙实验室', '黄昏自习室']
+      ;[CAMPAIGN_ART.level1, CAMPAIGN_ART.level2, CAMPAIGN_ART.level3].forEach((key, i) => {
+        const px = 39 + i * 102
+        g.lineStyle(1, 0x9c8355, 0.7).strokeRect(px - 1, 252, 95, 62)
+        if (this.textures.exists(key))
+          this.track(this.add.image(px + 46, 283, key).setDisplaySize(92, 59))
+        text(px + 3, 321, labels[i]!, 11, '#b7b999')
+      })
+      text(40, 365, '探索房间  ·  收集装备  ·  挑战首领', 12, '#a3b19b')
+    }
+    const buttonWidth = compact ? (W - 88) / 2 : 306
+    const startY = compact ? 754 : 429
+    MENU_ACTIONS.forEach((action, i) => {
+      const bx = compact ? 36 + buttonWidth / 2 + (i % 2) * (buttonWidth + 16) : 192
+      const by = compact ? startY + Math.floor(i / 2) * 64 : startY + i * 49
+      const label = action === 'start' ? '开始冒险  →' : MENU_ACTION_LABELS[action]
+      this.buttons.set(
+        action,
+        new Button(this, bx, by, label, () => this.run(action), {
+          width: buttonWidth,
+          height: i === 0 ? 45 : 39,
+          fontSize: i === 0 ? 18 : 14,
+        }),
       )
     })
-
-    // 底部提示（需求 §4.1：「选择角色与难度后，点击『开始闯关』进入游戏」）
-    this.track(
-      this.add.text(pad, H - pad - 18, '选择角色与难度后，点击「开始闯关」', {
-        fontFamily: THEME.font.family,
-        fontSize: fontPx(THEME.font.small),
-        color: THEME.text.dim,
-      }),
+    g.lineStyle(1, 0x89774e, 0.3).lineBetween(36, H - 45, W - 36, H - 45)
+    text(
+      38,
+      H - 34,
+      compact ? '方向键选择  /  Enter 确认' : 'WASD 移动    鼠标瞄准    Space 闪避    F 过门',
+      11,
+      '#8fa18c',
     )
-
-    this.noticeText = this.track(
-      this.add
-        .text(W / 2, H - pad - 18, '', {
-          fontFamily: THEME.font.family,
-          fontSize: fontPx(THEME.font.small),
-          color: THEME.text.accent,
-        })
-        .setOrigin(0.5, 0),
-    )
+    this.noticeText = text(W - 38, H - 34, '', 11, '#d9c492').setOrigin(1, 0)
   }
 
   private buildOverlay(W: number, H: number, screen: Exclude<MenuState['screen'], 'main'>): void {

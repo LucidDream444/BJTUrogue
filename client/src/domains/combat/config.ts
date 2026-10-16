@@ -1,4 +1,5 @@
 import type { BalanceConfig } from '@/core/config'
+import { validateAimArt, type AimArtConfig } from './AimPose'
 
 export type WeaponId = 'pencil' | 'pulse' | 'venom' | 'flare' | 'rail' | 'smg'
 export type Stat =
@@ -66,6 +67,7 @@ export interface WeaponEffectsConfig {
   glowAlpha: number
 }
 export interface CombatConfig {
+  aimArt: AimArtConfig
   weaponEffects: WeaponEffectsConfig
   schemaVersion: number
   player: {
@@ -291,7 +293,12 @@ export function parseCombatConfig(raw: unknown): CombatConfig {
     c.player.gunRunFrameRate <= 0
   )
     throw new Error('player: 跑动循环长度/帧率无效')
-  for (const key of ['maxStamina', 'staminaRegenPerSec', 'maxShield', 'facingDeadzonePx'] as const) {
+  for (const key of [
+    'maxStamina',
+    'staminaRegenPerSec',
+    'maxShield',
+    'facingDeadzonePx',
+  ] as const) {
     if (!Number.isFinite(c.player[key]) || c.player[key] < 0)
       throw new Error('player.' + key + ': 缺少或非法的资源配置')
   }
@@ -485,6 +492,7 @@ export function parseCombatConfig(raw: unknown): CombatConfig {
     c.player.deceleration <= 0
   )
     throw new Error('combat: 池容量/时间/加速度无效')
+  validateAimArt(c.aimArt)
   return c
 }
 export function parseRewards(raw: unknown): RewardDef[] {
