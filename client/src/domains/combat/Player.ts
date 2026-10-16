@@ -9,6 +9,9 @@ import { PlayerModel, moveVelocity } from './PlayerModel'
 import { aimBand, aimFrame, equippedMuzzle, shotRecoil } from './AimPose'
 import type { PlayerPort } from './EnemyBridge'
 import type { BalanceConfig } from '@/core/config'
+import { GOOSE_ART } from '@/core/assetManifest'
+import { GooseView } from './GooseView'
+import { gooseDirection, gooseFrame, goosePose, type GooseDirection } from './GoosePose'
 type Art = (typeof D1_ART)[number]
 export const PLAYER_ART = {
   pulseRun: D1_ART.find((a) => a.group === 'pulse_run')!,
@@ -50,6 +53,9 @@ export class Player {
   private aimY = 0
   private facingLeft = false
   private moving = false
+  private goose: GooseView | null = null
+  private gooseFacing: GooseDirection = 'right'
+  private deathAtMs = 0
   private runAnimationMs = 0
   private aimBandValue = 1
   private weaponIdValue: WeaponDef['id'] = 'pencil'
@@ -110,6 +116,7 @@ export class Player {
         bus.emit('entity_damaged', { ...e, targetKind: 'player', batched: false, tickCount: 1 })
       },
       onKilled: (e) => {
+        this.deathAtMs = this.clock.realNowMs
         this.body.stop()
         bus.emit('entity_killed', {
           id: e.targetId,
@@ -127,6 +134,16 @@ export class Player {
 
   setWeapon(weapon: WeaponDef): void {
     this.weaponIdValue = weapon.id
+  }
+
+  /** 只换美术，存档身份和角色战斗数值继续由宿主决定。 */
+  setCharacter(characterId: string): void {
+    if (characterId === GOOSE_ART.characterId) this.goose ??= new GooseView(this.sprite)
+    else {
+      this.goose?.destroy()
+      this.goose = null
+    }
+    this.draw()
   }
 
   get x(): number {
@@ -158,6 +175,7 @@ export class Player {
     }
     const dx = Number(this.keys.D!.isDown) - Number(this.keys.A!.isDown),
       dy = Number(this.keys.S!.isDown) - Number(this.keys.W!.isDown)
+    this.gooseFacing = gooseDirection(dx, dy, this.gooseFacing)
     // Movement sets the default facing; active mouse fire can override it afterwards.
     if (dx !== 0) this.facingLeft = dx < 0
     const v = moveVelocity(
@@ -237,6 +255,8 @@ export class Player {
     )
   }
   get angle(): number {
+    // 鼠标在长脖子内侧时也保持枪管方向，不能从枪口反算后突然倒射。
+    if (this.goose) return this.goosePose().angle
     const muzzle = this.muzzle()
     return Math.atan2(this.aimY - muzzle.y, this.aimX - muzzle.x)
   }
@@ -255,6 +275,7 @@ export class Player {
     }
   }
   muzzle(): { x: number; y: number } {
+    if (this.goose) return this.goosePose().muzzle
     const pose = this.visualPose()
     const weaponMuzzle =
       this.weaponIdValue === 'pencil'
@@ -272,6 +293,22 @@ export class Player {
   draw(): void {
     this.model.syncState(this.moving)
     const hurt = this.model.alive && this.clock.nowMs < this.model.hurtUntilMs
+    if (this.goose) {
+      const attack = this.clock.nowMs < this.model.attackUntilMs
+      const action = !this.model.alive ? 'death' : hurt ? 'hurt' : attack ? 'shoot' : this.moving ? 'run' : 'idle'
+      // 死亡后玩法时钟立即暂停；倒地收尾仅使用表现时间，不推进任何战斗状态。
+      const elapsed = !this.model.alive ? this.clock.realNowMs - this.deathAtMs
+        : hurt ? this.clock.nowMs - this.model.hurtAtMs
+        : attack ? this.clock.nowMs - (this.model.attackUntilMs - this.cfg.player.attackPoseMs)
+        : this.moving ? this.runAnimationMs : this.clock.nowMs
+      const duration = hurt ? this.cfg.player.hurtMs : attack ? this.cfg.player.attackPoseMs : undefined
+      this.goose.draw({ x: this.x, y: this.feetY }, this.gooseFacing, gooseFrame(action, elapsed, duration),
+        this.cfg.player.visualScale * GOOSE_ART.visualScale, { x: this.aimX, y: this.aimY },
+        this.weaponIdValue, this.model.alive,
+        hurt && this.clock.nowMs - this.model.hurtAtMs < this.cfg.feedback.hurtFlashMs)
+      this.shadow.setPosition(this.x, this.feetY).setDepth(this.feetY - 1)
+      return
+    }
     const pose = this.visualPose(),
       art = this.cfg.aimArt
     const anchorX = (art.anchor[0] * art.frameWidth + art.render.offset[0]) / art.render.frameWidth
@@ -320,9 +357,14 @@ export class Player {
     for (const key of Object.values(this.keys)) key.reset()
     this.body.stop()
   }
+  private goosePose() {
+    return goosePose({ x: this.x, y: this.feetY }, this.gooseFacing,
+      this.cfg.player.visualScale * GOOSE_ART.visualScale, { x: this.aimX, y: this.aimY })
+  }
   destroy(): void {
     this.model.sink = null
     this.model.onHurt = null
+    this.goose?.destroy()
     this.sprite.destroy()
     this.shadow.destroy()
     this.anchor.destroy()

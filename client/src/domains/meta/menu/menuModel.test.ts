@@ -74,7 +74,7 @@ describe('弹层开关（需求 §4.6）', () => {
   })
 
   it('关掉弹层时**清掉提示** —— 否则它会盖住主菜单底部的「当前选择」', () => {
-    const state = withNotice(openScreen(createMenuState(), 'upgrade'), '已解锁：体育生')
+    const state = withNotice(openScreen(createMenuState(), 'upgrade'), '已解锁：大鹅')
     expect(closeScreen(state)?.notice).toBe('')
   })
 
