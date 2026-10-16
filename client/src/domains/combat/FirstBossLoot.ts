@@ -59,7 +59,7 @@ export class FirstBossLoot {
       .setDisplaySize(this.session.cfg.chest.visualSize, this.session.cfg.chest.visualSize)
       .setDepth(point.y + 1)
     this.hint = this.scene.add
-      .text(point.x, point.y - 48, '首领宝箱 · 靠近按 E', {
+      .text(point.x, point.y - 48, '宝箱 · 靠近按 E', {
         fontFamily: 'Microsoft YaHei',
         fontSize: '14px',
         color: '#fff1ac',

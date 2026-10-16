@@ -438,12 +438,19 @@ export function validateContract(map: DungeonMap, cfg: RoomsConfig): ContractRep
         if (wc !== 1 || hc !== 1) {
           fail(op, `椅子恒为 1 格，拿到 ${wc}×${hc} 格`, ctx)
         }
-      } else if (wc !== cfg.deskWidthCells || hc !== cfg.deskHeightCells) {
+      } else if (
+        // ⚠️ 2026-10-16 起桌**宽**是一个区间（`deskWidthCells` ~ `deskWidthCellsMax`）：
+        // 每组桌椅抽一次，同一间房里既有两格的桌也有三四格的 —— 形状不至于千篇一律。
+        // 高度仍然恒定（`deskHeightCells`），椅子仍然恒为一格：那两条是「桌椅成组」
+        // 这个形状本身的定义，改了它 `model/furniture.ts` 的配对就散了。
+        wc < cfg.deskWidthCells ||
+        wc > cfg.deskWidthCellsMax ||
+        hc !== cfg.deskHeightCells
+      ) {
         fail(
           op,
-          `课桌恒为 ${cfg.deskWidthCells}×${cfg.deskHeightCells} 格` +
-            `（deskWidthCells × deskHeightCells），拿到 ${wc}×${hc} 格 —— ` +
-            `尺寸不统一，桌椅就是横七竖八的`,
+          `课桌宽 ${cfg.deskWidthCells}~${cfg.deskWidthCellsMax} 格、高恒为 ${cfg.deskHeightCells} 格，` +
+            `拿到 ${wc}×${hc} 格 —— 尺寸超出契约，桌椅就是横七竖八的`,
           ctx,
         )
       }
