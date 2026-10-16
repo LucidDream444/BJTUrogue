@@ -197,14 +197,19 @@ export class BattleScene extends Phaser.Scene {
       //    （它本来是给测试场复现用的），拿它当每局的种子 = 每局都生成一模一样的一层楼，
       //    「随机生成」四个字就没了。下面把用到的种子留在场上，方便复现同一层。
       this.runSeed = (Math.random() * 0x7fffffff) | 0
-      this.dungeon = applyPaintedRooms(buildDungeonStages(
-        this.runSeed,
-        parseRoomsConfig({
-          ...(this.cache.json.get(ROOMS_CONFIG_NAME) as object),
-          ...ROOMS_PER_RUN,
-        }),
+      this.dungeon = applyPaintedRooms(
+        buildDungeonStages(
+          this.runSeed,
+          parseRoomsConfig({
+            ...(this.cache.json.get(ROOMS_CONFIG_NAME) as object),
+            ...ROOMS_PER_RUN,
+          }),
+          this.cfg,
+        ),
+        parseStageCollisions(this.cache.json.get('stage-collisions.json'), 3),
+        parsePaintedRoomConfig(this.cache.json.get('painted-rooms.json')),
         this.cfg,
-      ), parseStageCollisions(this.cache.json.get('stage-collisions.json'), 3), parsePaintedRoomConfig(this.cache.json.get('painted-rooms.json')), this.cfg)
+      )
       // 过 D1 自己的校验器。**不是形式**：关编号、标识唯一、矩形不越界、
       // 出生点不在墙里 —— 四条都是这个接法最容易错的地方，而错了都不报错。
       this.stageConfig = parseStageCollisions(this.dungeon.stages, this.roomCount)
@@ -461,7 +466,9 @@ export class BattleScene extends Phaser.Scene {
         if (this.onMainLine()) {
           this.loot.reset()
           this.loot.spawn(this.session.player.x, this.session.player.y - 60)
-          this.notice.setText('第 ' + this.stage + ' 间完成 · 选择一项强化 · 地上有宝箱（E 开，不开也能走）')
+          this.notice.setText(
+            '第 ' + this.stage + ' 间完成 · 选择一项强化 · 地上有宝箱（E 开，不开也能走）',
+          )
         } else {
           this.notice.setText('第 ' + this.stage + ' 间完成（支线）· 选择一项强化')
         }
@@ -557,7 +564,7 @@ export class BattleScene extends Phaser.Scene {
   /** 第 `n` 间（1 起）的中文关别名。越界给「—」。 */
   private roomLabel(n: number): string {
     const k = this.dungeon?.rooms[n - 1]?.room.kind
-    return k ? ROOM_KIND_LABELS[k] ?? k : '—'
+    return k ? (ROOM_KIND_LABELS[k] ?? k) : '—'
   }
   /**
    * 还活着、而且**站在本间可走地面上**的怪有几只。
@@ -728,7 +735,12 @@ export class BattleScene extends Phaser.Scene {
       }
       for (let i = 0; i < p.tanks; i++) {
         const s = at(p.splitters + i)
-        this.session.enemies.spawn('tank', 0, s.x + offset(p.splitters + i), s.y + offset(p.splitters + i))
+        this.session.enemies.spawn(
+          'tank',
+          0,
+          s.x + offset(p.splitters + i),
+          s.y + offset(p.splitters + i),
+        )
       }
       // 首领：**主干线上每一间都出一个**（侧室不出）。
       //

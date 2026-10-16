@@ -1,10 +1,20 @@
 import { prepareFurnitureTextures } from './FurnitureTextures'
 import Phaser from 'phaser'
 import { CAMPAIGN_ART } from '@/core/assetManifest'
-import { fitMapFrame, furnitureRect, stageGeometry, type MapRect, type StageCollisionConfig } from './StageGeometry'
+import {
+  fitMapFrame,
+  furnitureRect,
+  stageGeometry,
+  type MapRect,
+  type StageCollisionConfig,
+} from './StageGeometry'
 import { roomArtIndex, type GateSide } from './PaintedRooms'
 
-export const STAGE_BACKGROUNDS = [CAMPAIGN_ART.level1, CAMPAIGN_ART.level2, CAMPAIGN_ART.level3] as const
+export const STAGE_BACKGROUNDS = [
+  CAMPAIGN_ART.level1,
+  CAMPAIGN_ART.level2,
+  CAMPAIGN_ART.level3,
+] as const
 export interface RoomBrief {
   readonly kind: string
   readonly rectInBox: MapRect
@@ -38,32 +48,61 @@ export class StageBackground {
   setStage(stage: number): void {
     this.stage = stage
     const layout = stageGeometry(this.config, stage, this.width, this.height)
-    const frame = fitMapFrame(this.width, this.height, this.config.sourceSize.width, this.config.sourceSize.height)
+    const frame = fitMapFrame(
+      this.width,
+      this.height,
+      this.config.sourceSize.width,
+      this.config.sourceSize.height,
+    )
     const brief = this.rooms[stage - 1]
     const variant = roomArtIndex(brief?.kind ?? 'main', stage)
     const furniture = this.config.stages[stage - 1]!.furniture
     const artKey = STAGE_BACKGROUNDS[variant]!
-    const textures = prepareFurnitureTextures(this.scene, artKey, this.config, furniture, 'painted_desks_v1')
-    this.image.setTexture(textures.floorKey).setPosition(frame.x, frame.y)
-      .setDisplaySize(this.config.sourceSize.width * frame.scale, this.config.sourceSize.height * frame.scale)
+    const textures = prepareFurnitureTextures(
+      this.scene,
+      artKey,
+      this.config,
+      furniture,
+      'painted_desks_v1',
+    )
+    this.image
+      .setTexture(textures.floorKey)
+      .setPosition(frame.x, frame.y)
+      .setDisplaySize(
+        this.config.sourceSize.width * frame.scale,
+        this.config.sourceSize.height * frame.scale,
+      )
     this.image.texture.setFilter(Phaser.Textures.FilterMode.NEAREST)
-    this.furnitureImages.forEach(image => image.destroy())
+    this.furnitureImages.forEach((image) => image.destroy())
     this.furnitureImages.length = 0
     for (const item of furniture) {
       const rect = furnitureRect(item.bounds, item)
-      const image = this.scene.add.image(frame.x + (rect.x + rect.width / 2) * frame.scale, frame.y + (rect.y + rect.height / 2) * frame.scale, textures.objectKey(item.id))
-        .setDisplaySize(rect.width * frame.scale, rect.height * frame.scale).setDepth(-101)
+      const image = this.scene.add
+        .image(
+          frame.x + (rect.x + rect.width / 2) * frame.scale,
+          frame.y + (rect.y + rect.height / 2) * frame.scale,
+          textures.objectKey(item.id),
+        )
+        .setDisplaySize(rect.width * frame.scale, rect.height * frame.scale)
+        .setDepth(-101)
       image.texture.setFilter(Phaser.Textures.FilterMode.NEAREST)
       this.furnitureImages.push(image)
     }
-    this.doors = layout.solids.filter(s => s.id.startsWith('door-'))
+    this.doors = layout.solids.filter((s) => s.id.startsWith('door-'))
     for (const label of this.labels) label.destroy()
     this.labels.length = 0
     this.doorOpen = false
-    this.doors.forEach(door => {
-      this.labels.push(this.scene.add.text(door.x + door.width / 2, door.y + door.height / 2, '', {
-        fontFamily: 'Microsoft YaHei, sans-serif', fontSize: '11px', color: '#f3dfb6',
-      }).setOrigin(.5).setDepth(99))
+    this.doors.forEach((door) => {
+      this.labels.push(
+        this.scene.add
+          .text(door.x + door.width / 2, door.y + door.height / 2, '', {
+            fontFamily: 'Microsoft YaHei, sans-serif',
+            fontSize: '11px',
+            color: '#f3dfb6',
+          })
+          .setOrigin(0.5)
+          .setDepth(99),
+      )
     })
     this.updateLabels()
     this.paintDoors(0)
@@ -86,13 +125,38 @@ export class StageBackground {
     this.paintDoors(0)
   }
   private paintDoors(timeMs: number): void {
-    const g = this.fx.clear(), pulse = .6 + Math.sin(timeMs / 500) * .16
+    const g = this.fx.clear(),
+      pulse = 0.6 + Math.sin(timeMs / 500) * 0.16
     for (const d of this.doors) {
-      g.fillStyle(this.doorOpen ? 0x253c28 : 0x32271a, .9).fillRoundedRect(d.x, d.y, d.width, d.height, 3)
-      g.lineStyle(1, this.doorOpen ? 0xc5e5a3 : 0xc3a16b, this.doorOpen ? pulse : .7).strokeRoundedRect(d.x, d.y, d.width, d.height, 3)
-      if (this.doorOpen) g.lineStyle(2, 0xe3d5a4, pulse * .3).strokeRoundedRect(d.x - 5, d.y - 5, d.width + 10, d.height + 10, 5)
+      g.fillStyle(this.doorOpen ? 0x253c28 : 0x32271a, 0.9).fillRoundedRect(
+        d.x,
+        d.y,
+        d.width,
+        d.height,
+        3,
+      )
+      g.lineStyle(
+        1,
+        this.doorOpen ? 0xc5e5a3 : 0xc3a16b,
+        this.doorOpen ? pulse : 0.7,
+      ).strokeRoundedRect(d.x, d.y, d.width, d.height, 3)
+      if (this.doorOpen)
+        g.lineStyle(2, 0xe3d5a4, pulse * 0.3).strokeRoundedRect(
+          d.x - 5,
+          d.y - 5,
+          d.width + 10,
+          d.height + 10,
+          5,
+        )
     }
   }
-  update(timeMs: number): void { if (this.doorOpen) this.paintDoors(timeMs) }
-  destroy(): void { this.image.destroy(); this.fx.destroy(); this.furnitureImages.forEach(image => image.destroy()); this.labels.forEach(label => label.destroy()) }
+  update(timeMs: number): void {
+    if (this.doorOpen) this.paintDoors(timeMs)
+  }
+  destroy(): void {
+    this.image.destroy()
+    this.fx.destroy()
+    this.furnitureImages.forEach((image) => image.destroy())
+    this.labels.forEach((label) => label.destroy())
+  }
 }
