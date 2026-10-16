@@ -60,7 +60,7 @@ export class CombatSession {
     readonly cfg: CombatConfig,
     readonly rewardDefs: RewardDef[],
     readonly difficulty: Difficulty,
-    private readonly stageConfig: StageCollisionConfig,
+    private stageConfig: StageCollisionConfig,
   ) {
     this.terrain = new TerrainMap(cfg, stageConfig.navigationCellSize)
     const firstRoom = stageGeometry(stageConfig, 1, cfg.arena.width, cfg.arena.height)
@@ -183,6 +183,23 @@ export class CombatSession {
     scene.input.on(Phaser.Input.Events.POINTER_UP, this.onUp, this)
     window.addEventListener('blur', this.onBlur)
     document.addEventListener('visibilitychange', this.onVisibility)
+  }
+  /**
+   * **换一整层楼**：外层的几何整份换掉（`stageConfig` 是 D2 另一次生成的产物），
+   * 落到新层的第 1 间。
+   *
+   * 一层楼一张图，层与层之间连房间数都可能一样、但**每个坐标都不一样** ——
+   * 所以这不是 `enterStage()` 那种「同一份几何里的第 n 关」，
+   * 而是「把几何换掉再进第 1 关」。`enterStage(1)` 那三步（寻路网格、碰撞体、
+   * 玩家落脚点）本来就是按 `stageConfig` 重算的，所以换完几何再走一遍就全对了。
+   *
+   * `keepLoadout` 走默认的 `false`：枪和强化**跨层保留**（那是局内成长，`inventory`
+   * 和强化都不在这里清），清掉的只是这一层留下的**子弹与地面掉落物** ——
+   * 那些东西的坐标属于旧那一层，带下去只会散在新房间的地板上。
+   */
+  loadFloor(stageConfig: StageCollisionConfig): void {
+    this.stageConfig = stageConfig
+    this.enterStage(1)
   }
   /**
    * 转接：换几何 → 重建碰撞 → 找落脚点 → 清输入 → 挪人。

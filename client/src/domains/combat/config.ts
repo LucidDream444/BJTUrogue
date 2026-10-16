@@ -187,7 +187,15 @@ export interface CombatConfig {
     phaseBaseMs: number
     phaseCountScale: number
     intermissionMs: number
+    /**
+     * **一局几层** —— 第 1..N 层各有一个首领，按层的序号选（1 蘑菇首领 / 2 霜翼使徒 / 3 终焉蛛王）。
+     * 名字沿用旧版「一关一个首领」时期的叫法，语义在这一版是「层」。
+     */
     maxStages: number
+    /** 一层几间房（第 `roomsPerFloor` 间是首领房，D2 的生成器把 `kind: 'boss'` 只放那儿）。 */
+    roomsPerFloor: number
+    /** 其中几间是侧室（支线）。主干数 = `roomsPerFloor − sideRoomsPerFloor`，至少要有首末两间。 */
+    sideRoomsPerFloor: number
     demoDamage: number
   }
 }
@@ -365,6 +373,19 @@ export function parseCombatConfig(raw: unknown): CombatConfig {
   numeric(c.arena, 'arena')
   if (!Number.isInteger(c.arena.maxStages) || c.arena.maxStages < 1)
     throw new Error('arena.maxStages: 关卡上限无效')
+  // 一局几层 = `maxStages`（第 1..N 层的首领按层的序号挑），一层几间 = 下面这两个数。
+  // 层与间都进配置：红线 2 说数值不许写死在代码里，而这两个数直接决定一局有多长。
+  if (!Number.isInteger(c.arena.roomsPerFloor) || c.arena.roomsPerFloor < 4)
+    throw new Error('arena.roomsPerFloor: 一层至少 4 间（首间起点 + 末间首领 + 要打的 + 侧室）')
+  if (
+    !Number.isInteger(c.arena.sideRoomsPerFloor) ||
+    c.arena.sideRoomsPerFloor < 1 ||
+    c.arena.sideRoomsPerFloor > c.arena.roomsPerFloor - 2
+  )
+    throw new Error(
+      'arena.sideRoomsPerFloor: 侧室数必须 ≥ 1（一层要有岔路，直线不是地牢）' +
+        '且 ≤ roomsPerFloor−2（主干至少留首末两间）',
+    )
   numeric(c.chest, 'chest')
   if (
     !['interactRadius', 'pickupRadius', 'visualSize', 'openFxMs'].every((key) =>

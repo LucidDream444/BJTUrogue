@@ -28,7 +28,7 @@
   },
   "enemies": {
     "splitter": {
-      "displayName": "分裂怪",
+      "displayName": "分裂纸团",
       "kind": "splitter",
       "threatLevel": 2,
       "hpMode": "shots",
@@ -50,7 +50,7 @@
           "speed": 62,
           "radius": 18,
           "visualScale": 1.0,
-          "textureKey": "enemy_slime_t1_idle",
+          "textureKey": "enemy_splitter_t1_idle",
           "contactDamagePerTick": 6,
           "childCount": 2,
           "splitDelayMs": 180,
@@ -70,7 +70,7 @@
           "speed": 62,
           "radius": 12,
           "visualScale": 0.78,
-          "textureKey": "enemy_slime_t2_idle",
+          "textureKey": "enemy_splitter_t2_idle",
           "contactDamagePerTick": 4,
           "childCount": 4,
           "splitDelayMs": 160,
@@ -90,7 +90,7 @@
           "speed": 62,
           "radius": 8,
           "visualScale": 0.58,
-          "textureKey": "enemy_slime_t3_idle",
+          "textureKey": "enemy_splitter_t3_idle",
           "contactDamagePerTick": 3,
           "childCount": 0,
           "splitDelayMs": 0,
@@ -112,7 +112,7 @@
       }
     },
     "tank": {
-      "displayName": "巨型肉盾怪",
+      "displayName": "计组课本",
       "kind": "tank",
       "threatLevel": 4,
       "hpMode": "ttkSeconds",

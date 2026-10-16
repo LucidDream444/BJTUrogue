@@ -746,7 +746,7 @@ export function roomsConfigFromCache(cache: { get(key: string): unknown }): Room
 /**
  * 同上一份，但先把配置改成「整层只要 `roomCount` 间」的版本，**再走一遍校验器**。
  *
- * 用途是测试场要的**短层**：`joint/d1d2_rooms` 要三间（= 起点 / 普通战 / 首领）。
+ * 用途一是测试场要的**短层**：`joint/d1d2_rooms` 要三间（= 起点 / 普通战 / 首领）。
  * 侧室数 = `totalRooms − 主干数`，所以三个数一起钉成 N，侧室自然是 0 间
  * —— 想要的那三间就都在主干上，生成器一行都不用动。
  *
@@ -760,17 +760,26 @@ export function roomsConfigFromCache(cache: { get(key: string): unknown }): Room
  * 三个数也必须**一起**改：只改 `totalRooms` 会被校验器当场挡下
  * （`mainRoomMax` 还是 15 > 3）；只改主干那两条则还剩 12 间侧室，不是要的三间。
  * 三种改法只有一种自洽 —— 所以这里替调用方把它定下来，并让校验器照常说话。
+ *
+ * @param sideRooms 其中几间是**侧室**（挂在主干侧墙上的支线），默认 0 = 全是主干。
+ *   正式游戏要留出岔路（一层一条直线就没有路线决策，而那正是随机生成的全部意义），
+ *   所以 `combat.json` 的 `arena.sideRoomsPerFloor` 会传进来；测试场的短层要的是
+ *   「起点 / 战斗 / 首领」三间都在主干上，于是走默认值。
+ *   主干数 = `roomCount − sideRooms`，由 `mainRoomMin` / `mainRoomMax` 一起钉住
+ *   —— **随种子在区间里取**会让同一层的主干数上下跳，一层就这么多间，一跳侧室数就跟着变。
  */
 export function roomsConfigWithRoomCount(
   cache: { get(key: string): unknown },
   roomCount: number,
+  sideRooms = 0,
 ): RoomsConfig {
   const raw = needObject(cache.get(ROOMS_CONFIG_NAME), 'rooms')
+  const main = roomCount - sideRooms
   return parseRoomsConfig({
     ...raw,
     totalRooms: roomCount,
-    mainRoomMin: roomCount,
-    mainRoomMax: roomCount,
+    mainRoomMin: main,
+    mainRoomMax: main,
   })
 }
 

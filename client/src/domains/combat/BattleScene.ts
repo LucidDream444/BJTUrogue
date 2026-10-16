@@ -16,10 +16,11 @@ import { StatusHud } from '@/domains/combat/StatusHud'
 import { GameCursor } from '@/domains/combat/GameCursor'
 import { StageBackground } from './StageBackground'
 import { parseStageCollisions, stageGeometry, type StageCollisionConfig } from './StageGeometry'
-import { buildDungeonStages, type DungeonStages } from './DungeonStages'
-import { ROOMS_CONFIG_NAME, parseRoomsConfig } from '@/domains/procgen/config'
+import { buildDungeonStages, floorSeeds, type DungeonStages } from './DungeonStages'
+import { ROOMS_CONFIG_NAME, roomsConfigWithRoomCount } from '@/domains/procgen/config'
 import { ROOM_KIND_LABELS } from '@/domains/procgen/model/types'
 import { Minimap } from './Minimap'
+import { FloorExit } from './FloorExit'
 import { FirstBossLoot } from '@/domains/combat/FirstBossLoot'
 import { LoadoutHud } from '@/domains/combat/LoadoutHud'
 // —— 局外成长（D4）的两个界面组件：暂停菜单、结算界面 ——
@@ -40,18 +41,6 @@ import { LocalStorageProfileStorage } from '@/domains/meta/profile/storage'
 import type { RunInput } from '@/domains/meta/progress/progress'
 import { RunLedger } from '@/domains/meta/run/RunLedger'
 import { SettlementOverlay } from '@/domains/meta/settlement/SettlementOverlay'
-
-/**
- * 一局的楼层参数。**三个数要一起给** —— `totalRooms` / `mainRoomMin` / `mainRoomMax`
- * 互相约束，写歪一个校验器就拒。
- *
- * ⚠️ **别把三个数设成同一个值**（那是我犯过的错）：那样侧室数是
- * `totalRooms − 主干数 = 0`，一层就是**一条直线**，没有任何路线决策 ——
- * 而那正是随机生成的全部意义。这里 7 间 = **4 间主干 + 3 间侧室**：
- * 侧室挂在主干某一间的侧墙上，于是那一间就有**三个门**（前、后、侧）,
- * 走到那儿要选往哪边走。
- */
-const ROOMS_PER_RUN = { totalRooms: 7, mainRoomMin: 4, mainRoomMax: 4 }
 
 /** 「站在门口」的距离门槛（世界像素）。**量的是到门矩形的最短距离**，贴着门就是 0。 */
 const DOOR_REACH = 50
@@ -94,11 +83,29 @@ export class BattleScene extends Phaser.Scene {
   private spawned = false
   private gameWon = false
   /**
-   * 这一层的生成结果（D2）。**「一间房 = 一关」** —— `this.stage` 就是
+   * 这一层楼的生成结果（D2）。**「一间房 = 一关」** —— `this.stage` 就是
    * 「第几间」（1 起），`enterStage(stage)` 换的就是那一间的几何。
    * 拆法见 `DungeonStages.ts` 的文件头。
+   *
+   * ⚠️ 一局有**多层**楼（`arena.maxStages`），所以它会被整个换掉 ——
+   * `loadFloor()` 是唯一该改它的地方。
    */
   private dungeon!: DungeonStages
+  /**
+   * 现在在第几层（1 起）。**这一局打的是「第几层」**：每层自己有一张随机地图、
+   * 自己的一串房间，最后一间是本层的首领。
+   */
+  private floor = 1
+  /**
+   * 本局每一层的种子（长度 = `floors()`）。整局共用一条 `runSeed` 派生出来，
+   * 于是**报出 `runSeed` 就能复现整局**（推导见 `DungeonStages.floorSeeds()`）。
+   */
+  private floorSeedList: number[] = []
+  /**
+   * 打通一层之后出现的「下一层」入口。**只在首领房、且只在非最后一层** ——
+   * 自动下楼会把「我准备好了」那一刻吃掉（见 `FloorExit` 的文件头）。
+   */
+  private exit!: FloorExit
   /** 本间的门开了没有。开了才让按 `F` 过门。 */
   private doorOpen = false
   /**
@@ -137,18 +144,21 @@ export class BattleScene extends Phaser.Scene {
     super(key)
   }
   /**
-   * 这一层有几间。**取代原来写死的 `arena.maxStages`（3）** ——
-   * 现在几间由 D2 生成器按 `rooms.json` 决定。
-   *
-   * `arena.maxStages` 仍是配置里的字段（校验器要它），但运行时不再读：
-   * 两个数并存就是第二份会漂的事实。
+   * **本层**有几间。由 D2 生成器按 `rooms.json` 决定（`arena.roomsPerFloor` 给的数），
+   * 不是写死的 —— 每层都一样多，但那是配置说的，不是这里说的。
    */
   private get roomCount(): number {
-    return this.dungeon?.rooms.length ?? this.cfg.arena.maxStages
+    return this.dungeon?.rooms.length ?? this.cfg.arena.roomsPerFloor
+  }
+  /** 一局几层。**就是 `arena.maxStages`** —— 第 1..N 层各有一个首领。 */
+  private get floors(): number {
+    return this.cfg.arena.maxStages
   }
   init(data: { difficulty?: Difficulty } = {}): void {
     this.difficulty = data.difficulty ?? 'normal'
     this.stage = 1
+    this.floor = 1
+    this.floorSeedList = []
     this.clearAt = -1
     this.clearEmitted = false
     this.spawned = false
@@ -190,26 +200,18 @@ export class BattleScene extends Phaser.Scene {
       })
       this.cfg = parseCombatConfig(this.cache.json.get('combat.json'))
       this.rewardDefs = parseRewards(this.cache.json.get('rewards.json'))
-      // 关卡几何来自 **D2 的生成器**：一层楼拆成「一间房 = 一关」。
+      // 关卡几何来自 **D2 的生成器**：一层楼拆成「一间房 = 一关」，一局**多层楼**。
       // ⚠️ 房间数要走 `roomsConfigWithRoomCount()` 把 `totalRooms` / `mainRoomMin` /
       //    `mainRoomMax` **三个数一起改**，直接写死一个会被校验器拒（那三个数互相约束）。
+      //    `sideRoomsPerFloor` 一起传进去，一层才有侧室 —— 一条直线没有路线决策。
       // ⚠️ **种子必须每局换**。`combat.json` 里那个 `arena.seed` 是**固定值**
-      //    （它本来是给测试场复现用的），拿它当每局的种子 = 每局都生成一模一样的一层楼，
-      //    「随机生成」四个字就没了。下面把用到的种子留在场上，方便复现同一层。
+      //    （它本来是给测试场复现用的），拿它当每局的种子 = 每局都生成一模一样的楼，
+      //    「随机生成」四个字就没了。下面把 `runSeed` 留在场上，方便复现整局。
       this.runSeed = (Math.random() * 0x7fffffff) | 0
-      this.dungeon = applyPaintedRooms(
-        buildDungeonStages(
-          this.runSeed,
-          parseRoomsConfig({
-            ...(this.cache.json.get(ROOMS_CONFIG_NAME) as object),
-            ...ROOMS_PER_RUN,
-          }),
-          this.cfg,
-        ),
-        parseStageCollisions(this.cache.json.get('stage-collisions.json'), 3),
-        parsePaintedRoomConfig(this.cache.json.get('painted-rooms.json')),
-        this.cfg,
-      )
+      // **整局的每一层种子先抽好**（不是每下一层现抽一个）：这样报出 `runSeed`
+      // 就能把整局的每一层都复原出来，而不只是「当前这一层」。
+      this.floorSeedList = floorSeeds(this.runSeed, this.floors)
+      this.dungeon = this.buildFloor(1)
       // 过 D1 自己的校验器。**不是形式**：关编号、标识唯一、矩形不越界、
       // 出生点不在墙里 —— 四条都是这个接法最容易错的地方，而错了都不报错。
       this.stageConfig = parseStageCollisions(this.dungeon.stages, this.roomCount)
@@ -233,7 +235,10 @@ export class BattleScene extends Phaser.Scene {
         this,
         this.dungeon.rooms.map((r) => r.room),
         this.dungeon.rooms.map((r) => r.doorTargets),
+        this.floor,
+        this.floors,
       )
+      this.exit = new FloorExit(this, DOOR_REACH)
       this.rewardPanel = new RewardPanel(this.session)
       this.gallery = new AssetGallery(this, () => this.toggleGallery())
       this.makeHud()
@@ -268,8 +273,17 @@ export class BattleScene extends Phaser.Scene {
         )
           return
         this.session.weapons.clear()
+        // **本层的最后一间**（= 首领房）：层内没有「下一间」了，改亮「下一层」的入口。
+        // 最后一层不亮 —— 那是通关，走 `finishRun()`。
         if (this.stage >= this.roomCount) {
-          this.finishRun()
+          this.rewardDone = true
+          this.tryOpenDoor()
+          const bonus = this.session.grantRandomWeapon()
+          if (this.floor >= this.floors) {
+            this.finishRun()
+            return
+          }
+          this.showFloorExit(bonus)
           return
         }
         // 门开了，**不倒计时**：这一层的下一间要玩家自己走过去按 F。
@@ -291,6 +305,7 @@ export class BattleScene extends Phaser.Scene {
       // 档只在"这一局结束"和"打开暂停菜单"这两个时刻被碰，核心循环里一个字都没有。
       this.store = new ProfileStore({ storage: new LocalStorageProfileStorage() })
       this.store.load()
+      this.session.player.setCharacter(this.store.profile.selected.characterId)
       const syncAudio = (): void => {
         const { bgmVolume, sfxVolume } = this.store.profile.settings
         this.session.setAudioVolumes(bgmVolume, sfxVolume)
@@ -381,28 +396,34 @@ export class BattleScene extends Phaser.Scene {
   }
   override update(_time: number, delta: number): void {
     if (!this.session) return
-    // 过门：门开着（这一间打完了）、人活着、没暂停 —— 按 F 进下一间。
-    // **不需要站在门口**：门已经开着的语义是「这一间结束了」，
-    // 逼人先走回门口没有任何信息量，只会让捡完东西还得跑一趟。
+    // `F` 这一个键管两件事：**下楼**（下一层的入口）和**过门**（层内换房间）。
+    // 人活着、没暂停才认 —— 也别在切走标签页的时候吃按键。
     if (
-      this.doorOpen &&
       Phaser.Input.Keyboard.JustDown(this.passKey) &&
       !this.session.reasons.has('hidden') &&
       !this.session.reasons.has('user') &&
       this.session.player.model.alive
     ) {
-      if (this.stage >= this.roomCount) {
-        this.finishRun()
+      // **「下一层」优先于门**：入口在首领房中间，门在墙边，两个都够得着的情况
+      // 几乎不存在；真撞上了，人站在首领房中间想的也是「往下走」。
+      if (this.exit.visible && this.exit.near(this.session.player.x, this.session.player.y)) {
+        this.descend()
         return
       }
-      const to = this.doorAhead()
-      if (to === null) {
-        // 尽头那扇门（`toOrder === null`）：不是「回不去」，是**门外没有房间**。
-        this.notice.setText('要走到门口才能过门（门开着是绿色的）')
-      } else {
-        this.enterRoom(to)
+      // 过门：**不需要站在门口**：门已经开着的语义是「这一间结束了」，
+      // 逼人先走回门口没有任何信息量，只会让捡完东西还得跑一趟。
+      // （「下一层」那个入口则是要站上去的 —— 它是这一层唯一一个新出现的东西。）
+      if (this.doorOpen) {
+        const to = this.doorAhead()
+        if (to === null) {
+          // 尽头那扇门（`toOrder === null`）：不是「回不去」，是**门外没有房间**。
+          this.notice.setText('要走到门口才能过门（门开着是绿色的）')
+        } else {
+          this.enterRoom(to)
+        }
       }
     }
+    this.exit.update(this.time.now)
     // 门一开就换成亮绿 + 呼吸 + 箭头 —— 打完一间找不到门出不去是这一层最容易卡人的地方。
     // 用场景时间（`this.time.now`）而不是 `performance.now()`：暂停时场景时间会停，
     // 画面才是静的。
@@ -412,24 +433,19 @@ export class BattleScene extends Phaser.Scene {
     this.session.update(delta)
     this.loot.update()
     this.loadout.update()
-    const boss = this.session.enemies.bossStatus(this.stage)
+    // 首领血条：**按「层」查，不是按「第几间」**。
+    //
+    // `bossStatus(n)` 查的是出生时推给那只怪的那个编号（`requestBoss(stage)`），
+    // 而首领现在带的是**层的序号**。早先这里查的是「第几间」，于是除了个别房间
+    // 基本都查不到 —— 血条压根不显示，而且不报任何错。
+    const boss = this.session.enemies.bossStatus(this.floor)
     this.bossLabel.setVisible(!!boss)
     if (boss)
       this.bossLabel
-        .setPosition(boss.x, boss.y - (this.stage === this.roomCount ? 92 : 78))
+        .setPosition(boss.x, boss.y - (this.isBossRoom() ? 92 : 78))
         .setText(
-          '第 ' +
-            this.stage +
-            ' 层 · ' +
-            (this.stage === this.roomCount
-              ? '终焉蛛王'
-              : this.stage === 2
-                ? this.bundle.enemies.stage2Boss.displayName
-                : '蘑菇首领') +
-            '\n' +
-            Math.ceil(boss.hp) +
-            ' / ' +
-            boss.maxHp,
+          `第 ${this.floor} 层 · ${this.bossName(this.floor)}` +
+            `\n${Math.ceil(boss.hp)} / ${boss.maxHp}`,
         )
     if (this.clearAt >= 0 && !this.clearEmitted && !this.session.clock.paused)
       this.session.enemies.simulateClear()
@@ -494,7 +510,7 @@ export class BattleScene extends Phaser.Scene {
     if (fallbackNotice) {
       this.deathNotice.setText(
         this.gameWon
-          ? '三层通关！\n终焉蛛王已击败\n按 R 重新开始'
+          ? `${this.floors} 层通关！\n${this.bossName(this.floors)}已击败\n按 R 重新开始`
           : this.session.player.model.deathCause === 'water'
             ? '落水身亡\n按 R 重新开始'
             : '你倒下了\n按 R 重新开始',
@@ -545,21 +561,17 @@ export class BattleScene extends Phaser.Scene {
     this.gameWon = true
     this.session.weapons.clear()
     this.session.pause('victory')
-    this.notice.setText('全部三层已通关 · 按 R 开始新一局')
+    this.notice.setText(`全部 ${this.floors} 层已通关 · 按 R 开始新一局`)
   }
   /**
-   * 本间在第几档难度上。
-   *
-   * D1 的 `stagePlan()` **只认 1..`arena.maxStages`（3），超了直接抛**。
-   * 一层楼有十几间，所以把「第几间」按进度映射回那三档 —— 前半层是一档、
-   * 后半层是三档。**不改成按房间预算刷怪**：那会让 D1 调好的数量曲线作废，
-   * 而这次要换的是几何，不是战斗节奏。
+   * 第 `tier` 层首领的中文名。**和 `requestBoss()` 挑模板的规则是同一张表**：
+   * 第 1 档是肉盾模板的首领、第 2 档是远程的霜翼使徒（名字从 `enemies.json` 读）、
+   * 第 3 档（最后一层）是最终首领。
    */
-  private stageTier(): number {
-    const n = Math.max(1, this.roomCount),
-      top = this.cfg.arena.maxStages
-    const t = 1 + Math.round(((this.stage - 1) / Math.max(1, n - 1)) * (top - 1))
-    return Math.min(top, Math.max(1, t))
+  private bossName(tier: number): string {
+    if (tier >= 3) return '终焉蛛王'
+    if (tier === 2) return this.bundle.enemies.stage2Boss.displayName
+    return '蘑菇首领'
   }
   /** 第 `n` 间（1 起）的中文关别名。越界给「—」。 */
   private roomLabel(n: number): string {
@@ -670,6 +682,85 @@ export class BattleScene extends Phaser.Scene {
     this.stage = order + 1
     this.spawnStage(!first)
   }
+  /**
+   * 生成第 `n` 层（1 起）。
+   *
+   * 种子取的是**开局就抽好的那一串**（`floorSeedList`），不是现抽一个 ——
+   * 这样 `runSeed` 能复现整局，而不只是「回到某一层再生成一次」。
+   *
+   * ⚠️ 一层几间、几间是侧室都走 `combat.json` 的 `arena`，并且**必须过
+   * D2 的 `roomsConfigWithRoomCount()`**：它会把 `totalRooms` / `mainRoomMin` /
+   * `mainRoomMax` 三个数一起改**再跑一遍校验器**（三个数互相约束，只改一个会被拒，
+   * 而绕过校验器拿到的那份配置错了不报错，只会生成出一层怪地图）。
+   */
+  private buildFloor(n: number): DungeonStages {
+    const seed = this.floorSeedList[n - 1] ?? this.runSeed
+    const dungeon = buildDungeonStages(
+      seed,
+      roomsConfigWithRoomCount(
+        this.cache.json,
+        this.cfg.arena.roomsPerFloor,
+        this.cfg.arena.sideRoomsPerFloor,
+      ),
+      this.cfg,
+    )
+    return applyPaintedRooms(
+      dungeon,
+      parseStageCollisions(this.cache.json.get('stage-collisions.json'), 3),
+      parsePaintedRoomConfig(this.cache.json.get('painted-rooms.json')),
+      this.cfg,
+    )
+  }
+  /** 下到下一层。**只在入口亮着、且玩家站在上面时调用**（见 `update()` 里那一段）。 */
+  private descend(): void {
+    if (this.floor >= this.floors) return
+    this.floor++
+    this.loadFloor()
+  }
+  /**
+   * 换上**当前 `this.floor` 那一层**的几何与观感，落到新层的第 1 间。
+   *
+   * ⚠️ **顺序有讲究。**几何要在 `spawnStage()` 之前换好（那一趟里 `enterStage()`
+   * 按新的 `stageConfig` 重算寻路网格与落脚点）；观感层里 `Minimap` 是「换一份排布」，
+   * 而 `StageBackground` **没有「换一层」这个动作**（它构造时就吃下了一层的房间表），
+   * 所以只能整个重建 —— 重建之后别忘了 `setStage()`（`spawnStage()` 会调）。
+   */
+  private loadFloor(): void {
+    this.dungeon = this.buildFloor(this.floor)
+    this.stageConfig = parseStageCollisions(this.dungeon.stages, this.roomCount)
+    this.exit.hide()
+    this.scenery.destroy()
+    this.drawWorld()
+    this.minimap.setFloor(
+      this.dungeon.rooms.map((r) => r.room),
+      this.dungeon.rooms.map((r) => r.doorTargets),
+      this.floor,
+      this.floors,
+    )
+    this.stage = 1
+    // 每一层是**另一张图**：上层的「哪几间走过」在这里全部作废，不然新层的
+    // 第 3 间会被当成「回走」，一进门就门大开、一只怪不刷。
+    this.visited.clear()
+    this.session.loadFloor(this.stageConfig)
+    this.spawnStage()
+  }
+  /**
+   * 在首领房里亮出「下一层」入口，并把话说清楚。
+   *
+   * 位置取本间的**落脚点**往下一点（那是玩家进这一间时站的地方，一定在房间里），
+   * 再过一遍 `safeSpawn()` —— 入口比玩家胖得多（92px 见方），摆在墙边会半个身子在墙里。
+   */
+  private showFloorExit(bonus: { name: string } | null): void {
+    const brief = this.dungeon.rooms[this.stage - 1]
+    const base = brief?.spawnPoints[0] ?? { x: this.session.player.x, y: this.session.player.y }
+    const at = this.session.terrain.safeSpawn(base.x, base.y + 70, FloorExit.SIZE / 2)
+    this.exit.show(at.x, at.y)
+    this.notice.setText(
+      (bonus ? '获得随机武器：' + bonus.name + ' · ' : '') +
+        `第 ${this.floor} 层通关 · ${this.bossName(this.floor)}已击败 · ` +
+        `走到青色方框上按 F 下到第 ${this.floor + 1} 层`,
+    )
+  }
   private spawnStage(revisit = false): void {
     if (this.gameWon || this.stage > this.roomCount) return
     this.visited.add(this.stage - 1)
@@ -688,7 +779,7 @@ export class BattleScene extends Phaser.Scene {
     //    拐进侧室时宿主右边的房间根本没进过却被画成绿的。
     //    真值是 `visited`，这里正好刚把它更新过（上面那行 `visited.add`）。
     this.minimap.setState(this.stage, this.visited)
-    const p = stagePlan(this.bundle, this.cfg, this.difficulty, this.stageTier()),
+    const p = stagePlan(this.bundle, this.cfg, this.difficulty, this.floor),
       cx = this.session.player.x,
       cy = this.session.player.y
     // 不用打的房间（道具关 / 宝箱关）：**一只都不刷**。下方 `remaining === 0`
@@ -742,22 +833,25 @@ export class BattleScene extends Phaser.Scene {
           s.y + offset(p.splitters + i),
         )
       }
-      // 首领：**主干线上每一间都出一个**（侧室不出）。
+      // 首领：**只有本层的最后一间出**（`kind: 'boss'`，D2 的生成器只把它放在末间、
+      // 而且不放侧室里）。别的房间一只都不出 —— 一局三层，三个首领，一层一个。
       //
-      // ⚠️ 早先我把它收成「只在 `kind: 'boss'` 那一间」—— 一层只有一间是 boss，
-      //    于是**第二关的霜翼使徒再也没出过场**（那套图集白做了）。
-      //    现在按**难度档位**（`stageTier()`，1~3）挑首领，第 1 档是蘑菇首领、
-      //    第 2 档是霜翼使徒、第 3 档是终焉蛛王 —— 和原来「一关一个」的节奏一致。
-      //    侧室（分支 `side`）不出首领：它们是支线，不该挡住主线。
-      const onMainLine = this.dungeon?.rooms[this.stage - 1]?.room.branch === 'main'
-      if (this.isBossRoom() || onMainLine) {
-        const tier = this.stageTier()
+      // ⚠️ **别改回「主干线上每一间都出一个」。** 那是「一局只有一层」时期的写法
+      //    （那时一层十几间，隔几间摆一个首领才像有节奏）；现在一局三层、
+      //    每层七个房间，再按主干摆就是一层两三个首领 —— 首领贬值成路障，
+      //    而三个真正的首领（蘑菇 / 霜翼使徒 / 终焉蛛王）该各自守一层。
+      //
+      // 档位 = **层的序号**，不是房间进度：第 1 层是蘑菇首领、第 2 层是远程的霜翼使徒、
+      // 第 3 层（最后一层）是终焉蛛王。`requestBoss()` 按这个号挑模板，
+      // 末层那位走 `finalBoss: true`（不用远程模板 —— 那是「还没到最终战」的区分）。
+      if (this.isBossRoom()) {
+        const tier = this.floor
         this.session.enemies.spawnBoss(
           tier,
           this.dungeon?.rooms[this.stage - 1]?.spawnPoints[0]?.x ?? cx,
           (this.dungeon?.rooms[this.stage - 1]?.spawnPoints[0]?.y ?? cy) - 40,
           this.cfg.encounter.bossHp + (tier - 1) * this.cfg.encounter.bossHpPerStage,
-          this.isBossRoom(),
+          tier >= this.floors,
         )
       }
     }
@@ -765,11 +859,12 @@ export class BattleScene extends Phaser.Scene {
     this.clearAt = -1
     this.clearEmitted = revisit
     if (revisit) this.doorOpen = true
-    // 到达层数：结算的「到达进度」用它，也是币的主要来源（`coinsPerDepth`）
-    this.ledger.setDepth(this.stage)
+    // 到达层数：结算的「到达进度 第 N 层」用的就是它，也是币的来源之一（`coinsPerDepth`）。
+    // ⚠️ **报的是层号，不是房间号** —— 一局三层，报「第 7 层」谁也对不上。
+    this.ledger.setDepth(this.floor)
     const room = this.dungeon?.rooms[this.stage - 1]?.room
     this.notice.setText(
-      `第 ${this.stage} / ${this.roomCount} 间：${room?.kind ?? '?'} ` +
+      `第 ${this.floor} 层 · 第 ${this.stage} / ${this.roomCount} 间：${room?.kind ?? '?'} ` +
         `${room ? room.rect.width + '×' + room.rect.height : ''} · ${this.label()} · ` +
         (this.needsFight() ? p.splitters + ' 分裂怪 + ' + p.tanks + ' 肉盾' : '不用打'),
     )

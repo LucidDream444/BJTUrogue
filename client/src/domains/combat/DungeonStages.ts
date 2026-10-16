@@ -41,6 +41,7 @@
  */
 import { collidersOf, type DoorBarrier } from '@/domains/procgen/colliders'
 import { generateDungeon } from '@/domains/procgen/gen/generate'
+import { Rng } from '@/core/rng'
 import { bottom, clipRect, containsPoint, left, rectFromCorners, right, top } from '@/domains/procgen/model/rect'
 import { fitMapFrame } from './StageGeometry'
 import type { RoomsConfig } from '@/domains/procgen/config'
@@ -217,6 +218,23 @@ function nearestSpawn(room: Room): Point | null {
     }
   }
   return best
+}
+
+/**
+ * **本局每一层的种子**：一局是多层楼，每层都要一张**不一样**的随机地图。
+ *
+ * 从同一个 `runSeed` 里抽 `floors` 个种子，于是：
+ *
+ * - **同一个 `runSeed` → 同一组种子** —— 报出 `runSeed` 就能复现整局（每一层都是同一张图）；
+ * - **相邻两层不会撞成同一张图** —— 直接拿 `runSeed + floor` 当种子的话，
+ *   只要房间尺寸档位是「按种子取档」的，相邻两层会长得极像（差 1 的种子在
+ *   低位上几乎一样）。这里是走一遍 `Rng`，第 n 个种子与第 n+1 个之间没有可预测的关系。
+ *
+ * ⚠️ **必须 `Rng`，不能 `Math.random()`** —— 那样 `runSeed` 就复现不出这一局了。
+ */
+export function floorSeeds(runSeed: number, floors: number): number[] {
+  const rng = new Rng(runSeed)
+  return Array.from({ length: Math.max(1, floors) }, () => rng.between(0, 0x7fffffff))
 }
 
 /**

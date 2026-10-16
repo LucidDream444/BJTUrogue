@@ -33,7 +33,8 @@ export class StageColliders {
 
   private clear(): void {
     for (const zone of this.zones) {
-      this.group.remove(zone)
+      // 场景 shutdown 时 UpdateList 可能先销毁组，children 已被引擎置空。
+      if (this.group.children) this.group.remove(zone)
       zone.destroy()
     }
     this.zones.length = 0
@@ -42,6 +43,6 @@ export class StageColliders {
   destroy(): void {
     for (const collider of this.colliders) collider.destroy()
     this.clear()
-    this.group.destroy()
+    if (this.group.children) this.group.destroy()
   }
 }

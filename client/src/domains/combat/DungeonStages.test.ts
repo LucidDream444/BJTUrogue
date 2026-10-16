@@ -2,23 +2,37 @@ import { readFileSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
 import { describe, expect, it } from 'vitest'
 
-import { parseRoomsConfig } from '@/domains/procgen/config'
+import { roomsConfigWithRoomCount } from '@/domains/procgen/config'
 import { parseCombatConfig } from './config'
-import { buildDungeonStages } from './DungeonStages'
+import { buildDungeonStages, floorSeeds } from './DungeonStages'
 
 const CONFIG_DIR = fileURLToPath(new URL('../../../public/config/', import.meta.url))
 const readJson = (name: string): unknown => JSON.parse(readFileSync(CONFIG_DIR + name, 'utf8'))
 
-/** 一局的那七个房间参数。和 `BattleScene` 里的 `ROOMS_PER_RUN` 同一组 ——
- *  这里**独立写死**是刻意的：测试要能发现「有人把三个数改成相等」。 */
-const PER_RUN = { totalRooms: 7, mainRoomMin: 4, mainRoomMax: 4 }
+const d1 = () => parseCombatConfig(readJson('combat.json'))
+/** 一层几间 / 几间侧室只从 `combat.json` 读 —— 测试里再写一遍就成了第二份会漂的事实。 */
+const rooms = () =>
+  roomsConfigWithRoomCount(
+    { get: () => readJson('rooms.json') },
+    d1().arena.roomsPerFloor,
+    d1().arena.sideRoomsPerFloor,
+  )
 /** 多个种子 —— 连通性不能只在一个种子上碰巧成立。 */
 const SEEDS = [1, 2, 3, 13, 837, 20261012, 7919, 424242]
 
-function build(seed: number, overrides: Record<string, number> = PER_RUN) {
-  const rooms = parseRoomsConfig({ ...(readJson('rooms.json') as object), ...overrides })
-  const d1 = parseCombatConfig(readJson('combat.json'))
-  return buildDungeonStages(seed, rooms, d1)
+function build(seed: number, overrides: Record<string, number> = {}) {
+  const base = rooms()
+  return buildDungeonStages(
+    seed,
+    overrides.totalRooms === undefined
+      ? base
+      : roomsConfigWithRoomCount(
+          { get: () => readJson('rooms.json') },
+          overrides.totalRooms,
+          overrides.sideRooms ?? 0,
+        ),
+    d1(),
+  )
 }
 
 describe('DungeonStages — 房间必须靠门连通', () => {
@@ -86,8 +100,8 @@ describe('DungeonStages — 一层要有分支，不能是一条直线', () => {
   it('有侧室（= 有分支）', () => {
     expect(build(1).rooms.filter((r) => r.room.branch === 'side').length).toBeGreaterThan(0)
   })
-  it('房间总数就是配的那个数', () => {
-    expect(build(1).rooms).toHaveLength(PER_RUN.totalRooms)
+  it('房间总数 = `arena.roomsPerFloor`（一层就这么多间）', () => {
+    expect(build(1).rooms).toHaveLength(d1().arena.roomsPerFloor)
   })
   it('至少有一间开三个门 —— 走到那儿要选方向', () => {
     for (const seed of SEEDS) {
@@ -183,6 +197,44 @@ describe('DungeonStages — 交出去的数据要和 solids 对齐', () => {
         expect(doors).toHaveLength(r.doorTargets.length)
         expect(r.doorRects).toHaveLength(r.doorTargets.length)
       }
+    }
+  })
+})
+
+describe('DungeonStages — 一局多层：层种子与「一层一个首领」', () => {
+  it('层种子由 `runSeed` 派生：同一个 runSeed 逐位相同（报出它就能复现整局）', () => {
+    expect(floorSeeds(12345, 3)).toEqual(floorSeeds(12345, 3))
+    expect(floorSeeds(12345, 3)).toHaveLength(3)
+  })
+
+  it('同一局内每一层的种子互不相同，不同局也不一样', () => {
+    const a = floorSeeds(12345, 3)
+    expect(new Set(a).size).toBe(3)
+    expect(a).not.toEqual(floorSeeds(999, 3))
+  })
+
+  it('**每一层有且只有一个首领房，就在最后一间，而且不是侧室**', () => {
+    // ⚠️ 这条是「一局三层、一层一个首领」的**前提**：正式游戏里首领只在
+    // `room.kind === 'boss'` 那一间刷（见 `BattleScene.spawnStage()`），
+    // 所以生成器必须保证「有且只有一个、在末间、不在侧室」。
+    // ⚠️ 它一变不会报错 —— 只会静默变成「这一层没有首领」或者「一层两个首领」。
+    for (const runSeed of [1, 837, 424242]) {
+      for (const [i, seed] of floorSeeds(runSeed, d1().arena.maxStages).entries()) {
+        const d = build(seed)
+        const where = `runSeed ${runSeed} 的第 ${i + 1} 层`
+        const bosses = d.rooms.filter((r) => r.room.kind === 'boss')
+        expect(bosses, `${where}首领房不是一间`).toHaveLength(1)
+        expect(bosses[0]!.order, `${where}首领房不在最后一间`).toBe(d.rooms.length - 1)
+        expect(bosses[0]!.room.branch, `${where}首领房是侧室`).toBe('main')
+      }
+    }
+  })
+
+  it('每一层都是完整的一层楼：房间数与几何表都对得上 `arena.roomsPerFloor`', () => {
+    for (const seed of floorSeeds(20261012, d1().arena.maxStages)) {
+      const d = build(seed)
+      expect(d.rooms).toHaveLength(d1().arena.roomsPerFloor)
+      expect(d.stages.stages).toHaveLength(d1().arena.roomsPerFloor)
     }
   })
 })
