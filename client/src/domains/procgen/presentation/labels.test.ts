@@ -101,7 +101,9 @@ describe('D2 门标注 — 一条挡板一条标注', () => {
     // 的手造地图同一个手法：**造不出来的状态也得有判据**，
     // 否则等哪天真出一个，没人知道该印什么、该印在哪。
     const map = mapOf(837)
-    const hole = { axis: 'h' as const, x: 2620, y: -140, width: 120 }
+    // ⚠️ 洞的坐标是**跟着房间尺寸走的** —— 2026-10-16 房间放大（640×280 → 1280×600）之后
+    // 整层坐标全变了。这里跟着改成新的 `#3 ⇄ #4` 那个洞。
+    const hole = { axis: 'h' as const, x: 4700, y: -300, width: 120 }
     const sealed: DungeonMap = {
       ...map,
       rooms: map.rooms.map((r) => ({
@@ -137,7 +139,9 @@ describe('D2 门标注 — 同一个洞从两侧看只标一次', () => {
 
   it('种子 837：`#3` ⇄ `#4` 那一个洞，原始数据两条（`→4` 与 `→3`），标注只剩一条 `→4`', () => {
     const map = mapOf(837)
-    const hole = { axis: 'h' as const, x: 2620, y: -140, width: 120 }
+    // ⚠️ 洞的坐标是**跟着房间尺寸走的** —— 2026-10-16 房间放大（640×280 → 1280×600）之后
+    // 整层坐标全变了。这里跟着改成新的 `#3 ⇄ #4` 那个洞。
+    const hole = { axis: 'h' as const, x: 4700, y: -300, width: 120 }
 
     // 先确认这个洞在数据里**真的是双记的** —— 不然这条用例测的是别的东西
     const rawHere = map.rooms.flatMap((r) => r.doors).filter((d) => rectKey(d) === rectKey(hole))

@@ -146,6 +146,12 @@ export interface RoomsConfig {
 
   // 障碍物（**桌椅组**：一张桌 + 正下方紧贴的一把椅子，见 `gen/obstacles.ts`）
   deskWidthCells: number
+  /**
+   * 桌长的**上限**，格。每组桌椅抽一次 `[deskWidthCells, deskWidthCellsMax]` 的宽度 ——
+   * 于是同一间房里既有两格的桌、也有三四格的，形状不至于千篇一律。
+   * 等于 `deskWidthCells` 时退化成「每张桌一样长」。
+   */
+  deskWidthCellsMax: number
   deskHeightCells: number
   /** 同一排相邻两张桌之间留几格走道 */
   deskGapCells: number
@@ -495,6 +501,17 @@ export function parseRoomsConfig(raw: unknown): RoomsConfig {
     'rooms.deskWidthCells',
     { integer: true, min: 1 },
   )
+  const deskWidthCellsMax = needNumber(
+    need(root.deskWidthCellsMax, 'rooms.deskWidthCellsMax'),
+    'rooms.deskWidthCellsMax',
+    { integer: true, min: 1 },
+  )
+  if (deskWidthCellsMax < deskWidthCells) {
+    throw new ConfigError(
+      'rooms.deskWidthCellsMax',
+      `桌长上限（${deskWidthCellsMax}）小于下限（${deskWidthCells}）—— 抽不出宽度`,
+    )
+  }
   const deskHeightCells = needNumber(
     need(root.deskHeightCells, 'rooms.deskHeightCells'),
     'rooms.deskHeightCells',
@@ -596,6 +613,7 @@ export function parseRoomsConfig(raw: unknown): RoomsConfig {
     doorWidth,
     doorClearance,
     deskWidthCells,
+    deskWidthCellsMax,
     deskHeightCells,
     deskGapCells,
     deskRowGapCells,

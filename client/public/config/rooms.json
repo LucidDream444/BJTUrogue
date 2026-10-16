@@ -13,20 +13,16 @@
   "mainRoomMax": 11,
 
   "_sizes_comment": "主干教室**只按宽度分档**（px）。宽度必须是 navCellSize 的整数倍 —— 按格对齐是「可视 = 可走性」的前提。每一档取一次随机数，所以一排里宽度是混着的，「随机刷新」在这排房子上就表现为宽度不一。最大档必须 ≤ 1280×720，否则 1:1 的测试场放不下（test/ArenaBase.ts 的世界尺寸写死）。",
-  "mainWidthTiers": [400, 520, 640],
+  "mainWidthTiers": [800, 1040, 1280],
 
   "_main_height_comment": "主干教室与连廊的**统一高度**（含上下墙）。高度不分档是刻意的：侧室朝主干的那面墙要同时贴住宿主教室和它东边的连廊，两者高度不一这两条线就不重合，连廊的墙得逐段跳台阶、侧室的墙只能贴住其中一个，另一个露出缝。⚠️ 必须 ≡ 40 (mod 80)，即**奇数格** —— 偶数格会让这条带的中线落回格中心，竖直墙上的门心偏移 20px 就会悄悄失效（config.ts 里有推导，那里会当场拒绝偶数格的值）。280 = 7 格。",
-  "mainRoomHeight": 280,
+  "mainRoomHeight": 600,
 
   "_side_sizes_comment": "侧室**按宽高两维取档**：它只有一面墙与主干相邻，没有「上下墙必须对齐」的束缚。宽高同样是 navCellSize 的整数倍。侧室的 x 跨度 = 宿主东边界 − k 到连廊东端，其中 k = 本档宽度 − roomGap，而 k 必须 ≤ 宿主宽度（否则侧室会伸到宿主的西墙外面去）—— 所以大档侧室只挂得宽的主干教室，这一条由生成器按档位过滤，详见 docs/地牢生成设计.md。",
-  "sideRoomTiers": [
-    { "width": 400, "height": 240 },
-    { "width": 520, "height": 280 },
-    { "width": 640, "height": 320 }
-  ],
+  "sideRoomTiers": [{"width": 800, "height": 440}, {"width": 1040, "height": 520}, {"width": 1280, "height": 600}],
 
   "_kinds_comment": "★ 新（schemaVersion 2 → 3）：**每一间房是什么关，从这张表起说真话。** 侧室的 kind 不再是写死的 main，而是按 sideKindWeights 抽（权重不必凑成 1，内部归一化）；主干仍是「首间 start、末间 boss、其余 main」，那两个由位置决定，所以不许出现在这张表里（配置加载时就拒绝）。combatKinds 是「哪几类关别要打」的**唯一**判据 —— 不在集合里 = 不摆桌椅、不刷怪、威胁预算为 0，三件事读同一个集合，免得出现「摆了桌椅但不刷怪」这种合法但错的数据。",
-  "sideKindWeights": { "elite": 2, "reward": 3, "chest": 2 },
+  "sideKindWeights": { "main": 4, "elite": 2, "reward": 2, "chest": 2 },
 
   "_combat_comment": "要打的关别。main 必须在这里（一排主干教室里总要有要打的屋子，否则整层没有威胁预算）；start / boss 是可以排除的（起点房空着、首领房留出闪避空间，都是合理配置）。改这一行不需要重新构建，也不需要改任何 TypeScript。",
   "combatKinds": ["start", "main", "elite", "boss"],
@@ -49,11 +45,12 @@
 
   "_obstacles_comment": "★ 改了（schemaVersion 4）：**桌椅成组** —— 一张 deskWidthCells × deskHeightCells 的课桌，正下方紧贴一把 1 格的椅子（照 D1 三张手绘关里的家具关系，见 client/src/domains/procgen/gen/obstacles.ts）。所以 chairChance 没了：贴图里就带着椅子，**每张桌必配一把椅**。排与排的纵向步长 = (deskHeightCells + 1) + deskRowGapCells —— 桌椅组自己占两行，旧式子「一行桌一行空」会让下一排的桌子压到上一排的椅子上（重叠在寻路里不报错，只表现为「这块地方过不去」）。桌椅恒按格对齐、只横竖，排布整块居中（不是从左上角铺）。",
   "deskWidthCells": 2,
+  "deskWidthCellsMax": 4,
   "deskHeightCells": 1,
   "deskGapCells": 1,
   "deskRowGapCells": 1,
-  "deskRowsMin": 1,
-  "deskRowsMax": 2,
+  "deskRowsMin": 3,
+  "deskRowsMax": 4,
 
   "_density_comment": "障碍物总面积 ÷ 教室面积的上限。0.22 是按**最小档侧室**（400×240，内部 9×5 格）反推的：那一档摆得下 2 排 × 每排 2 组 = 4 组，一组 3 格（桌 2 + 椅 1）= 12 格 = 19200px²，19200 ÷ 96000 = 0.20 —— 上限压到 0.22 时小教室刚好摆满、还留一点点余量给「配置里把 deskRowsMax 调大」，大教室（640×280 内部 15×6，8 组 = 24 格 = 38400 ÷ 179200 = 0.21）也摆得满。调大它小教室会变成迷宫：小教室本来就只有一格宽的走道。",
   "obstacleDensityMax": 0.22,

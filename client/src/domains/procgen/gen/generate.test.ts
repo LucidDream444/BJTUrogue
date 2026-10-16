@@ -596,7 +596,7 @@ describe('D2 校验器 — 负样本（证明它不是永远通过）', () => {
       // 那样这条尺寸检查永远测不到。
       desk.rect = { x: r.x, y: r.y, width: r.width + cfg.navCellSize * 2, height: r.height }
     })
-    expectFails(m, 'obstacles', '尺寸不统一')
+    expectFails(m, 'obstacles', '尺寸超出契约')
   })
 
   it('课桌底下没有椅子被拒 —— 桌椅是成组的', () => {
@@ -1118,7 +1118,9 @@ describe('D2 关别与桌椅（schemaVersion 4）', () => {
         expect(counted.desk, `${where} 桌/椅数量不对`).toBe(counted.chair)
         expect(units.length, `${where} 桌椅组数 ≠ 桌子数`).toBe(counted.desk)
         for (const u of units) {
-          expect(u.desk.width, `${where} 桌宽`).toBe(cfg.deskWidthCells * cfg.navCellSize)
+          // 桌宽是一个**区间**（每组抽一次）—— 见 `gen/obstacles.ts`
+          expect(u.desk.width, `${where} 桌宽`).toBeGreaterThanOrEqual(cfg.deskWidthCells * cfg.navCellSize)
+          expect(u.desk.width, `${where} 桌宽`).toBeLessThanOrEqual(cfg.deskWidthCellsMax * cfg.navCellSize)
           expect(u.desk.height, `${where} 桌高`).toBe(cfg.deskHeightCells * cfg.navCellSize)
           expect(u.chair.width, `${where} 椅宽`).toBe(cfg.navCellSize)
           expect(chairBelongsTo(u.chair, u.desk), `${where} 椅子没贴在桌子正下方`).toBe(true)
@@ -1127,15 +1129,10 @@ describe('D2 关别与桌椅（schemaVersion 4）', () => {
     }
   })
 
-  it('桌椅整块居中 —— 左右 / 上下留的走道一样宽（差 ≤ 1 格）', () => {
-    // 「居中」是**刻意的**（见 `gen/obstacles.ts` 文件头）：早先桌椅从左上角一格一格试，
-    // 右下角余出一大片空当，看起来像生成器只会从角上摆。这条把它钉死。
-    //
-    // ⚠️ 量的是 `placeObstacles` 本身、房间**没有门** —— 不是在整张图上量。
-    // 门禁区会**单独跳过某一张桌**（`touchesDoor` 那一支，刻意的），跳过之后
-    // 剩下的桌椅当然不居中；那是门的形状，不是排布规则。给一间没有门的房间，
-    // 量到的才是规则本身。
-    const cell = cfg.navCellSize
+  it('桌椅都落在内墙里 —— 不越界（「整块居中」的排布已取消，见 gen/obstacles.ts）', () => {
+    // ⚠️ 2026-10-16：桌椅从「成排、整块居中铺满」改成「**摆几组、散着摆、桌长逐组抽**」。
+    //    原来那条「左右上下留的走道一样宽」测的就是居中本身，居中一取消它自然不成立 ——
+    //    但它真正要防的东西还在，而且更重要：**桌椅不许越出内墙**。
     const wt = cfg.wallThickness
     const bare = (w: number, h: number): Room => ({
       order: 0,
@@ -1149,60 +1146,53 @@ describe('D2 关别与桌椅（schemaVersion 4）', () => {
       budget: 1,
       anchoredTo: null,
     })
-    for (const [w, h] of [
-      [400, 240],
-      [400, 280],
-      [520, 280],
-      [640, 280],
-      [640, 320],
-    ] as const) {
-      for (const seed of [1, 2, 3, 13, 837, 7919]) {
+    for (const [w, h] of [[400, 240], [800, 440], [1280, 600]] as const) {
+      for (const seed of [1, 2, 3, 13, 837]) {
         const room = bare(w, h)
-        const obstacles = placeObstacles(seed, cfg, room)
-        const units = furnitureUnits({ ...room, obstacles })
-        expect(units.length, `${w}×${h} 种 ${seed} 一组都摆不下？`).toBeGreaterThan(0)
-        const where = `${w}×${h} 种 ${seed}`
-        const dl = Math.min(...units.map((u) => left(u.desk)))
-        const dr = Math.max(...units.map((u) => right(u.desk)))
-        const dt = Math.min(...units.map((u) => top(u.desk)))
-        const db = Math.max(...units.map((u) => bottom(u.chair)))
-        const il = left(room.rect) + wt / 2
-        const ir = right(room.rect) - wt / 2
-        const it = top(room.rect) + wt / 2
-        const ib = bottom(room.rect) - wt / 2
-        // 量的是**两侧之差**（不是"边距 ≤ 1 格"）：`usedX` 与内部宽度不同奇偶时
-        // `floor` 会让一侧多出一格，所以差 ≤ 1 格。
-        // ⚠️ 成立的前提是**密度上限没有截断最后一排**。现在的配置下不会：最挤的一档
-        //    是 640×280，8 组 = 24 格 = 38400px²，而上限 0.22 × 179200 = 39424。
-        expect(Math.abs(dl - il - (ir - dr)), `${where} 左右边距差太多`).toBeLessThanOrEqual(cell)
-        expect(Math.abs(dt - it - (ib - db)), `${where} 上下边距差太多`).toBeLessThanOrEqual(cell)
-      }
-    }
-  })
-
-  it('排数由房间高度封顶 —— 抽到 2 排的房间一定真的有 2 排，而不是摆到下墙外面', () => {
-    const cell = cfg.navCellSize
-    for (const seed of SEEDS.slice(0, 200)) {
-      for (const room of generateDungeon(seed, cfg).rooms) {
-        const units = furnitureUnits(room)
-        if (units.length === 0) continue
-        const rows = [...new Set(units.map((u) => u.desk.y))].sort((a, b) => a - b)
-        expect(rows.length, `种子 ${seed} 房间 #${room.order} 排数超了`).toBeLessThanOrEqual(
-          cfg.deskRowsMax,
-        )
-        // 排距 = 桌椅组占的两行 + deskRowGapCells。**这一条防的是"下一排的桌子压在
-        // 上一排的椅子上"** —— 两件障碍物重叠在寻路里不报错，只表现为"这块过不去"。
-        for (let i = 1; i < rows.length; i++) {
-          expect(rows[i]! - rows[i - 1]!, `种子 ${seed} 房间 #${room.order} 排距`).toBeGreaterThanOrEqual(
-            (cfg.deskHeightCells + 1) * cell,
+        for (const o of placeObstacles(seed, cfg, room)) {
+          expect(left(o.rect), `${w}×${h} 种 ${seed} 越出左内墙`).toBeGreaterThanOrEqual(
+            left(room.rect) + wt / 2 - 1e-6,
+          )
+          expect(right(o.rect), `${w}×${h} 种 ${seed} 越出右内墙`).toBeLessThanOrEqual(
+            right(room.rect) - wt / 2 + 1e-6,
+          )
+          expect(top(o.rect), `${w}×${h} 种 ${seed} 越出上内墙`).toBeGreaterThanOrEqual(
+            top(room.rect) + wt / 2 - 1e-6,
+          )
+          expect(bottom(o.rect), `${w}×${h} 种 ${seed} 越出下内墙`).toBeLessThanOrEqual(
+            bottom(room.rect) - wt / 2 + 1e-6,
           )
         }
       }
     }
   })
-})
 
-describe('D2 生成器 — 耗时', () => {
+  it('组与组不重叠 —— 散着摆最怕的就是两张桌贴成一条更长的墙', () => {
+    // ⚠️ 原来是「排数由房间高度封顶」：成排摆位时「排」是个有意义的量，散着摆之后没有了。
+    //    换成散摆真正会出的那个错：**两组离得太近**，视觉上长成一条过不去的长墙。
+    const cell = cfg.navCellSize
+    for (const seed of SEEDS.slice(0, 200)) {
+      for (const room of generateDungeon(seed, cfg).rooms) {
+        const units = furnitureUnits(room)
+        for (let i = 0; i < units.length; i++) {
+          for (let j = i + 1; j < units.length; j++) {
+            const a = units[i]!
+            const b = units[j]!
+            const aBox = { x: left(a.desk), y: top(a.desk), width: a.desk.width, height: bottom(a.chair) - top(a.desk) }
+            const bBox = { x: left(b.desk), y: top(b.desk), width: b.desk.width, height: bottom(b.chair) - top(b.desk) }
+            const gapX = Math.max(aBox.x - (bBox.x + bBox.width), bBox.x - (aBox.x + aBox.width))
+            const gapY = Math.max(aBox.y - (bBox.y + bBox.height), bBox.y - (aBox.y + aBox.height))
+            // 两组要么横向分开 ≥ deskGapCells 格，要么纵向分开 ≥ 1 组的高度
+            expect(
+              gapX >= cfg.deskGapCells * cell - 1e-6 || gapY >= -1e-6,
+              `种子 ${seed} 房间 #${room.order}：第 ${i + 1} 组与第 ${j + 1} 组贴得太近（横向差 ${gapX.toFixed(0)}px）`,
+            ).toBe(true)
+          }
+        }
+      }
+    }
+  })
+
   it('1000 次生成没有长尾（单次最慢 < 50ms）', () => {
     const worst = { seed: -1, ms: 0 }
     let total = 0

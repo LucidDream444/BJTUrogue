@@ -13,7 +13,7 @@
     },
     "player": {
       "maxHp": 50,
-      "speed": 200,
+      "speed": 260,
       "radius": 12,
       "iframeMs": 500
     },

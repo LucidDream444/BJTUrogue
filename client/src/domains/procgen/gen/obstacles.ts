@@ -82,22 +82,12 @@ export function placeObstacles(seed: number, cfg: RoomsConfig, room: Room): Obst
   const nx = Math.floor((right(room.rect) - wt / 2 - rl) / cell)
   const ny = Math.floor((bottom(room.rect) - wt / 2 - rt) / cell)
 
-  const dw = cfg.deskWidthCells
   const dh = cfg.deskHeightCells
   // 一组占**两行**：桌子那一行 + 椅子那一行（椅子贴在桌子正下方，所以恒为一格）
   const unitRows = dh + 1
-  const step = dw + cfg.deskGapCells // 同一排里相邻两组的横向步长
-  const pitch = unitRows + cfg.deskRowGapCells // 相邻两排之间的纵向步长
 
-  // 排布是**算出来的、居中的、互不重叠的**（见文件头），所以这里没有 `taken` 数组：
-  // 横向步长 ≥ dw、纵向步长 ≥ unitRows，两组桌椅在构造上就压不到一起。
-  // 早先的 `taken` 是给「边试边退」的写法兜底的 —— 那种写法下重叠是一条要靠数组
-  // 才拦得住的错，而重叠在寻路里**不报错**，只表现为「这块地方过不去」。
-  const maxDesks = nx - 2 >= dw ? Math.floor((nx - 2 - dw) / step) + 1 : 0
-  const maxRows = ny >= unitRows ? Math.floor((ny - unitRows) / pitch) + 1 : 0
-  // 放不下就**一间空房**（`maxRows === 0` 在最小档侧室里是真会发生的：内部 5 行、
-  // 一组占 2 行 + 排距 1 行 → 满打满算 2 排，够；但把 deskRowGapCells 调大就会到 0）。
-  if (maxDesks === 0 || maxRows === 0) return []
+  // 放不下就**一间空房**
+  if (nx - 2 < cfg.deskWidthCells || ny < unitRows + 2) return []
 
   // 门的净空圈。**门自己也算** —— 一扇门只挖掉了墙，"门前"那几格还得由障碍物让开。
   const forbidden: Rect[] = room.doors.map((d) => inflate(doorRect(d, wt), cfg.doorClearance))
@@ -110,51 +100,64 @@ export function placeObstacles(seed: number, cfg: RoomsConfig, room: Room): Obst
     height: hCells * cell,
   })
 
+  // 一组占的面积：桌（`deskWidthCellsMax` 格，按最大算，宁可保守）+ 椅 1 格
+  const unitArea = (cfg.deskWidthCellsMax * dh + 1) * cell * cell
   const roomArea = room.rect.width * room.rect.height
   const areaCap = roomArea * cfg.obstacleDensityMax
   let usedArea = 0
 
   const rng = rngFor(seed, 'desks', room.order)
 
-  // 摆几排由两个东西共同决定：配置抽的签（`deskRowsMin`—`deskRowsMax`）与房间高度
-  // 容得下几排。房间高度是**真上限** —— 抽到 3 而房间只放得下 2 排时取 2，
-  // 这一条以前会表现成「桌椅贴着下墙摆出去」，因为旧式子只在下边留了一格。
-  const wantRows = rng.between(cfg.deskRowsMin, cfg.deskRowsMax)
-  const rowCount = Math.min(wantRows, maxRows)
-
-  // 整块居中：跨 `spanY` 行、`usedX` 列，两边余数对半分。
-  const spanY = (rowCount - 1) * pitch + unitRows
-  const startY = Math.floor((ny - spanY) / 2)
-  const usedX = maxDesks * dw + (maxDesks - 1) * cfg.deskGapCells
-  const startX = Math.floor((nx - usedX) / 2)
-
+  // ⚠️ **2026-10-16 改成「摆几组、散着摆」。** 原来是「成排、整块居中铺满」——
+  //    几何可控（一排有没有把房间切成两半，逐行就能答），但落地之后是：
+  //    **桌椅恒在正中一片、每张桌都一样长、数量由房间宽度定**。
+  //    玩起来就是「一进门正中间一排桌子，哪儿都一样」。
+  //
+  //    散着摆的安全网**已经在了**：`spawns.ts` 跑在这之后，从门做 flood fill、
+  //    **只从可达的格子里**挑出生点（见那个文件）。所以「摆出一块到不了的区域」
+  //    顶多是那块地没人去，**不会把出生点或门封死** —— 而「成排」原本要防的
+  //    正是这个。门净空那一圈（`doorClearance`）也照旧拦着。
+  //
+  //    保留不动的三条：门净空、密度上限、**按格对齐只横竖**（可视 ≠ 可走性）。
+  const want = rng.between(cfg.deskRowsMin, cfg.deskRowsMax)
   const obstacles: Obstacle[] = []
-  const unitArea = (dw * dh + 1) * cell * cell // 桌 + 椅（椅恒 1 格）
+  // 已经摆下的组。散着摆没有「步长 ≥ 宽」这条构造保证，所以这里**必须**有 `taken` ——
+  // 早先成排摆位时它是多余的（见下），现在不是了。
+  const taken: Rect[] = []
 
-  for (let r = 0; r < rowCount; r++) {
-    const iy = startY + r * pitch
-    for (let k = 0; k < maxDesks; k++) {
-      const ix = startX + k * step
+  for (let n = 0; n < want; n++) {
+    // 桌长**每组抽一次**：2~`deskWidthCellsMax` 格。于是同一间房里
+    // 「两格的桌」「三格的桌」「四格的桌」都有 —— 这是不改数据模型就能拿到的形状多样性
+    // （桌恒为一条横线，配上正下方一格的椅子就是那个拐角「L」）。
+    const dw = rng.between(cfg.deskWidthCells, cfg.deskWidthCellsMax)
+    for (let attempt = 0; attempt < 32; attempt++) {
+      // 位置**随处抽**（内墙各留一格），不再居中
+      const ix = rng.between(1, Math.max(1, nx - dw - 1))
+      const iy = rng.between(1, Math.max(1, ny - unitRows - 1))
       const desk = cellsRect(ix, iy, dw, dh)
-      // 椅子贴桌子跨度的**哪一格**由种子定（见文件头 ⚠️）。抽的是格子下标，
-      // 所以只要桌子比一格宽，就有 `dw` 种贴法。
-      const seatIx = ix + rng.between(0, dw - 1)
-      const chair = cellsRect(seatIx, iy + dh, 1, 1)
-
-      if (usedArea + unitArea > areaCap) return obstacles
-      // 撞门净空 → **这一张跳过**，不是整排跳过：跳过整排会在门前留下一整条空行，
-      // 看起来像「这一排生成失败了」。
+      // 椅子贴桌子跨度的**哪一格**由种子定（见文件头 ⚠️）
+      const chair = cellsRect(ix + rng.between(0, dw - 1), iy + dh, 1, 1)
+      const unit = {
+        x: left(desk),
+        y: top(desk),
+        width: right(desk) - left(desk),
+        height: bottom(chair) - top(desk),
+      }
       if (touchesDoor(desk) || touchesDoor(chair)) continue
-
+      // 组间至少留 `deskGapCells` 格 —— 否则两张桌贴着会长成一条更长的桌，
+      // 而「一块过不去的长墙」正是散着摆最容易出的事
+      if (taken.some((t) => rectsIntersect(t, inflate(unit, cfg.deskGapCells * cell)))) continue
+      if (usedArea + unitArea > areaCap) return obstacles
       // **桌子先进、椅子紧跟**：`model/furniture.ts` 的配对、校验器那条「每张桌正下方
       // 一把椅子」都靠这个形状。顺序本身不参与判据，但把两件放在相邻两行
       // 让「这一组是什么」在任何一处读起来都是同一件事。
       obstacles.push({ kind: 'desk', rect: desk })
       // 椅子只挡路不挡子弹 —— 子弹能穿过椅子打后面的怪，这是刻意的。
       obstacles.push({ kind: 'chair', rect: chair })
+      taken.push(unit)
       usedArea += unitArea
+      break
     }
   }
-
   return obstacles
 }

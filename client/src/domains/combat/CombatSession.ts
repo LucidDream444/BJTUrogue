@@ -184,15 +184,24 @@ export class CombatSession {
     window.addEventListener('blur', this.onBlur)
     document.addEventListener('visibilitychange', this.onVisibility)
   }
-  enterStage(stage: number): void {
+  /**
+   * 转接：换几何 → 重建碰撞 → 找落脚点 → 清输入 → 挪人。
+   *
+   * `keepLoadout`：**回走**到一间打过的房间时用。清装备是「进入新的一关」的语义，
+   * 而回走不是新关 —— 把玩家手里的枪洗掉只会让人不敢往回走，
+   * 而回走正是这一层想要的「地牢感」。
+   */
+  enterStage(stage: number, keepLoadout = false): void {
     const layout = stageGeometry(
       this.stageConfig,
       stage,
       this.cfg.arena.width,
       this.cfg.arena.height,
     )
-    this.weapons.clear()
-    this.drops.clear()
+    if (!keepLoadout) {
+      this.weapons.clear()
+      this.drops.clear()
+    }
     this.terrain.setStage(layout)
     this.stageColliders.rebuild(this.terrain)
     const spawn = this.terrain.safeSpawn(
