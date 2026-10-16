@@ -156,6 +156,28 @@ function playerLayerAssets(): AssetEntry[] {
 }
 
 export const ASSETS: readonly AssetEntry[] = [
+  ...['pencil', 'pulse', 'venom', 'flare', 'rail', 'smg'].flatMap((weapon) =>
+    ['up', 'down'].flatMap((direction) =>
+      ['run', 'stand'].map((state): AssetEntry => ({
+        key: `player_${weapon}_aim_${direction}_${state}`,
+        path: `sprites/player/player_${weapon}_aim_${direction}_${state}.png`,
+        kind: 'spritesheet',
+        placeholder: false,
+        frameWidth: 112,
+        frameHeight: 96,
+      })),
+    ),
+  ),
+  ...['player_student_aim_up', 'player_student_aim_down'].map((key): AssetEntry => ({
+    key,
+    path: `sprites/player/${key}.png`,
+    kind: 'spritesheet',
+    placeholder: false,
+    frameWidth: 71,
+    frameHeight: 71,
+    width: 71,
+    height: 71,
+  })),
   {
     key: GAME_AUDIO.bgm,
     path: 'audio/bgm/bgm_pixel_dungeon_rush',
