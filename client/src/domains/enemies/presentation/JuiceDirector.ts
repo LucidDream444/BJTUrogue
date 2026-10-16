@@ -51,12 +51,13 @@ import Phaser from 'phaser'
 import type { GameClock } from '@/core/time'
 import type { GameEvents, EnemyKind, TypedBus, Unsubscribe } from '@/core/events'
 import type { ConfigBundle } from '@/core/config'
-import type { EnemySystem, Entry } from '../EnemySystem'
+import type { EnemySystem } from '../EnemySystem'
 import { RadialBurstFx } from './RadialBurstFx'
 import { JuicePolicy, juiceParamsFromConfig } from './JuicePolicy'
 import { SfxPool } from './SfxPool'
 import { EnemyHealthBars } from './EnemyHealthBars'
-import { ASSETS, ANIMS, TANK_ART, FINAL_BOSS_ART, STAGE2_BOSS_ART } from '@/core/assetManifest'
+import { PaperDeathFx } from './PaperDeathFx'
+import { ASSETS, ANIMS, TANK_ART } from '@/core/assetManifest'
 import { textureKeyFor } from '@/core/assets'
 
 /** 受击冲击淡出用多久。**小于肉盾的 `damageEventBatchMs` 才不会糊成一片常亮** */
@@ -116,9 +117,12 @@ export class JuiceDirector {
   private readonly policy: JuicePolicy
   private readonly radialFx: RadialBurstFx
   private readonly healthBars: EnemyHealthBars
+  private readonly paperDeaths: PaperDeathFx
   private readonly sfx: SfxPool
   private readonly visuals = new Map<number, VisualState>()
-  private readonly animations = new Map(ANIMS.map((anim) => [anim.textureKey, anim]))
+  private readonly animations = new Map(
+    ANIMS.filter((anim) => anim.repeat === -1).map((anim) => [anim.textureKey, anim]),
+  )
   private readonly unsubs: Unsubscribe[] = []
 
   /** 肉盾满血。**只算一次** —— `specFor()` 每次都走派生 + 缓存查找，不该每帧问 */
@@ -142,6 +146,11 @@ export class JuiceDirector {
       opts.bundle.enemies.stage2Boss,
     )
     this.healthBars = new EnemyHealthBars(opts.scene, opts.enemies)
+    this.paperDeaths = new PaperDeathFx(
+      opts.scene,
+      opts.clock,
+      opts.bundle.balance.spawn.maxAliveHard,
+    )
 
     const enemies = opts.bundle.enemies.enemies
     this.policy = new JuicePolicy(
@@ -209,6 +218,7 @@ export class JuiceDirector {
     this.applyShake()
     this.updateAnimations()
     this.updateVisuals(this.clock.realNowMs)
+    this.paperDeaths.update()
     this.healthBars.update()
     this.radialFx.update()
   }
@@ -223,6 +233,7 @@ export class JuiceDirector {
 
     this.sfx.destroy()
     this.healthBars.destroy()
+    this.paperDeaths.destroy()
     this.radialFx.destroy()
     this.visuals.clear()
     // 不要在这里 `world.pause()`：shutdown 之后再 pause，下一个场景就动不了了。
@@ -321,6 +332,9 @@ export class JuiceDirector {
     // 因为最后一代一次会死 8 只，按第一代的量给会把画面钉死。
     const gens = juice.splitter.generations
     const genDef = gens[gen] ?? gens[gens.length - 1]!
+    if (kind === 'splitter') {
+      this.paperDeaths.play(e.x, e.y, gen, genDef.visualScale, genDef.splitDelayMs)
+    }
     const baseHitstopMs = kind === 'tank' ? juice.tank.slam.hitstopMs : genDef.hitstopMs
     // 肉盾的死亡是这一场里最大的事，创伤直接给满（`traumaCap` 也来自配置）。
     const baseTrauma = kind === 'tank' ? this.bundle.balance.juice.traumaCap : genDef.trauma
@@ -370,7 +384,8 @@ export class JuiceDirector {
     const entry = this.enemies.entryOf(e.id)
     if (entry) {
       entry.view.setAlpha(1)
-      entry.view.setFlipX(this.enemies.playerDirectionX(e.id) > 0)
+      // Keep the Chinese cover title readable in every movement direction.
+      entry.view.setFlipX(false)
       entry.view.setScale(entry.view.visualScale, entry.view.visualScale)
       entry.view.rotation = 0
     }
@@ -415,88 +430,24 @@ export class JuiceDirector {
     v.lastHitRealMs = realNowMs
   }
 
-  private updateStage2Animation(entry: Entry): void {
-    const { model, view } = entry
-    const cfg = this.bundle.enemies.stage2Boss
-    const attacking = model.state === 'windup' || model.state === 'recover'
-    const key = attacking ? STAGE2_BOSS_ART.attack : STAGE2_BOSS_ART.idle
-    const anim = this.animations.get(key)!
-    const age = model.stateAgeMs(this.clock.nowMs)
-    // The supplied sheet releases its expanding ring at frame 7 (after seven charge frames).
-    const releaseFrame = 7
-    const index =
-      model.state === 'windup'
-        ? Math.min(releaseFrame - 1, Math.floor((age / cfg.windupMs) * releaseFrame))
-        : model.state === 'recover'
-          ? releaseFrame +
-            Math.min(
-              anim.frames.length - releaseFrame - 1,
-              Math.floor((age / cfg.recoverMs) * (anim.frames.length - releaseFrame)),
-            )
-          : Math.floor((this.clock.nowMs * anim.frameRate) / 1000) % anim.frames.length
-    const texture = textureKeyFor(this.scene, key)
-    const frame = anim.frames[index]!
-    // The supplied art faces left. Keep the last facing direction while charging or recovering.
-    const vx = view.body.velocity.x
-    if (Math.abs(vx) > 1) view.setFlipX(vx > 0)
-    if (view.texture.key !== texture) {
-      view.setTexture(texture, frame)
-      const radius = model.stats.radius
-      view.body.setCircle(
-        radius,
-        view.frame.realWidth / 2 - radius,
-        view.frame.realHeight / 2 - radius,
-      )
-      view.body.updateFromGameObject()
-    } else if (String(view.frame.name) !== String(frame)) view.setFrame(frame)
-  }
-
-  /** Use logical time so the imported bounce freezes during pause and hitstop. */
+  /** Logical time freezes animation during pause and hitstop, including paper death copies. */
   private updateAnimations(): void {
     for (const { model, view } of this.enemies.liveEnemies) {
-      if (!model.alive) continue
-      if (this.enemies.isStage2Boss(model.id)) {
-        this.updateStage2Animation({ model, view })
-        continue
-      }
-      const inAttack =
-        model.enemyKind === 'tank' &&
-        (model.state === 'windup' || model.state === 'recover') &&
-        this.enemies.isPlayerInRange(model.id, this.bundle.enemies.enemies.tank.slam.range)
-      const vx = view.body.velocity.x
-      const direction = inAttack
-        ? this.enemies.playerDirectionX(model.id)
-        : Math.abs(vx) > 1
-          ? Math.sign(vx)
-          : 0
-      // Supplied enemies face left in their source art. Mirror only the sprite, never the body.
-      // Keep the last direction when idle or moving vertically, avoiding rapid left/right flicker.
-      if (direction !== 0) view.setFlipX(direction > 0)
+      if (!model.alive || this.enemies.isBoss(model.id)) continue
+      // Artwork uses a fixed overhead view: mirroring a textbook would reverse its title.
+      view.setFlipX(false)
+      let key = view.texture.key
+      let index = 0
       if (model.enemyKind === 'tank') {
         const slam = this.bundle.enemies.enemies.tank.slam
-        const close = this.enemies.isPlayerInRange(model.id, slam.range)
-        const attacking = close && (model.state === 'windup' || model.state === 'recover')
-        const finalBoss = this.enemies.isFinalBoss(model.id)
-        const attackStart =
-          model.state === 'windup' ? model.stateEnteredAtMs : model.stateEnteredAtMs - slam.windupMs
-        const finalAttack =
-          Math.floor(attackStart / Math.max(1, slam.cooldownMs)) % 2 === 0
-            ? FINAL_BOSS_ART.attack
-            : FINAL_BOSS_ART.poison
-        const key = finalBoss
-          ? attacking
-            ? finalAttack
-            : view.body.velocity.lengthSq() > 1
-              ? FINAL_BOSS_ART.walk
-              : FINAL_BOSS_ART.idle
-          : attacking
-            ? TANK_ART.attack
-            : TANK_ART.walk
-        const anim = this.animations.get(key)!
-        let index = 0
+        const attacking =
+          this.enemies.isPlayerInRange(model.id, slam.range) &&
+          (model.state === 'windup' || model.state === 'recover')
+        key = attacking ? TANK_ART.attack : TANK_ART.walk
+        const anim = this.animations.get(key)
+        if (!anim) continue
         if (attacking) {
           const age = model.stateAgeMs(this.clock.nowMs)
-          // First half prepares the hit; the second half follows the actual damage event.
           const half = Math.floor(anim.frames.length / 2)
           index =
             model.state === 'windup'
@@ -507,29 +458,23 @@ export class JuiceDirector {
                   Math.floor((age / slam.recoverMs) * (anim.frames.length - half)),
                 )
         } else if (view.body.velocity.lengthSq() > 1) {
-          index = Math.floor((this.clock.nowMs * anim.frameRate) / 1000) % anim.frames.length
+          index =
+            (Math.floor((this.clock.nowMs * anim.frameRate) / 1000) + model.id) % anim.frames.length
         }
-        const texture = textureKeyFor(this.scene, key),
-          frame = anim.frames[index]!
-        if (view.texture.key !== texture) {
-          view.setTexture(texture, frame)
-          // Texture size changes from 96 to 128 for the last boss; preserve its circular collision center.
-          const radius = model.stats.radius
-          view.body.setCircle(
-            radius,
-            view.frame.realWidth / 2 - radius,
-            view.frame.realHeight / 2 - radius,
-          )
-          view.body.updateFromGameObject()
-        } else if (String(view.frame.name) !== String(frame)) view.setFrame(frame)
-        continue
+      } else {
+        const anim = this.animations.get(key)
+        if (!anim) continue
+        index =
+          (Math.floor((this.clock.nowMs * anim.frameRate) / 1000) + model.id) % anim.frames.length
       }
-      const anim = this.animations.get(view.texture.key)
-      if (!anim || !anim.frames.length) continue
-      const index =
-        (Math.floor((this.clock.nowMs * anim.frameRate) / 1000) + model.id) % anim.frames.length
+      const anim = this.animations.get(key)
+      if (!anim) continue
+      const texture = textureKeyFor(this.scene, key)
       const frame = anim.frames[index]!
-      if (String(view.frame.name) !== String(frame)) view.setFrame(frame)
+      // A missing or intentionally placeholder sheet has no numbered animation frames.
+      if (!this.scene.textures.get(texture).has(String(frame))) continue
+      if (view.texture.key !== texture) view.setTexture(texture, frame)
+      else if (String(view.frame.name) !== String(frame)) view.setFrame(frame)
     }
   }
 

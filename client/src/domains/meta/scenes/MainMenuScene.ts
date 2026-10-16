@@ -28,7 +28,7 @@
  */
 
 import Phaser from 'phaser'
-import { CAMPAIGN_ART, findAsset, imageUrl } from '@/core/assetManifest'
+import { CAMPAIGN_ART, GOOSE_ART, findAsset, imageUrl } from '@/core/assetManifest'
 import { CHARACTERS, DIFFICULTY_LABELS, DIFFICULTY_ORDER, characterById } from '../catalog'
 import {
   MENU_ACTIONS,
@@ -80,6 +80,7 @@ export interface MainMenuData {
 
 /** 竖排按钮的起点，给角色区留出上面的空间 */
 const MENU_ART = [
+  GOOSE_ART.portrait,
   CAMPAIGN_ART.title,
   CAMPAIGN_ART.level1,
   CAMPAIGN_ART.level2,

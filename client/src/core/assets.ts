@@ -34,6 +34,9 @@ const MISSING_SIZE = 16
 export function preloadAssets(scene: Phaser.Scene): void {
   for (const entry of ASSETS) {
     if (entry.placeholder) continue
+    // 纹理与音频缓存跨场景存活；标题页/角色页已加载的资源不再重复注册。
+    if (entry.kind === 'audio' ? scene.cache.audio.exists(entry.key) : scene.textures.exists(entry.key))
+      continue
 
     switch (entry.kind) {
       case 'image':
@@ -100,6 +103,10 @@ export function registerAnimations(scene: Phaser.Scene): void {
       console.warn(`[assets] 动画 "${anim.animKey}" 引用了清单里不存在的 key "${anim.textureKey}"`)
       continue
     }
+    // Placeholder textures have a single base frame, never the retired sprite-sheet frames.
+    if (entry.placeholder) continue
+    const texture = scene.textures.get(entry.key)
+    if (!anim.frames.every((frame) => texture.has(String(frame)))) continue
     scene.anims.create({
       key: anim.animKey,
       frames: anim.frames.map((frame) => ({ key: anim.textureKey, frame })),

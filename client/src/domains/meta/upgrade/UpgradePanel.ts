@@ -73,7 +73,7 @@ export function buildUpgradePanel(
     store,
     onChanged,
     y,
-    `角色：${characterId}`,
+    `角色：${characterById(characterId)?.name ?? characterId}`,
     character?.tracks ?? [],
     characterId,
   )

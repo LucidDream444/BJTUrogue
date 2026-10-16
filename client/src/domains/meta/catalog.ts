@@ -44,9 +44,9 @@ export const CHARACTERS: readonly CharacterDef[] = [
   },
   {
     id: 'athlete',
-    name: '体育生',
-    blurb: '占位 · 定位待设计',
-    unlockHint: '占位：解锁条件待设计',
+    name: '大鹅',
+    blurb: '长颈转转 · 鹅嘴持枪',
+    unlockHint: '在「查看升级」中解锁大鹅',
   },
   {
     id: 'scholar',

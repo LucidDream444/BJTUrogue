@@ -86,6 +86,8 @@ export class Minimap {
   /** 每间房一条标号，**下标与 `rooms` 同序**（不是 `order`） */
   private readonly labels: Phaser.GameObjects.Text[] = []
   private current = 1
+  private floor = 1
+  private floors = 1
   /**
    * 「走过」的房间 `order`（0 起）。**只存引用、不拷一份** ——
    * 宿主每帧都可能改它，拷一次就等于这份小地图从第 N 帧起就在说假话。
@@ -94,7 +96,7 @@ export class Minimap {
 
   constructor(
     scene: Phaser.Scene,
-    private readonly rooms: readonly Room[],
+    private rooms: readonly Room[],
     /**
      * 每间房的门通向哪几间，和 `rooms` 同序。
      *
@@ -102,8 +104,12 @@ export class Minimap {
      * 一是紧凑布局按连通关系排，二是门画在自己朝邻居那一侧的边上。
      * 早先传过 `map` / `doors`，改成紧凑排布之后它们就没用了，已经去掉。
      */
-    private readonly targets: readonly (readonly (number | null)[])[] = [],
+    private targets: readonly (readonly (number | null)[])[] = [],
+    floor = 1,
+    floors = 1,
   ) {
+    this.floor = floor
+    this.floors = floors
     this.root = scene.add.container(0, 0).setDepth(4600)
     this.gfx = scene.add.graphics()
     this.title = scene.add.text(0, 0, '', {
@@ -121,7 +127,12 @@ export class Minimap {
     this.root.add([this.gfx, this.title])
     // 标号按 `rooms` **建一次**，之后只改字和位置 —— 每帧 `new Text` 会把
     // Phaser 的文本渲染缓存撑爆（每段字要一张画布）。
-    for (let i = 0; i < rooms.length; i++) {
+    this.buildLabels(scene)
+    this.setState(1)
+  }
+
+  private buildLabels(scene: Phaser.Scene): void {
+    for (let i = 0; i < this.rooms.length; i++) {
       const t = scene.add
         .text(0, 0, '', {
           fontFamily: 'Microsoft YaHei, sans-serif',
@@ -133,6 +144,16 @@ export class Minimap {
       this.labels.push(t)
       this.root.add(t)
     }
+  }
+
+  setFloor(rooms: readonly Room[], targets: readonly (readonly (number | null)[])[], floor: number, floors: number): void {
+    for (const label of this.labels) label.destroy()
+    this.labels.length = 0
+    this.rooms = rooms
+    this.targets = targets
+    this.floor = floor
+    this.floors = floors
+    this.buildLabels(this.root.scene)
     this.setState(1)
   }
 
@@ -216,7 +237,7 @@ export class Minimap {
 
     const room = this.rooms.find((r) => r.order === this.current - 1)
     const label = room ? ROOM_KIND_LABELS[room.kind] : '—'
-    this.title.setText(`第 ${this.current} / ${this.rooms.length} 间 · ${label}`)
+    this.title.setText(`第 ${this.floor} / ${this.floors} 层 · 第 ${this.current} / ${this.rooms.length} 间 · ${label}`)
   }
 
   /**

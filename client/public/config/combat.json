@@ -205,6 +205,8 @@
     "phaseCountScale": 0.5,
     "demoDamage": 20,
     "intermissionMs": 1600,
+    "roomsPerFloor": 7,
+    "sideRoomsPerFloor": 3,
     "maxStages": 3
   },
   "gunMuzzles": {
