@@ -284,6 +284,29 @@ export class Player {
       .setFlipX(this.facingLeft)
       .setScale(this.cfg.player.visualScale)
       .setOrigin(this.facingLeft ? 1 - anchorX : anchorX, anchorY)
+    if (hurt) {
+      // These whole-body hurt sheets already include the equipped weapon and both arms.
+      const hurtArt =
+        this.weaponIdValue === 'pencil'
+          ? PLAYER_ART.hurt
+          : (D1_ART.find((a) => a.group === this.weaponIdValue + '_hurt') ?? PLAYER_ART.pulseHurt)
+      const frames = D1_ANIMS.find((a) => a.textureKey === hurtArt.key)!.frames
+      const progress = Phaser.Math.Clamp(
+        (this.clock.nowMs - this.model.hurtAtMs) / this.cfg.player.hurtMs,
+        0,
+        1,
+      )
+      const frame = frames[Math.min(frames.length - 1, Math.floor(progress * frames.length))]!
+      this.sprite.setPosition(this.x, this.feetY)
+      displayArt(
+        this.sprite,
+        hurtArt,
+        this.clock.nowMs,
+        this.facingLeft,
+        this.cfg.player.visualScale,
+        frame,
+      )
+    }
     this.sprite.texture.setFilter(Phaser.Textures.FilterMode.NEAREST)
     this.sprite
       .setRotation(this.model.alive ? 0 : -Math.PI / 2)
