@@ -1,5 +1,5 @@
 // Animation definitions have one source: the shared manifest.
-import { ANIMS } from './assetManifest'
+import { ANIMS, PLAYER_LAYERS } from './assetManifest'
 export const D1_ANIMS = ANIMS
 export const D1_ART = [
   {
@@ -350,3 +350,51 @@ export const D1_ART = [
     sha256: 'e58d8c952eeb757ab9fbbc626367102bdabfd45a079386832721a6aa33789da4',
   },
 ] as const
+
+/** `D1_ART` 里的一条。分层素材的几何与原图完全一致，所以共用同一个形状。 */
+export type D1ArtEntry = {
+  readonly key: string
+  readonly group: string
+  readonly frameWidth: number
+  readonly frameHeight: number
+  readonly count: number
+  readonly anchors: readonly (readonly number[])[]
+  readonly sha256: string
+}
+
+/**
+ * 每个分层素材**从哪张原图切出来的** —— 锚点直接沿用原图的，不重写一遍。
+ *
+ * 写第二遍就等于有了第二个真值来源；切分脚本保证了帧几何逐字段一致，
+ * 原图换了帧尺寸这里跟着变，那正是想要的。
+ *
+ * 枪（`player_gun_*`）不在这张表里：它是单帧、且渲染时用配置里的肩部枢轴定位，
+ * 不靠原图锚点。
+ */
+const LAYER_SOURCE: Record<string, string> = {
+  player_body_rifle_shoot: 'player_pulse_shoot_equipped',
+  player_body_rifle_run: 'player_pulse_run_equipped',
+  player_arm_rifle_shoot: 'player_pulse_shoot_equipped',
+  player_arm_rifle_run: 'player_pulse_run_equipped',
+  player_body_pencil_shoot: 'player_student_shoot',
+  player_body_pencil_run: 'player_student_run_gun',
+  player_arm_pencil_shoot: 'player_student_shoot',
+  player_arm_pencil_run: 'player_student_run_gun',
+}
+
+/**
+ * 分层素材的帧几何：身体与手臂**逐字段复制原图**，枪是单帧。
+ */
+export const D1_ART_LAYERS: readonly D1ArtEntry[] = PLAYER_LAYERS.map((l) => {
+  const src = LAYER_SOURCE[l.key]
+  const base = src ? (D1_ART as readonly D1ArtEntry[]).find((a) => a.key === src) : undefined
+  return {
+    key: l.key,
+    group: l.group,
+    frameWidth: l.frameWidth,
+    frameHeight: l.frameHeight,
+    count: base ? base.count : 1,
+    anchors: base ? base.anchors : [[0, 0]],
+    sha256: base ? base.sha256 : '',
+  }
+})
