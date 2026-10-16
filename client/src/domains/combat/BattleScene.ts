@@ -345,14 +345,26 @@ export class BattleScene extends Phaser.Scene {
           // 「本局进度不会保存」，确认后直接回主菜单。
           quitToMenu: () => this.backToMenu(),
           // 暂停期间这些值不会变，所以 `PauseOverlay` 只在打开时取一次快照。
-          // 护盾 / 能量 / 技能在 `balance.json` 里还没有字段，不给就是「—」。
+          //
+          // 2026-10-16 补上「能量」与「装备技能」：它们原来一直显示「—」，
+          // 因为这份快照**压根没给**这几个字段 —— 不是界面的问题。（原来的注释写
+          // "护盾 / 能量 / 技能在 balance.json 里还没有字段"，早就过时了：玩家现在有护盾，
+          // 能量就是 `combat.json` 的 `player.maxStamina`，也就是战斗 HUD 上那条「能量」。）
+          //
+          // ⚠️ 三个名字指同一个东西，是**历史遗留**而不是笔误，别照着一个去改另一个：
+          // 界面写「能量」，D4 的快照字段叫 `magic`（局外成长里那条成长线的 id 也是 `magic`，
+          // 显示名倒是「能量上限」），D1 这边叫 `stamina`。要统一是跨域改名，得先在群里说 ——
+          // 这里只做映射。
           snapshot: () => ({
             characterId: this.store.profile.selected.characterId,
             hp: Math.round(this.session.player.model.hp),
             maxHp: this.session.player.model.maxHp,
             shield: Math.round(this.session.player.model.shield),
             maxShield: this.session.player.model.maxShield,
+            magic: Math.round(this.session.player.stamina),
+            maxMagic: this.session.player.maxStamina,
             weaponName: this.session.weapon.name,
+            skillName: this.skillNames(),
           }),
         },
       })
@@ -663,7 +675,12 @@ export class BattleScene extends Phaser.Scene {
     this.loot.reset()
     this.session.enterStage(this.stage, revisit)
     this.scenery.setStage(this.stage)
-    this.minimap.setState(this.stage)
+    // ⚠️ 第二参数是**必须给的**，别退回 `setState(this.stage)`：
+    //    小地图上「这间走过没有」不能用「间号比当前小」推 —— 门是按 `toOrder` 走的
+    //    （能回头、也能拐进侧室再出来），于是老推理在两个方向都会说假话：
+    //    拐进侧室时宿主右边的房间根本没进过却被画成绿的。
+    //    真值是 `visited`，这里正好刚把它更新过（上面那行 `visited.add`）。
+    this.minimap.setState(this.stage, this.visited)
     const p = stagePlan(this.bundle, this.cfg, this.difficulty, this.stageTier()),
       cx = this.session.player.x,
       cy = this.session.player.y
@@ -781,6 +798,22 @@ export class BattleScene extends Phaser.Scene {
       p.model.shield,
       p.model.maxShield,
     )
+  }
+  /**
+   * 暂停面板「装备技能」那一行要显示的名字。
+   *
+   * 技能是**档里的东西**（`profile.unlocks.skills`，名字在 `meta.json`），
+   * 而 `this.meta` 正好是这一局已经加载好的那份配置 —— 顺手就取了，
+   * 不用为一行字再把配置往 D4 的面板里传一份。
+   *
+   * ⚠️ 这只是**显示**。技能的**效果**还没接进战斗：`progress.ts` 算出来的那几条
+   * 派生属性目前没有任何战斗代码去读（D1 / D4 之间的缺口，见改动日志）。
+   * 所以这一行说明的是"档里有这个技能"，**不等于**"这一局它在生效"。
+   */
+  private skillNames(): string | undefined {
+    const ids = this.store.profile.unlocks.skills
+    if (!ids.length) return undefined
+    return ids.map((id) => this.meta?.skills[id]?.name ?? id).join('、')
   }
   private toggleGallery(): void {
     if (this.gallery.root.hidden) {
