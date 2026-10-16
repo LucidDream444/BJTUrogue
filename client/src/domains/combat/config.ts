@@ -123,6 +123,16 @@ export interface CombatConfig {
     pulseRun: [number, number]
     [key: string]: [number, number]
   }
+  /**
+   * 音频。⚠️ `bgmVolume` / `shotVolume` 是**基准音量，不是产品里实际播的那个音量**。
+   *
+   * 实际音量 = 玩家在设置里拖的那个值（档里 `settings.bgmVolume` / `sfxVolume`），
+   * **直接就是** `sound.setVolume()` 的入参，100% = 1.0（2026-10-16 改的，
+   * 原来这里是乘数，于是滑杆拉满也只有 0.32 那么响）。
+   *
+   * 这两个数只在**没有档的宿主**里兜底 —— 个别测试场直接 `new CombatSession`，
+   * 没人调 `setAudioVolumes()`，那就用配置里的基准。
+   */
   audio: { bgmVolume: number; shotVolume: number; shotVoices: number }
   projectiles: { capacity: number; radius: number }
   feedback: {

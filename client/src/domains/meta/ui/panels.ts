@@ -106,21 +106,17 @@ export function buildSettingsPanel(
   sink.button(fullscreen)
   sink.button(windowed)
 
-  // ⚠️ 如实说清楚：音频文件一个都还没有（`public/assets/audio/` 是空的），
-  // 所以这两个滑杆现在**存得下、听得见才怪**。不说的话，测试的人会去报
-  // "音量滑杆没反应"，而那是个假 bug。
-  sink.track(
-    scene.add.text(
-      x,
-      frame.contentTop + 164,
-      '（占位期没有音频文件：这两个值会被存下来，但暂时没有声音可调）',
-      {
-        fontFamily: THEME.font.family,
-        fontSize: fontPx(THEME.font.small),
-        color: THEME.text.dim,
-      },
-    ),
-  )
+  // 这一行原来写着「（占位期没有音频文件：这两个值会被存下来，但暂时没有声音可调）」，
+  // 2026-10-16 删掉：音频到位了，两个值**都真的接到了声音上**。
+  // 它们不是绝对音量，是**乘在配置表上的系数**（红线 2：数值在 `public/config/`）：
+  //   BGM  → `cfg.bgmVolume  × 档里 bgmVolume`  （`CombatAudio.setVolumes`）
+  //   音效 → `cfg.shotVolume × 档里 sfxVolume`  （`CombatAudio.fire`）
+  // 由 `BattleScene.syncAudio()` 推下去，而且它订了档的变化 —— 战斗里改实时生效。
+  //
+  // ⚠️ 只覆盖**已接线**的声音。清单里那 9 条 `sfx_enemy_*` / `sfx_kill_flourish`
+  // 还是 `placeholder: true`（文件没到），而且它们的 `SfxPool.play(key, pitch, volume)`
+  // 音量是**调用方传的**，没人乘档里的值 —— 那批音效接进来的时候要一起接上
+  // `sfxVolume`，否则这一项只作用在玩家的枪声上。
 
   applyDisplayModeSelection({ fullscreen, windowed }, s.displayMode)
   return { fullscreen, windowed }
