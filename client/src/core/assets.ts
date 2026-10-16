@@ -100,6 +100,10 @@ export function registerAnimations(scene: Phaser.Scene): void {
       console.warn(`[assets] 动画 "${anim.animKey}" 引用了清单里不存在的 key "${anim.textureKey}"`)
       continue
     }
+    // Placeholder textures have a single base frame, never the retired sprite-sheet frames.
+    if (entry.placeholder) continue
+    const texture = scene.textures.get(entry.key)
+    if (!anim.frames.every((frame) => texture.has(String(frame)))) continue
     scene.anims.create({
       key: anim.animKey,
       frames: anim.frames.map((frame) => ({ key: anim.textureKey, frame })),
