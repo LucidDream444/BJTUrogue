@@ -82,6 +82,14 @@ export interface CombatConfig {
     gunRunFirstFrame: number
     gunRunFrameCount: number
     gunRunFrameRate: number
+    /**
+     * 鼠标横向偏离身体超过这个像素数，朝向就跟着转过去。
+     *
+     * 朝向决定手臂能转到哪半边（见 `gunPose.ts` 的夹取），所以它不能只跟移动方向走 ——
+     * 否则「跑向右、鼠标指向左」时手臂会横穿身体。留死区是为了鼠标正好在正上/正下时
+     * 不会来回翻面。
+     */
+    facingDeadzonePx: number
   }
   drops: {
     chance: number
@@ -101,6 +109,30 @@ export interface CombatConfig {
     pulseRun: [number, number][]
     [key: string]: [number, number][]
   }
+  /**
+   * 手臂旋转的枢轴（肩部），帧坐标，与 `gunMuzzles` 同一套键。
+   *
+   * 手臂+枪的图层绕这个点转。它由分层脚本的切分位置决定
+   * （`src/test/arenas/D1/tools/split_arm_layers.py` 的 `cut` 与行带中线），
+   * **改切分就要同步改这里**，否则手臂会绕着错误的点转。
+   */
+  gunPivots: {
+    shoot: [number, number]
+    runGun: [number, number]
+    pulseShoot: [number, number]
+    pulseRun: [number, number]
+    [key: string]: [number, number]
+  }
+  /**
+   * 音频。⚠️ `bgmVolume` / `shotVolume` 是**基准音量，不是产品里实际播的那个音量**。
+   *
+   * 实际音量 = 玩家在设置里拖的那个值（档里 `settings.bgmVolume` / `sfxVolume`），
+   * **直接就是** `sound.setVolume()` 的入参，100% = 1.0（2026-10-16 改的，
+   * 原来这里是乘数，于是滑杆拉满也只有 0.32 那么响）。
+   *
+   * 这两个数只在**没有档的宿主**里兜底 —— 个别测试场直接 `new CombatSession`，
+   * 没人调 `setAudioVolumes()`，那就用配置里的基准。
+   */
   audio: { bgmVolume: number; shotVolume: number; shotVoices: number }
   projectiles: { capacity: number; radius: number }
   feedback: {
@@ -259,7 +291,7 @@ export function parseCombatConfig(raw: unknown): CombatConfig {
     c.player.gunRunFrameRate <= 0
   )
     throw new Error('player: 跑动循环长度/帧率无效')
-  for (const key of ['maxStamina', 'staminaRegenPerSec', 'maxShield'] as const) {
+  for (const key of ['maxStamina', 'staminaRegenPerSec', 'maxShield', 'facingDeadzonePx'] as const) {
     if (!Number.isFinite(c.player[key]) || c.player[key] < 0)
       throw new Error('player.' + key + ': 缺少或非法的资源配置')
   }
@@ -282,6 +314,16 @@ export function parseCombatConfig(raw: unknown): CombatConfig {
     c.player.visualScale <= 0
   )
     throw new Error('player: 持枪静止帧/缩放无效')
+  // 只校验四种基准键，与上面 gunMuzzles 同一套判据；各武器的键由玩家侧回退到它们。
+  for (const key of ['shoot', 'runGun', 'pulseShoot', 'pulseRun'] as const) {
+    const pivot = c.gunPivots?.[key]
+    if (
+      !Array.isArray(pivot) ||
+      pivot.length !== 2 ||
+      pivot.some((n) => !Number.isFinite(n) || n < 0)
+    )
+      throw new Error('gunPivots.' + key + ': 缺少或非法的肩部枢轴（手臂分层旋转要用）')
+  }
   numeric(c.projectiles, 'projectiles')
   numeric(c.feedback, 'feedback')
   if (!c.weaponEffects) throw new Error('weaponEffects: 缺少特效配置')

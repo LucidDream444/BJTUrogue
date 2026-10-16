@@ -111,6 +111,50 @@ export const CAMPAIGN_ART = {
   level3: 'level_3_classroom',
 } as const
 
+/**
+ * 玩家持枪图集的**分层底表**。每张原图拆成两份：`_body`（不含手臂与枪的身体）
+ * 与 `_arm`（手臂+枪，整体绕肩旋转）。
+ *
+ * 为什么要有分层：持枪图只有朝右一个方向，枪管永远横着，而子弹朝鼠标飞 ——
+ * 贴脸时枪口方向和弹道能差近 90°，玩家看着别扭。分层之后手臂可以跟着鼠标转，
+ * 身体的左右两个朝向保持不变。
+ *
+ * 生成脚本见 `src/test/arenas/D1/tools/split_arm_layers.py`（切分位置是那里的常量），
+ * 报告在 `artifacts/arm-split.json`。**改切分位置要重新跑那个脚本。**
+ *
+ * 帧几何与原图**完全一致**（同尺寸、同帧数、同锚点），所以 `D1_ART` 里
+ * 对应的条目直接复制几何即可，见 `d1AssetManifest.ts`。
+ */
+export const PLAYER_LAYERS = [
+  // 步枪 5 把共用同一套身体与手臂 —— 它们的原图逐字节相同，所以只存一份。
+  { key: 'player_body_rifle_shoot', group: 'body_rifle_shoot', frameWidth: 96, frameHeight: 80 },
+  { key: 'player_body_rifle_run', group: 'body_rifle_run', frameWidth: 96, frameHeight: 80 },
+  { key: 'player_arm_rifle_shoot', group: 'arm_rifle_shoot', frameWidth: 96, frameHeight: 80 },
+  { key: 'player_arm_rifle_run', group: 'arm_rifle_run', frameWidth: 96, frameHeight: 80 },
+  // 枪每把一张；逐帧位置由 combat.json 的 gunMuzzles 推（枪是刚体）。
+  { key: 'player_gun_pulse', group: 'gun_pulse', frameWidth: 96, frameHeight: 80 },
+  { key: 'player_gun_venom', group: 'gun_venom', frameWidth: 96, frameHeight: 80 },
+  { key: 'player_gun_flare', group: 'gun_flare', frameWidth: 96, frameHeight: 80 },
+  { key: 'player_gun_rail', group: 'gun_rail', frameWidth: 96, frameHeight: 80 },
+  { key: 'player_gun_smg', group: 'gun_smg', frameWidth: 96, frameHeight: 80 },
+  // 手枪只有一把武器，没有跨武器复用可言 —— 它的枪没拆，留在手臂层里。
+  { key: 'player_body_pencil_shoot', group: 'body_pencil_shoot', frameWidth: 72, frameHeight: 72 },
+  { key: 'player_body_pencil_run', group: 'body_pencil_run', frameWidth: 71, frameHeight: 71 },
+  { key: 'player_arm_pencil_shoot', group: 'arm_pencil_shoot', frameWidth: 72, frameHeight: 72 },
+  { key: 'player_arm_pencil_run', group: 'arm_pencil_run', frameWidth: 71, frameHeight: 71 },
+] as const
+
+function playerLayerAssets(): AssetEntry[] {
+  return PLAYER_LAYERS.map((l) => ({
+    key: l.key,
+    path: `sprites/player/${l.key}.png`,
+    placeholder: false,
+    kind: 'spritesheet' as const,
+    frameWidth: l.frameWidth,
+    frameHeight: l.frameHeight,
+  }))
+}
+
 export const ASSETS: readonly AssetEntry[] = [
   {
     key: GAME_AUDIO.bgm,
@@ -1200,6 +1244,9 @@ export const ASSETS: readonly AssetEntry[] = [
   audio('sfx_enemy_tank_stagger', 'audio/sfx/enemies/sfx_enemy_tank_stagger'),
   audio('sfx_enemy_tank_death', 'audio/sfx/enemies/sfx_enemy_tank_death'),
   audio('sfx_kill_flourish', 'audio/sfx/ui/sfx_kill_flourish'),
+
+  // ---- 玩家分层：身体层 / 手臂+枪层（由 PLAYER_LAYER_BASES 展开，见上）----
+  ...playerLayerAssets(),
 ]
 
 function audio(key: string, path: string): AssetEntry {
