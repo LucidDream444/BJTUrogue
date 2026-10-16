@@ -47,6 +47,21 @@ export interface EnemySpec {
   kind: EnemyKind
   gen: number
   stats: ActorStats
+  /**
+   * **子弹不穿过我**（攻击源被我消耗）。
+   *
+   * 默认 `false`：**肉盾（蘑菇怪）是穿透的**，那是它的身份。
+   * `true` 只给首领 —— 首领和肉盾是同一个 `enemyKind`（`requestBoss()` 走
+   * `specFor('tank', 0)`，因为怪物模板太少），只判 `kind` 的话首领也会被
+   * 穿透 + 按 100ms 一帧的帧伤融掉：一个 520 血的终焉蛛王几秒就没了。
+   * 「允许穿透」是**普通蘑菇怪**这个身份的特性，不是 `tank` 这个模板的特性。
+   *
+   * ⚠️ 它必须在 `spec` 里、由 `respawn()` 整份重写，**不能做成一个
+   * 「出生时记得推一下」的开关**：模型是池化复用的，上一只首领用过的那只
+   * 下一秒就会变成普通蘑菇怪，漏推一次就是「这只蘑菇免疫穿透」——
+   * 不报错、也不崩，只是玩家怎么打都打不动它。
+   */
+  pierceImmune: boolean
   /** 生成宽限时长（0 = 不宽限） */
   graceMs: number
   graceMoveMult: number
@@ -67,6 +82,7 @@ export function specFromSplitter(g: DerivedSplitterGeneration, def: SplitterDef)
     kind: 'splitter',
     gen: g.gen,
     stats: { maxHp: g.maxHp, speed: g.speed, radius: g.radius },
+    pierceImmune: false,
     graceMs: g.graceMs,
     graceMoveMult: g.graceMoveMult,
     flinchMs: def.ai.flinchMs,
@@ -85,6 +101,8 @@ export function specFromTank(t: DerivedTank, def: TankDef): EnemySpec {
     kind: 'tank',
     gen: 0,
     stats: { maxHp: t.maxHp, speed: t.speed, radius: t.radius },
+    // 普通蘑菇怪：子弹穿过去。首领走 `EnemySystem.requestBoss()`，在那里改成 true
+    pierceImmune: false,
     graceMs: 0,
     graceMoveMult: 1,
     flinchMs: def.ai.flinchMs,
@@ -99,6 +117,8 @@ export function specFromTank(t: DerivedTank, def: TankDef): EnemySpec {
 
 export class EnemyModel extends ActorModel<EnemyState> {
   readonly enemyKind: EnemyKind
+  /** 从 spec 灌入：子弹不穿过我。见 `EnemySpec.pierceImmune` */
+  pierceImmune = false
 
   /** 分裂怪的代际，0/1/2。肉盾恒为 0。 */
   gen = 0
@@ -169,6 +189,7 @@ export class EnemyModel extends ActorModel<EnemyState> {
 
     this.gen = spec.gen
     this.baseSpeed = spec.stats.speed
+    this.pierceImmune = spec.pierceImmune
     this.flinchMs = spec.flinchMs
     this.slowPerHit = spec.slowPerHit
     this.slowMaxStacks = spec.slowMaxStacks
@@ -295,6 +316,8 @@ export class EnemyModel extends ActorModel<EnemyState> {
    * 子弹池会瞬间掏空，然后整个游戏一枪都打不出来。
    */
   protected override blocksSource(_kind: DamageSourceKind): boolean {
+    // ⚠️ **首领不吃穿透**，哪怕它用的是肉盾模板（见 `EnemySpec.pierceImmune`）。
+    if (this.pierceImmune) return true
     return this.enemyKind !== 'tank'
   }
 

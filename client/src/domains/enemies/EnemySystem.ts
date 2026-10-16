@@ -849,6 +849,10 @@ export class EnemySystem implements ActorEventSink {
     return this.spawns.push({
       spec: {
         ...spec,
+        // 首领用肉盾模板（怪物模板太少），但**不吃穿透** ——
+        // 见 `EnemySpec.pierceImmune`。写在这里而不是「出生时推一下」：
+        // spec 是整份重写的，回池复用时不会把首领身份留给下一只蘑菇怪。
+        pierceImmune: true,
         stats: {
           ...spec.stats,
           maxHp,
@@ -1264,6 +1268,41 @@ export class EnemySystem implements ActorEventSink {
     maxTicks: number,
   ): HitResult {
     return this.contactSource(shotId, enemyGO, 'bullet', impactDamage, pierceTickDamage, maxTicks)
+  }
+
+  /**
+   * **扫掠射线落到某只怪身上**（D1 的特殊弹走这条，手枪走 `bulletContact`）。
+   *
+   * 两条路**共用同一套结算**（`ContactResolver`）：冲击每个源只算一次、
+   * 帧伤按 `tickMs` 进账本。区别只是 D1 手上有什么 ——
+   * 物理重叠回调给的是碰撞对象，射线路径给的是怪 id。
+   *
+   * ⚠️ **不要为了省一个方法就把射线路径改回 `weaponHit()`。**
+   * 那条路是「一次性的固定伤害」：`hitKey` 里的 `frameId` 让基类的去重跨不了帧，
+   * 而**可穿透的目标根本不进 `hitIds`**（D1 那边只记 `consumed` 的），
+   * 于是同一发子弹**每一帧都兑现一次全额冲击**。肉盾半径 40、停留 = 直径 ÷ 弹速
+   * （≈5~12 帧，看武器）—— 一发 54 点的大威力弹能打出 600 点以上，
+   * 520 血的肉盾一发就没了，「穿过去」和「帧伤跳字」两个特性一个都看不见。
+   * `contact.test.ts` 里那条「13 点，不是 90 点」说的是同一件事，只是走的重叠路径。
+   */
+  bulletRayContact(
+    shotId: number,
+    enemyId: number,
+    impactDamage: number,
+    pierceTickDamage: number,
+    maxTicks: number,
+  ): HitResult {
+    const entry = this.byId.get(enemyId)
+    // 不在池子里的 id（已经回收 / 不是我们的东西）：让子弹回池，别让它一直飞。
+    if (!entry) return { applied: 0, killed: false, consumed: true }
+    return this.contacts.contact(
+      shotId,
+      entry.model,
+      'bullet',
+      impactDamage,
+      pierceTickDamage,
+      maxTicks,
+    )
   }
 
   /**

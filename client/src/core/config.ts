@@ -700,10 +700,13 @@ function validateSplitter(raw: unknown): SplitterDef {
         `第 ${i} 代血量 ${g.hpValue} 不低于上一代 ${prev.hpValue}，违反「越分裂越脆」`,
       )
     }
-    if (g.speed <= prev.speed) {
+    // ⚠️ 2026-10-16 放宽：原来是**必须更快**（`<=` 就拒），现在**允许同速**。
+    //    设计上的理由变了 —— 分裂出来的小怪比母体还快，玩家越打越被追着跑，
+    //    那不是「爽」是「罚」。**但不许更慢**：分裂出来的比母体慢会显得像卡住了。
+    if (g.speed < prev.speed) {
       throw new ConfigError(
         `${path}.generations[${i}].speed`,
-        `第 ${i} 代速度 ${g.speed} 不高于上一代 ${prev.speed}，违反「越分裂越快」`,
+        `第 ${i} 代速度 ${g.speed} 低于上一代 ${prev.speed} —— 分裂出来的不该比母体还慢`,
       )
     }
     if (g.radius >= prev.radius) {

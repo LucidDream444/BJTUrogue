@@ -133,13 +133,17 @@ describe('契约 — 分裂怪：每一代在任何难度下都必须一枪一�
     expect(d.maxHp).toBeGreaterThan(cap)
   })
 
-  it('派生后「速度递增、体型递减」严格成立（这两条才是一代比一代凶的地方）', () => {
+  it('派生后「速度**不下降**、体型递减」成立', () => {
+    // ⚠️ 2026-10-16：速度那条从**严格递增**放宽成**不下降**。
+    //    分裂出来的小怪比母体还快，玩家是越打越被追着跑 —— 那不是「一代比一代凶」，
+    //    是「一代比一代罚」。同速允许，**变慢不允许**（分裂的比母体慢会显得像卡住）。
+    //    体型仍然严格递减：那才是「小怪」这个身份本身。
     for (const diff of DIFFICULTIES) {
       const gens = enemies.enemies.splitter.generations.map((g) =>
         deriveSplitterGeneration(g, difficulty.difficulties[diff], balance),
       )
       for (let i = 1; i < gens.length; i++) {
-        expect(gens[i]!.speed, `speed @ ${diff} gen${i}`).toBeGreaterThan(gens[i - 1]!.speed)
+        expect(gens[i]!.speed, `speed @ ${diff} gen${i}`).toBeGreaterThanOrEqual(gens[i - 1]!.speed)
         expect(gens[i]!.radius, `radius @ ${diff} gen${i}`).toBeLessThan(gens[i - 1]!.radius)
       }
     }

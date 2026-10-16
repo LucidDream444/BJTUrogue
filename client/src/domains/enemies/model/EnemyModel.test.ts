@@ -41,6 +41,7 @@ const SPLITTER: EnemySpec = {
   kind: 'splitter',
   gen: 0,
   stats: { maxHp: 7, speed: 62, radius: 18 },
+  pierceImmune: false,
   graceMs: 220,
   graceMoveMult: 0.5,
   flinchMs: 90,
@@ -56,6 +57,7 @@ const TANK: EnemySpec = {
   kind: 'tank',
   gen: 0,
   stats: { maxHp: 520, speed: 52, radius: 40 },
+  pierceImmune: false,
   graceMs: 0,
   graceMoveMult: 1,
   flinchMs: 0,
@@ -124,6 +126,45 @@ describe('肉盾怪 —— 子弹穿透', () => {
     const r = t.takeHit(req({ frameId: 1, nowMs: 0 }))
     expect(r.consumed).toBe(false)
     expect(r.applied).toBe(0)
+  })
+})
+
+describe('首领 —— 不吃穿透（同一个 tank 模板，两种身份）', () => {
+  const BOSS: EnemySpec = { ...TANK, pierceImmune: true, stats: { maxHp: 520, speed: 48, radius: 34 } }
+
+  it('首领挡下子弹与近战（consumed=true），不接受 100ms 一帧的帧伤', () => {
+    const b = new EnemyModel('tank')
+    b.respawn(BOSS, 0)
+    // 同一只怪、换帧再打：如果这里返回 false，D1 就不会回收子弹，
+    // 射线/重叠回调会一直响 —— 520 血的首领几秒被融掉。
+    expect(b.takeHit(req({ frameId: 1, nowMs: 0, amount: 10, sourceKind: 'bullet' })).consumed).toBe(true)
+    expect(b.takeHit(req({ frameId: 2, nowMs: 16, amount: 10, sourceKind: 'melee' })).consumed).toBe(true)
+    expect(b.takeHit(req({ frameId: 3, nowMs: 32, amount: 10, sourceKind: 'aoe' })).consumed).toBe(true)
+  })
+
+  it('**池化复用不串味**：首领用过的那只，重生成普通蘑菇怪之后又会穿透', () => {
+    // 这是把身份放进 `spec` 而不是「出生时推一下」的全部理由：
+    // 模型是池化复用的，漏推一次就是「这只蘑菇免疫穿透」—— 不报错、也不崩，
+    // 只是玩家怎么打都打不动它。
+    const m = new EnemyModel('tank')
+    m.respawn(BOSS, 0)
+    expect(m.pierceImmune).toBe(true)
+
+    m.respawn(TANK, 100)
+    expect(m.pierceImmune).toBe(false)
+    expect(
+      m.takeHit(req({ frameId: 1, nowMs: 100, amount: 10, sourceKind: 'bullet' })).consumed,
+      '又变回会穿透的普通蘑菇怪了',
+    ).toBe(false)
+  })
+
+  it('`specFromTank()` 出来的是普通蘑菇怪（首领身份只在 `requestBoss()` 里加）', () => {
+    const def = realConfig().enemies.enemies.tank
+    const spec = specFromTank(
+      deriveTank(def, realConfig().difficulty.difficulties.normal, realConfig().balance),
+      def,
+    )
+    expect(spec.pierceImmune).toBe(false)
   })
 })
 
