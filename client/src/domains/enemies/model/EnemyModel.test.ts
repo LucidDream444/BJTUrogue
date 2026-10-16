@@ -42,6 +42,7 @@ const SPLITTER: EnemySpec = {
   gen: 0,
   stats: { maxHp: 7, speed: 62, radius: 18 },
   pierceImmune: false,
+  windupMoveMult: 0,
   graceMs: 220,
   graceMoveMult: 0.5,
   flinchMs: 90,
@@ -58,6 +59,7 @@ const TANK: EnemySpec = {
   gen: 0,
   stats: { maxHp: 520, speed: 52, radius: 40 },
   pierceImmune: false,
+  windupMoveMult: 0,
   graceMs: 0,
   graceMoveMult: 1,
   flinchMs: 0,
@@ -126,6 +128,78 @@ describe('肉盾怪 —— 子弹穿透', () => {
     const r = t.takeHit(req({ frameId: 1, nowMs: 0 }))
     expect(r.consumed).toBe(false)
     expect(r.applied).toBe(0)
+  })
+})
+
+describe('抓取怪 —— spec 与身份', () => {
+  const GRABBER: EnemySpec = {
+    kind: 'grabber',
+    gen: 0,
+    stats: { maxHp: 100, speed: 58, radius: 16 },
+    pierceImmune: false,
+    windupMoveMult: 0,
+    graceMs: 0,
+    graceMoveMult: 1,
+    flinchMs: 0,
+    slowPerHit: 0,
+    slowMaxStacks: 0,
+    slowDurationMs: 0,
+    slowMultPerStack: 1,
+    minSpeedMult: 1,
+    vulnerableMult: 1,
+  }
+
+  it('`specFromGrabber()` 出来的怪：不叠减速、没有易伤窗口', () => {
+    const g = new EnemyModel('grabber')
+    g.respawn(GRABBER, 0)
+    // 打它几下：不该叠减速（它不是「越打越慢」的肉盾）
+    for (let i = 1; i <= 3; i++) g.takeHit(req({ frameId: i, nowMs: i * 20, amount: 5 }))
+    expect(g.slowStacks).toBe(0)
+    expect(g.speedMult(100)).toBe(1)
+  })
+
+  it('它吃子弹（`consumed: true`）—— 穿透是蘑菇怪的身份，不是它的', () => {
+    const g = new EnemyModel('grabber')
+    g.respawn(GRABBER, 0)
+    expect(g.blocksSourceForResult('bullet')).toBe(true)
+  })
+
+  it('它是**不可打断**的：硬直固定 0（擦伤不能打断预警）', () => {
+    const g = new EnemyModel('grabber')
+    g.respawn(GRABBER, 0)
+    g.setState('windup', 0)
+    g.takeHit(req({ frameId: 1, nowMs: 10, amount: 5 }))
+    expect(g.flinchUntilMs, '被打也不该进硬直 —— 「!」不能是说谎的信号').toBe(0)
+  })
+
+  it('**被甩飞的路上免疫伤害**（它只剩 1 血，玩家顺手一枪会把「落地才死」整条链打没）', () => {
+    const g = new EnemyModel('grabber')
+    g.respawn(GRABBER, 0)
+    g.hp = 1
+    g.setState('flung', 0)
+    const r = g.takeHit(req({ frameId: 1, nowMs: 10, amount: 999, sourceKind: 'bullet' }))
+    expect(r.applied, '飞行的 400ms 是过场：不能被补枪打断，否则落地爆炸静默消失').toBe(0)
+    expect(g.alive).toBe(true)
+  })
+
+  it('**落地一定死**（`dieOnLanding` 绕开飞行免伤）—— 否则它会带着 1 血永远飞下去', () => {
+    const g = new EnemyModel('grabber')
+    g.respawn(GRABBER, 0)
+    g.hp = 1
+    g.setState('flung', 0)
+    g.dieOnLanding(500)
+    expect(g.alive, '落地这一下不能被自己的免伤挡掉').toBe(false)
+    expect(g.hp).toBe(0)
+  })
+
+  it('回池复用会把飞行速度一并清掉（不然下一只怪会带着上一只的余速出生）', () => {
+    const g = new EnemyModel('grabber')
+    g.respawn(GRABBER, 0)
+    g.flingVx = 700
+    g.flingVy = -120
+    g.respawn(GRABBER, 100)
+    expect(g.flingVx).toBe(0)
+    expect(g.flingVy).toBe(0)
   })
 })
 

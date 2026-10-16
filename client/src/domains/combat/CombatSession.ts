@@ -25,7 +25,21 @@ import {
 } from './config'
 import type { CombatEvents } from './events'
 export type PauseReason =
-  'user' | 'hidden' | 'reward' | 'preview' | 'death' | 'intermission' | 'victory'
+  | 'user'
+  | 'hidden'
+  | 'reward'
+  | 'preview'
+  | 'death'
+  | 'intermission'
+  | 'victory'
+  /**
+   * **抓取怪抓住了玩家**：世界冻结、镜头特写、只留挣脱连点。
+   *
+   * 它和其他 reason 的关键区别是**没有自动到期** —— 解冻时机由抓取序列决定
+   * （挣脱 / 硬上限 / 玩家死亡），所以 D1 侧必须有一条无条件兜底，
+   * 否则任何一条路径漏掉就是永久卡死（见 `BattleScene` 的抓取驱动）。
+   */
+  | 'grab'
 /** Gameplay component: no imports from the arena/test harness. */
 export class CombatSession {
   readonly clock = new GameClock()
@@ -233,8 +247,16 @@ export class CombatSession {
   }
 
   private onDown(pointer: Phaser.Input.Pointer): void {
-    if (pointer.leftButtonDown() && !this.clock.paused && this.player.model.alive)
-      this.weapons.firing = true
+    if (!pointer.leftButtonDown()) return
+    // ⚠️ **抓取期间这一条必须排在暂停守卫之前。** 世界是冻结的，下面那句
+    //    `!this.clock.paused` 会把按键整条吃掉 —— QTE 就永远收不到输入，
+    //    表现是「连点没反应」，而且不报任何错。
+    //    转的是**按下边沿**（`POINTER_DOWN` 本身就是离散事件），按住只算一次。
+    if (this.reasons.has('grab')) {
+      this.enemies.grabPress()
+      return
+    }
+    if (!this.clock.paused && this.player.model.alive) this.weapons.firing = true
   }
   private onUp(): void {
     this.weapons.stopFiring()
@@ -315,6 +337,9 @@ export class CombatSession {
   }
   equip(id: WeaponId, allowDuringReward = false): boolean {
     if (
+      // 抓取期间不换枪：世界冻着，换成大威力武器就能秒脱身 ——
+      // 那正是「除了挣脱，其他都不能动」要堵掉的口子
+      this.reasons.has('grab') ||
       !this.inventory.includes(id) ||
       (!allowDuringReward && this.rewards.roomId) ||
       !this.player.model.alive

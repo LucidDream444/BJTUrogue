@@ -183,6 +183,13 @@ export interface CombatConfig {
     height: number
     initialSplitters: number
     initialTanks: number
+    /**
+     * **每间房期望刷几只抓取怪**（可以是小数 = 概率）。
+     *
+     * 与另外两个轴不同，它**允许为 0** —— 第 1 层就是要 0 只：先让玩家在别的房间
+     * 认识「!」和抓取，再让它真的来抓人。整条曲线见 `stagePlan()`。
+     */
+    initialGrabbers: number
     stageGrowth: number
     phaseBaseMs: number
     phaseCountScale: number
@@ -373,6 +380,8 @@ export function parseCombatConfig(raw: unknown): CombatConfig {
   numeric(c.arena, 'arena')
   if (!Number.isInteger(c.arena.maxStages) || c.arena.maxStages < 1)
     throw new Error('arena.maxStages: 关卡上限无效')
+  if (!Number.isFinite(c.arena.initialGrabbers) || c.arena.initialGrabbers < 0)
+    throw new Error('arena.initialGrabbers: 不能为负（0 是合法值：第一层不出抓取怪）')
   // 一局几层 = `maxStages`（第 1..N 层的首领按层的序号挑），一层几间 = 下面这两个数。
   // 层与间都进配置：红线 2 说数值不许写死在代码里，而这两个数直接决定一局有多长。
   if (!Number.isInteger(c.arena.roomsPerFloor) || c.arena.roomsPerFloor < 4)

@@ -200,6 +200,7 @@
     "height": 832,
     "initialSplitters": 3,
     "initialTanks": 1,
+    "initialGrabbers": 0.4,
     "stageGrowth": 0.3,
     "phaseBaseMs": 1800,
     "phaseCountScale": 0.5,

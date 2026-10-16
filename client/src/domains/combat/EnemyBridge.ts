@@ -9,6 +9,12 @@ import type { CombatEvents } from './events'
 import type { EffectTargetPort, WeaponTarget } from './WeaponMechanics'
 export interface PlayerPort {
   model: TickTarget
+  /**
+   * 抓取怪的咬击入口。**D3 不能走 `model.takeHit`** —— 那个入口在 `clock.paused`
+   * 时直接返回，而抓取期间世界正是冻结的（见 `PlayerModel.takeGrabBite`）。
+   * 可选：测试场里的假玩家没有它，抓取照样能跑（只是咬不掉血）。
+   */
+  bite?: (amount: number, sourceId: number, nowMs: number) => void
   x: number
   y: number
   vx: number
@@ -67,6 +73,9 @@ export class EnemyBridge implements BulletContactPort {
       rngSeed: seed,
       nav,
       hooks: {
+        // 咬击打到玩家身上：D3 算规则，D1 落到自己的模型上（见 PlayerPort.bite）
+        onGrabBite: (amount, sourceId, nowMs) => player().bite?.(amount, sourceId, nowMs),
+        onGrabBlast: (x, y, radius) => this.juice.onGrabBlast(x, y, radius),
         onSlam: (x, y, r, ms) => {
           // Existing hook fires even if PlayerModel rejected the hit. Only valid damage earns juice.
           if (this.damagedAtFrame === clock.frameId) {
@@ -142,6 +151,31 @@ export class EnemyBridge implements BulletContactPort {
   }
   slow(id: number, multiplier: number, untilMs: number): void {
     this.system.weaponSlow(id, multiplier, untilMs)
+  }
+  /**
+   * 抓取状态快照。`null` = 没有抓取在跑。**D1 每帧读它**决定冻结 / 镜头 / 表现。
+   *
+   * 走桥而不是总线：这条交互只有 D1 与 D3 两个当事方，加进 `GameEvents` 要全员同意。
+   */
+  grabStatus() {
+    return this.system.grabStatus()
+  }
+  /** 玩家按下一次攻击键（挣脱连点）。只在吸附阶段有效。 */
+  grabPress(): void {
+    this.system.grabPress()
+  }
+  /**
+   * 喂一帧的**渲染 delta** —— 抓取期间的「电影时间」。
+   *
+   * ⚠️ 不能用 `clock.nowMs`：抓取期间世界冻结，逻辑时钟停在那一刻（咬人永远到不了点）。
+   * 渲染 delta 在切走标签页时也会停（rAF 停），所以玩家不会在看不见的时候被咬。
+   */
+  tickGrab(deltaMs: number): void {
+    this.system.tickGrab(deltaMs)
+  }
+  /** D1 的兜底：把解不开的抓取强制拆掉（见 `EnemySystem.abortGrab`）。 */
+  abortGrab(): void {
+    this.system.abortGrab()
   }
   spawnBoss(stage: number, x: number, y: number, maxHp: number, finalBoss = false): void {
     this.system.requestBoss(stage, x, y, maxHp, finalBoss)

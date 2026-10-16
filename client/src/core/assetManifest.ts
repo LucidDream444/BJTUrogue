@@ -72,6 +72,21 @@ export const STATUS_BAR_FILL_BOUNDS = { left: 31, rightInset: 32 } as const
 
 export const TANK_ART = { walk: 'enemy_tank_walk', attack: 'enemy_tank_idle' } as const
 
+/** 抓取怪的笔记本电脑动作图集。帧由 D3 的抓取状态驱动，不把玩家画进敌人图。 */
+export const GRABBER_ART = {
+  texture: 'enemy_grabber_idle',
+  frames: {
+    idle: 0,
+    walkA: 1,
+    walkB: 2,
+    windup: 3,
+    pounce: 4,
+    holding: 5,
+    hurt: 6,
+    flung: 7,
+  },
+} as const
+
 export const WEAPON_ART = { chest: 'chest', pistol: 'weapon_pistol' } as const
 
 /** 大鹅保留 athlete 存档身份；这里只定义美术几何，不定义角色数值。 */
@@ -153,6 +168,21 @@ export const CAMPAIGN_ART = {
   level1: 'level_1_classroom',
   level2: 'level_2_laboratory',
   level3: 'level_3_classroom',
+} as const
+
+/** 校园场景美术：教室现役资源与走廊/电子屏备用资源统一从清单取用。 */
+export const CAMPUS_ART = {
+  classroom: {
+    chalkboard: 'prop_chalkboard_green',
+    desk: 'furniture_classroom_desk',
+    chairFolded: 'furniture_lecture_chair_folded',
+    chairDown: 'furniture_lecture_chair_down',
+  },
+  corridor: {
+    overview: 'corridor_hallway',
+    screenSmall: 'prop_corridor_screen_small',
+    screenFull: 'ui_corridor_screen_full',
+  },
 } as const
 
 /**
@@ -288,6 +318,62 @@ export const ASSETS: readonly AssetEntry[] = [
     kind: 'image',
     width: 3840,
     height: 2160,
+  },
+  {
+    key: 'corridor_hallway',
+    path: 'maps/corridor_hallway.png',
+    placeholder: false,
+    kind: 'image',
+    width: 512,
+    height: 288,
+  },
+  {
+    key: 'prop_chalkboard_green',
+    path: 'sprites/props/prop_chalkboard_green.png',
+    placeholder: false,
+    kind: 'image',
+    width: 256,
+    height: 96,
+  },
+  {
+    key: 'furniture_classroom_desk',
+    path: 'sprites/furniture/furniture_classroom_desk.png',
+    placeholder: false,
+    kind: 'image',
+    width: 192,
+    height: 96,
+  },
+  {
+    key: 'furniture_lecture_chair_folded',
+    path: 'sprites/furniture/furniture_lecture_chair_folded.png',
+    placeholder: false,
+    kind: 'image',
+    width: 96,
+    height: 128,
+  },
+  {
+    key: 'furniture_lecture_chair_down',
+    path: 'sprites/furniture/furniture_lecture_chair_down.png',
+    placeholder: false,
+    kind: 'image',
+    width: 96,
+    height: 128,
+  },
+  {
+    key: 'prop_corridor_screen_small',
+    path: 'sprites/props/prop_corridor_screen_small.png',
+    placeholder: false,
+    kind: 'image',
+    width: 192,
+    height: 120,
+  },
+  {
+    key: 'ui_corridor_screen_full',
+    path: 'ui/campus/ui_corridor_screen_full.png',
+    placeholder: false,
+    kind: 'image',
+    width: 960,
+    height: 540,
   },
 
   {
@@ -1272,6 +1358,21 @@ export const ASSETS: readonly AssetEntry[] = [
     frameHeight: 96,
   },
 
+  // ---- 敌人：缠抱怪（抓取型）----
+  //
+  // 笔记本电脑动作图集：逻辑仍沿用 grabber key，表现层按抓取状态选择帧。
+  // 图集不画玩家，扑向 / 吸附 / QTE 受击的反馈由代码特效叠加。
+  {
+    key: 'enemy_grabber_idle',
+    path: 'sprites/enemies/enemy_grabber_laptop.png',
+    placeholder: false,
+    kind: 'spritesheet',
+    width: 512,
+    height: 64,
+    frameWidth: 64,
+    frameHeight: 64,
+  },
+
   // ---- 玩家与抛射物（占位期测试场要用，正式资源归 D1 / D4）----
   {
     key: 'player_idle',
@@ -1309,6 +1410,11 @@ export const ASSETS: readonly AssetEntry[] = [
   audio('sfx_enemy_tank_slam', 'audio/sfx/enemies/sfx_enemy_tank_slam'),
   audio('sfx_enemy_tank_stagger', 'audio/sfx/enemies/sfx_enemy_tank_stagger'),
   audio('sfx_enemy_tank_death', 'audio/sfx/enemies/sfx_enemy_tank_death'),
+  audio('sfx_enemy_grabber_qte_hit', 'audio/sfx/enemies/sfx_enemy_grabber_qte_hit', false),
+  audio('sfx_enemy_grabber_pounce', 'audio/sfx/enemies/sfx_enemy_grabber_pounce', false),
+  audio('sfx_enemy_grabber_latch', 'audio/sfx/enemies/sfx_enemy_grabber_latch', false),
+  audio('sfx_enemy_grabber_emp', 'audio/sfx/enemies/sfx_enemy_grabber_emp', false),
+  audio('sfx_enemy_grabber_land', 'audio/sfx/enemies/sfx_enemy_grabber_land', false),
   audio('sfx_kill_flourish', 'audio/sfx/ui/sfx_kill_flourish'),
 
   // ---- 玩家分层：身体层 / 手臂+枪层（由 PLAYER_LAYER_BASES 展开，见上）----
@@ -1316,8 +1422,8 @@ export const ASSETS: readonly AssetEntry[] = [
   ...gooseAssets(),
 ]
 
-function audio(key: string, path: string): AssetEntry {
-  return { key, path, placeholder: true, kind: 'audio', codecs: ['ogg', 'mp3'] }
+function audio(key: string, path: string, placeholder = true): AssetEntry {
+  return { key, path, placeholder, kind: 'audio', codecs: ['ogg', 'mp3'] }
 }
 
 /**
@@ -1378,6 +1484,20 @@ export const PAPER_DEATH_ANIMS: readonly AnimDef[] = [
 export const ANIMS: readonly AnimDef[] = [
   ...GOOSE_ANIMS,
   ...PAPER_DEATH_ANIMS,
+  {
+    animKey: 'enemy_grabber_idle_loop',
+    textureKey: 'enemy_grabber_idle',
+    frames: [0, 1, 2],
+    frameRate: 5,
+    repeat: -1,
+  },
+  {
+    animKey: 'enemy_grabber_action_frames',
+    textureKey: 'enemy_grabber_idle',
+    frames: [3, 4, 5, 6, 7],
+    frameRate: 10,
+    repeat: 0,
+  },
   {
     animKey: 'enemy_stage2_idle_anim',
     textureKey: 'enemy_stage2_idle',

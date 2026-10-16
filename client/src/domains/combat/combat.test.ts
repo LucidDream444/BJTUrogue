@@ -313,6 +313,20 @@ it('invalid config and duplicate reward IDs fail early', () => {
   expect(() => parseRewards({ schemaVersion: 1, rewards: [defs[0], defs[0]] })).toThrow()
 })
 
+it('抓取怪的刷怪轴：第一层 0 只，之后按曲线出现', () => {
+  // 第 1 层不刷抓取怪是**刻意的**：先让玩家在别处认识「!」与抓取，
+  // 再让它真的来抓人。这条也顺手把「有人给它套上 max(1, ...)」挡住。
+  expect(stagePlan(bundle, cfg, 'normal', 1).grabbers).toBe(0)
+  expect(stagePlan(bundle, cfg, 'normal', 3).grabbers).toBeGreaterThanOrEqual(1)
+  // 另外两个轴照旧：任何一层都至少有一只
+  for (const stage of [1, 2, 3]) {
+    const p = stagePlan(bundle, cfg, 'normal', stage)
+    expect(p.splitters).toBeGreaterThan(0)
+    expect(p.tanks).toBeGreaterThan(0)
+    expect(p.grabbers).toBeGreaterThanOrEqual(0)
+  }
+})
+
 it('limits the run to exactly three floors and rejects a fourth spawn plan', () => {
   expect(cfg.arena.maxStages).toBe(3)
   for (const stage of [1, 2, 3])

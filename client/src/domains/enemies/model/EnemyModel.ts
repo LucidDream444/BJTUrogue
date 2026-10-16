@@ -23,7 +23,14 @@
 import { ActorModel, type ActorStats } from '@/core/actor/ActorModel'
 import type { DamageSourceKind, HitRequest } from '@/core/actor/damage'
 import type { EnemyKind } from '@/core/events'
-import type { DerivedSplitterGeneration, DerivedTank, SplitterDef, TankDef } from '@/core/config'
+import type {
+  DerivedGrabber,
+  DerivedSplitterGeneration,
+  DerivedTank,
+  GrabberDef,
+  SplitterDef,
+  TankDef,
+} from '@/core/config'
 
 export type EnemyState =
   /** 刚生成，生成宽限期内：会动但减速，且不打人 */
@@ -40,6 +47,15 @@ export type EnemyState =
   | 'stagger'
   /** 分裂怪专用：死亡过场，等 `splitDelayMs` 后在原地分裂 */
   | 'splitting'
+  /** 抓取怪专用：已经抓住玩家（吸附状态）。**这段时间世界是冻结的**，它不做任何自主行动 */
+  | 'grabbing'
+  /**
+   * 抓取怪专用：被挣脱时甩出去，正在飞。
+   *
+   * ⚠️ **飞行期间它是活的**（刻意保留 1 点血）—— 死了的实体在 D3 会被立刻 park、
+   * 位置冻住，尸体飞不起来。落地那一刻才走死亡流程。
+   */
+  | 'flung'
   | 'dead'
 
 /** 一只怪「该长什么样」的全部参数。回池复用时整份重写，不做增量更新。 */
@@ -75,6 +91,11 @@ export interface EnemySpec {
   minSpeedMult: number
   /** 易伤窗口的倍数（肉盾 recover 期间） */
   vulnerableMult: number
+  /**
+   * **前摇期间的移动速度倍数**。0 = 钉在原地（肉盾的下砸：那是它唯一的可读信号），
+   * 0.5 上下 = 蓄力期间仍然慢慢逼过来（抓取怪：站定会让它永远抓不到人）。
+   */
+  windupMoveMult: number
 }
 
 export function specFromSplitter(g: DerivedSplitterGeneration, def: SplitterDef): EnemySpec {
@@ -93,6 +114,34 @@ export function specFromSplitter(g: DerivedSplitterGeneration, def: SplitterDef)
     slowMultPerStack: 1,
     minSpeedMult: 1,
     vulnerableMult: 1,
+    windupMoveMult: 0,
+  }
+}
+
+/**
+ * 抓取怪的 spec。
+ *
+ * 它**不叠减速、没有易伤窗口** —— 它的强弱只由「抓没抓到」决定，
+ * 再把「越打越慢」叠上去会让「打死它 = 取消抓取」这条反制变得太容易。
+ */
+export function specFromGrabber(g: DerivedGrabber, def: GrabberDef): EnemySpec {
+  return {
+    kind: 'grabber',
+    gen: 0,
+    stats: { maxHp: g.maxHp, speed: g.speed, radius: g.radius },
+    pierceImmune: false,
+    graceMs: 0,
+    graceMoveMult: 1,
+    // ⚠️ 硬直固定 0：预警**不能被擦伤打断**，否则「!」就成了说谎的信号
+    //（取消只有「跑开」和「被打死」两条，见 enemies.json 的 _design）
+    flinchMs: 0,
+    slowPerHit: 0,
+    slowMaxStacks: 0,
+    slowDurationMs: 0,
+    slowMultPerStack: 1,
+    minSpeedMult: 1,
+    vulnerableMult: 1,
+    windupMoveMult: def.grab.windupMoveMult,
   }
 }
 
@@ -112,6 +161,8 @@ export function specFromTank(t: DerivedTank, def: TankDef): EnemySpec {
     slowMultPerStack: def.hitSlow.speedMultPerStack,
     minSpeedMult: def.hitSlow.minSpeedMult,
     vulnerableMult: def.slam.vulnerableDamageMult,
+    // 肉盾**前摇钉在原地**：那是「要砸了」的唯一信号（它很慢，边走边蓄力玩家就永远躲不掉）
+    windupMoveMult: 0,
   }
 }
 
@@ -137,6 +188,8 @@ export class EnemyModel extends ActorModel<EnemyState> {
   minSpeedMult = 1
   /** 易伤窗口倍数（肉盾 `recover` 期间） */
   vulnerableMult = 1
+  /** 前摇期间的移动速度倍数（见 `EnemySpec.windupMoveMult`） */
+  windupMoveMult = 0
   graceMoveMult = 1
 
   // ---- 计时（全部是「逻辑时间戳」，不是「剩余时长」，见文件头）----
@@ -165,6 +218,16 @@ export class EnemyModel extends ActorModel<EnemyState> {
   lateralSign = 1
   /** 分裂怪：该在什么时刻分裂 */
   splitAtMs = 0
+
+  /**
+   * 抓取怪被甩出去时的**飞行速度**（px/s）。由系统在挣脱那一刻写好，brain 在 `flung`
+   * 状态里原样喂给唯一的速度写入点（`Actor.applyVelocityIntent()`）。
+   *
+   * ⚠️ **不能靠「系统直接给物理体设一次速度」**：意图每步都会覆盖物理体的速度，
+   * 设一次等于下一帧就被抹掉。飞行是**意图**，不是一次性的冲量。
+   */
+  flingVx = 0
+  flingVy = 0
 
   // ---- 减速叠层 ----
 
@@ -197,6 +260,7 @@ export class EnemyModel extends ActorModel<EnemyState> {
     this.slowMultPerStack = spec.slowMultPerStack
     this.minSpeedMult = spec.minSpeedMult
     this.vulnerableMult = spec.vulnerableMult
+    this.windupMoveMult = spec.windupMoveMult
     this.graceMoveMult = spec.graceMoveMult
 
     this.stateEnteredAtMs = nowMs
@@ -209,6 +273,8 @@ export class EnemyModel extends ActorModel<EnemyState> {
     this.unstuckUntilMs = 0
     this.lateralSign = 1
     this.splitAtMs = 0
+    this.flingVx = 0
+    this.flingVy = 0
     this.slowStacks = 0
     this.slowExpireAtMs = 0
     this.lastDecayAtMs = nowMs
@@ -249,7 +315,9 @@ export class EnemyModel extends ActorModel<EnemyState> {
     }
     if (nowMs < this.weaponSlowUntilMs) m *= this.weaponSlowMultiplier
     // 前摇时钉在原地：这是「要砸了」的唯一信号，不能让它边走边蓄力
-    if (this.state === 'windup') m = 0
+    // 前摇期间的速度倍数**按模板给**：肉盾是 0（「要砸了」的唯一信号，不能边走边蓄力），
+    // 抓取怪是 0.5 上下（它是一路逼过来的 —— 站定会让它永远抓不到人）
+    if (this.state === 'windup') m *= this.windupMoveMult
     return m
   }
 
@@ -299,6 +367,32 @@ export class EnemyModel extends ActorModel<EnemyState> {
     return this.slowStacks !== before
   }
 
+  /**
+   * **落地死亡。**
+   *
+   * ⚠️ **必须绕过 `takeHit` 那条路**：飞行的整段（`flung`）对外来伤害是免疫的
+   * （它只剩 1 血，而玩家此刻正握着枪），但落地的击杀用的也是同一条通路 ——
+   * 走 `takeHit` 会被那条免伤**一起挡掉**，后果是它带着 1 血永远飞下去：
+   * 飞行的收尾已经清空、没有任何东西会结束它，而且它免疫一切伤害。
+   * 这个洞是实测抓出来的（无头驱动：`hp:1, state:'flung'` 一直不变、爆炸计数恒 0）。
+   *
+   * 走 `onKilled` 就等于走完整条死亡流程（回池、`entity_killed`、表现）——
+   * 和被打死的死法**没有区别**，只是没人能拦。
+   */
+  dieOnLanding(nowMs: number): void {
+    if (!this.alive) return
+    this.hp = 0
+    this.onKilled({
+      sourceId: this.id,
+      hitKey: 'grab-landing',
+      mode: 'instant',
+      amount: 0,
+      frameId: 0,
+      nowMs,
+      sourceKind: 'aoe',
+    })
+  }
+
   // ---- ActorModel 钩子 ----
 
   /**
@@ -343,6 +437,12 @@ export class EnemyModel extends ActorModel<EnemyState> {
    * 这是把「贪刀」变成有意义的选择：想打得快，就得贴着它、挑它砸完之后输出。
    */
   protected override modifyIncomingDamage(amount: number, _req: HitRequest): number {
+    // ⚠️ **被甩飞的这段路上免疫一切伤害。** 挣脱那一刻它只剩 1 血（故意的：
+    //    死了的实体会被立刻 park、尸体飞不起来），而玩家此刻正握着枪在连点 ——
+    //    顺手一梭子就能在半空中把它打死，于是「落地才死 → 落地爆炸」这条链
+    //    **静默消失**（实测：玩家看到爆炸的圈，场里其它敌人一点血没掉）。
+    //    这 400ms 的免疫换来的是「挣脱一定有回报」。
+    if (this.state === 'flung') return 0
     if (this.enemyKind === 'tank' && this.state === 'recover' && this.vulnerableMult !== 1) {
       return amount * this.vulnerableMult
     }

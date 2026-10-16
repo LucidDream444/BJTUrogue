@@ -37,6 +37,36 @@ export class PlayerModel extends ActorModel<PlayerState> {
     return super.takeHit(req)
   }
 
+  /**
+   * **抓取怪的咬击：剧本站定伤害。**
+   *
+   * ⚠️ 它和 `takeHit` 只差一件事：**不看 `clock.paused`**。
+   * 抓取期间世界正是冻结的（那正是这个机制的设计），走 `takeHit` 会被那道
+   * 「暂停时什么都不该发生」的守卫**静默吞掉** —— 表现是玩家永远咬不死，
+   * 而机制整个失效、且不报错。
+   *
+   * 其余一律照旧：无敌帧、护盾、受击表现、死亡流程都走同一条路。
+   * 硬直的顿帧（`frozen`）仍然尊重 —— 那是引擎级的「这一帧谁都别动」。
+   */
+  takeGrabBite(amount: number, sourceId: number, nowMs: number): HitResult {
+    if (
+      !this.alive ||
+      this.clock.frozen ||
+      this.clock.nowMs < this.protectedUntilMs ||
+      amount <= 0
+    )
+      return { applied: 0, killed: false, consumed: false }
+    return super.takeHit({
+      sourceId,
+      hitKey: `grab-bite:${sourceId}:${Math.round(nowMs)}`,
+      mode: 'instant',
+      amount,
+      frameId: this.clock.frameId,
+      nowMs,
+      sourceKind: 'melee',
+    })
+  }
+
   /** Environmental death bypasses shield and hit protection, and emits the normal death event once. */
   fallIntoWater(): void {
     if (!this.alive) return

@@ -183,6 +183,50 @@
         "squashHz": 7,
         "hpPitchCents": 400
       }
+    },
+    "grabber": {
+      "kind": "grabber",
+      "displayName": "缠抱怪",
+      "threatLevel": 3,
+      "hpMode": "shots",
+      "_design": "抓取型。慢速逼近 → 进 grab.range 就站定、头顶冒「!」telegraphMs 毫秒（**跑开或把它打死都能取消**）→ 预警到点**必定扑向玩家**（扑向是一段 350ms 的动画，**无法躲避**：躲的窗口就是那 2 秒预警本身，到点就锁死了）→ 抓住后世界冻结、镜头特写，它每 biteIntervalMs 咬一口（头顶红字倒计时），玩家每按一次攻击键扣它 pressDamageRatio 的最大血 —— **与武器无关，也不受武器冷却限制**。连点把它压到「再一下就会死」时，它保留 1 血被甩出去（方向选周围敌人最多的那边、距离固定），**落地才死亡**并炸一大片（只打其它敌人）。⚠️ 它的血量是**双重职责**的旋钮：既是血条也是抓取条 —— 定在「预警那段时间集火刚好差一点打死」，契约测试盯着这一条，动它就同时动了两种手感。⚠️ flinchMs 固定 0：预警**不能被擦伤打断**，否则「!」就成了说谎的信号（取消只有跑开和打死两条）。⚠️ 同类冷却挡的是**起手**不是抓取，否则会出现「冒了 ! 却什么都不发生」。",
+      "hpValue": 10,
+      "speed": 58,
+      "radius": 16,
+      "visualScale": 1,
+      "textureKey": "enemy_grabber_idle",
+      "contactDamagePerTick": 0,
+      "aggroRadius": 420,
+      "loseTargetRadius": 560,
+      "ai": {
+        "nearTickHz": 30,
+        "farTickHz": 5,
+        "flinchMs": 0,
+        "separationPad": 8,
+        "separationStrength": 110
+      },
+      "grab": {
+        "range": 134,
+        "telegraphMs": 2000,
+        "pounceMs": 350,
+        "windupMoveMult": 0.55,
+        "releaseRangeMult": 1.5,
+        "cooldownMs": 3000,
+        "biteIntervalMs": 4000,
+        "bitesToKillPlayer": 3,
+        "pressDamageRatio": 0.05,
+        "flingDistance": 280,
+        "flingTimeMs": 400,
+        "blastRadius": 300,
+        "blastDamage": 60,
+        "sameTypeCooldownMs": 5000
+      },
+      "juice": {
+        "alertFlashHz": 4,
+        "hitFlashHz": 14,
+        "escapeSfxVoices": 3,
+        "biteSfxMinIntervalMs": 1500
+      }
     }
   }
 }

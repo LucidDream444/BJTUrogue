@@ -121,6 +121,8 @@ export class BattleScene extends Phaser.Scene {
   private runSeed = 0
   /** 过门的键。**和暂停的 `ESC`、拾取的 `E` 错开**，别让人捡东西时误过门。 */
   private passKey!: Phaser.Input.Keyboard.Key
+  /** 抓取冻结已经持续了多久（毫秒，渲染时间）。**兜底用**：一直解不开就强制放人 */
+  private grabFrozenMs = 0
 
   /* ---- 局外成长（D4）：一局的账本、结算界面、暂停菜单 ---- */
 
@@ -396,12 +398,15 @@ export class BattleScene extends Phaser.Scene {
   }
   override update(_time: number, delta: number): void {
     if (!this.session) return
+    this.driveGrab(delta)
     // `F` 这一个键管两件事：**下楼**（下一层的入口）和**过门**（层内换房间）。
     // 人活着、没暂停才认 —— 也别在切走标签页的时候吃按键。
     if (
       Phaser.Input.Keyboard.JustDown(this.passKey) &&
       !this.session.reasons.has('hidden') &&
       !this.session.reasons.has('user') &&
+      // 抓取期间只剩挣脱：过门键也不认（那时候人还挂在怪身上）
+      !this.grabbing &&
       this.session.player.model.alive
     ) {
       // **「下一层」优先于门**：入口在首领房中间，门在墙边，两个都够得着的情况
@@ -520,6 +525,60 @@ export class BattleScene extends Phaser.Scene {
     }
     this.gallery?.update(delta)
   }
+  /** 现在是不是「被抓着」—— 一处的判据，别在五个地方各写一遍 `reasons.has('grab')` */
+  private get grabbing(): boolean {
+    return this.session?.reasons.has('grab') ?? false
+  }
+  /**
+   * **抓取驱动**：每渲染帧跑一次。冻结世界、推近镜头、把 delta 喂给 D3 的抓取电影时间。
+   *
+   * ⚠️ 为什么解冻在这里按：抓取期间世界是冻结的，**敌人系统整体停机**
+   * （AI、攻击、伤害账本全挂在物理 `WORLD_STEP` 上），它不可能自己解冻自己。
+   * 所以「什么时候结束」这件事必须由冻结它的那一方负责，而且要有无条件兜底 ——
+   * 一个解不开的抓取就是永久卡死。
+   *
+   * 喂给 D3 的是**渲染帧的 delta**（不是 `clock.nowMs`）：冻结时逻辑时钟停着，
+   * 用它算咬人节拍永远到不了点；而渲染 delta 在切走标签页时会停（rAF 停），
+   * 玩家不会在看不见的时候被咬。
+   */
+  private driveGrab(deltaMs: number): void {
+    const status = this.session.enemies.grabStatus()
+    if (status) {
+      if (!this.grabbing) {
+        // 抓取刚开始（扑向那一帧）：冻结 + 特写 + 玩家失去操作，**同时发生**
+        this.session.pause('grab')
+        this.grabFrozenMs = 0
+        this.cameraCloseUp()
+      }
+      this.grabFrozenMs += deltaMs
+      // 兜底一：拿不到结束信号就自己放人（硬上限的 4 倍 —— 正常路径早该结束了）
+      const cfg = this.bundle.enemies.enemies.grabber.grab
+      if (this.grabFrozenMs > cfg.biteIntervalMs * 4) {
+        this.session.enemies.abortGrab()
+        this.session.resume('grab')
+        this.grabFrozenMs = 0
+        this.notice.setText('抓取超时，已强制挣脱（这一条不该出现，出现了说明有 bug）')
+        return
+      }
+      this.session.enemies.tickGrab(deltaMs)
+      return
+    }
+    if (this.grabbing) {
+      // 结束了（挣脱 / 超时 / 玩家死）：解冻 + 镜头还原
+      this.session.resume('grab')
+      this.grabFrozenMs = 0
+      this.fitCamera()
+    }
+  }
+  /**
+   * 抓取特写：拉近到玩家身上。**不管 HUD** —— 所有 HUD 与覆盖层每帧都按 `1/zoom`
+   * 反算自己的位置，改 zoom 它们自动跟住。
+   */
+  private cameraCloseUp(): void {
+    const cam = this.cameras.main
+    const zoom = Math.min(2.2, Math.max(1.6, cam.zoom * 2.4))
+    cam.setZoom(zoom).centerOn(this.session.player.x, this.session.player.y)
+  }
   private drawWorld(): void {
     this.scenery = new StageBackground(
       this,
@@ -549,6 +608,10 @@ export class BattleScene extends Phaser.Scene {
     this.deathNotice.setScale(Math.min(1, (camera.width - 32) / 320) / camera.zoom)
   }
   private fitCamera(): void {
+    // ⚠️ 抓取特写期间**不许重算**：这个函数是「整张图塞进屏幕」，
+    //    挂在窗口 resize 上 —— 特写时拖一下窗口，镜头就会被拍回全景，
+    //    而玩家正被按在原地连点，画面却已经拉远（看起来像卡住了）。
+    if (this.grabbing) return
     const zoom = Math.min(
       1,
       this.scale.width / this.cfg.arena.width,
@@ -824,6 +887,13 @@ export class BattleScene extends Phaser.Scene {
           i >= Math.ceil(p.splitters * p.secondPhaseFraction) ? p.phaseDelayMs : 0,
         )
       }
+      // 抓取怪：第三个轴（`arena.initialGrabbers`，可以是小数 = 概率）。
+      // 第 1 层算出来是 0 只 —— 先让玩家在别处认识「!」，再让它来抓人。
+      for (let i = 0; i < p.grabbers; i++) {
+        const k = p.splitters + p.tanks + i
+        const s = at(k)
+        this.session.enemies.spawn('grabber', 0, s.x + offset(k), s.y + offset(k))
+      }
       for (let i = 0; i < p.tanks; i++) {
         const s = at(p.splitters + i)
         this.session.enemies.spawn(
@@ -866,7 +936,13 @@ export class BattleScene extends Phaser.Scene {
     this.notice.setText(
       `第 ${this.floor} 层 · 第 ${this.stage} / ${this.roomCount} 间：${room?.kind ?? '?'} ` +
         `${room ? room.rect.width + '×' + room.rect.height : ''} · ${this.label()} · ` +
-        (this.needsFight() ? p.splitters + ' 分裂怪 + ' + p.tanks + ' 肉盾' : '不用打'),
+        (this.needsFight()
+          ? p.splitters +
+            ' 分裂怪 + ' +
+            p.tanks +
+            ' 肉盾' +
+            (p.grabbers ? ' + ' + p.grabbers + ' 缠抱怪' : '')
+          : '不用打'),
     )
   }
   private makeHud(): void {
@@ -941,11 +1017,23 @@ export class BattleScene extends Phaser.Scene {
   }
   private bindKeys(): void {
     const k = this.input.keyboard
-    k?.on('keydown-H', () => this.demoHit())
-    k?.on('keydown-C', () => this.requestClear())
-    k?.on('keydown-V', () => this.toggleGallery())
+    k?.on('keydown-H', () => {
+      if (this.grabbing) return
+      this.demoHit()
+    })
+    k?.on('keydown-C', () => {
+      if (this.grabbing) return
+      this.requestClear()
+    })
+    k?.on('keydown-V', () => {
+      if (this.grabbing) return
+      this.toggleGallery()
+    })
     // `R` = **先结算、再重开**（见 `restartRun`）—— 不再是"把这一局白扔"的调试键
-    k?.on('keydown-R', () => this.restartRun())
+    k?.on('keydown-R', () => {
+      if (this.grabbing) return
+      this.restartRun()
+    })
     k?.on('keydown-E', () => this.loot.interact())
     k?.on('keydown-ONE', () =>
       this.loot.replacementPending ? this.loot.chooseReplacement(0) : this.session.equipSlot(0),
@@ -961,10 +1049,14 @@ export class BattleScene extends Phaser.Scene {
       // ⚠️ 暂停的键盘入口**只有这一处**（`togglePauseMenu`）。宿主自己再绑一个
       // "Esc 关菜单"，按一下就会同时又关又开 —— 见 `PauseOverlay` 文件头。
       k.on('keydown-ESC', () => {
+        if (this.grabbing) return
         if (this.loot.replacementPending) this.loot.cancelReplacement()
         else this.togglePauseMenu()
       })
-      k.on('keydown-SPACE', () => this.togglePauseMenu())
+      k.on('keydown-SPACE', () => {
+        if (this.grabbing) return
+        this.togglePauseMenu()
+      })
       k.on('keydown-UP', () => this.pauseMenu.handleMoveFocus(-1))
       k.on('keydown-DOWN', () => this.pauseMenu.handleMoveFocus(1))
       k.on('keydown-ENTER', () => this.pauseMenu.handleActivate())
