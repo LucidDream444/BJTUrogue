@@ -38,8 +38,18 @@ export interface UpgradeTrackDef {
 
 export interface CharacterDef2 {
   unlockCost: number
-  base: { maxHp: number; magic: number; armor: number }
+  passive: {
+    name: string
+    description: string
+  }
+  combat: CharacterCombatModifiers
   tracks: UpgradeTrackDef[]
+}
+
+export interface CharacterCombatModifiers {
+  maxHpPct: number
+  moveSpeedPct: number
+  energyRegenPct: number
 }
 
 export interface SkillDef {
@@ -72,13 +82,29 @@ export function parseMetaConfig(raw: unknown): MetaConfig {
   const characters: Record<string, CharacterDef2> = {}
   for (const [id, value] of Object.entries(needRecord(root.characters, 'meta.characters'))) {
     const def = needRecord(value, `meta.characters.${id}`)
-    const base = needRecord(def.base, `meta.characters.${id}.base`)
+    const passive = needRecord(def.passive, `meta.characters.${id}.passive`)
+    const combat = needRecord(def.combat, `meta.characters.${id}.combat`)
     characters[id] = {
       unlockCost: needNumber(def.unlockCost, `meta.characters.${id}.unlockCost`, 0),
-      base: {
-        maxHp: needNumber(base.maxHp, `meta.characters.${id}.base.maxHp`, 1),
-        magic: needNumber(base.magic, `meta.characters.${id}.base.magic`, 0),
-        armor: needNumber(base.armor, `meta.characters.${id}.base.armor`, 0),
+      passive: {
+        name: needString(passive.name, `meta.characters.${id}.passive.name`),
+        description: needString(
+          passive.description,
+          `meta.characters.${id}.passive.description`,
+        ),
+      },
+      combat: {
+        maxHpPct: needNumber(combat.maxHpPct, `meta.characters.${id}.combat.maxHpPct`, 0),
+        moveSpeedPct: needNumber(
+          combat.moveSpeedPct,
+          `meta.characters.${id}.combat.moveSpeedPct`,
+          0,
+        ),
+        energyRegenPct: needNumber(
+          combat.energyRegenPct,
+          `meta.characters.${id}.combat.energyRegenPct`,
+          0,
+        ),
       },
       tracks: parseTracks(def.tracks, `meta.characters.${id}.tracks`),
     }

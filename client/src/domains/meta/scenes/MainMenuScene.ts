@@ -84,6 +84,8 @@ export interface MainMenuData {
   onExit?: () => void
   /** 注入的档。**不传就自己建一个**（用浏览器 localStorage） */
   store?: ProfileStore
+  /** 从结算等入口直接打开升级页；关闭后仍回到主菜单本体。 */
+  initialScreen?: 'upgrade'
 }
 
 /** 竖排按钮的起点，给角色区留出上面的空间 */
@@ -153,7 +155,7 @@ export class MainMenuScene extends Phaser.Scene {
     } else {
       this.store = new ProfileStore({ storage: new LocalStorageProfileStorage() })
     }
-    this.state = createMenuState()
+    this.state = createMenuState(data.initialScreen)
   }
 
   preload(): void {
@@ -441,7 +443,7 @@ export class MainMenuScene extends Phaser.Scene {
     this.unlockedText = text(ax, top, '', 17, '#e8d6ae')
     text(ax, top + 30, '带上你的勇气，选择今天的冒险伙伴。', 12, '#9cae99')
     const gap = 12,
-      cardW = (aw - gap * 3) / 4,
+      cardW = (aw - gap * (CHARACTERS.length - 1)) / CHARACTERS.length,
       cardH = compact ? 210 : 228
     CHARACTERS.forEach((def, i) => {
       this.cards.push(

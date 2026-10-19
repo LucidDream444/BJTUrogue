@@ -186,6 +186,52 @@ describe('pulse loadout balance', () => {
     ).toThrow()
   })
 })
+
+describe('permanent meta growth bridge', () => {
+  it('changes starting HP, energy and fire interval before the first shot', () => {
+    const gun = cfg.weapons[0]!
+    const base = deriveStats(bundle.balance, cfg, gun, defs, new Map())
+    const grown = deriveStats(bundle.balance, cfg, gun, defs, new Map(), {
+      maxHp: 260,
+      maxStamina: 700,
+      maxShield: 30,
+      attackSpeedPct: 50,
+      moveSpeedPct: 0,
+      energyRegenPct: 0,
+    })
+    expect(grown.maxHp).toBe(260)
+    expect(grown.maxStamina).toBe(700)
+    expect(grown.cooldownMs).toBeCloseTo(base.cooldownMs / 1.5)
+  })
+
+  it('adds permanent attack speed to in-run tempo before the shared cap', () => {
+    const gun = cfg.weapons[0]!
+    const grown = deriveStats(bundle.balance, cfg, gun, defs, new Map([['tempo', 1]]), {
+      maxHp: 200,
+      maxStamina: 500,
+      maxShield: 5,
+      attackSpeedPct: 50,
+      moveSpeedPct: 0,
+      energyRegenPct: 0,
+    })
+    const baseInterval = bundle.balance.baseline.bullet.fireIntervalMs * gun.cooldownScale
+    expect(grown.cooldownMs).toBeCloseTo(baseInterval / 1.65)
+  })
+
+  it('applies the athlete movement identity through the same permanent bridge', () => {
+    const gun = cfg.weapons[0]!
+    const base = deriveStats(bundle.balance, cfg, gun, defs, new Map())
+    const goose = deriveStats(bundle.balance, cfg, gun, defs, new Map(), {
+      maxHp: 50,
+      maxStamina: 500,
+      maxShield: 5,
+      attackSpeedPct: 0,
+      moveSpeedPct: 20,
+      energyRegenPct: 0,
+    })
+    expect(goose.moveSpeed).toBeCloseTo(base.moveSpeed * 1.2)
+  })
+})
 describe('D1 rewards', () => {
   it('same seed has same unique choices', () => {
     const a = new RewardRun(defs, new Rng(42)),

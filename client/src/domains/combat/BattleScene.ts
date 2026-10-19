@@ -38,7 +38,13 @@ import {
 import { PauseOverlay } from '@/domains/meta/pause/PauseOverlay'
 import { ProfileStore } from '@/domains/meta/profile/ProfileStore'
 import { LocalStorageProfileStorage } from '@/domains/meta/profile/storage'
-import type { RunInput } from '@/domains/meta/progress/progress'
+import {
+  effectiveMaxEnergy,
+  effectiveMaxHp,
+  effectiveMaxShield,
+  effectiveStats,
+  type RunInput,
+} from '@/domains/meta/progress/progress'
 import { RunLedger } from '@/domains/meta/run/RunLedger'
 import { SettlementOverlay } from '@/domains/meta/settlement/SettlementOverlay'
 
@@ -323,6 +329,21 @@ export class BattleScene extends Phaser.Scene {
         this.meta = null
         console.error('[meta] 成长配置读不出来：', err)
       }
+      if (this.meta) {
+        const permanent = effectiveStats(
+          this.store.profile,
+          this.meta,
+          this.store.profile.selected.characterId,
+        )
+        this.session.applyPermanentRunStats({
+          maxHp: effectiveMaxHp(this.bundle.balance.baseline.player.maxHp, permanent),
+          maxStamina: effectiveMaxEnergy(this.cfg.player.maxStamina, permanent),
+          maxShield: effectiveMaxShield(this.cfg.player.maxShield, permanent),
+          attackSpeedPct: permanent.attackSpeedPct,
+          moveSpeedPct: permanent.moveSpeedPct,
+          energyRegenPct: permanent.energyRegenPct,
+        })
+      }
       this.ledger = new RunLedger(this.session.bus)
       if (this.meta) {
         this.settlement = new SettlementOverlay({
@@ -336,6 +357,7 @@ export class BattleScene extends Phaser.Scene {
             // 结算的「返回主菜单」回**标题画面**（D1 的 `main-menu`），
             // 不是 D4 那个局外成长主菜单 —— 打完一局先看到的是标题。
             backToMenu: () => this.backToMenu(),
+            goToUpgrade: () => this.goToUpgrade(),
           },
         })
       }
@@ -1141,6 +1163,17 @@ export class BattleScene extends Phaser.Scene {
   private backToMenu(): void {
     this.session.destroy()
     if (this.scene.manager.keys['main-menu']) this.scene.start('main-menu')
+  }
+
+  /** 结算后的「去升级」：直接进入 D4 主菜单，并让升级弹层预先打开。 */
+  private goToUpgrade(): void {
+    this.session.destroy()
+    if (this.scene.manager.keys['MainMenu']) {
+      this.scene.start('MainMenu', { initialScreen: 'upgrade' })
+    } else if (this.scene.manager.keys['main-menu']) {
+      // D1 单独启动、没有注册 D4 主菜单时退回标题画面，避免静默停在结算层。
+      this.scene.start('main-menu')
+    }
   }
 
   private demoHit(): void {
