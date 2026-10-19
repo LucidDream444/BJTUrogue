@@ -13,9 +13,17 @@
 
   "characters": {
     "student": {
-      "_note": "MVP 只有一个角色。base 是**角色档**的基础值，与 balance.json 里那个用于战斗基线的假玩家是两回事。",
+      "_note": "成长线的值是加在 D1 基础战斗数值上的局外加成；基础生命 / 能量 / 护盾仍分别归 balance.json 与 combat.json。",
       "unlockCost": 0,
-      "base": { "maxHp": 200, "magic": 40, "armor": 0 },
+      "passive": {
+        "name": "稳扎稳打",
+        "description": "生命上限 +10%"
+      },
+      "combat": {
+        "maxHpPct": 10,
+        "moveSpeedPct": 0,
+        "energyRegenPct": 0
+      },
       "tracks": [
         {
           "id": "maxHp",
@@ -27,19 +35,19 @@
           "maxLevel": 10
         },
         {
-          "id": "magic",
+          "id": "maxEnergy",
           "name": "能量上限",
           "unit": "point",
-          "perLevel": 10,
+          "perLevel": 20,
           "baseCost": 25,
           "costGrowth": 1.6,
           "maxLevel": 10
         },
         {
-          "id": "armor",
-          "name": "护甲",
+          "id": "maxShield",
+          "name": "护盾上限",
           "unit": "point",
-          "perLevel": 1,
+          "perLevel": 5,
           "baseCost": 40,
           "costGrowth": 1.8,
           "maxLevel": 5
@@ -47,21 +55,31 @@
       ]
     },
     "athlete": {
-      "_note": "大鹅沿用 athlete 存档身份、原体育生的解锁成本与数值；本次只接入四向分层美术和鹅嘴持枪，角色数值留给 D1/D4。",
+      "_note": "大鹅沿用 athlete 存档身份；角色差异是移动速度，不复制基础战斗数值。",
       "unlockCost": 200,
-      "base": { "maxHp": 200, "magic": 40, "armor": 0 },
+      "passive": {
+        "name": "鹅步生风",
+        "description": "移动速度 +20%"
+      },
+      "combat": {
+        "maxHpPct": 0,
+        "moveSpeedPct": 20,
+        "energyRegenPct": 0
+      },
       "tracks": []
     },
     "scholar": {
-      "_note": "占位角色：同上。",
+      "_note": "资源型角色：更快回复能量，鼓励持续使用高消耗武器。",
       "unlockCost": 400,
-      "base": { "maxHp": 200, "magic": 40, "armor": 0 },
-      "tracks": []
-    },
-    "leader": {
-      "_note": "占位角色：同上。",
-      "unlockCost": 600,
-      "base": { "maxHp": 200, "magic": 40, "armor": 0 },
+      "passive": {
+        "name": "馆藏检索",
+        "description": "能量恢复速度 +50%"
+      },
+      "combat": {
+        "maxHpPct": 0,
+        "moveSpeedPct": 0,
+        "energyRegenPct": 50
+      },
       "tracks": []
     }
   },

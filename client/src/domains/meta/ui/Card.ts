@@ -41,7 +41,6 @@ export class Card {
       student: 'player_student_idle_s',
       athlete: GOOSE_ART.portrait,
       scholar: 'ui_campus_book',
-      leader: 'ui_campus_star_badge',
     }
     const key = art[def.id]
     this.portrait = key && scene.textures.exists(key) ? scene.add.image(x, y - 14, key, 0) : null

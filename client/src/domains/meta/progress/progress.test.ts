@@ -24,6 +24,9 @@ import {
   buyUpgrade,
   coinsForRun,
   effectiveStats,
+  effectiveMaxEnergy,
+  effectiveMaxHp,
+  effectiveMaxShield,
   formatPerLevel,
   formatTotal,
   levelOf,
@@ -50,7 +53,11 @@ function profile(): ProfileData {
 describe('meta.json 解析', () => {
   it('线上那份能解析（反向证据：这就是真表，不是测试里另搭的假表）', () => {
     expect(META.characters.student).toBeDefined()
-    expect(META.characters.student.tracks.map((t) => t.id)).toEqual(['maxHp', 'magic', 'armor'])
+    expect(META.characters.student.tracks.map((t) => t.id)).toEqual([
+      'maxHp',
+      'maxEnergy',
+      'maxShield',
+    ])
     expect(META.skills.rapid_fire.tracks[0]?.id).toBe('attackSpeedPct')
   })
 
@@ -117,8 +124,9 @@ describe('买一级', () => {
 describe('最终数值', () => {
   it('没升级时就是基础值', () => {
     const s = effectiveStats(profile(), META, 'student')
-    expect(s.maxHp).toBe(META.characters.student.base.maxHp)
-    expect(s.armor).toBe(META.characters.student.base.armor)
+    expect(s.bonusMaxHp).toBe(0)
+    expect(s.bonusShield).toBe(0)
+    expect(s.maxHpPct).toBe(10)
   })
 
   it('角色成长线与技能成长线叠在同一个结果上', () => {
@@ -128,7 +136,7 @@ describe('最终数值', () => {
     const s = effectiveStats(p, META, 'student')
     const hp = META.characters.student.tracks.find((t) => t.id === 'maxHp')!
     const spd = META.skills.rapid_fire.tracks.find((t) => t.id === 'attackSpeedPct')!
-    expect(s.maxHp).toBe(META.characters.student.base.maxHp + hp.perLevel * 2)
+    expect(s.bonusMaxHp).toBe(hp.perLevel * 2)
     expect(s.attackSpeedPct).toBe(spd.perLevel * 3)
   })
 
@@ -137,6 +145,49 @@ describe('最终数值', () => {
     p.unlocks.skills = []
     p.upgrades[trackKey('rapid_fire', 'attackSpeedPct')] = 5
     expect(effectiveStats(p, META, 'student').attackSpeedPct).toBe(0)
+  })
+
+  it('护盾升级只提供局外加成，最终上限由 D1 基础值加上来', () => {
+    const p = profile()
+    p.upgrades[trackKey('student', 'maxShield')] = 5
+    const s = effectiveStats(p, META, 'student')
+    expect(s.bonusShield).toBe(25)
+    expect(effectiveMaxShield(5, s)).toBe(30)
+  })
+
+  it('生命升级只提供局外加成，最终上限由 D1 基础值加上来', () => {
+    const p = profile()
+    p.upgrades[trackKey('student', 'maxHp')] = 2
+    const s = effectiveStats(p, META, 'student')
+    expect(s.bonusMaxHp).toBe(40)
+    expect(effectiveMaxHp(50, s)).toBe(99)
+  })
+
+  it('能量升级只提供局外加成，最终上限由 D1 基础值加上来', () => {
+    const p = profile()
+    p.upgrades[trackKey('student', 'maxEnergy')] = 4
+    const s = effectiveStats(p, META, 'student')
+    expect(s.bonusMaxEnergy).toBe(80)
+    expect(effectiveMaxEnergy(500, s)).toBe(580)
+  })
+
+  it('三个角色的战斗身份不同，且由一个角色目录读取', () => {
+    const p = profile()
+    expect(effectiveStats(p, META, 'student')).toMatchObject({
+      maxHpPct: 10,
+      moveSpeedPct: 0,
+      energyRegenPct: 0,
+    })
+    expect(effectiveStats(p, META, 'athlete')).toMatchObject({
+      maxHpPct: 0,
+      moveSpeedPct: 20,
+      energyRegenPct: 0,
+    })
+    expect(effectiveStats(p, META, 'scholar')).toMatchObject({
+      maxHpPct: 0,
+      moveSpeedPct: 0,
+      energyRegenPct: 50,
+    })
   })
 })
 

@@ -14,9 +14,9 @@
  * ## 已解锁计数为什么要和目录求交集
  *
  * 玩家的档里可能存着**本版不认识的**角色 id（来自更新的版本，见 `profile/types.ts`
- * 关于「看不懂的档不覆盖」的说明）。所以「已解锁 3 / 4」的 3 必须是
+ * 关于「看不懂的档不覆盖」的说明）。所以「已解锁 2 / 3」里的 2 必须是
  * **目录里认识的、且已解锁的**数量 —— 拿 `unlocks.characters.length` 直接当 3 的话，
- * 一个来自未来的 id 会让它显示成 6 / 4。
+ * 一个来自未来的 id 会让它显示成 4 / 3。
  */
 
 import { CHARACTERS, characterById, type CharacterDef } from '../catalog'
@@ -51,8 +51,8 @@ export interface MenuState {
   notice: string
 }
 
-export function createMenuState(): MenuState {
-  return { screen: 'main', focusIndex: 0, notice: '' }
+export function createMenuState(initialScreen: 'main' | 'upgrade' = 'main'): MenuState {
+  return { screen: initialScreen, focusIndex: 0, notice: '' }
 }
 
 /** 焦点上下移动，**到头绕回**。越界不报错是因为按住方向键连按到底很常见。 */
@@ -101,7 +101,7 @@ export function unlockedCharacters(profile: ProfileData): CharacterDef[] {
  * 「已解锁 X / N」。
  *
  * N 是**目录长度**、X 是目录与档的交集大小 —— 档里那些本版不认识的 id
- * 不计入 X，否则会出现 6 / 4 这种读数（见文件头）。
+ * 不计入 X，否则会出现 4 / 3 这种读数（见文件头）。
  */
 export function unlockedCount(profile: ProfileData): { unlocked: number; total: number } {
   return { unlocked: unlockedCharacters(profile).length, total: CHARACTERS.length }
