@@ -38,10 +38,12 @@ import {
 /** 一步迁移：吃上一版的原始对象，吐下一版的对象。**不要在这里读配置或碰引擎。** */
 export type MigrationStep = (data: Record<string, unknown>) => Record<string, unknown>
 
-/** `旧版本号 → 一步函数`。v1 是第一版，所以现在是空的。 */
+/** `旧版本号 → 一步函数`。 */
 export type MigrationRegistry = Readonly<Record<number, MigrationStep>>
 
-export const MIGRATIONS: MigrationRegistry = {}
+export const MIGRATIONS: MigrationRegistry = {
+  1: migrateV1ToV2,
+}
 
 /**
  * 迁移步数的上限。**这不是"够用就行"的数字，是防死循环的。**
@@ -73,9 +75,8 @@ export type MigrationOutcome =
 /**
  * 从 `from` 走到 `to`，每一步都必须在表里。
  *
- * **单独导出是为了能测它。** 现在 v1 是第一版、真表是空的，
- * 也就是说在线路径上这个循环一次都不会跑 —— 而"迁移链断了一节"恰恰是那种
- * 要等玩家跨版本升级时才炸的东西。`to` 可传，测试就能用一张假表把
+ * **单独导出是为了能测它。** 真实迁移表和注入表都可能出错，而"迁移链断了一节"
+ * 恰恰是那种要等玩家跨版本升级时才炸的东西。`to` 可传，测试就能用一张假表把
  * 「三步链走通 / 中间缺一步 / 表打转」三种情况都跑一遍。
  */
 export function runMigrations(
@@ -103,8 +104,7 @@ export function runMigrations(
 /**
  * 把一份**已经 `JSON.parse` 过**的东西变成一份合法档 + 一个结论。
  *
- * `migrations` 可注入，是为了能测「迁移链走通了没有」—— 现在 v1 是第一版，
- * 真表是空的，不注入的话这段逻辑一行都测不到，而它恰恰是最不能出错的一段。
+ * `migrations` 可注入，是为了能测「迁移链走通了没有」；它恰恰是最不能出错的一段。
  */
 export function migrateProfile(
   raw: unknown,
@@ -141,8 +141,8 @@ export function migrateProfile(
 /**
  * 把任意形状收敛成一份合法档。**同版本内缺字段补默认，不报错。**
  *
- * 为什么同版本内的缺失不报错：这一版还没发布，字段还在动。
- * 「v1 的档少了一个 v1 字段」只可能是这一版自己写坏的，
+ * 为什么同版本内的缺失不报错：字段仍可能随小版本调整。
+ * 「当前版本的档少了一个当前字段」只可能是这一版自己写坏的，
  * 而这种情况下**补默认继续玩**远好于把玩家的档判死。
  */
 export function normalizeProfile(raw: unknown): ProfileData {
@@ -153,6 +153,7 @@ export function normalizeProfile(raw: unknown): ProfileData {
   const currency = asRecord(root.currency)
   const stats = asRecord(root.stats)
   const selected = asRecord(root.selected)
+  const selectedId = id(selected.characterId, fallback.selected.characterId)
 
   return {
     schemaVersion: PROFILE_SCHEMA_VERSION,
@@ -162,7 +163,9 @@ export function normalizeProfile(raw: unknown): ProfileData {
       displayMode: asDisplayMode(settings.displayMode, fallback.settings.displayMode),
     },
     unlocks: {
-      characters: idList(unlocks.characters, fallback.unlocks.characters),
+      characters: idList(unlocks.characters, fallback.unlocks.characters).filter(
+        (characterId) => characterId !== 'leader',
+      ),
       skills: idList(unlocks.skills, fallback.unlocks.skills),
     },
     currency: {
@@ -176,7 +179,7 @@ export function normalizeProfile(raw: unknown): ProfileData {
       bestDepth: boundedInt(stats.bestDepth, 0, 0, MAX_COUNTER),
     },
     selected: {
-      characterId: id(selected.characterId, fallback.selected.characterId),
+      characterId: selectedId === 'leader' ? fallback.selected.characterId : selectedId,
       difficulty: asDifficulty(selected.difficulty, fallback.selected.difficulty),
     },
   }
@@ -191,6 +194,47 @@ export function cloneProfile(profile: ProfileData): ProfileData {
 
 function recovered(reason: string): ProfileLoadResult {
   return { profile: createDefaultProfile(), outcome: { status: 'recovered', reason } }
+}
+
+/**
+ * v2 把局外「护甲」改成「护盾上限」、把「能量上限」的旧 key `magic`
+ * 改成 `maxEnergy`，同时删除第四角色「社团长」。
+ *
+ * 数值语义仍然都是“点”，所以不换算 `+1` 与 `+5` 的历史等级：
+ * 迁移的是**玩家已经买的等级**，不是当时的属性效果。升到几级就保留几级；
+ * v2 配置里的每级增量从 1 点变成 5 点，会在下一次计算最终护盾时自然生效。
+ */
+function migrateV1ToV2(data: Record<string, unknown>): Record<string, unknown> {
+  const upgrades = { ...asRecord(data.upgrades) }
+  for (const [key, value] of Object.entries(upgrades)) {
+    const suffix = key.endsWith(':armor')
+      ? ':armor'
+      : key.endsWith(':magic')
+        ? ':magic'
+        : null
+    if (suffix === null) continue
+    const nextKey =
+      key.slice(0, -suffix.length) + (suffix === ':armor' ? ':maxShield' : ':maxEnergy')
+    const oldLevel = num(value, 0)
+    const existing = num(upgrades[nextKey], 0)
+    upgrades[nextKey] = Math.max(existing, oldLevel)
+    delete upgrades[key]
+  }
+  const unlocks = asRecord(data.unlocks)
+  const characters = Array.isArray(unlocks.characters)
+    ? unlocks.characters.filter((id) => id !== 'leader')
+    : unlocks.characters
+  const selected = asRecord(data.selected)
+  return {
+    ...data,
+    schemaVersion: 2,
+    upgrades,
+    unlocks: { ...unlocks, characters },
+    selected: {
+      ...selected,
+      characterId: selected.characterId === 'leader' ? 'student' : selected.characterId,
+    },
+  }
 }
 
 function asRecord(v: unknown): Record<string, unknown> {

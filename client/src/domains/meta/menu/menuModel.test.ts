@@ -7,7 +7,7 @@
  * | 坏了的样子 | 对应用例 |
  * |---|---|
  * | 未解锁的角色能被选中（或者点了没反应、也没提示） | 解锁门禁 |
- * | 「已解锁 6 / 4」—— 档里带着未来版本的 id | 计数与目录求交集 |
+ * | 「已解锁 4 / 3」—— 档里带着未来版本的 id | 计数与目录求交集 |
  * | 焦点越界之后按方向键就卡死 | 焦点环绕 |
  * | 关掉弹层时把提示也带进去了 / 主菜单上按 Esc 把界面关了 | 弹层开关 |
  */
@@ -41,6 +41,12 @@ describe('焦点', () => {
     expect(createMenuState().focusIndex).toBe(0)
     expect(focusedAction(createMenuState())).toBe('start')
     expect(MENU_ACTIONS[0]).toBe('start')
+  })
+
+  it('可以从结算直接以升级页作为初始屏', () => {
+    const state = createMenuState('upgrade')
+    expect(state.screen).toBe('upgrade')
+    expect(state.focusIndex).toBe(0)
   })
 
   it('「怪物图鉴」紧跟在「查看操作说明」之后，退出仍是末项', () => {
@@ -113,16 +119,20 @@ describe('解锁门禁（需求 §4.1：未解锁不能被选中）', () => {
     expect(result.ok).toBe(false)
     expect(result.notice).toContain('不存在的角色')
   })
+
+  it('角色目录现在只有三个角色，社团长已移除', () => {
+    expect(CHARACTERS.map((c) => c.id)).toEqual(['student', 'athlete', 'scholar'])
+  })
 })
 
 describe('已解锁计数', () => {
-  it('档里带着未来版本的 id 时，不会显示成「6 / 4」', () => {
+  it('档里带着未来版本的 id 时，不会显示成「4 / 3」', () => {
     const p = profileWith((d) => {
       d.unlocks.characters.push('来自未来版本的角色', '另一个未来的角色')
     })
     const { unlocked, total } = unlockedCount(p)
     expect(unlocked).toBe(1) // 目录里只认得 student
-    expect(total).toBe(4)
+    expect(total).toBe(3)
   })
 
   it('解锁了目录里的第二个角色，计数跟着走', () => {

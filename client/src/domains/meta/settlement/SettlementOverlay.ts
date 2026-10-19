@@ -26,7 +26,7 @@ import { buildOverlayFrame, type OverlaySink } from '../ui/overlayFrame'
 import { OverlayLayer } from '../ui/overlayLayer'
 import { THEME, fontPx } from '../ui/theme'
 
-/** 宿主（D1 的战斗场景）必须提供这三件事。 */
+/** 宿主（D1 的战斗场景）必须提供这四件事。 */
 export interface SettlementHost {
   /** 本局的原始计数。谁统计由宿主决定 —— 见 `run/RunLedger.ts` */
   runInput(): RunInput
@@ -34,6 +34,8 @@ export interface SettlementHost {
   restart(): void
   /** 「返回主菜单」：宿主切回主菜单 */
   backToMenu(): void
+  /** 「去升级」：宿主结束本局并直接打开主菜单里的升级页 */
+  goToUpgrade(): void
 }
 
 export interface SettlementOverlayOptions {
@@ -194,32 +196,35 @@ export class SettlementOverlay {
         .setOrigin(0.5),
     )
 
-    sink.button(
-      new Button(
-        this.scene,
-        frame.cx - 100,
-        frame.cy + 140,
-        '重新开始',
-        () => {
-          this.hide()
-          this.host.restart()
-        },
-        { width: 170, height: 40, fontSize: THEME.font.body },
-      ),
-    )
-    sink.button(
-      new Button(
-        this.scene,
-        frame.cx + 100,
-        frame.cy + 140,
-        '返回主菜单',
-        () => {
-          this.hide()
-          this.host.backToMenu()
-        },
-        { width: 170, height: 40, fontSize: THEME.font.body },
-      ),
-    )
+    const actions = [
+      {
+        label: '去升级',
+        onClick: () => this.host.goToUpgrade(),
+      },
+      {
+        label: '重新开始',
+        onClick: () => this.host.restart(),
+      },
+      {
+        label: '返回主菜单',
+        onClick: () => this.host.backToMenu(),
+      },
+    ] as const
+    actions.forEach((action, index) => {
+      sink.button(
+        new Button(
+          this.scene,
+          frame.cx + (index - 1) * 166,
+          frame.cy + 140,
+          action.label,
+          () => {
+            this.hide()
+            action.onClick()
+          },
+          { width: 158, height: 40, fontSize: THEME.font.body },
+        ),
+      )
+    })
 
     this.layer?.attach(this.parts)
   }
