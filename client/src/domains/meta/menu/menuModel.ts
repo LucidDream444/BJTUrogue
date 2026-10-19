@@ -22,25 +22,26 @@
 import { CHARACTERS, characterById, type CharacterDef } from '../catalog'
 import type { ProfileData } from '../profile/types'
 
-/** 主菜单左栏的四个按钮，顺序就是草图里的顺序 */
-export const MENU_ACTIONS = ['start', 'upgrade', 'help', 'quit'] as const
+/** 主菜单左栏的按钮，顺序以产品动线为准；图鉴紧跟在操作说明之后。 */
+export const MENU_ACTIONS = ['start', 'upgrade', 'help', 'codex', 'quit'] as const
 export type MenuAction = (typeof MENU_ACTIONS)[number]
 
 export const MENU_ACTION_LABELS: Readonly<Record<MenuAction, string>> = {
   start: '开始闯关',
   upgrade: '查看升级',
   help: '查看操作说明',
+  codex: '怪物图鉴',
   quit: '退出',
 }
 
 /**
- * 当前显示哪一屏。`main` 是主菜单本体，其余三个是盖在它上面的弹层
- * （需求 §4.6 的页面关系图里，这三个都是从主菜单出去的）。
+ * 当前显示哪一屏。`main` 是主菜单本体，其余是盖在它上面的弹层
+ * （需求 §4.6 的页面关系图里，它们都是从主菜单出去的）。
  *
  * 用**一个字段**而不是三个布尔：三个布尔能有 8 种组合，其中 5 种是"两个弹层
  * 同时开着"这种不合法状态 —— 那种状态迟早会出现，而且只在某个边角操作里出现。
  */
-export type MenuScreen = 'main' | 'help' | 'settings' | 'upgrade' | 'confirm-quit'
+export type MenuScreen = 'main' | 'help' | 'settings' | 'upgrade' | 'codex' | 'confirm-quit'
 
 export interface MenuState {
   screen: MenuScreen
