@@ -488,8 +488,8 @@ export class MainMenuScene extends Phaser.Scene {
     }
     // 桌面左栏要放下第五个入口：保持同一比例缩小，主操作仍是最高一级，
     // 其余四项统一压到 35px 并收紧间距，最下面仍然与底部说明留出空隙。
-    const buttonWidth = compact ? (W - 88) / 2 : 286
-    const startY = compact ? 754 : 401
+    const buttonWidth = compact ? (W - 88) / 2 : 272
+    const startY = compact ? 764 : 417
     MENU_ACTIONS.forEach((action, i) => {
       const bx = compact ? 36 + buttonWidth / 2 + (i % 2) * (buttonWidth + 16) : 192
       const by = compact ? startY + Math.floor(i / 2) * 58 : startY + i * 39
@@ -498,8 +498,8 @@ export class MainMenuScene extends Phaser.Scene {
         action,
         new Button(this, bx, by, label, () => this.run(action), {
           width: buttonWidth,
-          height: i === 0 ? 40 : 35,
-          fontSize: i === 0 ? 16 : 13,
+          height: i === 0 ? 36 : 30,
+          fontSize: i === 0 ? 15 : 12,
         }),
       )
     })
