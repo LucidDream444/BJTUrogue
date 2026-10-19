@@ -28,7 +28,16 @@
  */
 
 import Phaser from 'phaser'
-import { CAMPAIGN_ART, GOOSE_ART, findAsset, imageUrl } from '@/core/assetManifest'
+import { ASSETS, CAMPAIGN_ART, GOOSE_ART, findAsset, imageUrl } from '@/core/assetManifest'
+import {
+  CONFIG_FILE_NAMES,
+  configUrl,
+  parseConfigBundle,
+  type ConfigBundle,
+  type Difficulty,
+} from '@/core/config'
+import { CodexPanel } from '../codex/CodexPanel'
+import { buildCodexEntries, type CodexEntry } from '../codex/codexCatalog'
 import { CHARACTERS, DIFFICULTY_LABELS, DIFFICULTY_ORDER, characterById } from '../catalog'
 import {
   MENU_ACTIONS,
@@ -47,7 +56,6 @@ import {
 import { ProfileStore } from '../profile/ProfileStore'
 import { LocalStorageProfileStorage } from '../profile/storage'
 import { META_CONFIG_NAME, META_CONFIG_URL, parseMetaConfig, type MetaConfig } from '../metaConfig'
-import type { Difficulty } from '@/core/config'
 import { buildUpgradePanel } from '../upgrade/UpgradePanel'
 import { Button } from '../ui/Button'
 import { Card } from '../ui/Card'
@@ -105,12 +113,15 @@ export class MainMenuScene extends Phaser.Scene {
   private settingsParts: SettingsPanelParts | null = null
   private noticeText: Phaser.GameObjects.Text | null = null
   private unlockedText: Phaser.GameObjects.Text | null = null
+  private codexPanel: CodexPanel | null = null
+  private codexSelectionId: string | undefined
 
-  /** 弹层的标题。键就是 `MenuScreen` 里除 `main` 之外的那三个。 */
+  /** 弹层的标题。键就是 `MenuScreen` 里除 `main` 之外的全部屏。 */
   private static readonly OVERLAY_TITLES = {
     help: '操作说明',
     settings: '设置',
     upgrade: '角色升级',
+    codex: '怪物图鉴',
     'confirm-quit': '确定退出游戏？',
   } as const
   /** 每屏的面板高度。写在一起，改一处就够 —— 分开写在两个地方必然漂。 */
@@ -120,11 +131,14 @@ export class MainMenuScene extends Phaser.Scene {
     // 内容有四段（金币 / 三条角色成长线 / 技能 / 可解锁三项）+ 底部一行说明，
     // 470 会让最后一条解锁行溢出面板底 —— 实测过，所以留足余量。
     upgrade: 500,
+    codex: 610,
     'confirm-quit': 360,
   } as const
 
   /** 局外成长的数值表。**加载失败时是 `null`**，升级页会照实说 */
   private meta: MetaConfig | null = null
+  /** 敌人 / 难度 / 基线配置。图鉴数值全部从这里派生。 */
+  private codexConfig: ConfigBundle | null = null
 
   private readonly disposers: (() => void)[] = []
 
@@ -146,6 +160,9 @@ export class MainMenuScene extends Phaser.Scene {
     // 配置表必须走 Phaser 的 loader，**不能 import** —— `public/` 下的文件不参与
     // 打包，Vite 遇到指向它的 import 会静默换成空模块（见 `ArenaBase.preload`）。
     this.load.json(META_CONFIG_NAME, META_CONFIG_URL)
+    for (const name of CONFIG_FILE_NAMES) {
+      if (!this.cache.json.exists(name)) this.load.json(name, configUrl(name))
+    }
     for (const key of MENU_ART) {
       const asset = findAsset(key)
       if (!asset || this.textures.exists(key)) continue
@@ -155,6 +172,22 @@ export class MainMenuScene extends Phaser.Scene {
           frameHeight: asset.frameHeight!,
         })
       else this.load.image(key, imageUrl(asset))
+    }
+
+    // 图鉴要展示的种类和代数由配置决定；预加载阶段先按资源清单里的敌人 /
+    // 首领前缀收图，避免在场景代码里硬编码任何 texture key。
+    for (const asset of ASSETS) {
+      if (asset.kind === 'audio' || asset.placeholder) continue
+      if (!asset.key.startsWith('enemy_') && !asset.key.startsWith('boss_')) continue
+      if (this.textures.exists(asset.key)) continue
+      if (asset.kind === 'spritesheet') {
+        this.load.spritesheet(asset.key, imageUrl(asset), {
+          frameWidth: asset.frameWidth!,
+          frameHeight: asset.frameHeight!,
+        })
+      } else {
+        this.load.image(asset.key, imageUrl(asset))
+      }
     }
   }
 
@@ -170,6 +203,21 @@ export class MainMenuScene extends Phaser.Scene {
       this.state = withNotice(
         this.state,
         `成长配置读不出来：${err instanceof Error ? err.message : String(err)}`,
+      )
+    }
+
+    try {
+      const [balance, difficulty, enemies] = CONFIG_FILE_NAMES
+      this.codexConfig = parseConfigBundle({
+        balance: this.cache.json.get(balance),
+        difficulty: this.cache.json.get(difficulty),
+        enemies: this.cache.json.get(enemies),
+      })
+    } catch (err) {
+      this.codexConfig = null
+      this.state = withNotice(
+        this.state,
+        `怪物图鉴配置读不出来：${err instanceof Error ? err.message : String(err)}`,
       )
     }
 
@@ -190,9 +238,11 @@ export class MainMenuScene extends Phaser.Scene {
     const kb = this.input.keyboard
     if (kb) {
       // 空格默认会滚动页面；不捕获的话按一下整页就跳。
-      kb.addCapture(['SPACE', 'UP', 'DOWN', 'ENTER', 'ESC'])
-      kb.on('keydown-UP', () => this.moveFocus(-1))
-      kb.on('keydown-DOWN', () => this.moveFocus(1))
+      kb.addCapture(['SPACE', 'UP', 'DOWN', 'LEFT', 'RIGHT', 'ENTER', 'ESC'])
+      kb.on('keydown-UP', () => this.moveSelection(-1))
+      kb.on('keydown-DOWN', () => this.moveSelection(1))
+      kb.on('keydown-LEFT', () => this.moveSelection(-1))
+      kb.on('keydown-RIGHT', () => this.moveSelection(1))
       kb.on('keydown-ENTER', () => this.activateFocused())
       kb.on('keydown-SPACE', () => this.activateFocused())
       kb.on('keydown-ESC', () => this.escape())
@@ -220,6 +270,14 @@ export class MainMenuScene extends Phaser.Scene {
     if (this.state.screen !== 'main') return
     this.state = moveFocus(this.state, delta)
     this.refresh()
+  }
+
+  private moveSelection(delta: number): void {
+    if (this.state.screen === 'codex') {
+      this.codexPanel?.moveSelection(delta)
+      return
+    }
+    this.moveFocus(delta)
   }
 
   private activateFocused(): void {
@@ -261,6 +319,15 @@ export class MainMenuScene extends Phaser.Scene {
         break
       case 'help':
         this.state = openScreen(this.state, 'help')
+        this.rebuild()
+        break
+      case 'codex':
+        if (!this.codexConfig || this.codexEntries().length === 0) {
+          this.state = withNotice(this.state, '怪物图鉴配置尚未加载完成')
+          this.refresh()
+          break
+        }
+        this.state = openScreen(this.state, 'codex')
         this.rebuild()
         break
       case 'quit':
@@ -312,6 +379,7 @@ export class MainMenuScene extends Phaser.Scene {
     this.settingsParts = null
     this.noticeText = null
     this.unlockedText = null
+    this.codexPanel = null
   }
 
   private track<T extends Phaser.GameObjects.GameObject>(obj: T): T {
@@ -418,18 +486,20 @@ export class MainMenuScene extends Phaser.Scene {
       })
       text(40, 365, '探索房间  ·  收集装备  ·  挑战首领', 12, '#a3b19b')
     }
-    const buttonWidth = compact ? (W - 88) / 2 : 306
-    const startY = compact ? 754 : 429
+    // 桌面左栏要放下第五个入口：保持同一比例缩小，主操作仍是最高一级，
+    // 其余四项统一压到 35px 并收紧间距，最下面仍然与底部说明留出空隙。
+    const buttonWidth = compact ? (W - 88) / 2 : 272
+    const startY = compact ? 764 : 417
     MENU_ACTIONS.forEach((action, i) => {
       const bx = compact ? 36 + buttonWidth / 2 + (i % 2) * (buttonWidth + 16) : 192
-      const by = compact ? startY + Math.floor(i / 2) * 64 : startY + i * 49
+      const by = compact ? startY + Math.floor(i / 2) * 58 : startY + i * 39
       const label = action === 'start' ? '开始冒险  →' : MENU_ACTION_LABELS[action]
       this.buttons.set(
         action,
         new Button(this, bx, by, label, () => this.run(action), {
           width: buttonWidth,
-          height: i === 0 ? 45 : 39,
-          fontSize: i === 0 ? 18 : 14,
+          height: i === 0 ? 36 : 30,
+          fontSize: i === 0 ? 15 : 12,
         }),
       )
     })
@@ -463,7 +533,11 @@ export class MainMenuScene extends Phaser.Scene {
         screenWidth: W,
         screenHeight: H,
         title: MainMenuScene.OVERLAY_TITLES[screen],
-        panelHeight: MainMenuScene.OVERLAY_HEIGHTS[screen],
+        panelWidth: screen === 'codex' ? Math.min(W - THEME.space.xl, 980) : undefined,
+        panelHeight:
+          screen === 'codex'
+            ? Math.min(H - THEME.space.xl, MainMenuScene.OVERLAY_HEIGHTS.codex)
+            : MainMenuScene.OVERLAY_HEIGHTS[screen],
       },
       () => this.escape(),
     )
@@ -485,6 +559,16 @@ export class MainMenuScene extends Phaser.Scene {
         this.rebuild()
       })
     }
+    if (screen === 'codex' && this.codexConfig) {
+      this.codexPanel = new CodexPanel(this, sink, frame, {
+        entries: this.codexEntries(),
+        selectedId: this.codexSelectionId,
+        difficultyLabel: DIFFICULTY_LABELS[this.store.profile.selected.difficulty],
+        onSelect: (entry) => {
+          this.codexSelectionId = entry.id
+        },
+      })
+    }
     if (screen === 'confirm-quit') {
       // 退出确认是个二选一：需求 §4.1「确认：关闭程序；取消：关闭弹窗回到主菜单」。
       // 「取消」就是外框带的那个「关闭」按钮；确认单独一行，免得和它挤在一起被误点。
@@ -503,6 +587,11 @@ export class MainMenuScene extends Phaser.Scene {
   private open(screen: MenuState['screen']): void {
     this.state = openScreen(this.state, screen)
     this.rebuild()
+  }
+
+  private codexEntries(): readonly CodexEntry[] {
+    if (!this.codexConfig) return []
+    return buildCodexEntries(this.codexConfig, this.store.profile.selected.difficulty)
   }
 
   private pickCharacter(id: string): void {
