@@ -233,6 +233,17 @@ export interface EffectiveStats {
   maxStamina: number
   iframeMs: number
 }
+
+/** D4 永久成长在进入一局时折算出的战斗初始值。之后本局不再回读局外档。 */
+export interface PermanentRunStats {
+  maxHp: number
+  maxStamina: number
+  maxShield: number
+  /** 百分比，5 表示 +5%；与局内 fireRate 相加后统一受 limits.fireRateScale 限制。 */
+  attackSpeedPct: number
+  moveSpeedPct: number
+  energyRegenPct: number
+}
 export const COMBAT_CONFIG_FILES = ['combat.json', 'rewards.json'] as const
 export function combatConfigUrl(name: (typeof COMBAT_CONFIG_FILES)[number]): string {
   return `config/${name}`
@@ -562,6 +573,7 @@ export function deriveStats(
   weapon: WeaponDef,
   defs: readonly RewardDef[],
   stacks: ReadonlyMap<string, number>,
+  permanent?: PermanentRunStats,
 ): EffectiveStats {
   const sum = Object.fromEntries(STATS.map((k) => [k, 0])) as Record<Stat, number>
   for (const r of defs) {
@@ -570,6 +582,10 @@ export function deriveStats(
   }
   const b = balance.baseline,
     l = config.limits
+  const permanentMaxHp = permanent?.maxHp ?? b.player.maxHp
+  const permanentMaxStamina = permanent?.maxStamina ?? config.player.maxStamina
+  const permanentAttackSpeed = Math.max(0, permanent?.attackSpeedPct ?? 0) / 100
+  const permanentMoveSpeed = Math.max(0, permanent?.moveSpeedPct ?? 0) / 100
   return {
     damage:
       (weapon.bossDamageRatio
@@ -578,15 +594,15 @@ export function deriveStats(
       (1 + sum.damage),
     cooldownMs:
       (b.bullet.fireIntervalMs * weapon.cooldownScale) /
-      Math.min(l.fireRateScale, 1 + sum.fireRate),
+      Math.min(l.fireRateScale, 1 + sum.fireRate + permanentAttackSpeed),
     bulletSpeed:
       b.bullet.speed * weapon.speedScale * Math.min(l.bulletSpeedScale, 1 + sum.bulletSpeed),
     spreadDeg: weapon.spreadDeg * Math.max(l.spreadScaleMin, 1 + sum.spread),
     pellets: weapon.id === 'pulse' ? 1 : Math.min(l.pellets, weapon.pellets + sum.pellets),
     lifeMs: weapon.lifeMs,
-    moveSpeed: b.player.speed * Math.min(l.moveScale, 1 + sum.move),
-    maxHp: Math.round(b.player.maxHp * (1 + sum.maxHp)),
-    maxStamina: Math.round(config.player.maxStamina * (1 + sum.maxStamina)),
+    moveSpeed: b.player.speed * Math.min(l.moveScale, 1 + sum.move + permanentMoveSpeed),
+    maxHp: Math.round(permanentMaxHp * (1 + sum.maxHp)),
+    maxStamina: Math.round(permanentMaxStamina * (1 + sum.maxStamina)),
     iframeMs: Math.min(l.iframeMs, b.player.iframeMs + sum.iframeMs),
   }
 }
