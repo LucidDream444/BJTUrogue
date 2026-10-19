@@ -43,6 +43,10 @@ describe('焦点', () => {
     expect(MENU_ACTIONS[0]).toBe('start')
   })
 
+  it('「怪物图鉴」紧跟在「查看操作说明」之后，退出仍是末项', () => {
+    expect(MENU_ACTIONS).toEqual(['start', 'upgrade', 'help', 'codex', 'quit'])
+  })
+
   it('往上越过第一项会绕到最后一项，而不是卡住', () => {
     const state = moveFocus(createMenuState(), -1)
     expect(state.focusIndex).toBe(MENU_ACTIONS.length - 1)
