@@ -49,6 +49,7 @@ import { FloorExit } from './FloorExit'
 import { FloorProgress, stairPadSpots } from './Stairwell'
 import { FirstBossLoot } from '@/domains/combat/FirstBossLoot'
 import { LoadoutHud } from '@/domains/combat/LoadoutHud'
+import { SkillHud } from '@/domains/combat/SkillHud'
 // —— 局外成长（D4）的两个界面组件：暂停菜单、结算界面 ——
 //
 // 这两个都是**可复用组件**（不是场景），接法就是宿主给一个 `host` 对象：
@@ -69,6 +70,7 @@ import {
   effectiveMaxHp,
   effectiveMaxShield,
   effectiveStats,
+  skillLevelOf,
   type RunInput,
 } from '@/domains/meta/progress/progress'
 import { RunLedger } from '@/domains/meta/run/RunLedger'
@@ -129,6 +131,7 @@ export class BattleScene extends Phaser.Scene {
   private scenery!: StageBackground
   private loot!: FirstBossLoot
   private loadout!: LoadoutHud
+  private skillHud!: SkillHud
   private bossLabel!: Phaser.GameObjects.Text
   private difficulty: Difficulty = 'normal'
   private session!: CombatSession
@@ -449,6 +452,7 @@ export class BattleScene extends Phaser.Scene {
       this.passKey = this.input.keyboard!.addKey(Phaser.Input.Keyboard.KeyCodes.F)
       this.loot = new FirstBossLoot(this, this.session)
       this.loadout = new LoadoutHud(this, this.session)
+      this.skillHud = new SkillHud(this, this.session)
       this.bossLabel = this.add
         .text(0, 0, '', {
           fontFamily: 'Microsoft YaHei',
@@ -521,12 +525,41 @@ export class BattleScene extends Phaser.Scene {
         )
         this.session.applyPermanentRunStats({
           maxHp: effectiveMaxHp(this.bundle.balance.baseline.player.maxHp, permanent),
-          maxStamina: effectiveMaxEnergy(this.cfg.player.maxStamina, permanent),
-          maxShield: effectiveMaxShield(this.cfg.player.maxShield, permanent),
-          attackSpeedPct: permanent.attackSpeedPct,
+          maxStamina: effectiveMaxEnergy(this.cfg.player.maxStamina),
+          maxShield: effectiveMaxShield(this.cfg.player.maxShield),
+          attackSpeedPct: 0,
           moveSpeedPct: permanent.moveSpeedPct,
           energyRegenPct: permanent.energyRegenPct,
         })
+        const characterSkill =
+          this.meta.characters[this.store.profile.selected.characterId]?.skill
+        const skillLevel = skillLevelOf(
+          this.store.profile,
+          this.meta,
+          this.store.profile.selected.characterId,
+        )
+        const rank = characterSkill?.levels[Math.max(0, skillLevel - 1)]
+        if (characterSkill && rank) {
+          this.session.configureCharacterSkill({
+            id: characterSkill.id,
+            name: characterSkill.name,
+            kind: characterSkill.kind,
+            level: skillLevel,
+            cooldownMs: rank.cooldownMs,
+            durationMs: rank.durationMs,
+            attackSpeedPct: rank.attackSpeedPct,
+            distance: rank.distance,
+            iframeMs: rank.iframeMs,
+            attackSpeedPerEnemyPct: rank.attackSpeedPerEnemyPct,
+            maxMechanicEnemies: rank.maxMechanicEnemies,
+            shieldPerEnemy: rank.shieldPerEnemy,
+            maxShieldRestore: rank.maxShieldRestore,
+            pageDamage: rank.pageDamage,
+            fireIntervalMs: rank.fireIntervalMs,
+            range: rank.range,
+            maxCharges: rank.maxCharges,
+          })
+        }
       }
       this.ledger = new RunLedger(this.session.bus)
       if (this.meta) {
@@ -644,6 +677,7 @@ export class BattleScene extends Phaser.Scene {
     this.session.update(delta)
     this.loot.update()
     this.loadout.update()
+    this.skillHud.update()
     this.checkRoomCleared()
     // 首领血条：**按「层」查，不是按「房间」**。
     //
@@ -698,6 +732,7 @@ export class BattleScene extends Phaser.Scene {
     const unit = roomAt(this.dungeon.rooms, this.session.player.x, this.session.player.y, radius)
     const order = unit?.order ?? -1
     if (order === this.roomOrder) return
+    this.session.clearRoomSkillObjects()
     this.roomOrder = order
     // 走到走廊里：把「现在在哪一间」清掉（小地图的黄点本来就在那儿，见 `setPlayer`）。
     if (unit === null) {
@@ -1549,18 +1584,13 @@ export class BattleScene extends Phaser.Scene {
   /**
    * 暂停面板「装备技能」那一行要显示的名字。
    *
-   * 技能是**档里的东西**（`profile.unlocks.skills`，名字在 `meta.json`），
-   * 而 `this.meta` 正好是这一局已经加载好的那份配置 —— 顺手就取了，
-   * 不用为一行字再把配置往 D4 的面板里传一份。
-   *
-   * ⚠️ 这只是**显示**。技能的**效果**还没接进战斗：`progress.ts` 算出来的那几条
-   * 派生属性目前没有任何战斗代码去读（D1 / D4 之间的缺口，见改动日志）。
-   * 所以这一行说明的是"档里有这个技能"，**不等于**"这一局它在生效"。
+   * 每个角色只有一个固定技能；名字来自 meta，等级来自统一 skill 存档。
    */
   private skillNames(): string | undefined {
-    const ids = this.store.profile.unlocks.skills
-    if (!ids.length) return undefined
-    return ids.map((id) => this.meta?.skills[id]?.name ?? id).join('、')
+    const characterId = this.store.profile.selected.characterId
+    const skill = this.meta?.characters[characterId]?.skill
+    if (!skill || !this.meta) return undefined
+    return `${skill.name} Lv.${skillLevelOf(this.store.profile, this.meta, characterId)}`
   }
   private toggleGallery(): void {
     if (this.gallery.root.hidden) {
@@ -1610,11 +1640,17 @@ export class BattleScene extends Phaser.Scene {
     k?.on('keydown-TWO', () =>
       this.loot.replacementPending ? this.loot.chooseReplacement(1) : this.session.equipSlot(1),
     )
-    k?.on('keydown-Q', () => this.session.cycleWeapon())
+    k?.on('keydown-X', () => this.session.cycleWeapon())
+    k?.on('keydown-Q', () => {
+      if (this.grabbing || this.session.clock.paused) return
+      const pointer = this.input.activePointer
+      const aim = this.cameras.main.getWorldPoint(pointer.x, pointer.y)
+      this.session.activateSkill({ x: aim.x, y: aim.y })
+    })
     if (k) {
       // 这几个键默认会让页面滚动（`Scale.RESIZE` 下画布就是整页）—— 不捕获的话
       // 按一下空格整页就跳。
-      k.addCapture(['SPACE', 'ESC', 'UP', 'DOWN', 'ENTER'])
+      k.addCapture(['SPACE', 'ESC', 'UP', 'DOWN', 'ENTER', 'Q', 'X'])
       // ⚠️ 暂停的键盘入口**只有这一处**（`togglePauseMenu`）。宿主自己再绑一个
       // "Esc 关菜单"，按一下就会同时又关又开 —— 见 `PauseOverlay` 文件头。
       k.on('keydown-ESC', () => {
@@ -1642,6 +1678,7 @@ export class BattleScene extends Phaser.Scene {
       this.exit?.destroy()
       this.upExit?.destroy()
       this.cursor?.destroy()
+      this.skillHud?.destroy()
       this.loot?.destroy()
       this.gallery?.destroy()
       this.session?.destroy()

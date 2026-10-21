@@ -1,9 +1,9 @@
 {
-  "schemaVersion": 1,
+  "schemaVersion": 2,
 
-  "_comment": "D4 局外成长的数值表。**字段定义按契约 C2 归 D2** —— 这份由 D4 起草，等 D2 过一眼再算冻结。",
-  "_economy_note": "币只有一个用途：**带出对局**，在局外用掉。对局中不消耗币。死亡不清空币。",
-  "_upgrade_note": "一条成长线（track）的第 L+1 级成本 = round(baseCost × costGrowth ^ L)。L 从 0 起算。",
+  "_comment": "D4 局外成长配置。每个角色只有一个固定被动和一个四阶主动技能；字段定义仍需 D2 过目。",
+  "_economy_note": "币只在对局中获得，死亡不清空。",
+  "_skill_note": "技能 1 级随角色解锁获得；upgradeCosts 对应升到 2/3/4 级的三笔费用。",
 
   "economy": {
     "coinsPerKill": 1,
@@ -13,7 +13,6 @@
 
   "characters": {
     "student": {
-      "_note": "成长线的值是加在 D1 基础战斗数值上的局外加成；基础生命 / 能量 / 护盾仍分别归 balance.json 与 combat.json。",
       "unlockCost": 0,
       "passive": {
         "name": "稳扎稳打",
@@ -24,38 +23,45 @@
         "moveSpeedPct": 0,
         "energyRegenPct": 0
       },
-      "tracks": [
-        {
-          "id": "maxHp",
-          "name": "生命上限",
-          "unit": "point",
-          "perLevel": 20,
-          "baseCost": 30,
-          "costGrowth": 1.6,
-          "maxLevel": 10
-        },
-        {
-          "id": "maxEnergy",
-          "name": "能量上限",
-          "unit": "point",
-          "perLevel": 20,
-          "baseCost": 25,
-          "costGrowth": 1.6,
-          "maxLevel": 10
-        },
-        {
-          "id": "maxShield",
-          "name": "护盾上限",
-          "unit": "point",
-          "perLevel": 5,
-          "baseCost": 40,
-          "costGrowth": 1.8,
-          "maxLevel": 5
-        }
-      ]
+      "skill": {
+        "id": "study_focus",
+        "name": "奋笔疾书",
+        "description": "短时间大幅提高攻击速度",
+        "kind": "haste",
+        "upgradeCosts": [80, 180, 360],
+        "levels": [
+          {
+            "name": "启笔",
+            "description": "攻速 +40%，持续 5 秒",
+            "cooldownMs": 12000,
+            "durationMs": 5000,
+            "attackSpeedPct": 40
+          },
+          {
+            "name": "加速",
+            "description": "攻速 +50%，持续 6 秒，冷却缩短",
+            "cooldownMs": 11000,
+            "durationMs": 6000,
+            "attackSpeedPct": 50
+          },
+          {
+            "name": "疾书",
+            "description": "攻速 +60%，持续时间与冷却再次改善",
+            "cooldownMs": 10000,
+            "durationMs": 6000,
+            "attackSpeedPct": 60
+          },
+          {
+            "name": "奋笔",
+            "description": "攻速 +80%，持续 7 秒，冷却进一步缩短",
+            "cooldownMs": 8000,
+            "durationMs": 7000,
+            "attackSpeedPct": 80
+          }
+        ]
+      }
     },
     "athlete": {
-      "_note": "大鹅沿用 athlete 存档身份；角色差异是移动速度，不复制基础战斗数值。",
       "unlockCost": 200,
       "passive": {
         "name": "鹅步生风",
@@ -66,10 +72,53 @@
         "moveSpeedPct": 20,
         "energyRegenPct": 0
       },
-      "tracks": []
+      "skill": {
+        "id": "wing_dash",
+        "name": "展翅突进",
+        "description": "向瞄准方向突进",
+        "kind": "dash",
+        "upgradeCosts": [120, 260, 480],
+        "levels": [
+          {
+            "name": "扑翅",
+            "description": "短距离突进并获得短暂无敌",
+            "cooldownMs": 8000,
+            "durationMs": 0,
+            "distance": 180,
+            "iframeMs": 150
+          },
+          {
+            "name": "助跑",
+            "description": "突进距离、无敌时间和冷却改善",
+            "cooldownMs": 6800,
+            "durationMs": 0,
+            "distance": 210,
+            "iframeMs": 180
+          },
+          {
+            "name": "振翅",
+            "description": "突进距离、无敌时间和冷却再次改善",
+            "cooldownMs": 5800,
+            "durationMs": 0,
+            "distance": 240,
+            "iframeMs": 220
+          },
+          {
+            "name": "穿身振翅",
+            "description": "穿过敌人会在 5 秒内提高攻速并恢复护盾",
+            "cooldownMs": 5000,
+            "durationMs": 5000,
+            "distance": 270,
+            "iframeMs": 250,
+            "attackSpeedPerEnemyPct": 10,
+            "maxMechanicEnemies": 5,
+            "shieldPerEnemy": 2,
+            "maxShieldRestore": 10
+          }
+        ]
+      }
     },
     "scholar": {
-      "_note": "资源型角色：更快回复能量，鼓励持续使用高消耗武器。",
       "unlockCost": 400,
       "passive": {
         "name": "馆藏检索",
@@ -80,27 +129,55 @@
         "moveSpeedPct": 0,
         "energyRegenPct": 50
       },
-      "tracks": []
-    }
-  },
-
-  "skills": {
-    "rapid_fire": {
-      "_note": "MVP 只有一个技能：加攻速。一个角色可以选择多个技能 —— 那是下一版的事（见改动日志的缺口清单）。",
-      "name": "快速击发",
-      "description": "提升攻击速度",
-      "unlockCost": 0,
-      "tracks": [
-        {
-          "id": "attackSpeedPct",
-          "name": "攻速",
-          "unit": "percent",
-          "perLevel": 5,
-          "baseCost": 35,
-          "costGrowth": 1.7,
-          "maxLevel": 10
-        }
-      ]
+      "skill": {
+        "id": "library_loan",
+        "name": "馆藏借阅",
+        "description": "放置参考书自动攻击附近敌人",
+        "kind": "summon",
+        "upgradeCosts": [140, 300, 540],
+        "levels": [
+          {
+            "name": "开馆",
+            "description": "放置一本参考书",
+            "cooldownMs": 12000,
+            "durationMs": 8000,
+            "pageDamage": 8,
+            "fireIntervalMs": 800,
+            "range": 300,
+            "maxCharges": 1
+          },
+          {
+            "name": "加印",
+            "description": "书页伤害、发射频率和冷却改善",
+            "cooldownMs": 10800,
+            "durationMs": 9000,
+            "pageDamage": 10,
+            "fireIntervalMs": 700,
+            "range": 320,
+            "maxCharges": 1
+          },
+          {
+            "name": "扩充馆藏",
+            "description": "持续时间、伤害、频率和冷却再次改善",
+            "cooldownMs": 9600,
+            "durationMs": 10000,
+            "pageDamage": 13,
+            "fireIntervalMs": 600,
+            "range": 340,
+            "maxCharges": 1
+          },
+          {
+            "name": "双馆开放",
+            "description": "技能获得两层充能，可继续放置会过期的参考书",
+            "cooldownMs": 9000,
+            "durationMs": 10500,
+            "pageDamage": 15,
+            "fireIntervalMs": 567,
+            "range": 360,
+            "maxCharges": 2
+          }
+        ]
+      }
     }
   }
 }
