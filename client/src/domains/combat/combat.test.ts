@@ -218,6 +218,13 @@ describe('permanent meta growth bridge', () => {
     expect(grown.cooldownMs).toBeCloseTo(baseInterval / 1.65)
   })
 
+  it('new-student temporary haste enters the same cooldown formula', () => {
+    const gun = cfg.weapons[0]!
+    const base = deriveStats(bundle.balance, cfg, gun, defs, new Map())
+    const hasted = deriveStats(bundle.balance, cfg, gun, defs, new Map(), undefined, 80)
+    expect(hasted.cooldownMs).toBeCloseTo(base.cooldownMs / 1.8)
+  })
+
   it('applies the athlete movement identity through the same permanent bridge', () => {
     const gun = cfg.weapons[0]!
     const base = deriveStats(bundle.balance, cfg, gun, defs, new Map())

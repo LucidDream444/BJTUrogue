@@ -89,6 +89,9 @@ export const GRABBER_ART = {
 
 export const WEAPON_ART = { chest: 'chest', pistol: 'weapon_pistol' } as const
 
+/** D1 主动技能表现。参考书复用校园 UI 中已交付的书本图。 */
+export const SKILL_ART = { referenceBook: 'ui_campus_book' } as const
+
 /** 大鹅保留 athlete 存档身份；这里只定义美术几何，不定义角色数值。 */
 export const GOOSE_ART = {
   characterId: 'athlete',
