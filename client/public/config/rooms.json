@@ -1,66 +1,53 @@
 {
-  "schemaVersion": 4,
+  "schemaVersion": 5,
 
   "_comment": "D2（关卡与地牢生成）的旋钮。红线 2：改这里不需要重新构建，也不需要改任何 TypeScript。",
   "_owner": "D2。字段定义归 D2（C2 契约），消费方是 D1（战斗场景）与 D3（敌人寻路）。",
 
-  "_layout_comment": "★ 改了（schemaVersion 1 → 2）：**走廊没有了。** 首版是一条贯穿全层的主干道、教室南北挂在它两侧；现在是一排主干教室横着排开，相邻两间之间由一小段**连廊**相连，侧室随机挂在某几间主干教室的上方或下方。连带变化的字段：sizeTiers → 主干拆成 mainWidthTiers + mainRoomHeight、侧室改叫 sideRoomTiers；corridorMinWidth（走廊宽度）→ minPassageWidth（窄口净宽）；**roomGap 名字没变但语义变了**，现在是连廊沿 x 的长度，历史上它指的是房间之间的让位。地图数据里 DungeonMap.corridorRect 也换成了 passages（见 model/types.ts）。",
+  "_layout_comment": "★ 改了（schemaVersion 4 → 5）：**这一份里已经没有几何了。** 房间在哪、多大、几个空间、门开在哪儿全部搬去了 client/public/config/floor-plan.json —— 那边是照 6F 平面图照片量出来的格坐标（16 间房 + 6 段走廊 + 16 扇门）。这一份留下的全是**与种子有关**的东西：关别权重、桌椅、刷怪点、预算曲线。跟着删掉的字段：mainRoomMin / mainRoomMax / mainWidthTiers / mainRoomHeight / sideRoomTiers / roomGap，以及 sideKindWeights（改叫 roomKindWeights）。跟着变的：totalRooms 改名 classroomCount（它数的一直是**编号教室**，不是「这一层有几间房」—— 整层是 16 间，多一间楼梯间）。⚠️ 判断一个数该放哪边只要问一句：**改它会不会让房间挪位置？** 会的话它属于 floor-plan.json。",
 
-  "_derivation": "威胁预算 = round_half_up(budgetBase × budgetGrowth ^ t)，其中 t = order / (主干教室数 - 1)，t ∈ [0, 1]。侧室数不配置，由 totalRooms − 主干教室数 得出（主干数在 mainRoomMin—mainRoomMax 之间随种子取）。",
+  "_derivation": "威胁预算 = round_half_up(budgetBase × budgetGrowth ^ t)，其中 t = 这间房到楼梯间的**跳数** ÷ 本层战斗关里最远的跳数，t ∈ [0, 1]。分子是跳数不是房间序号：v5 里玩家随意挑房间进，order 退化成「楼梯间 + 其余按 id 升序」的下标，跟难度再没关系。非战斗关别的预算恒为 0（不进这条曲线）。",
 
-  "totalRooms": 15,
-  "mainRoomMin": 8,
-  "mainRoomMax": 11,
+  "_count_comment": "★ 改名了：totalRooms → classroomCount。⚠️ **两个数都对，问的不是同一件事。** 这个数是**编号教室**（15 间 YF601—YF615），而整层是 **16** 间（多一间楼梯间 —— 出生点在里面，`dungeon-pacing` 要求的就是 16）。楼梯间不按种子抽关别（kind 恒为 start），所以它不在这个数里。旧名字 totalRooms 会让人照着 15 去生成「一层 15 间房」，那样出生点就没有一间属于它的房，而校验器也照着 15 查、**全绿**。守护在 gen/floorPlan.ts 的 FLOOR_ROOM_TOTAL（16）与 checkRoomCount 的两条判据（第二条专拦「两个文件一起改成 16」这种看着像统一的改法）。",
+  "classroomCount": 15,
 
-  "_sizes_comment": "主干教室**只按宽度分档**（px）。宽度必须是 navCellSize 的整数倍 —— 按格对齐是「可视 = 可走性」的前提。每一档取一次随机数，所以一排里宽度是混着的，「随机刷新」在这排房子上就表现为宽度不一。最大档必须 ≤ 1280×720，否则 1:1 的测试场放不下（test/ArenaBase.ts 的世界尺寸写死）。",
-  "mainWidthTiers": [800, 1040, 1280],
+  "_kinds_comment": "★ 改了（schemaVersion 4 → 5）：sideKindWeights → roomKindWeights，而且**它现在是「发牌」的依据，不是 12 次独立抽签**。生成器（gen/layout.ts 的 kindBag）先按最大余数法把这张表折成一副**正好 12 张**的牌，再洗牌发给那 12 间不带 fixed 的教室。独立抽的问题不是概率算错，而是某些种子会抽出一层 10 间道具房 —— 那一局没有仗可打，且不报错、不抛异常，看上去只是「运气不好」。权重不必凑成 1（内部归一化）。键 MUST NOT 出现 start / boss（那两间由位置决定：出生点恒在楼梯间、首领恒在 YF604，都写在 floor-plan.json 里），也 MUST NOT 出现本期不产出的 shop / hidden —— 配置加载时就会拒绝。",
+  "roomKindWeights": { "main": 4, "elite": 2, "reward": 2, "chest": 2 },
 
-  "_main_height_comment": "主干教室与连廊的**统一高度**（含上下墙）。高度不分档是刻意的：侧室朝主干的那面墙要同时贴住宿主教室和它东边的连廊，两者高度不一这两条线就不重合，连廊的墙得逐段跳台阶、侧室的墙只能贴住其中一个，另一个露出缝。⚠️ 必须 ≡ 40 (mod 80)，即**奇数格** —— 偶数格会让这条带的中线落回格中心，竖直墙上的门心偏移 20px 就会悄悄失效（config.ts 里有推导，那里会当场拒绝偶数格的值）。280 = 7 格。",
-  "mainRoomHeight": 600,
-
-  "_side_sizes_comment": "侧室**按宽高两维取档**：它只有一面墙与主干相邻，没有「上下墙必须对齐」的束缚。宽高同样是 navCellSize 的整数倍。侧室的 x 跨度 = 宿主东边界 − k 到连廊东端，其中 k = 本档宽度 − roomGap，而 k 必须 ≤ 宿主宽度（否则侧室会伸到宿主的西墙外面去）—— 所以大档侧室只挂得宽的主干教室，这一条由生成器按档位过滤，详见 docs/地牢生成设计.md。",
-  "sideRoomTiers": [{"width": 800, "height": 440}, {"width": 1040, "height": 520}, {"width": 1280, "height": 600}],
-
-  "_kinds_comment": "★ 新（schemaVersion 2 → 3）：**每一间房是什么关，从这张表起说真话。** 侧室的 kind 不再是写死的 main，而是按 sideKindWeights 抽（权重不必凑成 1，内部归一化）；主干仍是「首间 start、末间 boss、其余 main」，那两个由位置决定，所以不许出现在这张表里（配置加载时就拒绝）。combatKinds 是「哪几类关别要打」的**唯一**判据 —— 不在集合里 = 不摆桌椅、不刷怪、威胁预算为 0，三件事读同一个集合，免得出现「摆了桌椅但不刷怪」这种合法但错的数据。",
-  "sideKindWeights": { "main": 4, "elite": 2, "reward": 2, "chest": 2 },
-
-  "_combat_comment": "要打的关别。main 必须在这里（一排主干教室里总要有要打的屋子，否则整层没有威胁预算）；start / boss 是可以排除的（起点房空着、首领房留出闪避空间，都是合理配置）。改这一行不需要重新构建，也不需要改任何 TypeScript。",
-  "combatKinds": ["start", "main", "elite", "boss"],
+  "_combat_comment": "要打的关别。**这是唯一判据**：不在集合里 = 不摆桌椅、不刷怪、威胁预算为 0，三件事读同一个集合，免得出现「摆了桌椅但不刷怪」这种合法但错的数据。★ 改了（schemaVersion 4 → 5）：**start 被移出去了。** v4 里 start 在集合里是对的（那时「起点房」是一间真的教室，主干第一间）；v5 里 start 是**楼梯间**，也就是玩家的出生点 —— 留在里面意味着出生点摆满课桌、还刷一屋子怪，怪直接围在玩家脸上，而那是这一层的第一帧。配置加载时会当场拒绝含 start 的表（config.ts 的 needCombatKinds）。main 与 boss 是**必须**在里面：前者是整层的默认量，后者不打怪那一局就没有出口。",
+  "combatKinds": ["main", "elite", "boss"],
 
   "_settle_comment": "清房宽限窗口（ms）：房间静下来之后再等这么久才宣告「已清」、开门。存在的唯一理由是**分裂怪**——最后一只分裂怪死掉时，子代还在 enemies.json 的 splitDelayMs（今天最大 180）里等着，那一段「存活 0、队列 0」是真的，一空就开门会提前放行。所以这个值 MUST 大于 enemies.json 里最大的 splitDelayMs；这条跨文件的约束由 client/src/domains/procgen/roomFlow.test.ts 盯着，D3 调大分裂延迟而没动这里，测试会当场炸。取 300 = 180 × 1.67，留出的余量是给帧对齐和队列节流的（软上限会把整队推后，但推后的是「什么时候出生」，「在不在队列里」不受影响）。这是**用时间换正确性**：等 D3 给出「本房还有几只没出来」的查询之后，它可以退成 0。",
   "settleMs": 300,
 
-  "_geometry_comment": "全部 px。minPassageWidth 是**全层最窄的可走净宽下限**，窄口 = 连廊净宽与门宽（首版这里写的是「走廊宽度」，走廊没了，约束的对象换成全层最窄的那几处）。连廊净宽 = mainRoomHeight − wallThickness = 240（减去的是**一层**墙厚，不是两层 —— 墙骑在带的两条边上、各往里吃半个墙厚，首版的 corridorRect 就在这个减法上被两个场子读出两个数）。120 是肉盾直径 80 + 余量。",
+  "_geometry_comment": "全部 px。★ 改了（schemaVersion 4 → 5）：v4 里 minPassageWidth 管的是两个窄口（连廊净宽与门宽），v5 里**只剩门一个** —— 平面图上走廊是 6 格（240px）宽，比门宽得多。120 是肉盾直径 80 + 余量。门洞的**实际宽度由 floor-plan.json 的格矩形决定**（今天一律 3 格），floorPlan.ts 的 checkDoors 会核「每扇门的净宽 = doorWidth」—— 改 doorWidth 就得同时改那 16 扇门。",
   "minPassageWidth": 120,
 
-  "_room_gap_comment": "★ 语义变了：连廊沿 x 的长度 —— 相邻两间主干教室面向彼此的两条边界之间的距离，隔墙骑在这两条线上，所以连廊矩形**两端各含半堵墙**。取 200 = 5 格：内部净长 200 − 40 = 160（4 格），连廊朝主干那面墙是 5 格，上面开一扇 3 格宽的侧室出口门后两头还各剩 1 格墙，不会出现贴到拐角的零头。必须取格长的整数倍，否则整排房间的相位偏移、与寻路格错开。",
-  "roomGap": 200,
-
-  "_wall_comment": "墙厚必须 ≥ 一格。20px 的墙中心落在格边界上时**一格中心都不覆盖**，寻路会认为墙两侧都走得通 —— 字面意义上的墙上有洞。取一格厚还带来一个好处：每堵墙恰好封掉一格，不多不少。",
+  "_wall_comment": "墙厚必须 ≥ 一格。20px 的墙中心落在格边界上时**一格中心都不覆盖**，寻路会认为墙两侧都走得通 —— 字面意义上的墙上有洞。★ 改了（schemaVersion 4 → 5）：v4 里墙是「房间的边」，这个数是那层皮的厚度；v5 里墙是**空间之间空出来的那 1 格**（floor-plan.json 的 _gap_comment 要求相邻空间空出整整 1 格），所以它现在的意思是「一堵墙默认占几格」，不再是墙上的一块厚度。平面图上的实际格距与它不等时，墙仍按空出来的格子长。",
   "wallThickness": 40,
 
-  "_doors_comment": "doorWidth 是门洞沿墙方向的宽度，取 3 格 = 120。**不能取 80**：那正好等于肉盾直径，零余量 —— 格子化之后肉盾过不去。理由与 minPassageWidth ≥ 120 完全相同。doorClearance 是门前净空半径：障碍物不许长进这个圈里，否则门会被课桌堵住。",
+  "_doors_comment": "doorWidth 是门洞沿墙方向的宽度，取 3 格 = 120。**不能取 80**：那正好等于肉盾直径，零余量 —— 格子化之后肉盾过不去。理由与 minPassageWidth ≥ 120 完全相同。⚠️ 必须 ≡ 40 (mod 80)，即**奇数格** —— 偶数格（80 / 160）的门洞中心会落在格边界而不是格中心上，实际能过的格子数比设计的多一个（config.ts 里有推导，那里会当场拒绝偶数值）。doorClearance 是门前净空半径：障碍物不许长进这个圈里，否则门会被课桌堵住。",
   "doorWidth": 120,
   "doorClearance": 60,
 
-  "_obstacles_comment": "★ 改了（schemaVersion 4）：**桌椅成组** —— 一张 deskWidthCells × deskHeightCells 的课桌，正下方紧贴一把 1 格的椅子（照 D1 三张手绘关里的家具关系，见 client/src/domains/procgen/gen/obstacles.ts）。所以 chairChance 没了：贴图里就带着椅子，**每张桌必配一把椅**。排与排的纵向步长 = (deskHeightCells + 1) + deskRowGapCells —— 桌椅组自己占两行，旧式子「一行桌一行空」会让下一排的桌子压到上一排的椅子上（重叠在寻路里不报错，只表现为「这块地方过不去」）。桌椅恒按格对齐、只横竖，排布整块居中（不是从左上角铺）。",
+  "_obstacles_comment": "桌椅组（一张 deskWidthCells ~ deskWidthCellsMax 宽、deskHeightCells 高的课桌 —— 桌宽**每组各抽一次**，配表里是 2~4 —— 正下方紧贴一把 1 格的椅子；照 D1 三张手绘关里的家具关系，见 gen/obstacles.ts）。★ 改了（schemaVersion 4 → 5）：**deskRowsMin / deskRowsMax 从 3—4 提到 5—9。** 它们数的是**摆几组**，而 v5 的房间是平面图上量出来的、比 v4 那几档（800×1040×1280 × 600，内部还要各让半堵墙）大了约一到两倍，且房间矩形现在**就是**可走区域（v4 的矩形含墙）。数量是照「地板面积涨了多少」同比抬的，**第一次试玩之后要重新调**。摆不下的房间自然只摆下几组（每个位置试 32 次），真正的硬上限始终是 obstacleDensityMax。",
   "deskWidthCells": 2,
   "deskWidthCellsMax": 4,
   "deskHeightCells": 1,
   "deskGapCells": 1,
   "deskRowGapCells": 1,
-  "deskRowsMin": 3,
-  "deskRowsMax": 4,
+  "deskRowsMin": 5,
+  "deskRowsMax": 9,
 
-  "_density_comment": "障碍物总面积 ÷ 教室面积的上限。0.22 是按**最小档侧室**（400×240，内部 9×5 格）反推的：那一档摆得下 2 排 × 每排 2 组 = 4 组，一组 3 格（桌 2 + 椅 1）= 12 格 = 19200px²，19200 ÷ 96000 = 0.20 —— 上限压到 0.22 时小教室刚好摆满、还留一点点余量给「配置里把 deskRowsMax 调大」，大教室（640×280 内部 15×6，8 组 = 24 格 = 38400 ÷ 179200 = 0.21）也摆得满。调大它小教室会变成迷宫：小教室本来就只有一格宽的走道。",
+  "_density_comment": "障碍物总面积 ÷ **房间矩形**面积的上限。★ 重算过（schemaVersion 5）：v4 的分母是含墙的矩形，v5 的是纯可走区域，所以同一个数含义变严了。按**最小的那间教室**（YF612 教休室，9×8 格 = 360×320px，115200px²）反推：上限 0.22 → 25344px²；一组按**最大桌长**保守算（deskWidthCellsMax × deskHeightCells + 1 = 5 格 = 8000px²）→ 那间房摆得下 3 组 ≈ 12.5%，还有余量。中档教室（YF601 25×18 格）的容量上限是 19 组，而 deskRowsMax 只有 9，所以**卡住大房间的是组数、卡住小房间的是密度** —— 两条各自都在管一个具体的坏结局（大房间变迷宫 / 小教室被塞满）。",
   "obstacleDensityMax": 0.22,
 
-  "_spawns_comment": "每间教室的刷怪点数。**与预算无关** —— 预算是「刷多少怪」，点数是「在哪儿刷」，D1/D3 把前者铺到后者上。连廊不刷怪、不计入房间数，所以这里的「每间教室」不含连廊。",
+  "_spawns_comment": "每间教室的刷怪点数。**与预算无关** —— 预算是「刷多少怪」，点数是「在哪儿刷」，D1/D3 把前者铺到后者上。走廊不刷怪、不计入房间数，所以这里的「每间教室」不含那 6 段走廊。只有 combatKinds 里的关别才有刷怪点，其余是空数组。",
   "spawnPointsMin": 3,
   "spawnPointsMax": 6,
   "spawnPointMinGap": 80,
 
-  "_budget_comment": "威胁预算曲线。t 是进度百分比，不是房间序号 —— 这样 N=8 和 N=11 的末间一样强。侧室不参与这条曲线（它的定位是可选房，收益另算）。",
+  "_budget_comment": "威胁预算曲线。★ 改了（schemaVersion 4 → 5）：t 的分子从「主干序号」换成「**到楼梯间的跳数**」—— v4 按进度百分比参数化（那时房间排在一条进度轴上，所以 N=8 和 N=11 的末间一样强），v5 里玩家随意挑房间进、order 不再是深度，取而代之的是 BFS 跳数。保留下来的性质是同一个：**不管最远是 3 跳还是 8 跳，最远的那间战斗关一样强**（两个 t 都是 1）。⚠️ 不要写成 budgetBase × budgetGrowth ^ 跳数 —— 那样改一间房的位置就会顺手改变全层难度。",
   "budgetBase": 5,
   "budgetGrowth": 1.6,
 

@@ -11,7 +11,7 @@ import { PlayerModel, moveVelocity, FireGate } from './PlayerModel'
 import { RewardRun } from './RewardRun'
 import { DamageBatches } from './DamageBatches'
 import { parseCombatConfig, parseRewards, deriveStats } from './config'
-import { stagePlan } from './balance'
+import { roomPlan } from './balance'
 const read = (name: string) =>
   JSON.parse(readFileSync(new URL('../../../public/config/' + name, import.meta.url), 'utf8'))
 const bundle = parseConfigBundle({
@@ -348,8 +348,8 @@ it('aggregates valid damage within bounded capacity', () => {
   expect(b.pending.size).toBe(0)
 })
 it('difficulty count applied once and pacing differs', () => {
-  const easy = stagePlan(bundle, cfg, 'easy', 1),
-    hard = stagePlan(bundle, cfg, 'hard', 1)
+  const easy = roomPlan(bundle, cfg, 'easy', 1),
+    hard = roomPlan(bundle, cfg, 'hard', 1)
   expect(easy.splitters).toBe(2)
   expect(hard.splitters).toBe(4)
   expect(hard.phaseDelayMs).toBeLessThan(easy.phaseDelayMs)
@@ -359,24 +359,45 @@ it('invalid config and duplicate reward IDs fail early', () => {
   expect(() => parseRewards({ schemaVersion: 1, rewards: [defs[0], defs[0]] })).toThrow()
 })
 
-it('抓取怪的刷怪轴：第一层 0 只，之后按曲线出现', () => {
-  // 第 1 层不刷抓取怪是**刻意的**：先让玩家在别处认识「!」与抓取，
-  // 再让它真的来抓人。这条也顺手把「有人给它套上 max(1, ...)」挡住。
-  expect(stagePlan(bundle, cfg, 'normal', 1).grabbers).toBe(0)
-  expect(stagePlan(bundle, cfg, 'normal', 3).grabbers).toBeGreaterThanOrEqual(1)
-  // 另外两个轴照旧：任何一层都至少有一只
-  for (const stage of [1, 2, 3]) {
-    const p = stagePlan(bundle, cfg, 'normal', stage)
+/**
+ * 抓取怪的刷怪轴：**离楼梯间最近的那几间 0 只，越远越多**。
+ *
+ * ★ 改了（2026-10-21，整层连续）：原来是「第 1 层 0 只、之后按层出现」——
+ * 那时"深度"由**层号**表达（`stageGrowth`）。整层连续之后同层之内每间房也不一样强，
+ * 而那个差别由 D2 的威胁预算表达，于是这条判据换成**同一张曲线上的两端**
+ * （`growth ∈ [1, budgetGrowth]`）。
+ *
+ * 两端取的是 `rooms.json` 的**真数**，不是随手写的 1 和 3：
+ * 真去改 `budgetGrowth`（比如调到 1.1）而让最近那间也开始出抓取怪，
+ * 这条会红 —— 「先让玩家在别处认识『!』再让它来抓人」是设计意图，不该被静默改掉。
+ */
+it('抓取怪的刷怪轴：楼梯间旁边 0 只，全层最远的那间才出现', () => {
+  const rooms = read('rooms.json'),
+    near = rooms.budgetBase / rooms.budgetBase, // = 1，出生点旁边那间
+    far = rooms.budgetGrowth // = 全层最远那间的倍数（budget = base × growth^1）
+  // 最近那间不刷是**刻意的**：这一条也顺手把「有人给它套上 max(1, ...)」挡住。
+  expect(roomPlan(bundle, cfg, 'normal', near).grabbers).toBe(0)
+  expect(roomPlan(bundle, cfg, 'normal', far).grabbers).toBeGreaterThanOrEqual(1)
+  // 另外两个轴照旧：**任何一间**都至少有一只（那才是"这间要打"的含义）
+  for (const growth of [near, 1.3, far]) {
+    const p = roomPlan(bundle, cfg, 'normal', growth)
     expect(p.splitters).toBeGreaterThan(0)
     expect(p.tanks).toBeGreaterThan(0)
     expect(p.grabbers).toBeGreaterThanOrEqual(0)
   }
 })
 
-it('limits the run to exactly three floors and rejects a fourth spawn plan', () => {
+it('一局三层，且强度倍数算不出来时当场抛', () => {
+  // 层数（`maxStages`）管的是「有几个首领」—— 三个首领各守一层。
   expect(cfg.arena.maxStages).toBe(3)
-  for (const stage of [1, 2, 3])
-    expect(stagePlan(bundle, cfg, 'normal', stage).splitters).toBeGreaterThan(0)
-  expect(() => stagePlan(bundle, cfg, 'normal', 4)).toThrow()
-  expect(() => stagePlan(bundle, cfg, 'normal', 0)).toThrow()
+  // ★ 改了（2026-10-21）：原来这里断言的是 `stagePlan(..., 4)` / `(..., 0)` 抛，
+  //   因为函数的参数是**层号**、而层号有定义域。现在参数是 `growth = 预算 ÷ budgetBase`，
+  //   它由 D2 现算 —— 于是定义域判据换成了「这个倍数是不是个数」。
+  //   层号的边界搬去了 `BattleScene.floors` / `descend()`（`floor >= floors` 就不下楼）。
+  expect(() => roomPlan(bundle, cfg, 'normal', Number.NaN)).toThrow()
+  expect(() => roomPlan(bundle, cfg, 'normal', -1)).toThrow()
+  // ⚠️ 非有限值必须**抛**而不是"刷 0 只"：`NaN` 一路乘下去喂给 `Math.round` 还是 `NaN`，
+  //    而 `for (let i = 0; i < NaN; i++)` 一只都不刷、**不报错** ——
+  //    于是"预算算错了"表现成"这间房是空的"，清房判定还会当帧成立。
+  expect(() => roomPlan(bundle, cfg, 'normal', Infinity)).toThrow()
 })

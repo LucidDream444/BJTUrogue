@@ -435,14 +435,62 @@ describe('契约 — 抓取怪：血量是双重职责的旋钮', () => {
     expect(d.flingSpeed).toBeLessThan(2000)
   })
 
-  it('落地爆炸「范围很大」：直径至少盖得住一间主干教室的高度', () => {
-    const rooms = JSON.parse(readFileSync(CONFIG_DIR + 'rooms.json', 'utf8')) as {
-      mainRoomHeight: number
+  it('落地爆炸「范围很大」：直径至少 15 格（v4 的 mainRoomHeight），且与「盖住一间教室」的差距没变大', () => {
+    // ★ **2026-10-20，D2 的平面图落地（schemaVersion 5）把这条的尺子换掉了。**
+    //
+    // v4 这里读的是 `rooms.json` 的 `mainRoomHeight` —— 主干道那排教室的高度，
+    // 恒为 **600px = 15 格**。爆炸直径也是 600，于是那条断言是
+    // `600 >= 600`，**正好卡在等号上**：它守的其实是「D3 的爆炸 = D2 的教室高」
+    // 这个刻意的耦合，谁动一半都会红。
+    //
+    // v5 里 `mainRoomHeight` 没有了（几何搬去了 `floor-plan.json`，
+    // 而且不再有「主干教室」这个类别）。教室的**真实高度**是 17~24 格，
+    // 最小的一间（`YF605` / `YF606`，20×17 与 39×17）是 **17 格 = 680px**。
+    // 于是 `600 >= 680` —— **那条耦合断了：爆炸不再盖得住一整间教室。**
+    //
+    // ⚠️ **这是要交给 D3 决定的事，不是这里能自己修的**：`blastRadius` 是
+    // `enemies.json` 的平衡旋钮（D3 的域），D2 不改别人的数。两个读数记在这里：
+    //
+    // | | 格 | px |
+    // |---|---|---|
+    // | 爆炸直径（今天） | 15 | 600 |
+    // | 最小的一间**打得起来**的教室高 | 17 | 680 |
+    //
+    // 想恢复「盖得住整间教室」的话，`blastRadius` 要 ≥ 340（今天 300）。
+    // 这条已经写进了 `openspec/changes/real-floorplan-layout/NOTICE-D1-D3-契约变更.md`。
+    //
+    // 那么这里断言什么？**两条真话，分开说清楚**：
+    // ① 直径至少 15 格 —— 那是老尺子的长度，**它是设计目标**（"范围很大"），
+    //    爆炸被改小时要拦住；
+    // ② 上面那个差距（今天 80px = 2 格）**不许再变大** —— 教室又长高、
+    //    或者爆炸又被改小，这条会红，红了就该去找 D3。
+    const cell = (readJson('rooms.json') as { navCellSize: number }).navCellSize
+    // ⚠️ 尺子只量**打得起来**的房间。`fixed: 'reward'` 的两间教休室不刷怪，
+    // 而它们正是最小的一间（8 格 / 320px）—— 算进来的话尺子会变成 320，
+    // 于是 `600 >= 320` 恒成立，这条就成了一条**假绿**的用例：
+    // 看着在测「盖得住一间教室」，其实什么都没测。
+    const plan = readJson('floor-plan.json') as {
+      rooms: { id: string; width: number; height: number; fixed?: string }[]
     }
+    const fightable = plan.rooms.filter((r) => r.fixed !== 'reward')
+    expect(fightable.length, '一间打得起来的教室都没有 —— 上面那句过滤写错了').toBeGreaterThan(
+      0,
+    )
+    const smallestRoomHeight = Math.min(...fightable.map((r) => r.height * cell))
+    const diameter = def.grab.blastRadius * 2
+
     expect(
-      def.grab.blastRadius * 2,
-      `爆炸直径 ${def.grab.blastRadius * 2} 小于一间主干教室的高 ${rooms.mainRoomHeight}`,
-    ).toBeGreaterThanOrEqual(rooms.mainRoomHeight)
+      diameter,
+      `爆炸直径 ${diameter}px（${diameter / cell} 格）小于 15 格 ${15 * cell}px —— ` +
+        `这是 v4 的设计目标（mainRoomHeight），爆炸被改小了`,
+    ).toBeGreaterThanOrEqual(15 * cell)
+
+    expect(
+      smallestRoomHeight - diameter,
+      `爆炸直径 ${diameter}px（${diameter / cell} 格）比最小的一间战斗教室的 ` +
+        `高 ${smallestRoomHeight}px（${smallestRoomHeight / cell} 格）小这么多 —— ` +
+        `今天实测是 80px（2 格）；差距一旦变大，就该由 D3 决定要不要把 blastRadius 提到 ${smallestRoomHeight / 2}`,
+    ).toBeLessThanOrEqual(2 * cell)
   })
 
   it('它比杂兵慢、比肉盾快（三个模板的速度阶梯不能乱）', () => {

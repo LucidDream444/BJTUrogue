@@ -18,26 +18,47 @@ import { describe, expect, it } from 'vitest'
 import { collidersOf, overlapsWithArea } from './colliders'
 import { generateDungeon } from './gen/generate'
 import { parseRoomsConfig, type RoomsConfig } from './config'
+import { parseFloorPlan } from './gen/floorPlan'
+import type { FloorPlan } from './gen/floorPlan'
 import { buildGrid, gridOfMap, navExtentFor, type NavGrid } from './walkability'
 import { bottom, containsPoint, doorRect, left, right, top } from './model/rect'
 import type { Door, DungeonMap, Rect } from './model/types'
 
 const CONFIG_DIR = fileURLToPath(new URL('../../../public/config/', import.meta.url))
 
+const readJson = (name: string): Record<string, unknown> =>
+  JSON.parse(readFileSync(CONFIG_DIR + name, 'utf8')) as Record<string, unknown>
+
 function readRooms(): RoomsConfig {
-  return parseRoomsConfig(JSON.parse(readFileSync(CONFIG_DIR + 'rooms.json', 'utf8')))
+  return parseRoomsConfig(readJson('rooms.json'))
 }
 
 const cfg = readRooms()
+
+/**
+ * 整层楼的几何 —— 与**种子无关**（`floor-plan.json` 里写死的 6F 平面图）。
+ *
+ * ⚠️ 它现在是 `generateDungeon` 的**第三个参数**：几何与内容分了家，
+ * 种子只决定关别、障碍物、刷怪点。所以这里解析**一次**、200 个种子共用一份 ——
+ * 放进 `maps()` 里就是每个种子重解析一遍同一份表（200 次），
+ * 而它一次都不会变。
+ */
+const plan: FloorPlan = parseFloorPlan(readJson('floor-plan.json'), cfg)
 
 /** 批量扫描用的种子。**写死**，见文件头。 */
 const SEEDS = Array.from({ length: 200 }, (_, i) => i * 7919 + 13)
 
 function maps(): DungeonMap[] {
-  return SEEDS.map((s) => generateDungeon(s, cfg))
+  return SEEDS.map((s) => generateDungeon(s, cfg, plan))
 }
 
-/** 地图上所有的门（含同一洞口的两次记录）。 */
+/**
+ * 地图上所有的门。
+ *
+ * ⚠️ v4 的括号里写的是「含同一洞口的两次记录」—— **v5 里没有了**：
+ * 16 扇门全是「房间 ↔ 走廊」，走廊不是 `Room`，所以一个洞口只记一次。
+ * 想验去重的话得自己造重复（见下面那条用例）。
+ */
 function allDoors(map: DungeonMap): Door[] {
   return map.rooms.flatMap((r) => [...r.doors])
 }
@@ -131,17 +152,41 @@ describe('D2 碰撞几何 — 门挡板', () => {
   it('几扇门就几块挡板 —— 独立数一遍洞口数对账', () => {
     for (const map of maps()) {
       const col = collidersOf(map, cfg)
-      const distinct = new Set(
-        allDoors(map).map((d) => JSON.stringify(doorRect(d, cfg.wallThickness))),
-      )
+      const doors = allDoors(map)
+      const distinct = new Set(doors.map((d) => JSON.stringify(doorRect(d, cfg.wallThickness))))
       expect(col.barriers.length).toBe(distinct.size)
-      // ⚠️ 这一句是**给上一条去重测试作证**的：侧室的门在数据里记了两次，
-      // 所以「去重」这件事真的在做事，上面那条「任意两块零面积相交」
-      // 不是一条恒真的空测试。哪天生成器不再重复记录门了，这一句会挂 ——
-      // 那时该做的是把重复记录的理由从 `gen/layout.ts` 里重新读一遍，
-      // 而不是把这一句删掉。
-      expect(allDoors(map).length).toBeGreaterThan(col.barriers.length)
+      // ⚠️ **v4 这里比的是「门数 > 挡板数」**，理由是「侧室的门在数据里记了两次、
+      // 去重真的在做事」。★ v5 里它变成了**等号**：`Passage` 只剩 `{id, rect}`
+      // 两个字段（走廊不是 `Room`、没有 `doors` 数组），16 扇门全部是
+      // 「房间 ↔ 走廊」，每个洞口只被记一次。`colliders.ts` 文件头把这件事
+      // 写成了「**今天这一条是空转的**」，两边说的是同一件事。
+      //
+      // v4 那句嘱咐（「哪天生成器不再重复记录门了……该做的是把重复记录的理由
+      // 重新读一遍，而不是把这一句删掉」）在这里就是**照办**：去重仍然要有人证明它在做事，
+      // 所以由**下面那条用例自己把重复造出来** —— 真数据里没有重复可数，
+      // 那就手动塞一个。这一条只负责「数得对」。
+      expect(doors.length).toBe(col.barriers.length)
     }
+  })
+
+  it('**塞一个重复的洞口进去，挡板数一块都不许多** —— 去重真的在做事', () => {
+    // 上一条在 v5 里是空转的（真数据一个重复都没有），所以「按几何去重」
+    // 这段代码没有任何真数据会走到它。**没人走的分支会烂掉**，
+    // 而它烂掉的那天症状是「凭空多出一块看不见的墙」—— 与去重这件事毫无关联，
+    // 排查的人不会想到这儿。
+    //
+    // 所以这里手工造出那个重复：把同一间房的第一扇门**再抄一遍**
+    // （一模一样、连顺序都不变 —— `collidersOf` 就是按 `axis + 位置 + 宽` 去重的）。
+    const map = maps()[0]!
+    const withDup = structuredClone(map) as unknown as { rooms: { doors: unknown[] }[] }
+    const host = withDup.rooms.find((r) => r.doors.length > 0)!
+    host.doors.push(structuredClone(host.doors[0]))
+
+    const before = collidersOf(map, cfg).barriers.length
+    const after = collidersOf(withDup as unknown as DungeonMap, cfg).barriers.length
+    expect(after, '同一洞口记了两次却出了两块挡板 —— 去重没生效').toBe(before)
+    // 门**数**确实多了 —— 否则上面那句是恒真的（比如抄进了一个被忽略的地方）
+    expect(allDoors(withDup as unknown as DungeonMap).length).toBe(allDoors(map).length + 1)
   })
 
   it('挡板**正好填住缺口**：不与任何一段墙、任何一件家具重叠', () => {

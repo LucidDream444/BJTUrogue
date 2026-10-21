@@ -1,650 +1,426 @@
 /**
- * 楼层平面：一排主干教室 + 连廊 + 侧室 + 门 + 墙。**纯函数，零 Phaser 依赖。**
+ * 把**画好的几何**（`floor-plan.json`）变成一张可用的 `DungeonMap` 骨架：
+ * 关别、威胁预算、墙、门挂在谁身上。
+ *
+ * **纯函数，零 Phaser 依赖**，同一个 `seed` + 同一份配置 → 逐字节相同的地图。
  *
  * ---
  *
- * ## 平面长这样
+ * ## 这个文件以前是 650 行，因为它在**算**几何
+ *
+ * v4 及以前，房间在哪、多大、门开在哪儿全是这里算出来的：主干教室一排、
+ * 连廊串起来、侧室挂在两侧、尺寸档位按种子抽、墙按「房间的边减去门洞」拼。
+ * 于是「这一层长什么样」是**代码的产物** —— 改一个数要看懂四段几何推导，
+ * 而且换种子就换一张图，出问题时无法说「地图长错了」还是「种子不同」。
+ *
+ * v5 反过来：几何在 `floor-plan.json` 里**画好**（照 6F 平面图照片量的），
+ * 这里只做「往几何里填内容」。**删掉的**：主干/侧室的分档、锚点挑选、
+ * 尺寸档位、`roomGap` 让步、按边拼墙、`boundsOf`（它已经搬去 `floorPlan.ts`）。
+ *
+ * ## 三件事，顺序不能换
  *
  * ```
- *      ┌─────────┐                    ┌─────────┐
- *      │  侧室   │                    │  侧室   │        ← 随机挂在上方或下方
- *   ┌──┴──┬──┬──┴──┐              ┌──┴──┬──────┴──┐
- *   │      │  │     │              │     │         │
- *   │ 主干 1│连│主干2│═══连廊═══│主干 3│  连廊   │主干 4 │   ← 同一排横着排开
- *   │      │廊│     │              │     │         │
- *   └──────┴──┴─────┘              └─────┴─────────┘
+ * 1. 关别      YF604 恒为 boss、两间教休室恒为 reward、其余 12 间按权重抽
+ * 2. 预算      按「到楼梯间的跳数」定强弱 —— 关别先定，因为非战斗关的钱恒为 0
+ * 3. 墙 + 门   几何，与种子无关，换一百个种子一模一样
  * ```
  *
- * **没有贯穿全层的走廊。** 首版把它做成了后者（一条主干道、教室南北交替挂在
- * 它两侧），而那与「一排主干教室」根本不是一个平面结构 —— 玩家看到的是一条
- * 长走廊，教室是走廊的配菜；要的是反过来：教室是主体，连廊只是它们之间的一小段。
+ * 1 在 2 前是必须的：`maxDist` 只在**战斗关**里取最大值，而「哪几间是战斗关」
+ * 要等关别定下来才知道。
  *
- * ## 四条几何规则，每条都在堵一个具体的坑
+ * ## 关别是**发牌**，不是 12 次独立抽签
  *
- * **① 主干教室与连廊在同一条水平带里交替排开。** 于是「主干教室的上下两面墙」
- * 与「连廊的上下两面墙」是**同两条直线**，不必逐段跳台阶；侧室朝主干的那面墙
- * 也因此能一次贴合住宿主与连廊（见 ③）。
+ * 独立抽有个只在部分种子里出现的坏结果：权重 `{main:4, elite:2, reward:2, chest:2}`
+ * 下，12 次独立抽抽出一整层 10 间道具房的概率虽然不高，但它**会发生** ——
+ * 而那时这一局没有仗可打，且**不报错、不抛异常**，看上去只是"这局运气不好"。
  *
- * **② 整排从 `x = 半格` 起排，`roomGap` 取格长的整数倍。** 于是每堵墙的中心线
- * 都落在**格中心**上（寻路格的中心在 `20 + 40n`），一堵墙恰好封掉一格；
- * 每个门洞的两端都落在**格边界**上（`40n`），一扇门恰好开出整数格。
+ * 所以先把权重按最大余数法折成一副**正好 12 张的牌**，再洗牌发下去：
+ * 比例每次都精确成立，种子里剩下的随机性只体现在「哪一间是哪一类」
+ * —— 那才是玩家真正能感觉到的随机。
  *
- * **③ 侧室横跨「宿主的一部分 + 一整段连廊」**，朝主干的那面墙开两扇门：
- * 一扇进宿主（入口），一扇进连廊（出口 → 汇回主干下一间）。
- * 两扇门开在同一条直线上，正是因为 ① 让宿主与连廊等高。
- * 侧室与宿主的搭接长度 `k = 侧室档位宽 − roomGap`，**必须 ≤ 宿主宽度**，
- * 否则侧室会伸到宿主的西墙外面去。
+ * ## 预算是**跳数**，不是房间序号
  *
- * **④ 竖直墙上的门心偏移半格（`y = +20`）。** 这条最绕，单独推一遍：
+ * v4 用 `主干序号 ÷ 主干数`，因为那时房间排在一条进度轴上。v5 里玩家
+ * 随意挑房间进（用户 2026-10-19），**`order` 大不代表更深** —— 它是
+ * 「楼梯间 + 其余按 id 升序」的下标，跟难度无关。
+ * 取而代之的量是**到楼梯间的 BFS 跳数**：离出生点越远越强，
+ * 而「远」在一张真实的平面图上是有意义的。
  *
- * ```
- *   带的上墙中心线在 ±h/2，它必须落在格中心上（20 + 40n）
- *        → h/2 ≡ 20 (mod 40)  →  h ≡ 40 (mod 80)      ← h 只能是奇数格
- *   于是带的中线（y = 0）永远落在一条**格边界**上
- *   而门洞两端必须落在格边界上（见 ②）
- *        → 竖直墙上的门心只能取 ±20，**取不到 0**
- * ```
+ * ## 墙 = 平面图上**没被任何空间占用的格子**，减去门洞
  *
- * 这两个事实是**同一件事的两面**：带高是奇数格，中线就不可能同时是格中心。
- * `config.ts` 里那条「`mainRoomHeight` 必须 ≡ 40 (mod 80)」的断言守的就是它 ——
- * 谁把带高调成偶数格，中线就变回格中心，而下面那个 `y = +20` 会**悄悄变成错的**
- * （门洞两端落到格中心上，120px 的门实际能过 4 格）。
+ * 这是 v5 最反直觉、也最容易改坏的一条，所以逐条说：
  *
- * 取 `+20` 而不是 `−20`：两者等价，正负只是「门往带的上半还是下半偏」。
- * 定死一个符号是为了让所有连廊的门在缩略图上排成一条线 —— 那是一条**能一眼
- * 看出错了**的线，而随机取符号会让「有一扇门偏了」淹在一堆本来就参差的线里。
- *
- * ② 看着像强迫症，它是三个「不报错但会坏事」的坑的总闸：
- *
- * | 没对齐会怎样 | 症状 |
- * |---|---|
- * | 墙中心落在格边界上 | 一格中心都不覆盖 → **寻路认为墙两侧都通**（墙上有洞） |
- * | 门洞两端落在格中心上 | 实际能过的格子数**比设计多一个**（`120px` 的门过 4 格） |
- * | 障碍物没对齐 | 看着能挤过去的缝，寻路认为整格封死 |
- *
- * ## 连廊不是一条走廊，所以它**不是 `Room`**
- *
- * `passages` 与 `rooms` 并列返回，但连廊没有 `order`、没有预算、不刷怪、
- * 不计入房间总数。它是两间教室之间的**过道**，玩家在这里永远处于脱战状态
- * （连廊的上下墙线不断开成门以外的东西，里面也没有可刷怪的空间 —— 见 design D5）。
- *
- * ## 墙是**数据**，不是各消费方自己推导的
- *
- * 返回的 `walls` 是一段段矩形。D1 拿它建物理碰撞体，寻路拿它判可走性。
- * 两处各推一次的话，一边少推一段就是「玩家从缝里走出去了」或者
- * 「怪卡在一个看不见的角里」—— 都不报错。
- *
- * 首版这里还有一段「侧室门厅的封口」要在墙里额外补：那时侧室贴在宿主旁边、
- * 中间一条 0px 的缝朝走廊敞着，不封就能绕过宿主直接钻进去。
- * 现在侧室整个在带的外侧、朝主干那一面由**连续墙线**负责，缝根本不存在，
- * 那段封口也就不需要了。
+ * - **为什么不是「房间的边」**：`buildGrid` 只把「墙 + 障碍物」标成不可走，
+ *   其余一律可走。所以「不是空间的地方」必须**每一格都在 `walls` 里**。
+ *   平面图上省略掉了电梯、卫生间、另外 5 处楼梯间 —— 它们落成**整块的实心区**
+ *   （YF601 与 YF602 之间就有 22 格宽的一块）。按「房间的边」拼墙的话，
+ *   那些块一格都不是墙，玩家能从中间穿过去，而它们在缩略图上看跟墙一模一样。
+ *   **不报错，只是能穿墙。**
+ * - **为什么要向外多铺 2 格**：`navExtentFor` 给的就是这个余量。不铺的话，
+ *   贴着地图边缘的 `C_W`（x = 0 那一列）会开在网格外沿上，
+ *   而界外一律算堵 —— 玩家一步走出地图，或者走廊被削掉一格。
+ * - **为什么用贪心矩形合并而不是一格一个矩形**：一格一个矩形是 ~2 万个 Rect，
+ *   每个都要进物理体、进 `zones`、进缩略图。合并之后是几百个，
+ *   而合并本身只是把「同一片实心区」拼成若干大矩形，画的还是同一片区域。
  */
-
-import type { Door, Passage, Rect, Room, RoomBranch, RoomKind } from '../model/types'
-import { bottom, left, right, top } from '../model/rect'
+import type { Door, Passage, Rect, Room, RoomKind } from '../model/types'
 import type { RoomsConfig } from '../config'
 import { isCombatKind } from '../config'
-import { rngFor, weightedPickIn } from './seed'
+import type { FloorPlan, FloorPlanSpace } from './floorPlan'
+import { navExtentFor } from '../walkability'
+import { rngFor } from './seed'
 import { threatBudget } from './budget'
 
-/** 一个区间的半开表示：`[start, end)`，两端都落在格边界上（见文件头 ②） */
-interface Span {
-  start: number
-  end: number
-}
-
-/** 侧室挂在这一排的哪一侧。 */
-type Band = 'north' | 'south'
-
+/**
+ * 一张排好内容、但还没摆障碍物与刷怪点的地图骨架。
+ *
+ * `rooms` 里的 `obstacles` / `spawnPoints` 一律是空数组 —— 它们在
+ * `gen/generate.ts` 的第 2、4 步才填。**这不是"忘了"，是顺序本身**：
+ * 障碍物要先摆完才能烘网格，刷怪点要看着网格才能挑。
+ */
 export interface LayoutPlan {
-  rooms: Room[]
-  /** 相邻主干教室之间的连廊，按 x 从左到右。有几间主干教室就有几段（`N − 1`） */
-  passages: Passage[]
-  walls: Rect[]
-  bounds: Rect
-  mainCount: number
+  readonly rooms: readonly Room[]
+  readonly passages: readonly Passage[]
+  readonly walls: readonly Rect[]
+  /** 全部房间与走廊的并集（px、中心点）。**不含向外那 2 格**，见文件头 */
+  readonly bounds: Rect
 }
 
-/** 生成过程中用的中间结构。对外只吐 `Room`。 */
-interface Desc {
-  order: number
-  kind: RoomKind
-  branch: RoomBranch
-  /** 主干序号（0 = 起点，mainCount−1 = 首领）；侧室为 null */
-  mainIndex: number | null
-  /** 侧室挂在哪个主干序号上；主干为 null */
-  anchorMainIndex: number | null
-}
+// ---------------------------------------------------------------- 1. 关别
 
-/** 摆好位置的房间。`band` / `overlap` 只有侧室有。 */
-interface Placed {
-  desc: Desc
-  rect: Rect
-  /** 索引到 `config.mainWidthTiers`（主干）或 `config.sideRoomTiers`（侧室） */
-  tierIndex: number
-  band: Band | null
-  /** 侧室与宿主的搭接长度（px，沿 x）；主干为 null */
-  overlap: number | null
-}
+/**
+ * 把权重表折成一副**正好 `count` 张**的牌。
+ *
+ * 最大余数法（largest remainder / 汉密尔顿法）：
+ * `count × 权重 ÷ 总权重` 取整，剩下的名额按小数部分从大到小补。
+ *
+ * **平局按权重表里的书写顺序**打破，不是随便挑一个 —— 挑法进了结果，
+ * 而结果要可复现。`Object.entries` 对非数字键保持插入顺序，
+ * 所以「谁写在前面」是这里唯一能依赖的稳定顺序。
+ */
+export function kindBag(weights: Readonly<Partial<Record<RoomKind, number>>>, count: number): RoomKind[] {
+  const entries = Object.entries(weights) as [RoomKind, number][]
+  if (count <= 0 || entries.length === 0) return []
 
-export function planLayout(seed: number, cfg: RoomsConfig): LayoutPlan {
-  const cell = cfg.navCellSize
-  const halfCell = cell / 2
-  const wt = cfg.wallThickness
-  const bandEdge = cfg.mainRoomHeight / 2
-  const gap = cfg.roomGap
+  let total = 0
+  for (const [, w] of entries) total += w
+  if (!(total > 0)) return []
 
-  // 竖直墙上的门心偏移，推导见文件头 ④。`config.ts` 保证它是半格 ——
-  // 也就是说带高是奇数格，带的中线是格边界，门心只能偏半格。
-  const vDoorY = halfCell
+  const exact = entries.map(([, w]) => (count * w) / total)
+  const taken = exact.map((v) => Math.floor(v))
+  let left = count - taken.reduce((a, b) => a + b, 0)
 
-  // -------------------------------------------------------------- 数量
-
-  const mainCount = rngFor(seed, 'mainCount').between(cfg.mainRoomMin, cfg.mainRoomMax)
-  const sideCount = cfg.totalRooms - mainCount
-
-  // -------------------------------------------------------------- 侧室挂载点
-
-  // 首领不能有侧室：它的出口要「汇回主干道的下一间」，而首领后面没有下一间。
-  // 所以候选是主干 0 .. mainCount−2，共 mainCount−1 个。
-  //
-  // 这个数恰好够用，不是巧合：侧室数 = totalRooms − mainCount，
-  // 在 mainCount 取下限时最大（15 − 8 = 7），而候选数也是 7（8 − 1）。
-  // 8—11 这个区间是唯一能让「每间主干教室至多一间侧室」成立的区间，
-  // 上限再放宽一格（主干 7 间 → 侧室 8 间 → 候选只有 6 个）就会**排不下**。
-  // 这是 8—11 除了「守住 5—10 分钟」之外的第二个理由。
-  const anchorSet = chooseAnchors(seed, sideCount, mainCount)
-
-  // -------------------------------------------------------------- 进度轴
-
-  // `order` 是**唯一的顺序来源**。按「主干第 i 间 → 挂在它上面的侧室 → 主干第 i+1 间」
-  // 交错编号，于是 `order` 的升序**正好等于平面上的从左到右** ——
-  // 缩略图上看到的顺序就是进度顺序，不需要第二张表去对照。
-  const descs: Desc[] = []
-  const mainOrder: number[] = new Array<number>(mainCount)
-  let ord = 0
-  for (let i = 0; i < mainCount; i++) {
-    mainOrder[i] = ord
-    descs.push({
-      order: ord++,
-      kind: kindOfMain(i, mainCount),
-      branch: 'main',
-      mainIndex: i,
-      anchorMainIndex: null,
-    })
-    if (anchorSet.has(i)) {
-      const order = ord++
-      descs.push({
-        order,
-        // 侧室装的是什么，按 `sideKindWeights` 抽。**单独一条派生流**：
-        // 与 `'sizeTier'` 分开，于是调权重不会连带把侧室的尺寸换一批，
-        // 反过来也一样 —— 两条规则各自可复现，见 `seed.ts` 讲的理由。
-        //
-        // 下标取 `order` 而不是 `anchor`：`order` 才是房间的身份证
-        // （`anchor` 只在主干那一步有意义），而且校验器报错时给的也是它。
-        kind: weightedPickIn(seed, 'sideKind', order, cfg.sideKindWeights),
-        branch: 'side',
-        mainIndex: null,
-        anchorMainIndex: i,
-      })
-    }
+  // 按「小数部分降序、同分按书写顺序升序」补名额
+  const order = exact
+    .map((v, i) => ({ i, frac: v - Math.floor(v) }))
+    .sort((a, b) => (b.frac - a.frac) || (a.i - b.i))
+  for (const { i } of order) {
+    if (left <= 0) break
+    // 权重恰为 0 的类目**不补名额** —— 补了等于把一个明确的「这一类不要」
+    // 变成「偶尔来一个」，而配置表里写 0 的人想要的正是前者
+    if (entries[i]![1] <= 0) continue
+    taken[i]!++
+    left--
   }
 
-  // -------------------------------------------------------------- 摆位置
-
-  const placed: Placed[] = []
-  const mainPlaced: Placed[] = new Array<Placed>(mainCount)
-  /** 挂在这间主干教室上的侧室。门那一步要拿它的挂靠侧来定位入口门。 */
-  const sideOf = new Map<number, Placed>()
-  const passages: Passage[] = []
-
-  // 侧室入口门的门洞从「宿主的东边界往西 `halfCell + doorWidth`」开始（见下）。
-  // 门洞整体必须落在侧室与宿主的搭接段里，于是搭接长度有个下限 ——
-  // 短于它，入口门就有一半开在宿主外面，而几何上看不出「开在外面」这件事。
-  const minOverlap = halfCell + cfg.doorWidth
-
-  let cursorX = halfCell // 见文件头 ②
-
-  for (const d of descs) {
-    if (d.branch === 'main') {
-      const i = d.mainIndex!
-      const widthCount = cfg.mainWidthTiers.length
-      const tierIndex = rngFor(seed, 'mainWidth', i).between(0, widthCount - 1)
-      const w = cfg.mainWidthTiers[tierIndex]!
-      const p: Placed = {
-        desc: d,
-        rect: { x: cursorX + w / 2, y: 0, width: w, height: cfg.mainRoomHeight },
-        tierIndex,
-        band: null,
-        overlap: null,
-      }
-      placed.push(p)
-      mainPlaced[i] = p
-      cursorX += w
-
-      // 连廊：夹在这间和下一间之间的一小段，与教室同高（见文件头 ①）。
-      // 最后一间后面没有东西，不铺连廊。
-      if (i < mainCount - 1) {
-        passages.push({
-          rect: { x: cursorX + gap / 2, y: 0, width: gap, height: cfg.mainRoomHeight },
-          // 带上两端的 `order`：D1 的封门与「不回头」逻辑靠它，不必去猜坐标
-          between: [mainOrder[i]!, mainOrder[i + 1]!],
-        })
-        cursorX += gap
-      }
-      continue
-    }
-
-    // ---- 侧室：横跨「宿主的东半段 + 一整段连廊」（见文件头 ③）
-
-    const anchor = d.anchorMainIndex!
-    const host = mainPlaced[anchor]!
-    const hostEast = right(host.rect)
-
-    // 挂哪一侧随种子定。**单独一条派生流**：复用 `'sideAnchors'` 的话，
-    // 调一下「哪几间挂侧室」会连带把所有侧室翻到另一侧去，两条规则粘在一起，
-    // 出了问题分不清是哪一条引起的。
-    const band: Band = rngFor(seed, 'bands', anchor).between(0, 1) === 0 ? 'north' : 'south'
-
-    // 档位过滤：`k = 侧室宽 − roomGap` 是它与宿主的搭接长度。
-    // 太长会伸到宿主的西墙外面，太短则入口门有一半悬空。
-    // 过滤后只剩单个档位是常态（宽宿主配大侧室），**一个都没有是配置问题**：
-    // 那说明 `sideRoomTiers` 里的每一档都放不进这排房子，而降级成一个更小的
-    // 侧室会让「侧室比主干教室还大」这类平衡假设悄悄失效 —— 所以抛，不降级。
-    const usable: number[] = []
-    for (let t = 0; t < cfg.sideRoomTiers.length; t++) {
-      const k = cfg.sideRoomTiers[t]!.width - gap
-      if (k <= host.rect.width && k >= minOverlap) usable.push(t)
-    }
-    if (usable.length === 0) {
-      const widths = cfg.sideRoomTiers.map((t) => t.width).join(' / ')
-      throw new Error(
-        `种子 ${seed}：主干第 ${anchor} 间宽 ${host.rect.width}，` +
-          `而 sideRoomTiers 的宽度档（${widths}）配上 roomGap ${gap} 之后，` +
-          `搭接长度没有一个落在 [${minOverlap}, ${host.rect.width}] 里 —— ` +
-          `侧室放不下。调 sideRoomTiers 或 roomGap。`,
-      )
-    }
-    const tierIndex =
-      usable[rngFor(seed, 'sizeTier', d.order).between(0, usable.length - 1)]!
-    const tier = cfg.sideRoomTiers[tierIndex]!
-    const overlap = tier.width - gap
-    const sx0 = hostEast - overlap
-    const sx1 = hostEast + gap // 连廊的东端，也就是下一间主干教室的西边界
-    const y = band === 'north' ? -(bandEdge + tier.height / 2) : bandEdge + tier.height / 2
-
-    const sidePlaced: Placed = {
-      desc: d,
-      rect: { x: (sx0 + sx1) / 2, y, width: sx1 - sx0, height: tier.height },
-      tierIndex,
-      band,
-      overlap,
-    }
-    placed.push(sidePlaced)
-    sideOf.set(anchor, sidePlaced)
-  }
-
-  // -------------------------------------------------------------- 门
-
-  const doorsOf = new Map<number, Door[]>()
-  const snapDown = (v: number): number => Math.floor(v / cell) * cell
-
-  for (const p of placed) {
-    const list: Door[] = []
-    doorsOf.set(p.desc.order, list)
-
-    if (p.desc.branch === 'main') {
-      const i = p.desc.mainIndex!
-      // 起点没有"回头门"（它后面就没有房间了）。
-      if (i > 0) {
-        list.push({
-          kind: 'back',
-          x: left(p.rect),
-          y: vDoorY,
-          width: cfg.doorWidth,
-          axis: 'v',
-          toOrder: mainOrder[i - 1]!,
-        })
-      }
-      // 首领没有"前进门"：它是单局的终点。
-      if (i < mainCount - 1) {
-        list.push({
-          kind: 'forward',
-          x: right(p.rect),
-          y: vDoorY,
-          width: cfg.doorWidth,
-          axis: 'v',
-          toOrder: mainOrder[i + 1]!,
-        })
-      }
-      // 宿主 → 侧室：**一个门洞，两侧各记一条**（`Door.toOrder` 是有方向的，
-      // 见 `model/types.ts`）。宿主这条不能省，虽然墙上的缺口是侧室那条开的：
-      // `obstacles.ts` 的「门前净空」只读**这间房自己的** `doors` ——
-      // 少了宿主这一条，宿主里的课桌就会大摇大摆地堵在侧室入口前面，
-      // 而入口在数据里看着完好无损。
-      const side = sideOf.get(i)
-      if (side !== undefined) {
-        list.push({
-          kind: 'side',
-          x: sideEntranceX(right(p.rect), cfg),
-          y: side.band === 'north' ? -bandEdge : bandEdge,
-          width: cfg.doorWidth,
-          axis: 'h',
-          // 交错编号的直接结果：侧室紧跟宿主，所以它的 order 就是宿主 +1
-          toOrder: mainOrder[i]! + 1,
-        })
-      }
-      continue
-    }
-
-    // ---- 侧室的两扇门，都开在朝主干的那面墙上（`axis: 'h'`，见文件头 ③）
-
-    const anchor = p.desc.anchorMainIndex!
-    const hostEast = right(mainPlaced[anchor]!.rect)
-    const wallY = p.band === 'north' ? -bandEdge : bandEdge
-
-    // ① 入口：进宿主。门洞紧贴宿主的东边界往西让开半格 —— 半格是为了让两端
-    //    落在格边界上（见 ②）。往西而不是往东：往东跨过东边界就进连廊了，
-    //    而入口必须落在宿主里。宿主那边记的是同一个门洞的反方向那条。
-    list.push({
-      kind: 'side',
-      x: sideEntranceX(hostEast, cfg),
-      y: wallY,
-      width: cfg.doorWidth,
-      axis: 'h',
-      toOrder: mainOrder[anchor]!,
-    })
-
-    // ② 出口：进连廊，于是汇回主干下一间。
-    //    贴着连廊东端往西让开半格（半堵墙）再取门心 —— 东端是「连廊与下一间
-    //    教室的分界」，隔墙骑在那条线上，往西让半格正好贴住那道隔墙的内侧面。
-    //    接在连廊东端而不是中间，是为了让出口**永远紧挨着下一间教室的门**：
-    //    从侧室出来的玩家一转身就看见前进门，不必在两扇门之间找路。
-    const passageEast = hostEast + gap
-    const exitDoorEast = snapDown(passageEast - wt / 2)
-    const exitDoorWest = exitDoorEast - cfg.doorWidth
-    // 连廊的净长（两端各被半堵墙吃掉）必须放得下这扇门。放下不的时候
-    // 门洞会啃进隔墙里 —— 那在数据上完全看不出来，只在游戏里表现为
-    // 「连廊和教室之间没有墙」。所以这里当场抛，并告诉人该调哪个字段。
-    if (exitDoorWest < hostEast + wt / 2) {
-      throw new Error(
-        `种子 ${seed}：连廊净长（roomGap − wallThickness = ${gap - wt}）` +
-          `放不下侧室的出口门（宽 ${cfg.doorWidth}）。` +
-          `调大 rooms.roomGap 或调小 rooms.doorWidth。`,
-      )
-    }
-    list.push({
-      kind: 'side',
-      x: exitDoorEast - cfg.doorWidth / 2,
-      y: wallY,
-      width: cfg.doorWidth,
-      axis: 'h',
-      toOrder: mainOrder[anchor + 1]!,
-    })
-  }
-
-  // -------------------------------------------------------------- 墙
-
-  const bandLeft = left(mainPlaced[0]!.rect)
-  const bandRight = right(mainPlaced[mainCount - 1]!.rect)
-  const walls = buildWalls(placed, doorsOf, cfg, bandLeft, bandRight)
-
-  // -------------------------------------------------------------- 组装
-
-  const rooms: Room[] = placed.map(({ desc, rect, tierIndex }) => ({
-    order: desc.order,
-    kind: desc.kind,
-    branch: desc.branch,
-    rect,
-    sizeTier: tierIndex,
-    doors: doorsOf.get(desc.order) ?? [],
-    obstacles: [],
-    spawnPoints: [],
-    budget: budgetOf(desc, mainCount, cfg),
-    anchoredTo: desc.branch === 'side' ? mainOrder[desc.anchorMainIndex!]! : null,
-  }))
-
-  return { rooms, passages, walls, bounds: boundsOf(walls), mainCount }
-}
-
-// ---------------------------------------------------------------- 内部
-
-function kindOfMain(i: number, mainCount: number): RoomKind {
-  if (i === 0) return 'start'
-  if (i === mainCount - 1) return 'boss'
-  return 'main'
+  const bag: RoomKind[] = []
+  entries.forEach(([kind], i) => {
+    for (let n = 0; n < taken[i]!; n++) bag.push(kind)
+  })
+  return bag
 }
 
 /**
- * 一间房的威胁预算。
+ * 给每一间房定关别。**三层，先写死的、再发牌的**：
  *
- * **先判关别，再判进度轴** —— 顺序不能反。非战斗关别（道具关 / 宝箱关，
- * 或配置里被排除出 `combatKinds` 的起点房 / 首领房）恒为 `0`：
- * 一个没有敌人的空场地写着一份威胁预算，就是数据在说谎，
- * 而说谎的那一行会被 D1 如实执行（进房关门 → 没有怪 → 门永远不开）。
+ * 1. 楼梯间恒为 `start`（它不按种子抽，`floor-plan.json` 里没有 `fixed` 字段）
+ * 2. `plan.rooms` 里 `fixed !== null` 的照抄（`YF604` 恒 `boss`、
+ *    两间教休室恒 `reward`）—— 用户的原始要求就是这一条
+ * 3. 其余 12 间按这副牌发
  *
- * 判据只有 `combatKinds` 一处（`isCombatKind`），**这里不另写一份关别名册** ——
- * 否则「哪几类要打」会有两个来源，改一个忘一个的表现是
- * 「摆了桌椅但不刷怪」或者反过来，两者都不报错。
+ * **固定关别不占牌**：牌正好发 12 张（`classroomCount` 15 − 3 间固定）。
  *
- * 战斗房仍按老规矩：主干读自己的进度位置，侧室沿用宿主那一间的预算 ——
- * 侧室在进度上和宿主是并行的，用宿主的值既保证「预算单调不减」，
- * 也免得侧室变成一个难度洼地。
+ * 发牌顺序是**按 id 升序**，不是配置表里的书写顺序。配置表把 `YF604`（固定）
+ * 写在第一条只是为了好读；拿书写顺序发牌的话，以后把 `YF604` 挪到表尾
+ * 会让整层 12 间房的关别**全部换一遍** —— 一个纯编辑动作改变了种子语义。
+ *
+ * ⚠️ **2026-10-20 修掉一个静默的漏**：第一版只写了第 1、3 层 ——
+ * `fixed` 那几间**根本没进这张表**，于是 `planLayout` 那边
+ * `kinds.get(id) ?? 'main'` 把它们全部兜成 `main`。
+ * 症状是**没有任何报错**，而「604 是首领关」这条要求当场不成立：
+ * 那一层没有首领、`threatBudget` 按普通关算、打完首领下楼也就无从谈起。
+ * 兜底那个 `?? 'main'` 不能删（它防的是**权重表把牌发少了**这种数据错），
+ * 所以第 2 层必须显式写出来 —— 两件事长得像，但一个是「配置表说死了」，
+ * 一个是「配置表坏了」，兜底只该管后者。
  */
-function budgetOf(desc: Desc, mainCount: number, cfg: RoomsConfig): number {
-  if (!isCombatKind(cfg, desc.kind)) return 0
-  const i = desc.branch === 'main' ? desc.mainIndex! : desc.anchorMainIndex!
-  return threatBudget(i, mainCount, cfg)
-}
+export function assignKinds(seed: number, cfg: RoomsConfig, plan: FloorPlan): Map<string, RoomKind> {
+  const drawable = plan.rooms
+    .filter((r) => r.fixed === null)
+    .slice()
+    .sort((a, b) => (a.id < b.id ? -1 : a.id > b.id ? 1 : 0))
 
-/**
- * 侧室入口门的门心 x。
- *
- * 抽出来是因为**同一个门洞被记在两条记录里**（宿主一条、侧室一条），
- * 而两处各写一遍 `hostEast - (halfCell + doorWidth / 2)` 的话，改一处忘一处
- * 不会报错 —— 只会变成「宿主以为门在这儿、侧室以为门在那儿」，
- * 而墙上的缺口只挖一次，于是其中一条记录的净空圈**落在没门的地方**，
- * 另一侧却没人管。症状是课桌堵门，且堵的那一侧看起来完全正常。
- */
-function sideEntranceX(hostEast: number, cfg: RoomsConfig): number {
-  return hostEast - (cfg.navCellSize / 2 + cfg.doorWidth / 2)
-}
-
-/**
- * 挑出挂侧室的主干序号。
- *
- * 候选是 `0 .. mainCount-2`（首领除外）。侧室数 ≥ 候选数时全都要 ——
- * 这不是退化情形而是常态：`mainCount = 8` 时侧室 7 间、候选正好 7 个。
- *
- * 洗牌用的是**派生出来的那条流**（`'sideAnchors'`），所以换一批挂载点
- * 不会连带改变房间尺寸 —— 见 `seed.ts` 讲的理由。
- */
-function chooseAnchors(seed: number, sideCount: number, mainCount: number): Set<number> {
-  const candidates: number[] = []
-  for (let i = 0; i <= mainCount - 2; i++) candidates.push(i)
-
-  const rng = rngFor(seed, 'sideAnchors')
-  // Fisher-Yates。**必须自己写**：`Array.sort` 传一个用随机数的比较器
-  // 在 V8 上不是稳定行为，同一个种子会排出不同的序 —— 而「同种子同图」
-  // 只在同一台机器上成立的话，这个承诺就没有意义了。
-  for (let i = candidates.length - 1; i > 0; i--) {
+  const bag = kindBag(cfg.roomKindWeights, drawable.length)
+  const rng = rngFor(seed, 'roomKind', 0)
+  // Fisher-Yates。**倒着走**：正着走时每一轮的可选范围随 i 增大，
+  // 写错一个下标不会报错，只会让分布偏 —— 而偏了的分布要跑几千次才看得出来。
+  for (let i = bag.length - 1; i > 0; i--) {
     const j = rng.between(0, i)
-    const t = candidates[i]!
-    candidates[i] = candidates[j]!
-    candidates[j] = t
+    const tmp = bag[i]!
+    bag[i] = bag[j]!
+    bag[j] = tmp
   }
 
-  return new Set(candidates.slice(0, Math.min(sideCount, candidates.length)))
+  const kinds = new Map<string, RoomKind>()
+  kinds.set(plan.stairwell.id, 'start')
+  for (const r of plan.rooms) if (r.fixed !== null) kinds.set(r.id, r.fixed)
+  drawable.forEach((r, i) => {
+    // 牌不够（权重表是空的之类）时退回 `main`，而不是让 `kind` 变成 undefined ——
+    // 那种 `undefined` 会一路传到 `isCombatKind` 里，表现是「这一层的怪一个都不刷」。
+    kinds.set(r.id, bag[i] ?? 'main')
+  })
+  return kinds
 }
+
+// ---------------------------------------------------------------- 2. 预算
 
 /**
- * 把 `[a0, a1]` 这条线按 `openings` 挖空，返回剩下的实心段。
+ * 从楼梯间出发，每个空间（房间与走廊）的**跳数**。
  *
- * 挖空用的是**半开区间** `[start, end)`：两端落在格边界上时，
- * 恰好覆盖整数个格中心（见文件头 ②）。用闭区间会多覆盖一个端点的格中心，
- * 症状是「120px 的门实际能过 4 格」。
+ * 图的边有两类，缺一不可：
+ *
+ * - **门**：房间 ↔ 走廊
+ * - **走廊相接**：走廊段之间直接相接、不隔墙（`floor-plan.json` 的 `_gap_comment`
+ *   里那个唯一例外）—— 少了这一类，一条由 6 段拼成的走廊会被判成 6 个孤岛
+ *
+ * `checkReachable`（解析配置表时）已经用同一套边证过「每间房都走得到」，
+ * 所以这里不会有不连通的房间。**不连通时给 `Infinity` 而不是 `-1`**：
+ * `-1` 喂进 `t = dist / maxDist` 会算出负数，`growth ** 负数` 是个合法的小数，
+ * 一路算出一个正常的预算 —— 于是「这间房走不到」变成「这间房有点弱」，**不报错**。
  */
-function segmentsAround(a0: number, a1: number, openings: readonly Span[]): Span[] {
-  const sorted = [...openings].sort((p, q) => p.start - q.start)
-  const out: Span[] = []
-  let cursor = a0
-  for (const o of sorted) {
-    if (o.end <= cursor) continue
-    if (o.start > cursor) out.push({ start: cursor, end: Math.min(o.start, a1) })
-    cursor = Math.max(cursor, o.end)
+export function hopDistances(plan: FloorPlan): Map<string, number> {
+  const adj = new Map<string, Set<string>>()
+  const link = (a: string, b: string): void => {
+    if (!adj.has(a)) adj.set(a, new Set())
+    if (!adj.has(b)) adj.set(b, new Set())
+    adj.get(a)!.add(b)
+    adj.get(b)!.add(a)
   }
-  if (cursor < a1) out.push({ start: cursor, end: a1 })
-  return out.filter((s) => s.end - s.start > 0)
-}
+  for (const d of plan.doors) link(d.a, d.b)
+  for (const c of plan.corridors) for (const other of c.connectsTo) link(c.id, other)
 
-function horizontalWall(
-  y: number,
-  a0: number,
-  a1: number,
-  t: number,
-  openings: readonly Span[],
-): Rect[] {
-  return segmentsAround(a0, a1, openings).map((s) => ({
-    x: (s.start + s.end) / 2,
-    y,
-    width: s.end - s.start,
-    height: t,
-  }))
-}
-
-function verticalWall(
-  x: number,
-  a0: number,
-  a1: number,
-  t: number,
-  openings: readonly Span[],
-): Rect[] {
-  return segmentsAround(a0, a1, openings).map((s) => ({
-    x,
-    y: (s.start + s.end) / 2,
-    width: t,
-    height: s.end - s.start,
-  }))
-}
-
-/** 把一扇门换算成它挖掉的那段区间（门心 ± 半个门宽）。 */
-function doorSpan(d: Door): Span {
-  return d.axis === 'h'
-    ? { start: d.x - d.width / 2, end: d.x + d.width / 2 }
-    : { start: d.y - d.width / 2, end: d.y + d.width / 2 }
-}
-
-function buildWalls(
-  placed: readonly Placed[],
-  doorsOf: ReadonlyMap<number, readonly Door[]>,
-  cfg: RoomsConfig,
-  bandLeft: number,
-  bandRight: number,
-): Rect[] {
-  const wt = cfg.wallThickness
-  const edge = cfg.mainRoomHeight / 2
-
-  // 上下两条**连续**墙线：整排的北墙与南墙。
-  //
-  // 只在一种地方断开：**侧室的门**。主干教室自己一扇门都不开在这两条线上
-  // ——它的门全在东西两面竖直墙上（进连廊）。所以这两条线在整排上基本是实的，
-  // 而这一点正是「一排房子」在数据上的样子：走廊没有了，取而代之的是
-  // 教室与教室之间那几道竖直隔墙。
-  //
-  // 收集的是**整层的** `axis: 'h'` 门，按门自己的 y 分上下 —— 不看它挂在谁身上。
-  // 一个门洞会被记两条（宿主一条、侧室一条），这里会各收到一次，但
-  // `segmentsAround` 挖的是区间，同一条区间挖两遍等于挖一遍。
-  // 按 y 而不是按 `band` 分：门开在哪条墙线上是**门自己的属性**，
-  // 而「哪间房拥有这条记录」是记账方式，两者混在一起会让「谁该开这个洞」
-  // 依赖一份**与几何无关**的约定。
-  const north: Span[] = []
-  const south: Span[] = []
-  for (const p of placed) {
-    for (const d of doorsOf.get(p.desc.order) ?? []) {
-      if (d.axis !== 'h') continue
-      ;(d.y < 0 ? north : south).push(doorSpan(d))
+  const dist = new Map<string, number>([[plan.stairwell.id, 0]])
+  let frontier = [plan.stairwell.id]
+  let hop = 0
+  while (frontier.length > 0) {
+    hop++
+    const next: string[] = []
+    for (const id of frontier) {
+      for (const to of adj.get(id) ?? []) {
+        if (dist.has(to)) continue
+        dist.set(to, hop)
+        next.push(to)
+      }
     }
+    frontier = next
   }
+  return dist
+}
 
-  const walls: Rect[] = [
-    ...horizontalWall(-edge, bandLeft - wt / 2, bandRight + wt / 2, wt, north),
-    ...horizontalWall(edge, bandLeft - wt / 2, bandRight + wt / 2, wt, south),
-  ]
+// ---------------------------------------------------------------- 3. 墙
 
-  // 竖直隔墙：每一间主干教室的东西两条边，各一堵。
-  // 教室的东边那堵同时就是它东边连廊的西端，一间房一条边只画一次。
-  for (const p of placed) {
-    if (p.desc.branch !== 'main') continue
-    const list = doorsOf.get(p.desc.order) ?? []
-    const l = left(p.rect)
-    const r = right(p.rect)
-    const onWest = list.filter((d) => d.axis === 'v' && d.x === l).map(doorSpan)
-    const onEast = list.filter((d) => d.axis === 'v' && d.x === r).map(doorSpan)
-    walls.push(...verticalWall(l, -edge, edge, wt, onWest))
-    walls.push(...verticalWall(r, -edge, edge, wt, onEast))
+/** 平面图格号 → 网格下标。`navExtentFor` 把原点向下吸附到格的整数倍上，所以这是整除。 */
+interface CellGrid {
+  readonly cols: number
+  readonly rows: number
+  /** 网格的 (0, 0) 对应平面图的第几格（负数 = 那 2 格余量） */
+  readonly cell0X: number
+  readonly cell0Y: number
+}
+
+function cellGridFor(bounds: Rect, cellSize: number): CellGrid {
+  const extent = navExtentFor(bounds, cellSize)
+  // ⚠️ 这两个 `Math.ceil` / `Math.max` 必须与 `walkability.ts` 的 `buildGrid`
+  //    **逐字相同**。差一格的表现是墙角上多一块或少一块矩形，
+  //    而「少一块」那一侧玩家能走出去 —— 两边都不报错。
+  return {
+    cols: Math.max(1, Math.ceil(extent.width / cellSize)),
+    rows: Math.max(1, Math.ceil(extent.height / cellSize)),
+    cell0X: Math.round(extent.originX / cellSize),
+    cell0Y: Math.round(extent.originY / cellSize),
   }
-
-  // 侧室的另外三面：东西两侧的侧墙 + 远离主干的那面。
-  // 朝主干的那一面由上面两条连续墙线负责，不重复画。
-  for (const p of placed) {
-    if (p.band === null) continue
-    const sl = left(p.rect)
-    const sr = right(p.rect)
-    const nearY = p.band === 'north' ? -edge : edge
-    const farY = p.band === 'north' ? top(p.rect) : bottom(p.rect)
-    walls.push(...verticalWall(sl, Math.min(nearY, farY), Math.max(nearY, farY), wt, []))
-    walls.push(...verticalWall(sr, Math.min(nearY, farY), Math.max(nearY, farY), wt, []))
-    walls.push(...horizontalWall(farY, sl - wt / 2, sr + wt / 2, wt, []))
-  }
-
-  return dedupeWalls(walls)
 }
 
 /**
- * 去掉完全重合的墙。
+ * 把一片格子拼成尽量少的矩形。**贪心**：每一行往右扩到底，再往下扩到不能扩。
  *
- * 重合是**能发生的**：同侧相邻的两间侧室，前者的东边界与后者的西边界可以
- * 落在同一条线上（搭接长度正好等于宿主宽度时），于是同一堵墙被画两遍。
- * 两遍本身不报错、也不影响 D1 建碰撞体，但它会让 `walls.length` 这种
- * 「拿来做健全性检查」的读数随时漂，而漂的方向取决于随机结果 ——
- * 那种测试没人敢写。去重之后「一堵墙就是一条记录」重新成立。
+ * 不追求最优分解（那是精确覆盖问题）：这里要的是「矩形少到物理体扛得住」，
+ * 而贪心给出的是「同一片实心区里，连成片的行各一个矩形」——
+ * 一堵 100 格长的墙是 1 个矩形而不是 100 个。
  *
- * 键用 `join` 而不是浮点容差比较：所有坐标都是格长的整数倍加减半格
- * （见文件头 ②），重合就是**逐位相等**，容差反而会把「差半格」的两堵墙
- * 当成一堵，那是真的把几何弄丢了一段。
+ * 已收走的格子标记后不再被认领，所以**不可能产出重叠的矩形** ——
+ * 旧模型的 `dedupeWalls()` 就是干这个的，这里由构造保证，那个函数不再需要。
  */
-function dedupeWalls(walls: readonly Rect[]): Rect[] {
-  const seen = new Set<string>()
+function mergeRects(open: Uint8Array, grid: CellGrid, cellSize: number, originX: number, originY: number): Rect[] {
+  const { cols, rows } = grid
+  const taken = new Uint8Array(cols * rows)
   const out: Rect[] = []
-  for (const w of walls) {
-    const key = [w.x, w.y, w.width, w.height].join(',')
-    if (seen.has(key)) continue
-    seen.add(key)
-    out.push(w)
+
+  const free = (cx: number, cy: number): boolean => {
+    const i = cy * cols + cx
+    return open[i] === 0 && taken[i] === 0
+  }
+
+  for (let cy = 0; cy < rows; cy++) {
+    for (let cx = 0; cx < cols; cx++) {
+      if (!free(cx, cy)) continue
+
+      let x1 = cx
+      while (x1 + 1 < cols && free(x1 + 1, cy)) x1++
+
+      let y1 = cy
+      grow: while (y1 + 1 < rows) {
+        for (let x = cx; x <= x1; x++) if (!free(x, y1 + 1)) break grow
+        y1++
+      }
+
+      for (let y = cy; y <= y1; y++) for (let x = cx; x <= x1; x++) taken[y * cols + x] = 1
+
+      // 格区间 → px 中心点矩形。原点与边长都是 cellSize 的整数倍，
+      // 所以这四行里没有任何浮点误差，也不必吸附。
+      const left = originX + cx * cellSize
+      const top = originY + cy * cellSize
+      const width = (x1 - cx + 1) * cellSize
+      const height = (y1 - cy + 1) * cellSize
+      out.push({ x: left + width / 2, y: top + height / 2, width, height })
+    }
   }
   return out
 }
 
 /**
- * 包围盒 = **所有墙的外侧面**的包围盒。
+ * 这一层的**墙**：平面图上没被任何空间占用的格子（减去门洞），向外再铺 2 格。
  *
- * 取墙而不是取房间：外墙比房间边界还往外半个墙厚，按房间算会让最外一圈墙
- * 有一部分落在包围盒外面，而 `navExtentFor` 是拿包围盒去铺寻路格的 ——
- * 少算的那半圈会被判成「界外」，界外一律算堵（见 `walkability.ts`），
- * 症状是贴着外墙的房间边界莫名其妙地窄一条。
+ * 顺序是刻意的：先把「空间」和「门洞」标成通，剩下的就是墙。
+ * 反过来（先铺满墙再挖）等价，但那样每一次改动都要想「我挖全了吗」——
+ * 而**漏挖一格的表现是门变窄**，不是门消失。
  */
-function boundsOf(walls: readonly Rect[]): Rect {
-  const first = walls[0]
-  if (first === undefined) throw new Error('一层楼不可能一堵墙都没有')
-  let minX = left(first)
-  let maxX = right(first)
-  let minY = top(first)
-  let maxY = bottom(first)
-  for (const w of walls) {
-    minX = Math.min(minX, left(w))
-    maxX = Math.max(maxX, right(w))
-    minY = Math.min(minY, top(w))
-    maxY = Math.max(maxY, bottom(w))
+export function buildWallRects(plan: FloorPlan, cellSize: number): Rect[] {
+  const grid = cellGridFor(plan.bounds, cellSize)
+  const { cols, rows, cell0X, cell0Y } = grid
+  const open = new Uint8Array(cols * rows)
+
+  const stamp = (s: FloorPlanSpace): void => {
+    for (let y = s.cells.y; y < s.cells.y + s.cells.height; y++) {
+      const gy = y - cell0Y
+      if (gy < 0 || gy >= rows) continue
+      for (let x = s.cells.x; x < s.cells.x + s.cells.width; x++) {
+        const gx = x - cell0X
+        if (gx < 0 || gx >= cols) continue
+        open[gy * cols + gx] = 1
+      }
+    }
   }
-  return { x: (minX + maxX) / 2, y: (minY + maxY) / 2, width: maxX - minX, height: maxY - minY }
+
+  stamp(plan.stairwell)
+  for (const s of plan.rooms) stamp(s)
+  for (const s of plan.corridors) stamp(s)
+  // 门洞最后挖。顺序不影响结果（都是置 1），写在这里是为了读起来像「先建屋、再开门」。
+  for (const d of plan.doors) stamp({ id: d.a + '↔' + d.b, cells: d.cells, rect: d.rect })
+
+  const extent = navExtentFor(plan.bounds, cellSize)
+  return mergeRects(open, grid, cellSize, extent.originX, extent.originY)
+}
+
+// ---------------------------------------------------------------- 组装
+
+/** 一扇配置表里的门 → 运行期的 `Door`。`width` 是**沿着墙**量的那一边。 */
+function toDoor(d: FloorPlan['doors'][number]): Door {
+  return {
+    x: d.rect.x,
+    y: d.rect.y,
+    width: d.axis === 'h' ? d.rect.width : d.rect.height,
+    axis: d.axis,
+    a: d.a,
+    b: d.b,
+  }
+}
+
+/**
+ * 排好内容的一层楼。
+ *
+ * @param seed 种子。**只决定内容**（关别、以及后面两步的障碍物与刷怪点）
+ * @param cfg  已校验的 `rooms.json`（**先过 `parseRoomsConfig`**，这里不再校验）
+ * @param plan 已解析的 `floor-plan.json`。几何的唯一真值
+ */
+export function planLayout(seed: number, cfg: RoomsConfig, plan: FloorPlan): LayoutPlan {
+  const kinds = assignKinds(seed, cfg, plan)
+  const dist = hopDistances(plan)
+
+  // 每扇门挂到**它两端是房间的那一侧**。今天每扇门都是「房间 ↔ 走廊」，
+  // 所以每扇只挂一次；将来真出现「房间 ↔ 房间」的门时，这里会自然地
+  // 两侧各挂一次 —— 而 `obstacles.ts` 的门前净空只读自己那间房的 `doors`，
+  // 少挂一侧，那一侧的课桌就会堵在门口，洞口在数据里却看着完好无损。
+  //
+  // ⚠️ **楼梯间必须一起进来**（2026-10-20 补的漏）。第一版只写了
+  // `plan.rooms.map(...)`，而 `plan.stairwell` **不在** `plan.rooms` 里
+  // （它是 `FloorPlan` 上的另一个字段，见 `gen/floorPlan.ts`）——
+  // 于是 `STAIR ↔ C_W` 那一扇门**两头都不是房间**，被静默丢掉：
+  //
+  // - `map.walls` 照旧把洞挖了（`buildWallRects` 走的是 `plan.doors`，全 16 扇）
+  // - 而那张图上只有 **15 块**门挡板、楼梯间的 `doors` 是空的
+  // - 后果：楼梯间那一头**没有挡板**（挡板是按 `Room.doors` 造的），
+  //   而它是出生点 —— 「打完首领回楼梯间下楼」这条路上少一道可开可关的门。
+  //   不报错、不抛异常，只是那个洞永远敞着。
+  //
+  // 判据因此从「`plan.rooms` 里的」改成「**输出里会变成 `Room` 的**」——
+  // 那正是下面 `ordered` 的那一份，两者必须同源。
+  const roomIds = new Set([plan.stairwell.id, ...plan.rooms.map((r) => r.id)])
+  const doorsOf = new Map<string, Door[]>()
+  for (const raw of plan.doors) {
+    const door = toDoor(raw)
+    for (const id of [door.a, door.b]) {
+      if (!roomIds.has(id)) continue
+      const list = doorsOf.get(id)
+      if (list) list.push(door)
+      else doorsOf.set(id, [door])
+    }
+  }
+
+  // `order` 是**稳定显示序**，不是进度轴：0 恒为楼梯间（`BattleScene` 的
+  // `stage = 1` 之类的地方按它取整数键），其余按 id 升序。
+  const ordered = [plan.stairwell, ...[...plan.rooms].sort((a, b) => (a.id < b.id ? -1 : a.id > b.id ? 1 : 0))]
+
+  // `maxDist` 只在**战斗关**里取最大值：非战斗关的预算恒为 0，
+  // 拿它们去撑最大值会让「最远的战斗关」永远够不到 t = 1，
+  // 于是调平衡时那句「末尾那间有多强」随种子里道具房的远近飘。
+  let maxDist = 0
+  for (const s of ordered) {
+    if (!isCombatKind(cfg, kinds.get(s.id) ?? 'main')) continue
+    const d = dist.get(s.id)
+    if (d !== undefined && d > maxDist) maxDist = d
+  }
+
+  const rooms: Room[] = ordered.map((s, order) => {
+    const kind: RoomKind = order === 0 ? 'start' : (kinds.get(s.id) ?? 'main')
+    const hop = dist.get(s.id) ?? Number.POSITIVE_INFINITY
+    return {
+      id: s.id,
+      order,
+      kind,
+      rect: s.rect,
+      doors: doorsOf.get(s.id) ?? [],
+      obstacles: [],
+      spawnPoints: [],
+      // 非战斗关的钱恒为 0。一个空场地写着一份威胁预算就是数据在说谎 ——
+      // 而且它会被 `validate/contract.ts` 的「非战斗关三空」当场拦下。
+      budget: isCombatKind(cfg, kind) ? threatBudget(hop, maxDist, cfg) : 0,
+    }
+  })
+
+  return {
+    rooms,
+    passages: plan.corridors.map((c): Passage => ({ id: c.id, rect: c.rect })),
+    walls: buildWallRects(plan, cfg.navCellSize),
+    bounds: plan.bounds,
+  }
 }

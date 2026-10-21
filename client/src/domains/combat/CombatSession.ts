@@ -129,7 +129,12 @@ export class CombatSession {
         cols: Math.ceil(cfg.arena.width / this.terrain.cellSize),
         rows: Math.ceil(cfg.arena.height / this.terrain.cellSize),
         isWalkable: (x, y) => this.terrain.isWalkable(x, y, largestEnemyRadius),
-        safeSpawn: (x, y, radius) => this.terrain.safeSpawn(x, y, radius),
+        // ⚠️ 第四个参数是**通行半径**（能走到那儿的是谁），不是摆放净空 ——
+        //    见 `TerrainMap.safeSpawn()` 上那段：只传 `radius` 的话，
+        //    比门洞粗的东西会把整间房判成「不可达」，落点被扔到走廊去。
+        //    怪刷在自己的房间里，但**要能走到它跟前的是玩家**，所以取玩家半径。
+        safeSpawn: (x, y, radius) =>
+          this.terrain.safeSpawn(x, y, radius, bundle.balance.baseline.player.radius),
         projectileBlocked: (x0, y0, x1, y1, radius) =>
           x1 < radius ||
           y1 < radius ||
@@ -156,9 +161,26 @@ export class CombatSession {
       scene,
       this.player.anchor,
       this.enemies.group,
-      Math.max(...stageConfig.stages.map((s) => s.solids.length)) + 4,
+      // ⚠️ **挡板也算在这个上限里**（`StageColliders.rebuild` 把两者加进同一个组）。
+      //    漏掉它的话，整层那一份几何（~190 块墙 + 16 扇门）会在**组满之后**把门
+      //    一扇扇地丢掉 —— 而 `Group.add()` 满了是**静默返回**的（不抛、不警告），
+      //    表现是「最后几扇门永远关不上」。`+ 64` 是给门留的余量，比今天实际用的多。
+      Math.max(...stageConfig.stages.map((s) => s.solids.length)) +
+        Math.max(...stageConfig.stages.map((s) => s.barriers?.length ?? 0)) +
+        64,
     )
-    this.stageColliders.rebuild(this.terrain)
+    // ⚠️ **挡板必须在这里一起建出来，漏了它的失败模式是「门封不上，而且不报错」。**
+    //
+    // 整层连续（2026-10-21）之后门不再是「换一张几何」而是**原地开关的挡板**
+    // （见 `StageColliders.doorZones`），而这道开关要能按，挡板就得先在物理世界里存在。
+    // 早先这一行是 `rebuild(this.terrain)` —— 少了第二个参数，`barriers` 走默认值 `[]`，
+    // 于是 16 扇门**一块挡板都没建**：`setSealed()` 遍历一个空数组（什么都不做）、
+    // `sealedOrders()` 恒返回 `[]`。表现是**玩家在战斗中可以随时走出房间**
+    // （于是能带着满屋子的怪跑到走廊里、再走回来），而控制台**一个字都没有**。
+    //
+    // `enterStage()` 那一头本来就是对的（它传了 `layout.barriers ?? []`），
+    // 所以这个错**只在「刚进场景、还没换过层」那一段存在** —— 更难被发现。
+    this.stageColliders.rebuild(this.terrain, firstRoom.barriers ?? [])
     this.playerCollider = scene.physics.add.collider(
       this.player.anchor,
       this.enemies.group,
@@ -232,6 +254,21 @@ export class CombatSession {
     this.stageConfig = stageConfig
     this.enterStage(1)
   }
+
+  /**
+   * 封门。`sealed` 是**应该封着的那些房号**（`Room.order`），不是开关指令 ——
+   * 重传同一个集合不会抖（见 `StageColliders.setSealed`）。
+   *
+   * 「哪些该封」是关卡的规则、归宿主（`BattleScene` 按 `roomFlow.doorShouldBeClosed`
+   * 判）；这里只把结论落到物理上。**判定与执行分开**是为了那条规则能在 node 里单测
+   * —— 它已经测过了，`roomFlow.test.ts`。
+   *
+   * ⚠️ `enterStage()` 里那次 `rebuild()` 结尾已经把所有的门**打开**了
+   * （新的一层，没有哪一间在打）。所以从上一层带下来的"封着"不会串到这一层。
+   */
+  sealDoors(sealed: ReadonlySet<number>): void {
+    this.stageColliders.setSealed(sealed)
+  }
   /**
    * 转接：换几何 → 重建碰撞 → 找落脚点 → 清输入 → 挪人。
    *
@@ -251,7 +288,10 @@ export class CombatSession {
       this.drops.clear()
     }
     this.terrain.setStage(layout)
-    this.stageColliders.rebuild(this.terrain)
+    // ⚠️ 挡板**只给碰撞体、不给 `terrain`**：`terrain.setStage(layout)` 只吃
+    //    `solids`，而门洞必须留在寻路网格之外（进了网格整层就变成一间间孤岛，
+    //    见 `StageGeometry.StageLayout.barriers`）。
+    this.stageColliders.rebuild(this.terrain, layout.barriers ?? [])
     const spawn = this.terrain.safeSpawn(
       layout.playerSpawn.x,
       layout.playerSpawn.y,
