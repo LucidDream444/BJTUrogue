@@ -5,7 +5,7 @@ import type { GameClock } from '@/core/time'
 import type { TypedBus } from '@/core/events'
 import type { CombatEvents } from './events'
 import type { CombatConfig, WeaponDef } from './config'
-import { PlayerModel, moveVelocity } from './PlayerModel'
+import { PlayerModel, moveVelocity, staminaAfterRegen } from './PlayerModel'
 import { aimBand, aimFrame, equippedMuzzle, shotRecoil } from './AimPose'
 import type { PlayerPort } from './EnemyBridge'
 import type { BalanceConfig } from '@/core/config'
@@ -61,6 +61,7 @@ export class Player {
   private weaponIdValue: WeaponDef['id'] = 'pencil'
   maxStamina: number
   stamina: number
+  private energyRegenPct = 0
   private readonly shadow: Phaser.GameObjects.Ellipse
   constructor(
     scene: Phaser.Scene,
@@ -199,6 +200,14 @@ export class Player {
     this.maxStamina = maximum
     this.stamina = Math.min(this.stamina, maximum)
   }
+  /** 开局应用局外能量成长后直接满能量；局内容量升级仍走 `applyStaminaLimit()` 不补满。 */
+  applyRunStartStaminaLimit(maximum: number): void {
+    this.maxStamina = maximum
+    this.stamina = maximum
+  }
+  applyEnergyRegenBonus(pct: number): void {
+    this.energyRegenPct = Math.max(0, pct)
+  }
   advanceStamina(deltaMs: number, firing: boolean): void {
     if (
       firing ||
@@ -208,9 +217,12 @@ export class Player {
       !Number.isFinite(deltaMs)
     )
       return
-    this.stamina = Math.min(
+    this.stamina = staminaAfterRegen(
+      this.stamina,
       this.maxStamina,
-      this.stamina + (this.cfg.player.staminaRegenPerSec * Math.max(0, deltaMs)) / 1000,
+      this.cfg.player.staminaRegenPerSec,
+      this.energyRegenPct,
+      deltaMs,
     )
   }
 

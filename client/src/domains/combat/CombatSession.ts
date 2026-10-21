@@ -22,6 +22,7 @@ import {
   type WeaponDef,
   type WeaponId,
   type EffectiveStats,
+  type PermanentRunStats,
 } from './config'
 import type { CombatEvents } from './events'
 export type PauseReason =
@@ -65,6 +66,7 @@ export class CombatSession {
   private readonly weaponRng = new Rng((20261014 ^ (Date.now() >>> 0)) >>> 0)
   weapon: WeaponDef
   stats: EffectiveStats
+  private permanent: PermanentRunStats
   kills = 0
   private dead = false
   private disposed = false
@@ -86,7 +88,22 @@ export class CombatSession {
     )
     this.weapon = cfg.weapons[0]!
     this.rewards = new RewardRun(rewardDefs, new Rng(cfg.arena.seed))
-    this.stats = deriveStats(bundle.balance, cfg, this.weapon, rewardDefs, this.rewards.stacks)
+    this.permanent = {
+      maxHp: bundle.balance.baseline.player.maxHp,
+      maxStamina: cfg.player.maxStamina,
+      maxShield: cfg.player.maxShield,
+      attackSpeedPct: 0,
+      moveSpeedPct: 0,
+      energyRegenPct: 0,
+    }
+    this.stats = deriveStats(
+      bundle.balance,
+      cfg,
+      this.weapon,
+      rewardDefs,
+      this.rewards.stacks,
+      this.permanent,
+    )
     scene.physics.world.resume()
     scene.physics.world.setBounds(0, 0, cfg.arena.width, cfg.arena.height)
     this.player = new Player(scene, this.clock, cfg, bundle.balance, this.bus, spawn.x, spawn.y)
@@ -452,6 +469,39 @@ export class CombatSession {
     this.equip(id, true)
     return true
   }
+  /**
+   * 进入一局时应用 D4 永久成长。
+   *
+   * 这一步发生在第一帧之前；局内核心循环不会再次读取存档。
+   * 生命、能量和护盾都以成长后的上限“满状态”开始，随后局内奖励只提高上限，
+   * 不会顺手回满。
+   */
+  applyPermanentRunStats(permanent: PermanentRunStats): void {
+    this.permanent = {
+      maxHp: Math.max(1, Math.round(permanent.maxHp)),
+      maxStamina: Math.max(1, Math.round(permanent.maxStamina)),
+      maxShield: Math.max(0, Math.round(permanent.maxShield)),
+      attackSpeedPct: Math.max(0, permanent.attackSpeedPct),
+      moveSpeedPct: Math.max(0, permanent.moveSpeedPct),
+      energyRegenPct: Math.max(0, permanent.energyRegenPct),
+    }
+    this.stats = deriveStats(
+      this.bundle.balance,
+      this.cfg,
+      this.weapon,
+      this.rewardDefs,
+      this.rewards.stacks,
+      this.permanent,
+    )
+    this.player.model.applyRunStartStats(
+      this.stats.maxHp,
+      this.stats.moveSpeed,
+      this.stats.iframeMs,
+    )
+    this.player.applyRunStartStaminaLimit(this.stats.maxStamina)
+    this.player.applyEnergyRegenBonus(this.permanent.energyRegenPct)
+    this.player.model.applyMaxShield(this.permanent.maxShield)
+  }
   private recompute(): void {
     this.stats = deriveStats(
       this.bundle.balance,
@@ -459,6 +509,7 @@ export class CombatSession {
       this.weapon,
       this.rewardDefs,
       this.rewards.stacks,
+      this.permanent,
     )
     this.player.model.applyStats(this.stats.maxHp, this.stats.moveSpeed, this.stats.iframeMs)
     this.player.applyStaminaLimit(this.stats.maxStamina)
