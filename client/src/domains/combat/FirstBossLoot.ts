@@ -36,6 +36,16 @@ export class FirstBossLoot {
   get completed(): boolean {
     return this.state === 'collected'
   }
+  /**
+   * 宝箱**开过了没有**（开了 = 里面那把武器已经掉出来了）。
+   *
+   * ⚠️ **`reset()` 会把答案抹掉**（它把 `state` 打回 `'absent'`），所以调用方
+   * 必须在 `reset()` **之前**问 —— `BattleScene.settleChest()` 就是干这个的。
+   * 记下来的用途是「这一间的宝箱开过就不再出现」，见那一段。
+   */
+  get opened(): boolean {
+    return this.state === 'dropped' || this.state === 'collected'
+  }
   reset(): void {
     this.cancelReplacement()
     for (const item of this.ground) {
@@ -52,7 +62,15 @@ export class FirstBossLoot {
   }
   spawn(x: number, y: number): void {
     if (this.state !== 'absent') return
-    const point = this.session.terrain.safeSpawn(x, y, this.session.cfg.chest.visualSize)
+    // ⚠️ `visualSize` 是**边长**，当成净空半径用要减半 —— 见 `TerrainMap.safeSpawn()`：
+    //    直接拿 56 当半径 = 要求 112px 的空地，比门洞还宽，宝箱会被扔到走廊去（实测 200—540px）。
+    //    第四个参数是**通行半径** = 玩家：宝箱不是走过去的，是玩家走过去开它。
+    const point = this.session.terrain.safeSpawn(
+      x,
+      y,
+      this.session.cfg.chest.visualSize / 2,
+      this.session.player.model.stats.radius,
+    )
     this.state = 'closed'
     this.chest = this.scene.add
       .image(point.x, point.y, textureKeyFor(this.scene, WEAPON_ART.chest))

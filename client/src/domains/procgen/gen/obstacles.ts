@@ -9,7 +9,8 @@
  * 随机撒在某一列旁边 —— 那是「一条长桌坐一排人」的形状，掩体密度高，但**不是教室的样子**。
  * 现在的几何照 **D1 三张手绘关里的桌椅关系**（`public/config/stage-collisions.json` 的
  * `furniture`：`desk_*` 与 `chair_*` 成对，椅子贴在桌子**正下方**）：
- * 一张 `deskWidthCells × deskHeightCells` 的桌，正下方紧贴一把 1 格的椅子。
+ * 一张 `deskWidthCells` ~ `deskWidthCellsMax` 宽、`deskHeightCells` 高的桌
+ * （**宽每组各抽一次**，配表里是 2~4），正下方紧贴一把 1 格的椅子。
  *
  * 跟着改的还有三件事，都不是巧合：
  *
@@ -17,21 +18,27 @@
  * |---|---|
  * | 桌椅**成组**摆 | 视觉上要用 D1 那张「桌 + 椅」的贴图（`FurnitureTextures`），贴图是**一整件**，拆开就没了 |
  * | 椅子**必有**（`chairChance` 没了） | 贴图里就带着椅子；「有的桌子有椅子、有的没有」会让同一张素材两种命运 |
- * | 排与排之间 `deskRowGapCells` | 桌椅组占**两行**格子（桌一行、椅一行），行距写死一格的旧式子会撞上 |
+ * | 组与组之间 `deskGapCells` | 桌椅组占**两行**格子（桌一行、椅一行）；挨着摆的两组会连成一张更长的桌 —— 也就是一堵**过不去**的墙 |
  *
- * ## 为什么成排，而不是逐张随机撒
+ * ## 摆几组、**散着摆**（2026-10-16 起），不是成排居中
  *
- * 真教室就是成排的，这本身是理由，但更要紧的是**它让几何可控**：
- * 一排桌子占整行格子，行与行之间天然留出通道，「这一排有没有把教室切成两半」
- * 是一个逐行就能回答的问题。随机撒的话，两张桌子偶然斜着错开半格就能封出一条死胡同，
- * 而那是要靠 flood fill 才发现的 —— 发现的成本高一个数量级。
+ * 组数照 `deskRowsMin`~`deskRowsMax` 抽（配表里是 5~9），每组桌长抽
+ * `deskWidthCells`~`deskWidthCellsMax`、位置在房内**随处抽**（内墙各留一格），
+ * 组间至少留 `deskGapCells` 格。
  *
- * ## 一整块**居中**摆，不是从左上角铺
+ * ⚠️ **文件头这一节原先写的是「成排 / 整块居中摆」**（`maxRows` / `maxDesks`
+ * 由房间尺寸算出来、再整块居中），还配了「为什么成排」的理由。那套 2026-10-16
+ * 就被换掉了（那两个字眼今天全仓库只剩这条注释自己），理由也反了过来：
+ * 成排落地之后是「**桌椅恒在正中一片、每张桌都一样长、数量由房间宽度定**」——
+ * 玩起来就是「一进门正中间一排桌子，哪间都一样」。
  *
- * 排数 / 每排张数先由房间尺寸算出来（`maxRows` / `maxDesks`），再整块居中。
- * 早先是「从 `iy = 1`、`ix = 1` 起一格一格试，撞到边界就停」，于是桌椅恒偏左上，
- * 右下角留一大片空当 —— 那不是教室的样子，是「生成器只会从角上铺」的指纹。
- * 居中还有一个副产品：**摆位不再需要 `taken` 数组**（见下）。
+ * 散着摆没有「步长 ≥ 宽」那条构造保证，所以 **`taken` 数组必须有**（见下面
+ * `const taken` 那段）。安全网在别处：`spawns.ts` 跑在这之后，从门做 flood fill、
+ * **只从可达的格子里**挑出生点 —— 「摆出一块到不了的区域」顶多是那块地没人去，
+ * **不会把出生点或门封死**，而「成排」原本要防的正是这个。
+ *
+ * ⚠️ `deskRowGapCells` 这条配置键**今天没有任何生成代码读它**（只有 `config.ts`
+ * 的解析与 `rooms.json` 的键还在）—— 「排」的概念随 2026-10-16 的改动一起不用了。
  *
  * ## 三条硬约束，每条都在挡一种具体的坏结局
  *
@@ -64,9 +71,12 @@ import { rngFor } from './seed'
 
 export function placeObstacles(seed: number, cfg: RoomsConfig, room: Room): Obstacle[] {
   // 非战斗关别**一间空房**：道具关、宝箱关，以及配置里被排除出 `combatKinds` 的
-  // 起点房 / 首领房。课桌在这三类房里没有任何玩法理由 ——
+  // 楼梯间。课桌在这几类房里没有任何玩法理由 ——
   // 它是**掩体**（见文件头：密度上限是拿「肉盾 slam 半径盖住大半场地」反推的），
   // 没有敌人的房间里，一模一样的课桌只是占地方、还把宝箱的落点挤掉。
+  //
+  // ⚠️ **楼梯间（`start`）是 v5 才被排除出去的**：v4 里 `start` 是一间真的教室，
+  // 摆桌椅说得通；现在它是出生点，摆桌椅就是把玩家堵在门口。
   //
   // 早返回而不是走到摆桌逻辑里再判：那样 `taken` / `areaCap` 这些量会被算一半，
   // 而且下一个人加一种障碍物时得记得再判一次 —— 漏判的表现是空房里冒出课桌。
@@ -75,12 +85,18 @@ export function placeObstacles(seed: number, cfg: RoomsConfig, room: Room): Obst
   const cell = cfg.navCellSize
   const wt = cfg.wallThickness
 
-  // 房间内部（四面各让开半堵墙）。所有边界都落在格边界上 ——
-  // 见 `layout.ts` 文件头 ③，整层从半格起排就是为了这个。
-  const rl = left(room.rect) + wt / 2
-  const rt = top(room.rect) + wt / 2
-  const nx = Math.floor((right(room.rect) - wt / 2 - rl) / cell)
-  const ny = Math.floor((bottom(room.rect) - wt / 2 - rt) / cell)
+  // ★ 改了（v5）：房间矩形**就是**它的可走格跨度，不再往里让半堵墙。
+  //
+  // v4 的 `Rect` 是**含墙**的矩形（墙骑在它的四条边上，各吃半层），所以这里
+  // 写的是 `left(rect) + wt/2`。v5 里墙是**房间之外**的那一格
+  // （见 `model/types.ts` 的文件头与 `layout.ts` 的 `buildWallRects`），
+  // 照旧式子让 20px 的话，桌椅会整体偏半格 —— 而按格对齐是「可视 = 可走性」
+  // 的前提：偏半格之后 `buildGrid` 的中心点采样与桌子的实际位置**各说各话**，
+  // 表现是「看着能挤过去的缝，寻路认为整格封死」，**两边都不报错**。
+  const rl = left(room.rect)
+  const rt = top(room.rect)
+  const nx = Math.floor(room.rect.width / cell)
+  const ny = Math.floor(room.rect.height / cell)
 
   const dh = cfg.deskHeightCells
   // 一组占**两行**：桌子那一行 + 椅子那一行（椅子贴在桌子正下方，所以恒为一格）

@@ -1,4 +1,3 @@
-import { applyPaintedRooms, parsePaintedRoomConfig, paintedGateSide } from './PaintedRooms'
 import Phaser from 'phaser'
 import { preloadAssets, ensurePlaceholderTextures, registerAnimations } from '@/core/assets'
 import { parseConfigBundle, type ConfigBundle, type Difficulty } from '@/core/config'
@@ -10,17 +9,44 @@ import {
 } from '@/domains/combat/config'
 import { CombatSession } from '@/domains/combat/CombatSession'
 import { RewardPanel } from '@/domains/combat/RewardPanel'
-import { stagePlan } from '@/domains/combat/balance'
+import { roomPlan } from '@/domains/combat/balance'
 import { AssetGallery } from './AssetGallery'
 import { StatusHud } from '@/domains/combat/StatusHud'
 import { GameCursor } from '@/domains/combat/GameCursor'
 import { StageBackground } from './StageBackground'
-import { parseStageCollisions, stageGeometry, type StageCollisionConfig } from './StageGeometry'
-import { buildDungeonStages, floorSeeds, type DungeonStages } from './DungeonStages'
-import { ROOMS_CONFIG_NAME, roomsConfigWithRoomCount } from '@/domains/procgen/config'
+import {
+  parseStageCollisions,
+  stageGeometry,
+  type StageCollisionConfig,
+} from './StageGeometry'
+import {
+  arenaOf,
+  buildDungeonStages,
+  chestSpotAtCenter,
+  chestSpotIn,
+  FLOOR_STAGE,
+  floorSeeds,
+  roomAt,
+  roomIdsOf,
+  type DungeonRoom,
+  type DungeonStages,
+} from './DungeonStages'
+import { doorShouldBeClosed } from '@/domains/procgen/roomFlow'
+import {
+  ROOMS_CONFIG_NAME,
+  roomHasChest,
+  roomsConfigFromCache,
+  type RoomsConfig,
+} from '@/domains/procgen/config'
+import {
+  FLOOR_PLAN_NAME,
+  floorPlanFromCache,
+  type FloorPlan,
+} from '@/domains/procgen/gen/floorPlan'
 import { ROOM_KIND_LABELS } from '@/domains/procgen/model/types'
 import { Minimap } from './Minimap'
 import { FloorExit } from './FloorExit'
+import { FloorProgress, stairPadSpots } from './Stairwell'
 import { FirstBossLoot } from '@/domains/combat/FirstBossLoot'
 import { LoadoutHud } from '@/domains/combat/LoadoutHud'
 // —— 局外成长（D4）的两个界面组件：暂停菜单、结算界面 ——
@@ -42,17 +68,28 @@ import type { RunInput } from '@/domains/meta/progress/progress'
 import { RunLedger } from '@/domains/meta/run/RunLedger'
 import { SettlementOverlay } from '@/domains/meta/settlement/SettlementOverlay'
 
-/** 「站在门口」的距离门槛（世界像素）。**量的是到门矩形的最短距离**，贴着门就是 0。 */
-const DOOR_REACH = 50
+/**
+ * 「够得着」的距离门槛（世界像素）。**量的是到目标矩形的最短距离**，贴着它才是 0。
+ *
+ * ★ 改了（2026-10-21，整层连续）：原来它量的是**门**（`DOOR_REACH`，站在门口按 F 过门）。
+ * 现在门是**走过去就行**的实体（见 `DungeonStages.ts` 文件头），没有"门前按 F"这件事了，
+ * 于是它只剩一个用处：**「下一层」的入口** —— 那个入口按设计就是要站上去的。
+ */
+const EXIT_REACH = 50
 
 /** 刷怪时要求怪物中心离墙至少这么远（世界像素）。比怪物半径大一点，别一出生就嵌在墙里。 */
 const ENEMY_CLEARANCE = 26
 
 /**
- * 刷怪点离**玩家出生点**至少这么远（世界像素）。
+ * 刷怪点离**玩家进这间房时站的位置**至少这么远（世界像素）。
  *
  * 4 格。比 `rooms.json` 的 `spawnPointMinGap`（80px，那是两个刷怪点之间）大一倍 ——
- * 玩家比怪胖、而且一进房间是站着不动的，给的距离要比怪与怪之间宽。
+ * 玩家比怪胖、而且刚推门进来那一下是躲不开的，给的距离要比怪与怪之间宽。
+ *
+ * ★ 改了（2026-10-21）：量的是**玩家现在站的地方**，不再是 `spawnPoints[0]`。
+ * `spawnPoints[0]` 是「离房间中心最近的那个点」，那是「一间房 = 一关」时期的写法 ——
+ * 那时玩家被**空投**到那个点上，所以它等于玩家的位置。整层连续之后玩家是**走进来的**，
+ * 从哪扇门进来就站在哪边，`spawnPoints[0]` 通常离他远远的。
  */
 const SAFE_SPAWN_GAP = 160
 
@@ -60,6 +97,28 @@ const style = document.createElement('style')
 style.textContent =
   '.d1-gallery{font-family:system-ui,sans-serif;color:#e9f2ff}.d1-gallery{position:fixed;inset:0;z-index:95;background:#091323f5;padding:22px;overflow:auto}.d1-gallery header{display:flex;justify-content:space-between}.d1-preview-canvas{display:block;max-width:100%;border:1px solid #376276}.d1-asset-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:8px;margin-top:14px}.d1-asset-card{display:flex;align-items:center;gap:8px;text-align:left;background:#13233a;color:#dcecff;border:1px solid #31516c;border-radius:8px;padding:6px;cursor:pointer;white-space:pre-line}.d1-asset-card img{width:56px;height:56px;object-fit:contain;background:#0a111d}.d1-asset-card span{font-size:11px}'
 document.head.append(style)
+/**
+ * ## ★ 2026-10-21：从「一间房 = 一关」改成「**整层连续**」
+ *
+ * 这个场景原来把一个 `StageCollisionConfig` 的第 n 关读成「第 n 间房」，
+ * 过门 = `enterStage(下一间)`：换一整张几何、把玩家空投到那一间的落脚点、
+ * 相机钉死在那一间的取景框里。整层连续之后这些**全部没有了**：
+ *
+ * | | 上一版 | 现在 |
+ * |---|---|---|
+ * | `stage` | 「第几间」（1 起），是**状态** | 没了。几何整层一份、永不更换 |
+ * | 玩家在哪 | 就是 `stage` | `roomOrder`，**每帧由 `roomAt()` 现算**，`-1` = 走廊 |
+ * | 过门 | 站门口按 `F` | **走过去**。门是 `StageColliders` 里可开关的挡板 |
+ * | 相机 | `fitCamera()` 把整张图塞进屏幕，`stopFollow()` | **1:1 跟随玩家**（`cfg.camera`） |
+ * | 出生点 | 本间房中心附近那个刷怪点 | **楼梯间门外的走廊上**（`DungeonStages.spawn`） |
+ * | 清房 | 「本间」= 当前 stage | 「**我站着的这一间**」= `roomAt()` 给的那一间 |
+ * | 门什么时候开 | 选完强化 → `doorOpen = true` | 那一间**不在战斗**里（`doorShouldBeClosed`） |
+ *
+ * ⚠️ **最容易漏的一条：清房判定必须是「这一间里的怪」，不是「全图的怪」。**
+ * 整层只有一间的怪是活的（进门才刷、出生点只有一个），所以今天两者数值上相同 ——
+ * 但写成「全图」之后，一个被挤出墙外的怪的处置、以及将来任何一次「同时两间在打」
+ * 都会把别的房间的怪算进来，表现是「这间明明清完了，门不开」。
+ */
 export class BattleScene extends Phaser.Scene {
   private scenery!: StageBackground
   private loot!: FirstBossLoot
@@ -77,14 +136,25 @@ export class BattleScene extends Phaser.Scene {
   private statusHud!: StatusHud
   private notice!: Phaser.GameObjects.Text
   private deathNotice!: Phaser.GameObjects.Text
-  private clearAt = -1
-  private clearEmitted = false
-  private stage = 1
-  private spawned = false
   private gameWon = false
   /**
-   * 这一层楼的生成结果（D2）。**「一间房 = 一关」** —— `this.stage` 就是
-   * 「第几间」（1 起），`enterStage(stage)` 换的就是那一间的几何。
+   * 玩家**现在在哪一间**（`Room.order`）。`-1` = **在走廊里**。
+   *
+   * ★ 改了（2026-10-21，整层连续）：原来是 `stage`（「第几间」，1 起），
+   * 而它的作用不止是"在哪" —— `enterStage(stage)` 拿它**换整张几何**
+   * （一间房一关）。整层连续之后几何**整层只有一份、永远不换**，
+   * 于是它的含义缩回一件事：**玩家站在哪一间里**。而这件事每帧都变
+   * （走过去就变了），所以它在 `update()` 里由 `roomAt()` 现算。
+   *
+   * ⚠️ **`-1` 而不是 `0`**：`0` 是楼梯间，是个真实存在的房间号。
+   * 用 `0` 当「不在任何一间里」的话，玩家一出生（在走廊上）就会被判成
+   * 「在楼梯间里」，而那会让楼梯间在第一帧就被标成「已进过」、
+   * 顺带把它的门当成"打完了"。走廊里没有房间号，所以需要一个房间号之外的哨兵值。
+   */
+  private roomOrder = -1
+  /**
+   * 这一层楼的生成结果（D2）。**整层连续**：`stages` 里**只有一关**（整层），
+   * `rooms` 是这一层 16 间房的逐间信息（几间、什么关别、刷怪点在哪、门开在谁身上）。
    * 拆法见 `DungeonStages.ts` 的文件头。
    *
    * ⚠️ 一局有**多层**楼（`arena.maxStages`），所以它会被整个换掉 ——
@@ -92,8 +162,27 @@ export class BattleScene extends Phaser.Scene {
    */
   private dungeon!: DungeonStages
   /**
-   * 现在在第几层（1 起）。**这一局打的是「第几层」**：每层自己有一张随机地图、
-   * 自己的一串房间，最后一间是本层的首领。
+   * D2 的 `rooms.json`。★ 新增（v5）：原来是每层现算一份
+   * （`roomsConfigWithRoomCount(缓存, 房间数, 侧室数)`），现在**整局一份就够** ——
+   * 房间数不再是这里给的参数，几何全在 `floor-plan.json` 里。
+   *
+   * 三处用它：`buildFloor()` 交给 D2 的生成器、`Minimap` 用来问「这一间打不打架」
+   * （`roomFillColor`）、`roomPlan()` 的强度倍数要 `budgetBase`。
+   * **别在哪一层现读缓存** —— 那会多出一处「配置从哪儿来」。
+   */
+  private rooms!: RoomsConfig
+  /**
+   * 已解析的 `floor-plan.json`。★ 新增（v5）：一层楼的**几何**，
+   * 与种子无关 —— 整局一份，换层也不变（换的是内容，不是楼）。
+   */
+  private plan!: FloorPlan
+  /**
+   * 现在在第几层（1 起）。**这一局打的是「第几层」**。
+   *
+   * ★ 改了（2026-10-21，整层连续）：原来是「每层自己有一张随机地图、自己的一串房间，
+   * 最后一间是本层的首领」—— 三件都不成立了：**楼整局一份**（就是上面 `plan` 那张
+   * 平面图，换层不换楼），**首领恒在 YF604**（16 间里排第 5，离末位很远），
+   * 每层变的只是**内容**（关别、障碍物、刷怪点）。
    */
   private floor = 1
   /**
@@ -102,24 +191,116 @@ export class BattleScene extends Phaser.Scene {
    */
   private floorSeedList: number[] = []
   /**
-   * 打通一层之后出现的「下一层」入口。**只在首领房、且只在非最后一层** ——
-   * 自动下楼会把「我准备好了」那一刻吃掉（见 `FloorExit` 的文件头）。
+   * 楼梯间里那个「**下一层**」入口。打完本层首领才亮，最后一层不亮（那是通关）。
+   *
+   * ★ 改了（2026-10-21，用户报的）：它原来亮在**楼梯间门外的走廊上**（= 玩家出生的那个点）。
+   * 用户的原话是「打完该层首领后去下一层的路应该出现在楼梯间里，而不是楼梯间门口」——
+   * 楼梯间是这一层楼**唯一的上下楼口**，入口摆在门口等于把「中转站」这个名字
+   * 挂在一个玩家路过都不必进去的门框上。位置见 `stairPadSpots()`。
    */
   private exit!: FloorExit
-  /** 本间的门开了没有。开了才让按 `F` 过门。 */
-  private doorOpen = false
   /**
-   * 已经进过的房间（0 起）。**回走的房间不该再刷一遍怪** ——
+   * 楼梯间里那个「**上一层**」入口。**第 1 层没有**（上面没有楼），其余每层一直在。
+   *
+   * 用户 2026-10-21：「如果有上一层，在楼梯间里可以回去」。
+   *
+   * ⚠️ **它和「下一层」是两件事，别合并成一个「换层」入口**：
+   * 一个要打完首领才出现、一个从下楼那一刻起就在；一个把玩家送到没打过的楼层、
+   * 一个送回去。合成一个「按 F 换层」的话，玩家在楼梯间里按下去是上还是下，
+   * 只能靠代码里的顺序决定 —— 而那正是「一次按键同时满足两条判据」的经典写法
+   * （见 `stairPadSpots()`：两个方框刻意离得比够得着的门槛远）。
+   */
+  private upExit!: FloorExit
+  /**
+   * **每一层各自记着的进度**（进过哪些房、打完哪些房、开过哪些宝箱）。
+   *
+   * ★ 新增（2026-10-21）：有了「上一层」就必须有它 —— `loadFloor()` 每次换层都要把
+   * 那三份记账清干净（换层的理由写在那个函数头上），于是回上一层时得**有地方取回来**。
+   * 不取回来的三种表现（都不报错）见 `Stairwell.FloorProgress` 的类注释。
+   */
+  private readonly progress = new FloorProgress()
+  /**
+   * **正在战斗**的那些房间（`Room.order`）。门该不该关只读它
+   * （判据是 D2 的 `doorShouldBeClosed`，这里是那份判据的输入）。
+   *
+   * ★ 取代了 v4 的 `doorOpen`（一个布尔：「本间的门开了没有」）。
+   * 布尔值表达不了整层：16 间房各有各的门，而每扇门的开关是**按房**判的。
+   *
+   * 今天**最多只有一个元素**（进门才刷怪，而玩家进不了第二间 —— 门封着），
+   * 用集合是因为判据的签名就是集合（`DoorStateInput.combatRooms`），
+   * 而传一个「集合，但保证只有一个」比传一个 `order` 更贴判据、也少一处转译。
+   */
+  private combatRooms = new Set<number>()
+  /**
+   * 已经进过的房间（`Room.order`）。**回走的房间不该再刷一遍怪** ——
    * 没有这一条，回头再进门就是重打一遍，而「能回头」立刻变成惩罚。
+   *
+   * ⚠️ **它不等于「打完了」。** 一进门就写进来（封门与刷怪也在那一刻），
+   * 而小地图那一行的「走过 N / 16 间」问的正是「去过没有」—— 两份是一件事。
+   * 「打完了没有」是下面那个 `cleared`，**别再把这一份喂给房号那行字**。
    */
   private visited = new Set<number>()
-  /** 局内成长选完了没有。和 `loot.completed` 一起决定门什么时候开。 */
-  private rewardDone = false
-  /** 右上角的一层缩略图。**层内走门很容易走丢**，没有它玩家不知道还剩几间。 */
+  /**
+   * **打完的**房间（`Room.order`）。喂给观感层（地上的房号、门的颜色）。
+   *
+   * 与 `visited` 只差一件事，但差在**玩家一眼就能看见的地方**：
+   * 普通关推门进去、一只怪都还没打的时候，`visited` 里已经有了、`cleared` 里还没有。
+   * 2026-10-21 之前房号读的是 `visited`，于是那一刻地上写着「已清」（用户报的 bug）。
+   *
+   * **不用打的房（道具关 / 宝箱关）：宝箱开了才算清** —— 它们的「这一间做完了」
+   * 就是「东西拿到了」，不是「走进来了」（见 `enterRoom()` 与 `trackChestOpened()`）。
+   *
+   * ★ 改了（2026-10-21，紧随用户报的「刚进普通关还没打怪就显示已清」）：
+   * 原来是**一进门就算清**（理由是「不用打的房一进场就没有悬念了」）。可那几间的
+   * 悬念不是打不打，是**箱子里那把武器**——玩家进门、箱子还没开，地上就写着「已清」，
+   * 与用户报的那条是同一类错：**「已清」要读作「这间没别的事了」**。
+   *
+   * 楼梯间（`start`）**永远不进这一份**：它没有可做完的事，它是过道。
+   */
+  private cleared = new Set<number>()
+  /**
+   * 道具关 / 宝箱关的宝箱**开过没有**（`Room.order`）。
+   *
+   * 有它才能做到「宝箱是**这一间**的东西」：没开过 → 每次进来它都在原地；
+   * 开过 → 不再出现。少了「开过」这一半就是**一台重抽武器的机器**
+   * （出门再进门，宝箱里又是一把随机武器）—— 而房间里那把武器是随机的
+   * （`FirstBossLoot.interact()` 走 `chooseRandomWeaponId()`）。
+   */
+  private lootedRooms = new Set<number>()
+  /**
+   * 现在场上那个宝箱属于哪一间（`Room.order`）。`null` = 场上没有宝箱。
+   *
+   * 只用来在离开时**结账**：走之前问一句「它开过没有」，记到 `lootedRooms` 里
+   * （见 `settleChest()`）。宝箱是**世界里的东西**，它不属于「现在在哪一间」。
+   */
+  private chestRoom: number | null = null
+  /** 右上角的一层缩略图。**整层走起来很容易走丢**，没有它玩家不知道还剩几间。 */
   private minimap!: Minimap
   /** 本局的楼层种子。**每局都换**，留在场上是为了能复现同一层。 */
   private runSeed = 0
-  /** 过门的键。**和暂停的 `ESC`、拾取的 `E` 错开**，别让人捡东西时误过门。 */
+  /**
+   * 正在打的那一间（`combatRooms` 里那一个的房间数据）。
+   *
+   * **和 `roomOrder` 不是一回事**：`roomOrder` 是「我脚底下是哪间」（走出门就变），
+   * 这个是「哪一间还没打完」（人走了也还在打）。分开存是为了清房判定有个稳定的主语 ——
+   * 用它去数怪，就不会出现「玩家一只脚踏在门口，判据在数和走廊之间来回跳」。
+   */
+  private activeRoom: DungeonRoom | null = null
+  /**
+   * 「这一间已经清空」是从哪一刻开始成立的（游戏时钟毫秒）。`null` = 还没清空。
+   *
+   * ⚠️ **不能见到「怪全死了」就当清完**：最后一只分裂怪死掉时，子代还在
+   * `enemies.json` 的 `splitDelayMs` 里等着，那一段「存活 0、队列 0」是真的。
+   * 一空就开门会提前放行，而玩家走进隔壁之后子代才在原地冒出来 ——
+   * 表现是「有一间永远清不掉」。晾 `rooms.json` 的 `settleMs` 再宣告
+   * （那条判据由 `roomFlow.test.ts` 盯着「必须大于最大的 splitDelayMs」）。
+   */
+  private clearSince: number | null = null
+  /** 这一间的清空**已经宣告过**了。同一间只发一次成长、只掉一次宝箱。 */
+  private clearEmitted = false
+  /** 调试键 `C` 请求过清房。见 `requestClear()`。 */
+  private clearRequested = false
+  /** 过「下一层」的键。**和暂停的 `ESC`、拾取的 `E` 错开**，别让人捡东西时误按。 */
   private passKey!: Phaser.Input.Keyboard.Key
   /** 抓取冻结已经持续了多久（毫秒，渲染时间）。**兜底用**：一直解不开就强制放人 */
   private grabFrozenMs = 0
@@ -145,28 +326,28 @@ export class BattleScene extends Phaser.Scene {
   constructor(key = 'battle') {
     super(key)
   }
-  /**
-   * **本层**有几间。由 D2 生成器按 `rooms.json` 决定（`arena.roomsPerFloor` 给的数），
-   * 不是写死的 —— 每层都一样多，但那是配置说的，不是这里说的。
-   */
-  private get roomCount(): number {
-    return this.dungeon?.rooms.length ?? this.cfg.arena.roomsPerFloor
-  }
   /** 一局几层。**就是 `arena.maxStages`** —— 第 1..N 层各有一个首领。 */
   private get floors(): number {
     return this.cfg.arena.maxStages
   }
   init(data: { difficulty?: Difficulty } = {}): void {
     this.difficulty = data.difficulty ?? 'normal'
-    this.stage = 1
     this.floor = 1
     this.floorSeedList = []
-    this.clearAt = -1
+    this.roomOrder = -1
+    this.activeRoom = null
+    this.combatRooms.clear()
+    this.clearSince = null
     this.clearEmitted = false
-    this.spawned = false
+    this.clearRequested = false
     this.gameWon = false
     this.visited.clear()
-    this.rewardDone = false
+    this.cleared.clear()
+    this.lootedRooms.clear()
+    this.chestRoom = null
+    // ⚠️ **每层的记性也要清**，否则重开的第二局一进楼梯间就能「回上一层」——
+    // 回到的是**上一局**某一层的快照，而那一层的房号、门、宝箱全按老规矩亮着。
+    this.progress.forget()
     // 场景实例是复用的，字段必须在这里回到初始值 —— 漏了 `runEnded` 的话，
     // 重开的第二局一上来就"已经结算过"，结算界面再也不会出现。
     this.runEnded = false
@@ -174,17 +355,22 @@ export class BattleScene extends Phaser.Scene {
   }
   preload(): void {
     preloadAssets(this)
+    // ⚠️ **`stage-collisions.json` 与 `painted-rooms.json` 不在这一串里了**
+    // （2026-10-21，整层连续）：关卡几何现在来自 **D2 的生成器**
+    // （`buildDungeonStages()`），那两份手画的 JSON 是「一间房一关」时代的产物。
+    // 前者还被 `StageGeometry.test.ts` 当作**校验器的夹具**直接从磁盘读（不经过这里），
+    // 后者连同 `PaintedRooms.ts` 一起删了。
     for (const n of [
       'balance.json',
       'difficulty.json',
       'enemies.json',
       'combat.json',
-      'stage-collisions.json',
-      'painted-rooms.json',
       'rewards.json',
-      // D2 的地牢生成配置。**必须走 Phaser 的 loader，不能 fetch** ——
+      // D2 的地牢生成配置：**两张表**（数值 + 几何）。
+      // **必须走 Phaser 的 loader，不能 fetch** ——
       // 场景生命周期保证 `create()` 一定在所有加载完成之后才跑。
       ROOMS_CONFIG_NAME,
+      FLOOR_PLAN_NAME,
     ])
       this.load.json(n, `config/${n}`)
     // 文件名与路径走 D4 的常量，别在这里再写一遍字面量（`metaConfig.ts` 是唯一真值）
@@ -202,22 +388,33 @@ export class BattleScene extends Phaser.Scene {
       })
       this.cfg = parseCombatConfig(this.cache.json.get('combat.json'))
       this.rewardDefs = parseRewards(this.cache.json.get('rewards.json'))
-      // 关卡几何来自 **D2 的生成器**：一层楼拆成「一间房 = 一关」，一局**多层楼**。
-      // ⚠️ 房间数要走 `roomsConfigWithRoomCount()` 把 `totalRooms` / `mainRoomMin` /
-      //    `mainRoomMax` **三个数一起改**，直接写死一个会被校验器拒（那三个数互相约束）。
-      //    `sideRoomsPerFloor` 一起传进去，一层才有侧室 —— 一条直线没有路线决策。
+      // 关卡几何来自 **D2 的生成器**：整层一张连续地图（房间 + 走廊 + 门），一局**多层楼**。
+      // ⚠️ **v5 起房间数不由这里决定了。** 原来走 `roomsConfigWithRoomCount()` 把
+      //    `totalRooms` / `mainRoomMin` / `mainRoomMax` 三个数一起改，是因为几何
+      //    **算**出来的、房间数是个自由参数。现在几何是**画**出来的
+      //    （`public/config/floor-plan.json`，照 6F 平面图照片量的），
+      //    一层恒为 16 间（15 间编号教室 + 楼梯间），改房间数 = 改那张图。
       // ⚠️ **种子必须每局换**。`combat.json` 里那个 `arena.seed` 是**固定值**
       //    （它本来是给测试场复现用的），拿它当每局的种子 = 每局都生成一模一样的楼，
       //    「随机生成」四个字就没了。下面把 `runSeed` 留在场上，方便复现整局。
+      this.rooms = roomsConfigFromCache(this.cache.json)
+      // ⚠️ **顺序**：`parseFloorPlan` 第二个参数要一份 `FloorPlanMetrics`，
+      //    而 `RoomsConfig` 结构上满足它（`floorPlanFromCache` 的签名就是这么写的）。
+      //    所以两个 `this.xxx` 之间是**有依赖的**，别为了「看着对称」把两行换个位。
+      this.plan = floorPlanFromCache(this.cache.json, this.rooms)
       this.runSeed = (Math.random() * 0x7fffffff) | 0
       // **整局的每一层种子先抽好**（不是每下一层现抽一个）：这样报出 `runSeed`
       // 就能把整局的每一层都复原出来，而不只是「当前这一层」。
       this.floorSeedList = floorSeeds(this.runSeed, this.floors)
       this.dungeon = this.buildFloor(1)
+      // ⚠️ **竞技场 = 整层包围盒**，必须在 `new CombatSession()` **之前**写回去：
+      //    物理世界边界、寻路网格的行列数、`TerrainMap` 的宽高全在构造函数里读它，
+      //    之后再改就晚了（`TerrainMap.width` 还是 readonly）。见 `applyArena()`。
+      this.applyArena()
       // 过 D1 自己的校验器。**不是形式**：关编号、标识唯一、矩形不越界、
       // 出生点不在墙里 —— 四条都是这个接法最容易错的地方，而错了都不报错。
-      this.stageConfig = parseStageCollisions(this.dungeon.stages, this.roomCount)
-      this.doorOpen = false
+      // ⚠️ 关卡数传 `FLOOR_STAGE`（= 1）：整层**只有一关**，见 `DungeonStages`。
+      this.stageConfig = parseStageCollisions(this.dungeon.stages, FLOOR_STAGE)
       this.drawWorld()
       this.session = new CombatSession(
         this,
@@ -227,25 +424,22 @@ export class BattleScene extends Phaser.Scene {
         this.difficulty,
         this.stageConfig,
       )
-      this.cameras.main.stopFollow().removeBounds().setBackgroundColor(0x050916)
       this.fitCamera()
       this.scale.on('resize', this.fitCamera, this)
       this.events.once(Phaser.Scenes.Events.SHUTDOWN, () =>
         this.scale.off('resize', this.fitCamera, this),
       )
-      this.minimap = new Minimap(
-        this,
-        this.dungeon.rooms.map((r) => r.room),
-        this.dungeon.rooms.map((r) => r.doorTargets),
-        this.floor,
-        this.floors,
-      )
-      this.exit = new FloorExit(this, DOOR_REACH)
+      this.minimap = new Minimap(this, this.dungeon.map, this.rooms, this.floor, this.floors)
+      // 楼梯间里那两个入口（往上 / 往下）。**两个都要先建出来**，哪怕第 1 层
+      // 上面没有楼 —— 「有没有上一层」是 `refreshStairPads()` 每层现判的事。
+      this.exit = new FloorExit(this, { reach: EXIT_REACH, dir: 'down' })
+      this.upExit = new FloorExit(this, { reach: EXIT_REACH, dir: 'up' })
       this.rewardPanel = new RewardPanel(this.session)
       this.gallery = new AssetGallery(this, () => this.toggleGallery())
       this.makeHud()
       this.cursor = new GameCursor(this)
-      // 过门的键。**和拾取的 `E`、暂停的 `ESC` 错开**，别让人捡东西时误过门。
+      // 换层键（上 / 下都用它，按下去往哪边走看脚下踩着哪个方框）。
+      // **和拾取的 `E`、暂停的 `ESC` 错开**，别让人捡东西时误按。
       this.passKey = this.input.keyboard!.addKey(Phaser.Input.Keyboard.KeyCodes.F)
       this.loot = new FirstBossLoot(this, this.session)
       this.loadout = new LoadoutHud(this, this.session)
@@ -262,44 +456,34 @@ export class BattleScene extends Phaser.Scene {
         .setDepth(4500)
       this.session.bus.on('entity_killed', (event) => {
         // 首领也不例外：**每一间都是「清完 → 开箱 → 门开」**，首领那间不再单独掉。
-        if (event.bossStage === this.stage) this.notice.setText('首领已击败')
+        if (event.bossStage === this.floor) this.notice.setText('首领已击败')
       })
+      // 成长选完（或没有可选项）之后：**把这一间收尾**，再说清「接下来去哪儿」。
+      //
+      // ⚠️ 这一条是**按房**判的，不是按「第几间」——`event.roomId` 里装的是
+      //    `Room.id`（`YF604` 这种），不是 v4 那个自己拼的 `d1-room-7`。
       this.session.bus.on('reward_finished', (event) => {
         if (
           event.runId !== this.session.runId ||
-          event.roomId !== 'd1-room-' + this.stage ||
-          !this.clearEmitted ||
           this.gameWon ||
-          this.doorOpen ||
           !this.session.player.model.alive
         )
           return
-        this.session.weapons.clear()
-        // **本层的最后一间**（= 首领房）：层内没有「下一间」了，改亮「下一层」的入口。
-        // 最后一层不亮 —— 那是通关，走 `finishRun()`。
-        if (this.stage >= this.roomCount) {
-          this.rewardDone = true
-          this.tryOpenDoor()
-          const bonus = this.session.grantRandomWeapon()
-          if (this.floor >= this.floors) {
-            this.finishRun()
-            return
-          }
-          this.showFloorExit(bonus)
+        const unit = this.roomById(event.roomId)
+        if (unit === null) return
+        const bonus = this.session.grantRandomWeapon()
+        const label = bonus ? '获得随机武器：' + bonus.name + ' · ' : ''
+        if (unit.room.kind !== 'boss') {
+          this.notice.setText(label + `强化已生效 · 门开了（绿色）· 走廊里随便走，挑一间推门进去`)
           return
         }
-        // 门开了，**不倒计时**：这一层的下一间要玩家自己走过去按 F。
-        // （原来这里 `pause('intermission')` + 1.6 秒后自动进下一关 ——
-        //  一层楼变成「一间房一关」之后，层内是走门，不是等表。）
-        this.rewardDone = true
-        this.tryOpenDoor()
-        const bonus = this.session.grantRandomWeapon()
-        // **报出下一间是什么**：门开了但不知道推门之后是什么，是这一层第二个卡人的地方。
-        const next = this.roomLabel(this.stage + 1)
-        this.notice.setText(
-          (bonus ? '获得随机武器：' + bonus.name + ' · ' : '强化已生效 · ') +
-            `门开了（绿色）· 下一间：${next} · 按 F 过门`,
-        )
+        // **本层的首领打完了**：层内没有"下一个首领"了，改亮「下一层」的入口。
+        // 最后一层不亮 —— 那是通关，走 `finishRun()`。
+        if (this.floor >= this.floors) {
+          this.finishRun()
+          return
+        }
+        this.showFloorExit(bonus)
       })
       // ---- 局外成长（D4）：这一局打的账、暂停菜单、结算界面 ----
       //
@@ -391,7 +575,14 @@ export class BattleScene extends Phaser.Scene {
         },
       })
       this.bindKeys()
-      this.spawnStage()
+      // 出生点就在楼梯间门外的走廊上（`DungeonStages.spawn`），一帧都不用进房。
+      this.syncRoomState()
+      // 第 1 层上面没有楼、首领也还没打 —— 这一趟什么都不亮，但**要走一遍**：
+      // 上/下两个入口的可见性是 `refreshStairPads()` 一处算的，别让"开局这一层"
+      // 成为唯一一条不走它的路径（那正是「以后有人给第 1 层加了个入口、
+      // 而它只在换层时才亮」这类错的温床）。
+      this.refreshStairPads()
+      this.notice.setText(this.floorBrief())
     } catch (e) {
       this.showFatal(e)
     }
@@ -399,48 +590,42 @@ export class BattleScene extends Phaser.Scene {
   override update(_time: number, delta: number): void {
     if (!this.session) return
     this.driveGrab(delta)
-    // `F` 这一个键管两件事：**下楼**（下一层的入口）和**过门**（层内换房间）。
+    this.trackPlayerRoom()
+    // `F` 只管**换层**（楼梯间里那两个入口）—— 门是走过去就行的，没有"过门键"了。
     // 人活着、没暂停才认 —— 也别在切走标签页的时候吃按键。
     if (
       Phaser.Input.Keyboard.JustDown(this.passKey) &&
       !this.session.reasons.has('hidden') &&
       !this.session.reasons.has('user') &&
-      // 抓取期间只剩挣脱：过门键也不认（那时候人还挂在怪身上）
+      // 抓取期间只剩挣脱：换层键也不认（那时候人还挂在怪身上）
       !this.grabbing &&
       this.session.player.model.alive
     ) {
-      // **「下一层」优先于门**：入口在首领房中间，门在墙边，两个都够得着的情况
-      // 几乎不存在；真撞上了，人站在首领房中间想的也是「往下走」。
-      if (this.exit.visible && this.exit.near(this.session.player.x, this.session.player.y)) {
-        this.descend()
-        return
-      }
-      // 过门：**不需要站在门口**：门已经开着的语义是「这一间结束了」，
-      // 逼人先走回门口没有任何信息量，只会让捡完东西还得跑一趟。
-      // （「下一层」那个入口则是要站上去的 —— 它是这一层唯一一个新出现的东西。）
-      if (this.doorOpen) {
-        const to = this.doorAhead()
-        if (to === null) {
-          // 尽头那扇门（`toOrder === null`）：不是「回不去」，是**门外没有房间**。
-          this.notice.setText('要走到门口才能过门（门开着是绿色的）')
-        } else {
-          this.enterRoom(to)
-        }
-      }
+      // ⚠️ **两个入口各问各的**，顺序不代表优先级：两个方框之间隔得比
+      //    「够得着」的门槛远（`stairPadSpots()`），所以**永远不会同时成立**。
+      //    真要有一天同时成立了，说明有人把方框挪近了/把门槛调大了 ——
+      //    那时该改的是那两个数，而不是在这里挑一个先判。
+      const px = this.session.player.x,
+        py = this.session.player.y
+      if (this.exit.visible && this.exit.near(px, py)) this.descend()
+      else if (this.upExit.visible && this.upExit.near(px, py)) this.ascend()
+      else if (this.exit.visible || this.upExit.visible)
+        this.notice.setText(this.stairHintWhenMissed())
     }
     this.exit.update(this.time.now)
-    // 门一开就换成亮绿 + 呼吸 + 箭头 —— 打完一间找不到门出不去是这一层最容易卡人的地方。
+    this.upExit.update(this.time.now)
+    this.trackChestOpened()
+    // 门一开就换成亮绿 + 呼吸 —— 打完一间找不到门出不去是这一层最容易卡人的地方。
     // 用场景时间（`this.time.now`）而不是 `performance.now()`：暂停时场景时间会停，
     // 画面才是静的。
-    this.tryOpenDoor()
-    this.scenery.setDoorOpen(this.doorOpen)
     this.scenery.update(this.time.now)
     this.session.update(delta)
     this.loot.update()
     this.loadout.update()
-    // 首领血条：**按「层」查，不是按「第几间」**。
+    this.checkRoomCleared()
+    // 首领血条：**按「层」查，不是按「房间」**。
     //
-    // `bossStatus(n)` 查的是出生时推给那只怪的那个编号（`requestBoss(stage)`），
+    // `bossStatus(n)` 查的是出生时推给那只怪的那个编号（`spawnBoss(tier)`），
     // 而首领现在带的是**层的序号**。早先这里查的是「第几间」，于是除了个别房间
     // 基本都查不到 —— 血条压根不显示，而且不报任何错。
     const boss = this.session.enemies.bossStatus(this.floor)
@@ -452,58 +637,7 @@ export class BattleScene extends Phaser.Scene {
           `第 ${this.floor} 层 · ${this.bossName(this.floor)}` +
             `\n${Math.ceil(boss.hp)} / ${boss.maxHp}`,
         )
-    if (this.clearAt >= 0 && !this.clearEmitted && !this.session.clock.paused)
-      this.session.enemies.simulateClear()
-    if (
-      this.spawned &&
-      !this.gameWon &&
-      this.session.player.model.alive &&
-      !this.clearEmitted &&
-      this.reachableRemaining() === 0 &&
-      // ⚠️ **这里不能要求 `loot.completed`。** 宝箱是**清空的那一刻**才掉的，
-      //    把它写进清空条件就成了「要开箱才判清空、要判清空才掉箱」——
-      //    一个永远满足不了的前置，表现是「打完怪什么都不发生」。
-      //    「开完箱」是**开门**的条件（见 `tryOpenDoor`），不是「清场」的条件。
-      this.session.clock.nowMs > 500
-    ) {
-      this.clearEmitted = true
-      // 清房数由宿主报：C1 的 `GameEvents` 里还没有 `room_cleared`（D2 的改动日志
-      // 点过名），而账本只订阅总线上已有的事件。事件一进 C1，这行就可以换成订阅。
-      this.ledger.countClearedRoom()
-      if (this.needsFight()) {
-        // **成长只从「打完怪」来。**
-        //
-        // ⚠️ 这里原来是无条件发的，于是不用打的房间（道具关 / 宝箱关）一进门就
-        //    当帧判清空、也发一次成长 —— 玩家的体感是「打完怪给了一次，
-        //    过一道门又给一次」，而那两间其实是**两件不同的事**：
-        //    前者是「清了场」，后者是「这间本来就没怪」。
-        this.session.bus.emit('room_cleared', {
-          runId: this.session.runId,
-          roomId: `d1-room-${this.stage}`,
-        })
-        // **宝箱只给主干线**（以及不打怪的侧室，见下面那一支）。
-        // 侧室里的普通战斗房是支线，打完给三选一就够了 —— 每条支线都塞一个宝箱，
-        // 宝箱就不值钱了。
-        if (this.onMainLine()) {
-          this.loot.reset()
-          this.loot.spawn(this.session.player.x, this.session.player.y - 60)
-          this.notice.setText(
-            '第 ' + this.stage + ' 间完成 · 选择一项强化 · 地上有宝箱（E 开，不开也能走）',
-          )
-        } else {
-          this.notice.setText('第 ' + this.stage + ' 间完成（支线）· 选择一项强化')
-        }
-      } else {
-        // 不用打的房间：门直接开，**不给成长**，但**要给宝箱** ——
-        // 不打怪的房间如果连宝箱都没有，它就是个纯过道，玩家没有理由进来。
-        // （`chest` / `reward` 这类关别存在的意义就是「进来拿东西」。）
-        this.loot.reset()
-        this.loot.spawn(this.session.player.x, this.session.player.y - 60)
-        this.doorOpen = true
-        const next = this.roomLabel(this.stage + 1)
-        this.notice.setText(`本间不用打 · 门开着 · 有宝箱（E 开）· 下一间：${next}`)
-      }
-    }
+    if (this.clearRequested && !this.session.clock.paused) this.session.enemies.simulateClear()
     this.layoutHud()
     this.updateHud()
     const ended = this.gameWon || !this.session.player.model.alive
@@ -525,6 +659,789 @@ export class BattleScene extends Phaser.Scene {
     }
     this.gallery?.update(delta)
   }
+
+  /* ------------------------------------------------------------ 整层连续：一间房的生命周期 */
+
+  /**
+   * **每帧算一次「我站在哪一间」**，变了就转接。整层连续里这是唯一的"进度"来源。
+   *
+   * ⚠️ `inset` 取玩家半径，与 `roomAt()` 的文档说的同一件事：不取 inset 的话，
+   * 人刚跨过门口那条线（身体还有一截在门洞里）就算「进来了」，
+   * 而**封门与刷怪都发生在那一刻** —— 封门是把门洞那一格变成实体，
+   * 玩家的身体正压在上面，物理会把他弹一下。
+   */
+  private trackPlayerRoom(): void {
+    if (this.gameWon || !this.session.player.model.alive) return
+    const radius = this.session.player.model.stats.radius
+    const unit = roomAt(this.dungeon.rooms, this.session.player.x, this.session.player.y, radius)
+    const order = unit?.order ?? -1
+    if (order === this.roomOrder) return
+    this.roomOrder = order
+    // 走到走廊里：把「现在在哪一间」清掉（小地图的黄点本来就在那儿，见 `setPlayer`）。
+    if (unit === null) {
+      this.syncRoomState()
+      return
+    }
+    this.enterRoom(unit)
+  }
+
+  /**
+   * 进一间房。**第一次进和回走是两件事** —— 回走的房间不刷怪、不封门、
+   * 也不重发成长（「能回头」不该变成惩罚，也不该变成刷怪机）。
+   */
+  private enterRoom(unit: DungeonRoom): void {
+    // ⚠️ **离开这一间之前先把宝箱结账**（见 `settleChest()`）：出了这道门，
+    //    下面任何一条分支都可能 `loot.reset()` 把它连同「开过没有」一起抹掉。
+    this.settleChest()
+    // ⚠️ **「还在打」要排在最前面，而且只看 `combatRooms`，不看 `visited`。**
+    //
+    // `roomAt()` 的判据是「身体整个进到房间里」（`inset = 玩家半径`），而门就开在房间的
+    // 边界上 —— 于是**顶着封着的门站在门里的人**会被判成「不在任何一间房里」。
+    // 玩家贴着门站、又走回来，就构成一次「重新进入」，而这时 `visited` 里已经有它了。
+    //
+    // 早先没有这一段，那么这一下会掉进下面的「回走」分支，通知栏印出
+    // **「已清过，放心走」—— 而满屋子的怪就在他身边**。不抛错、不影响判定
+    // （封门读的是 `combatRooms`，不是这里），只在画面上说反话。
+    if (this.combatRooms.has(unit.order)) {
+      this.syncRoomState()
+      this.notice.setText(this.roomBrief(unit))
+      return
+    }
+    const first = !this.visited.has(unit.order)
+    this.visited.add(unit.order)
+    if (!unit.needsFight) {
+      // 不用打的房间：**一只都不刷**，门也不封。里面装的是什么，分两种 ——
+      // 见下面的两支。**两支都要排在「回走」之前**（理由在下面那一段里）。
+      if (roomHasChest(unit.room.kind)) {
+        // 道具关 / 宝箱关：**要给宝箱** —— 不打怪的房间里如果连宝箱都没有，
+        // 它就是个纯过道，玩家没有理由进来。（`chest` / `reward` 这类关别
+        // 存在的意义就是「进来拿东西」。）
+        //
+        // ⚠️ 它**不发成长**：清房事件只从「打完怪」来。早先无条件发，玩家的体感是
+        //    「打完怪给了一次，过一道门又给一次」，而那两间其实是**两件不同的事**。
+        //
+        // ⚠️ **这一段排在下面的「回走」之前，是 2026-10-21 改的。** 原来它排在后面，
+        //    于是**回走的道具房再也拿不到宝箱**：第一次进来时宝箱生成了，出门去别的房
+        //    那一趟 `loot.reset()` 把它销毁（宝箱只有一个位子），再回来时 `first === false`
+        //    直接走「已清过，放心走」—— 宝箱**永久消失**，而且通知栏还说这间有宝箱。
+        //    用户报的「宝箱生成和显示有问题」里就有这一半。
+        //
+        // ⚠️ **但「不用打」不是判据，「这一间装的是宝箱」才是。** 这一段原来是
+        //    `if (!unit.needsFight)` 本身，于是**楼梯间也捞到了一个宝箱**
+        //    （它的关别 `start` 同样不打架）—— 用户 2026-10-21 报的
+        //    「进入楼梯间会生成一个宝箱，这不对」。判据搬回 D2 的 `roomHasChest()`，
+        //    加新的非战斗关别时得在那里明确表态。
+        //
+        // 这一间的 `cleared` **不在这里写**：它的「做完」是**开箱**，见 `trackChestOpened()`。
+        if (this.chestRoom !== unit.order) {
+          // 宝箱**是这一间的东西**：开过就不再生（否则出门再进门 = 重抽武器），
+          // 没开过则每次进来都摆回**同一个位置**（正中心）。`chestRoom` 已经等于
+          // 这一间时什么都不做 —— 宝箱还在原地，连地上的武器都别动它。
+          if (!this.lootedRooms.has(unit.order)) {
+            this.loot.reset()
+            const spot = chestSpotAtCenter(unit)
+            this.loot.spawn(spot.x, spot.y)
+            this.chestRoom = unit.order
+          }
+        }
+        this.syncRoomState()
+        this.notice.setText(
+          `${unit.room.id} ${this.kindLabel(unit)} · 这间不用打 · ` +
+            (this.lootedRooms.has(unit.order) ? '宝箱已开过' : '有宝箱（E 开）') +
+            ' · 门一直开着',
+        )
+        return
+      }
+      // 楼梯间：**过道，不是一间内容房**（用户 2026-10-21：「楼梯间不算起点，
+      // 应该是每层之间的中转站」）。里面没有怪、没有宝箱，**也不进 `cleared`** ——
+      // 它没有"做完"这件事，房号那行字就一直读作「不用打」。
+      //
+      // 它有的是**上下楼的入口**（那两个方框），而那件事每层都可能不同
+      // （第 1 层上面没有楼、没打完首领的层下面去不了），所以每进一次现算一遍。
+      this.refreshStairPads()
+      this.syncRoomState()
+      this.notice.setText(this.stairBrief(unit))
+      return
+    }
+    if (!first) {
+      this.syncRoomState()
+      this.notice.setText(`${unit.room.id} ${this.kindLabel(unit)} · 已清过，放心走`)
+      return
+    }
+    this.combatRooms.add(unit.order)
+    this.activeRoom = unit
+    this.clearSince = null
+    this.clearEmitted = false
+    this.clearRequested = false
+    this.loot.reset()
+    this.syncRoomState()
+    this.spawnRoomEnemies(unit)
+    this.notice.setText(this.roomBrief(unit))
+  }
+
+  /**
+   * 把场上那个宝箱「开过没有」记到**它自己那一间**名下，然后放手。
+   *
+   * ⚠️ **必须在 `loot.reset()` 之前问** —— `reset()` 把 `state` 打回 `'absent'`，
+   * 之后 `loot.opened` 就恒为假，再问也没有答案了。
+   *
+   * 只记「开过」的那一半：没开过的房间不进 `lootedRooms`，于是重进来时
+   * 宝箱会照原样摆回去（`enterRoom()` 那一支），玩家不会因为出去绕了一圈就丢了它。
+   */
+  private settleChest(): void {
+    if (this.chestRoom !== null && this.loot.opened) this.lootedRooms.add(this.chestRoom)
+    this.chestRoom = null
+  }
+
+  /**
+   * 宝箱**一开就算这一间做完了** —— 每帧看一眼，开了就结账。
+   *
+   * ⚠️ **为什么是每帧看，而不是「离开时结账」**：房号那行字（`StageBackground`）
+   * 读的是 `cleared`，而玩家开完箱**不会立刻出门** —— 他要捡地上那把武器、读一读
+   * 通知栏、再决定去哪儿。等他出门才变色的话，那一整段时间里地上都写着
+   * 「不用打」，而箱子**已经空了**。（`settleChest()` 那条「离开时」的路径照旧保留：
+   * 它是最后一道保险，万一有哪条路绕过了这里。）
+   *
+   * 判据是 `loot.opened`（只读），不是"宝箱还在不在" —— 开过的箱子仍然画在原地。
+   */
+  private trackChestOpened(): void {
+    const order = this.chestRoom
+    if (order === null || !this.loot.opened || this.lootedRooms.has(order)) return
+    this.settleChest()
+    // ⚠️ 写在 `syncRoomState()` **之前**：房号那行字读的是它。
+    this.cleared.add(order)
+    this.syncRoomState()
+  }
+
+  /**
+   * 宝箱该摆在**这一间的哪儿**：玩家身前 60px，但**不许出这一间**。
+   *
+   * ⚠️ 那条「不许出这一间」不是保险，是**必需**的：`enterRoom()` 是在玩家**刚跨进门口**
+   * 那一刻触发的（`roomAt()` 要求身体整个进到房里），这时玩家离门外的走廊只有十几像素 ——
+   * 「玩家上面 60px」正好落在**墙外**。而走廊和房间里一样是可走地面，
+   * `safeSpawn()` 看不出区别（它只认地面不认墙），于是宝箱就摆到门外去了。
+   *
+   * （另一半原因在 `TerrainMap.safeSpawn()` 的通行半径上，见那份注释。）
+   */
+  private chestSpot(unit: DungeonRoom): { x: number; y: number } {
+    return chestSpotIn(
+      unit,
+      this.session.player.x,
+      this.session.player.y,
+      60,
+      this.cfg.chest.visualSize / 2,
+    )
+  }
+
+  /**
+   * 把「走过哪些房」「封着哪些门」「现在在哪一间」一次同步给三个收件人。
+   *
+   * 三处**共用一个函数**，因为它们本来就是同一件事的三个投影：观感层（`StageBackground`）、
+   * 缩略图（`Minimap`）、物理（`CombatSession.sealDoors`）。分成三个调用点的话，
+   * 迟早有一处漏调 —— 而漏的那一处表现是「门看着开着、人却过不去」（或反过来），
+   * 两个方向都不报错。
+   *
+   * 三个收件人**各自幂等**（`setSealed` / `setCleared` 都比对集合，`setState` 重画一次），
+   * 所以每帧调也不会抖 —— 但调用点仍然只在**状态真的变了**的时候，
+   * 因为 `setSealed` 会触发 16 扇门重画。
+   *
+   * ⚠️ **「去过没有」和「打完没有」是两份，三个收件人要的不是同一份**：
+   * 小地图的标题写着「走过 N / 16 间」，问的是**去过**（`visited`）；
+   * 而地上的房号和门的颜色说的是**这一间能不能走了**，问的是**打完**（`cleared`）。
+   * 两边都喂 `visited` 就是用户 2026-10-21 报的那条：「刚进普通关还没打怪就显示已清」。
+   */
+  private syncRoomState(): void {
+    const rooms = this.dungeon?.rooms ?? []
+    const visited = roomIdsOf(this.visited, rooms)
+    const cleared = roomIdsOf(this.cleared, rooms)
+    const sealed = this.sealedDoors()
+    this.scenery?.setCleared(cleared)
+    this.scenery?.setSealed(sealed)
+    this.minimap?.setState(this.currentRoomId(), visited)
+    this.session?.sealDoors(sealed)
+  }
+
+  /**
+   * 现在该封着哪些门。**判据在 D2 的 `doorShouldBeClosed()` 里**（纯函数、
+   * `roomFlow.test.ts` 钉着），这里只做「把判据喂给它、把结论落到实处」。
+   *
+   * 今天这一条退化成 `combatRooms` 的复制（那正是判据的全部内容：**只有正在战斗的
+   * 房间关门**）。仍然走一遍判据而不是直接传 `combatRooms`，是为了**只有一个地方
+   * 知道那条规则** —— 规则改了（比如将来「首领房要打完才放行」）这里自动跟上。
+   */
+  private sealedDoors(): ReadonlySet<number> {
+    const sealed = new Set<number>()
+    for (const order of this.combatRooms)
+      if (doorShouldBeClosed({ ownerOrder: order, combatRooms: this.combatRooms }))
+        sealed.add(order)
+    return sealed
+  }
+
+  /**
+   * 这一间的怪还差几只（活着 + 排队还没出生的）。
+   *
+   * ⚠️ **起点是 `remaining`，不是 `targets().length`。**
+   *
+   * `remaining = 池子里活着的 + 排队还没出生的`；而 `targets()` 只有**已经出生**的。
+   * 刷怪是带延迟的（第二批有 `phaseDelayMs`），所以进房间那一刻「已出生的」是 0 ——
+   * 拿 `targets().length` 当判据就会**当帧判定清空**：宝箱立刻掉、门立刻开、
+   * 一层楼一间房都没打就"通关"了。
+   *
+   * 然后从这里扣掉**不在这一间里 / 已经挤出墙外再也打不到**的那些：
+   * 前者是位置判据（怪被物理推到隔壁去了），后者是 `reachableRemaining()` 原来那道
+   * 兜底（重叠的静态体会把怪继续往外推，于是它卡在墙外，而清场判定数的是"还活着的"
+   * → **这一间永远清不完，卡死**）。
+   */
+  private roomRemaining(unit: DungeonRoom): number {
+    const enemies = this.session.enemies
+    let outside = 0
+    for (const t of enemies.targets()) {
+      const r = unit.room.rect
+      const inside =
+        t.x >= r.x - r.width / 2 &&
+        t.x <= r.x + r.width / 2 &&
+        t.y >= r.y - r.height / 2 &&
+        t.y <= r.y + r.height / 2
+      if (!inside || !this.session.terrain.isWalkable(t.x, t.y, 4)) outside++
+    }
+    return Math.max(0, enemies.remaining - outside)
+  }
+
+  /**
+   * 清房判定：**这一间的怪清完 + 安静够 `settleMs`**。
+   *
+   * 两个条件缺一不可，各自的理由见 `clearSince` 与 `roomRemaining()`。
+   * 宣告只发一次（`clearEmitted`），而「回走」的房间根本不进这条路径
+   * （`activeRoom` 是 `null`）。
+   */
+  private checkRoomCleared(): void {
+    const unit = this.activeRoom
+    if (unit === null || this.clearEmitted || this.gameWon) return
+    if (!this.session.player.model.alive || this.session.clock.paused) return
+    if (this.roomRemaining(unit) > 0) {
+      this.clearSince = null
+      return
+    }
+    const now = this.session.clock.nowMs
+    if (this.clearSince === null) {
+      this.clearSince = now
+      return
+    }
+    if (now - this.clearSince < this.rooms.settleMs) return
+    this.onRoomCleared(unit)
+  }
+
+  /**
+   * 这一间清完了。**顺序是有讲究的**（三件事不能颠倒）：
+   *
+   * 1. **先解封**（`combatRooms.delete` + `syncRoomState`）—— 门开着是这一间的结果，
+   *    而下一步发出去的事件会**当场暂停游戏**（`CombatSession` 收到 `room_cleared`
+   *    会 `pause('reward')` 并弹三选一）。排在后面的话，暂停期间门还是封的，
+   *    而玩家选完之后看到的是「强化生效了但门没开一下」。
+   * 2. **宝箱**（只给精英关）—— 和 v4 一样：普通战斗房给三选一就够了，
+   *    每一间都塞一个宝箱，宝箱就不值钱了。
+   * 3. **最后才发 `room_cleared`** —— 它带着 `Room.id`（不是自己拼的房间号），
+   *    因为奖励是**按房**记账的（`RewardRun.completedRooms`）：
+   *    键撞了的话，重进一间已清过的房会再发一次成长。
+   */
+  private onRoomCleared(unit: DungeonRoom): void {
+    this.clearEmitted = true
+    this.clearRequested = false
+    this.activeRoom = null
+    this.combatRooms.delete(unit.order)
+    // ⚠️ **写在 `syncRoomState()` 之前** —— 房号那行字和门的绿都读 `cleared`，
+    //    排在后面的话要等下一次同步才变色（表现是「门开了但房号还写着没打」）。
+    this.cleared.add(unit.order)
+    this.syncRoomState()
+    this.ledger.countClearedRoom()
+    if (unit.room.kind === 'elite') {
+      this.loot.reset()
+      const spot = this.chestSpot(unit)
+      this.loot.spawn(spot.x, spot.y)
+    }
+    this.session.bus.emit('room_cleared', {
+      runId: this.session.runId,
+      roomId: unit.room.id,
+    })
+    // ⚠️ **精英那一间也要更新通知栏。** 早先这一句套在 `kind !== 'elite'` 里，
+    // 于是清完精英房之后屏幕上还留着一行「门已封上，清完才开」—— 门其实已经开了，
+    // 而这一行正是玩家判断「现在能不能出去」的依据。（实测 2026-10-21 走一遍时看到。）
+    this.notice.setText(
+      unit.room.kind === 'elite'
+        ? `${unit.room.id} ${this.kindLabel(unit)} · 清怪完成 · ★ 宝箱已出现（E 开）· 选择一项强化`
+        : `${unit.room.id} ${this.kindLabel(unit)} · 清怪完成 · 选择一项强化`,
+    )
+  }
+
+  /**
+   * 在一间房里刷怪。**位置全部来自 D2 给的刷怪点**，不是「以玩家为圆心撒一圈」——
+   * 后者是按旧的大竞技场调的，撒在一间教室里等于怪全糊在玩家脸上。
+   */
+  private spawnRoomEnemies(unit: DungeonRoom): void {
+    const cx = this.session.player.x,
+      cy = this.session.player.y
+    // ⚠️ **离玩家进这间房时站的位置太近的刷怪点要跳过。**
+    //    刚推门进来那一下是躲不开的，怪贴脸出生不是难度，是偷袭。
+    //    落点全被滤掉时退回**最远的那个点**，而不是退回玩家脚下 ——
+    //    宁可怪从房间那头走过来，也不要它长在玩家身上。
+    const far = (q: { x: number; y: number }) => Math.hypot(q.x - cx, q.y - cy)
+    const kept = unit.spawnPoints.filter((q) => far(q) >= SAFE_SPAWN_GAP)
+    const spots = kept.length
+      ? kept
+      : unit.spawnPoints.length
+        ? [unit.spawnPoints.reduce((a, b) => (far(b) > far(a) ? b : a))]
+        : []
+    // ⚠️ **刷怪点也要过 `safeSpawn()`。**
+    //    D2 的刷怪点是从门可达的，但**不一定离墙够远** —— 怪的物理体一出生就
+    //    和墙重叠，物理解算会把它**继续往外推**（已经重叠的静态体，推开方向由
+    //    最小穿透轴决定，可能是墙外），于是它卡在墙外再也回不来，
+    //    而清场判定数的是「还活着的怪」→ **这一间永远清不完，卡死**。
+    const at = (i: number) => {
+      const raw = spots.length === 0 ? { x: cx, y: cy } : spots[i % spots.length]!
+      // ⚠️ 最后一个参数是**通行半径**（走得到那儿的是谁）= 玩家，不是怪的净空。
+      //    见 `TerrainMap.safeSpawn()`：门洞比怪窄的房间（如种子 20261012 的 YF611），
+      //    拿 26 去泛洪会把整间房判成「不可达」，刷怪点被扔到**隔壁房和走廊**。
+      return this.session.terrain.safeSpawn(
+        raw.x,
+        raw.y,
+        ENEMY_CLEARANCE,
+        this.session.player.model.stats.radius,
+      )
+    }
+    // 怪比刷怪点多时同一个点会叠人 —— 按序号错开一点，避免完全重合
+    const offset = (i: number) => (spots.length && i >= spots.length ? (i % 3) * 26 - 26 : 0)
+    // ⚠️ **强度按这一间的威胁预算来，不按层号。**
+    //    `Room.budget` 由 D2 按「到楼梯间的跳数」算（`gen/budget.ts`），
+    //    `budgetBase` 是 `t = 0`（出生点旁边那间）的值 —— 比值正好是强度倍数。
+    const growth = unit.room.budget / this.rooms.budgetBase
+    const p = roomPlan(this.bundle, this.cfg, this.difficulty, growth)
+    for (let i = 0; i < p.splitters; i++) {
+      const s = at(i)
+      this.session.enemies.spawn(
+        'splitter',
+        0,
+        s.x + offset(i),
+        s.y + offset(i),
+        i >= Math.ceil(p.splitters * p.secondPhaseFraction) ? p.phaseDelayMs : 0,
+      )
+    }
+    // 抓取怪：第三个轴（`arena.initialGrabbers`，可以是小数 = 概率）。
+    // 靠近楼梯间的那几间算出来是 0 只 —— 先让玩家在别处认识「!」，再让它来抓人。
+    for (let i = 0; i < p.grabbers; i++) {
+      const k = p.splitters + p.tanks + i
+      const s = at(k)
+      this.session.enemies.spawn('grabber', 0, s.x + offset(k), s.y + offset(k))
+    }
+    for (let i = 0; i < p.tanks; i++) {
+      const s = at(p.splitters + i)
+      this.session.enemies.spawn(
+        'tank',
+        0,
+        s.x + offset(p.splitters + i),
+        s.y + offset(p.splitters + i),
+      )
+    }
+    // 首领：**只有 `kind === 'boss'` 那一间出**。别的房间一只都不出 ——
+    // 一局三层，三个首领，一层一个。
+    //
+    // ★ 改了（v5）：v4 这里写的是「只有本层的**最后一间**出（D2 只把它放在末间、
+    // 而且不放侧室里）」—— 「末间」是进度轴的说法，「侧室」随 `Room.branch` 删了。
+    // v5 里 D2 在平面图上**写死**是哪一间：YF604（一层 16 间里排第 5）。
+    //
+    // ⚠️ **别改回「主干上每一间都出一个」。** 那是「一局只有一层」时期的写法
+    //    （那时一层十几间，隔几间摆一个首领才像有节奏）；现在一局三层、
+    //    每层十六间房，再按主干摆就是一层两三个首领 —— 首领贬值成路障，
+    //    而三个真正的首领（蘑菇 / 霜翼使徒 / 终焉蛛王）该各自守一层。
+    //
+    // 档位 = **层的序号**，不是房间进度：第 1 层是蘑菇首领、第 2 层是远程的霜翼使徒、
+    // 第 3 层（最后一层）是终焉蛛王。`requestBoss()` 按这个号挑模板，
+    // 末层那位走 `finalBoss: true`（不用远程模板 —— 那是「还没到最终战」的区分）。
+    if (unit.room.kind === 'boss') {
+      const tier = this.floor
+      // 首领摆在**离房间中心最近的那个刷怪点**（`spawnPoints[0]`），再往上让 40px：
+      // 首领体形大，摆在格子中心会有一截压在墙/课桌上。
+      const spot = unit.spawnPoints[0] ?? { x: cx, y: cy }
+      this.session.enemies.spawnBoss(
+        tier,
+        spot.x,
+        spot.y - 40,
+        this.cfg.encounter.bossHp + (tier - 1) * this.cfg.encounter.bossHpPerStage,
+        tier >= this.floors,
+      )
+    }
+  }
+
+  /** 一间房在通知栏里的那一行：房号、关别、尺寸、刷了什么。 */
+  private roomBrief(unit: DungeonRoom): string {
+    const r = unit.room.rect
+    return (
+      `${unit.room.id} ${this.kindLabel(unit)} · ${r.width}×${r.height} · ${this.label()} · ` +
+      `门已封上，清完才开`
+    )
+  }
+  private kindLabel(unit: DungeonRoom): string {
+    return ROOM_KIND_LABELS[unit.room.kind] ?? unit.room.kind
+  }
+  /** 按 `Room.id` 找一间，找不到给 `null`。 */
+  private roomById(id: string): DungeonRoom | null {
+    return this.dungeon?.rooms.find((r) => r.room.id === id) ?? null
+  }
+  /** 玩家现在在哪一间（`Room.id`）。拿不到时 `null` —— 小地图把 `null` 读作「不在任何一间房里」。 */
+  private currentRoomId(): string | null {
+    return this.dungeon?.rooms.find((r) => r.order === this.roomOrder)?.room.id ?? null
+  }
+  /** 现在这一间是不是首领房（`Room.kind === 'boss'`）。只影响血条往上让多少。 */
+  private isBossRoom(): boolean {
+    return this.dungeon?.rooms.find((r) => r.order === this.roomOrder)?.room.kind === 'boss'
+  }
+
+  /* ------------------------------------------------------------ 换层 */
+
+  /**
+   * 生成第 `n` 层（1 起）。**整层一份几何**：`buildFloor()` 交出来的
+   * `DungeonStages.stages` 里只有一关（整层），内容（关别 / 桌椅 / 刷怪点）随种子变。
+   *
+   * 种子取的是**开局就抽好的那一串**（`floorSeedList`），不是现抽一个 ——
+   * 这样 `runSeed` 能复现整局，而不只是「回到某一层再生成一次」。
+   */
+  private buildFloor(n: number): DungeonStages {
+    const seed = this.floorSeedList[n - 1] ?? this.runSeed
+    return buildDungeonStages(seed, this.rooms, this.plan, this.cfg)
+  }
+  /**
+   * 把**整层的包围盒**写回 `cfg.arena`。
+   *
+   * ⚠️ **这一步不是可有可无的**：`DungeonStages` 交出的几何是**地图坐标、1:1**
+   * （它的 `sourceSize` 就是整层尺寸），而 `stageGeometry()` 的取景框是
+   * `fitMapFrame(arena.width, arena.height, sourceSize…)` —— 两个数不相等时
+   * 整层会被缩到七分之一并居中，而且**什么都不报**（看起来像「地图没加载」）。
+   * `TerrainMap` 的宽高、物理世界的边界、寻路网格的行列数读的也是这一对。
+   *
+   * ⚠️ **换层时它必须是不变的**：一局几层共用同一张平面图（`floor-plan.json` 画死了
+   * 这一层楼），换层换的是内容不是楼。真要分层不同几何，`TerrainMap.width`（readonly）
+   * 和物理世界边界都在 `CombatSession` 构造时定了，得先改那边 —— 所以这里**当场抛**，
+   * 而不是让它以「第二层的墙全在错位」的形式出现。
+   */
+  private applyArena(): void {
+    const arena = arenaOf(this.dungeon.map)
+    if (
+      this.session !== undefined &&
+      (arena.width !== this.cfg.arena.width || arena.height !== this.cfg.arena.height)
+    )
+      throw new Error(
+        `第 ${this.floor} 层的包围盒（${arena.width}×${arena.height}）与上一层` +
+          `（${this.cfg.arena.width}×${this.cfg.arena.height}）不一样 —— 换层换的应该是内容，` +
+          `不是楼。见 BattleScene.applyArena()。`,
+      )
+    this.cfg.arena.width = arena.width
+    this.cfg.arena.height = arena.height
+  }
+  /** 下到下一层。**只在入口亮着、且玩家站在上面时调用**（见 `update()` 里那一段）。 */
+  private descend(): void {
+    if (this.floor >= this.floors) return
+    this.leaveFloor()
+    this.floor++
+    this.loadFloor()
+  }
+  /**
+   * 回上一层。**只在「上一层」那个入口亮着、而玩家站在上面时调用**（见 `update()`）。
+   *
+   * 与 `descend()` 只差一个方向，但**两件事都要做对**：
+   * ① 走之前把这一层的进度**存下来**（`leaveFloor()`）；
+   * ② 落地之后 `loadFloor()` 会把上一层那份**取回来**（`progress.restore()`）。
+   * 少了①，上一层会以「没打过」的样子长回来（怪重刷、宝箱重生、首领复活 ——
+   * 而首领复活意味着**那一层的出口没了**，卡死）。少了②同理，方向相反。
+   */
+  private ascend(): void {
+    if (this.floor <= 1) return
+    this.leaveFloor()
+    this.floor--
+    this.loadFloor()
+  }
+  /**
+   * 记下**现在这一层**的进度，然后才准换层。
+   *
+   * ⚠️ **必须在 `this.floor` 被改掉之前调**：存的是"刚才那一层"，用改过之后的
+   * 层号去存就把第 1 层的进度记到第 2 层名下了 —— 而两个方向（上/下）都会中招。
+   */
+  private leaveFloor(): void {
+    this.progress.save(this.floor, {
+      visited: this.visited,
+      cleared: this.cleared,
+      lootedRooms: this.lootedRooms,
+    })
+  }
+  /**
+   * 换上**当前 `this.floor` 那一层**的几何与观感。
+   *
+   * ⚠️ **顺序有讲究。**几何要在 `session.loadFloor()` 之前换好（那一趟里
+   * `enterStage()` 按新的 `stageConfig` 重算寻路网格与落脚点）；观感层里
+   * `Minimap` 是「换一份排布」，而 `StageBackground`（和 v4 一样）**没有
+   * 「换一层」这个动作**（它构造时就吃下了一层的房间表），所以只能整个重建。
+   *
+   * ⚠️ **所有「按房的记账」必须一起清**：`visited`（哪间进过）、`cleared`（哪间打完）、
+   * `combatRooms`（哪间在打）、`lootedRooms`（哪间的宝箱开过）。不清前两个的话，
+   * 新层的第 3 间会被当成「回走」—— 一进门就门大开、一只怪不刷、房号还写着「已清」；
+   * 不清 `combatRooms` 的话，上一层那扇封着的门会指到新层**同一个房号**上去，
+   * 表现是「刚下楼就有一间进不去」；不清 `lootedRooms` 的话，新层同号码那间
+   * （**几何是同一张图**，房号一一对应）的宝箱会莫名其妙地不出现。
+   */
+  private loadFloor(): void {
+    this.dungeon = this.buildFloor(this.floor)
+    this.applyArena()
+    this.stageConfig = parseStageCollisions(this.dungeon.stages, FLOOR_STAGE)
+    this.scenery.destroy()
+    this.drawWorld()
+    this.minimap.setFloor(this.dungeon.map, this.floor, this.floors)
+    // 换层：先清空**这一层**的记账，再把**这一层上次的记账**取回来
+    // （没来过这一层则取回来的是 `null`，那就是一层全新的楼）。
+    // 取回来之后 `visited` / `cleared` / `lootedRooms` 是三个**新集合**，
+    // `progress.restore()` 给的就是副本 —— 之后这里怎么改都不会脏到快照。
+    const past = this.progress.restore(this.floor)
+    this.visited = past === null ? new Set() : new Set(past.visited)
+    this.cleared = past === null ? new Set() : new Set(past.cleared)
+    this.lootedRooms = past === null ? new Set() : new Set(past.lootedRooms)
+    this.chestRoom = null
+    this.combatRooms.clear()
+    this.activeRoom = null
+    this.roomOrder = -1
+    this.clearSince = null
+    this.clearEmitted = false
+    this.clearRequested = false
+    this.loot.reset()
+    // ⚠️ **强化账本也要按层清。** 它记的是 `Room.id`，而一局几层**共用同一张平面图**
+    //    （房号一模一样）—— 不清的话第 2 层清完 `YF604` 时 `offer()` 返回 `null`，
+    //    于是：三选一不弹、**整层拿不到强化**、而「亮出下一层入口」正挂在
+    //    `reward_finished` 上 ⇒ **下楼口不亮，那一局卡死在第 2 层**。
+    //    实测见 `RewardRun.forgetFloor()` 的注释（`downLit=false`）。
+    this.session.rewards.forgetFloor()
+    this.session.loadFloor(this.stageConfig)
+    this.syncRoomState()
+    // 楼梯间里那两个入口：**每层都要重算**（第 1 层上面没楼、没打完首领的层
+    // 下面去不了、走回来的层则是「首领早就打完了」）。它自己会先 `hide()`。
+    this.refreshStairPads()
+    // ⚠️ **通知栏必须在这里重写。** 它是「我现在在哪、该往哪走」的唯一说明，
+    // 而换层之后它还留着**上一层**的话 —— 实测下到第 2 层时屏幕上写的是
+    // 「第 1 层通关 · 蘑菇首领已击败 · 回楼梯间，走到青绿方框上按 F 下到第 2 层」，
+    // 而那个方框已经隐藏了（新层的首领还没打），玩家会站在出生点找它。
+    this.notice.setText(this.floorBrief())
+  }
+  /**
+   * 刚换上一层时通知栏那行字。**`create()` 与 `loadFloor()` 共用一份** ——
+   * 两处各写一遍的话，改了其中一处就会出现「开局那次和下楼那次说法不一致」。
+   *
+   * ★ 改了（2026-10-21）：原来说的是「出生在楼梯间外的走廊上」。
+   * 上/下楼都能走之后，同一句话要同时说清**两次**落地：
+   * 出生、以及从楼上/楼下回来（`enterStage()` 每次都把人放回走廊上那个点）。
+   * 「出生」只对第一次成立，于是换成「站在」。尾上那一截说的是楼梯间里有什么。
+   */
+  private floorBrief(): string {
+    const stairs = this.stairHint()
+    return (
+      `第 ${this.floor} / ${this.floors} 层 · 站在楼梯间外的走廊上 · ` +
+      `走廊里随便走，推开哪扇门就打哪一间（${this.dungeon.rooms.length} 间）` +
+      (stairs === '' ? '' : ` · ${stairs}`)
+    )
+  }
+  /**
+   * 楼梯间那一间（`kind === 'start'`）。**一局几层共用同一张平面图**，
+   * 所以它每层都是同一间房 —— 但它的**内容**（要不要摆入口、摆几个）逐层不同。
+   */
+  private stairwellUnit(): DungeonRoom | null {
+    return this.dungeon?.rooms.find((r) => r.room.kind === 'start') ?? null
+  }
+  /** 本层首领倒下了没有。**它就是「下一层能不能去」**（打完首领才有出口）。 */
+  private bossDown(): boolean {
+    const unit = this.dungeon?.rooms.find((r) => r.room.kind === 'boss')
+    return unit !== undefined && this.cleared.has(unit.order)
+  }
+  /**
+   * 重算楼梯间里那两个入口的可见性与位置。**`loadFloor()` / `create()` /
+   * 打完首领 / 走进楼梯间**都走它 —— 一处算，别处只读结果。
+   *
+   * | | 什么时候亮 |
+   * |---|---|
+   * | **下一层**（青绿） | 本层首领已倒下，**且**不是最后一层（最后一层是通关，走 `finishRun()`） |
+   * | **上一层**（暖黄） | `floor > 1`。**不看首领** —— 回楼上不该有任何门槛，那是玩家自己的楼 |
+   *
+   * ⚠️ 位置**不是** `dungeon.spawn`（楼梯间门外的走廊），是**楼梯间里面**
+   * （用户 2026-10-21：「去下一层的路应该出现在楼梯间里，而不是楼梯间门口」）。
+   * 两个入口的位置由 `stairPadSpots()` 按楼梯间的**大小**算，再过一遍
+   * `safeSpawn()` —— 楼梯间是非战斗房、里面没有桌椅（`obstacles.ts` 对非战斗房
+   * 直接返回空），所以这一步今天必然落在原地；留着他管的是**将来**。
+   */
+  private refreshStairPads(): void {
+    this.exit.hide()
+    this.upExit.hide()
+    const stair = this.stairwellUnit()
+    if (stair === null) return
+    const spots = stairPadSpots(stair.room.rect, FloorExit.SIZE)
+    const player = this.session.player.model.stats.radius
+    // 净空取**半个方框**（方框不是实体，玩家要走进去）；通行半径（第四个参数）取玩家。
+    const place = (p: { x: number; y: number }) =>
+      this.session.terrain.safeSpawn(p.x, p.y, FloorExit.SIZE / 2, player)
+    if (this.bossDown() && this.floor < this.floors) {
+      const at = place(spots.down)
+      this.exit.show(at.x, at.y)
+    }
+    if (this.floor > 1) {
+      const at = place(spots.up)
+      this.upExit.show(at.x, at.y)
+    }
+  }
+  /**
+   * 通知栏里「楼梯间现在能做什么」那一截。**`floorBrief()` 与走进楼梯间那一下共用** ——
+   * 两处各写一遍的话，改了一处就会出现「走廊里说的和进门前台说的不一样」。
+   *
+   * 没有可说的（第 1 层、首领还没打完）时给**空串**，让调用方自己决定怎么拼。
+   */
+  private stairHint(): string {
+    const parts: string[] = []
+    if (this.upExit.visible) parts.push(`楼梯间里有回第 ${this.floor - 1} 层的入口`)
+    if (this.exit.visible) parts.push(`楼梯间里已有下第 ${this.floor + 1} 层的入口`)
+    return parts.join(' · ')
+  }
+  /**
+   * 走进楼梯间时通知栏那一行。
+   *
+   * 楼梯间**没有宝箱、也不进 `cleared`**（见 `enterRoom()` 那一支），
+   * 所以这一行要说的是**它有什么**：两个入口（有几个说几个），
+   * 以及「还没打完首领时，楼下那个为什么没亮」—— 不然玩家会以为这一层没有出口。
+   */
+  private stairBrief(unit: DungeonRoom): string {
+    const parts = [`${unit.room.id} ${this.kindLabel(unit)}`, '每层之间的中转站']
+    const here = this.stairHint()
+    parts.push(here === '' ? '门一直开着' : here)
+    if (!this.exit.visible && this.floor < this.floors && !this.bossDown())
+      parts.push(`打倒这层的首领，下第 ${this.floor + 1} 层的入口才亮在这儿`)
+    return parts.join(' · ')
+  }
+  /**
+   * 入口亮着、但玩家没站上去时按了 `F` 的那句话。
+   *
+   * ⚠️ 两个入口都亮时要**把两个方向都说出来**（还带颜色）：它们在同一个房间里，
+   * 只说「走到方框上」的话，玩家得自己猜哪个是哪个 —— 而按错的代价是**整层楼**。
+   */
+  private stairHintWhenMissed(): string {
+    const where = '（都在楼梯间里）'
+    if (this.exit.visible && this.upExit.visible)
+      return `要走到方框上才能换层：暖黄 = 回第 ${this.floor - 1} 层、青绿 = 下第 ${this.floor + 1} 层${where}`
+    if (this.exit.visible) return `要走到青绿方框上才能下楼（第 ${this.floor + 1} 层）${where}`
+    return `要走到暖黄方框上才能上楼（第 ${this.floor - 1} 层）${where}`
+  }
+  /**
+   * 在**楼梯间里**亮出「下一层」入口，并把话说清楚。
+   *
+   * ★ 改了（2026-10-21，用户报的）：位置从 `dungeon.spawn`（楼梯间**门外**的走廊）
+   * 换成 `dungeon.stairwell`（那一间房本身）。楼梯间是这一层楼唯一的上下楼口 ——
+   * 入口摆在门口，等于把「中转站」挂在一个路过都不必进去的门框上；
+   * 而且玩家要原地站着按两次 `F` 的语义（一次在门口、一次在下一层的门口）也说不过去。
+   */
+  private showFloorExit(bonus: { name: string } | null): void {
+    this.refreshStairPads()
+    this.notice.setText(
+      (bonus ? '获得随机武器：' + bonus.name + ' · ' : '') +
+        `第 ${this.floor} 层通关 · ${this.bossName(this.floor)}已击败 · ` +
+        `回楼梯间，走到青绿方框上按 F 下到第 ${this.floor + 1} 层`,
+    )
+  }
+  private finishRun(): void {
+    if (this.gameWon) return
+    this.gameWon = true
+    this.session.weapons.clear()
+    this.session.pause('victory')
+    this.notice.setText(`全部 ${this.floors} 层已通关 · 按 R 开始新一局`)
+  }
+  /**
+   * 第 `tier` 层首领的中文名。**和 `requestBoss()` 挑模板的规则是同一张表**：
+   * 第 1 档是肉盾模板的首领、第 2 档是远程的霜翼使徒（名字从 `enemies.json` 读）、
+   * 第 3 档（最后一层）是最终首领。
+   */
+  private bossName(tier: number): string {
+    if (tier >= 3) return '终焉蛛王'
+    if (tier === 2) return this.bundle.enemies.stage2Boss.displayName
+    return '蘑菇首领'
+  }
+
+  /* ------------------------------------------------------------ 相机与观感层 */
+
+  /**
+   * 整层的**观感层**：地面、墙、门、房号，一次画完。
+   *
+   * ⚠️ 画的矩形与**物理撞的是同一批**（走 `stageGeometry()` 出来的那一份，
+   * 不带 `frame_*` 那四块世界外沿）—— 观感与碰撞各推一遍的失败模式是
+   * 「看得见的墙能穿过去、看不见的地方走不动」，两边都画得出来，而玩家只会说
+   * 「这游戏碰撞坏了」。
+   */
+  private drawWorld(): void {
+    const layout = stageGeometry(
+      this.stageConfig,
+      FLOOR_STAGE,
+      this.cfg.arena.width,
+      this.cfg.arena.height,
+    )
+    this.scenery = new StageBackground(
+      this,
+      this.dungeon.map,
+      this.dungeon.rooms,
+      this.rooms,
+      layout.solids,
+    )
+  }
+  /**
+   * 相机：**1:1 跟着玩家走**（整层 10520×2920，塞不进屏幕）。
+   *
+   * ⚠️ 缩放读的是 `cfg.camera.viewWidth / viewHeight`（**相机窗口在世界里有多大**），
+   * 不是屏幕分辨率 —— 这样「看得见多大一片」与分辨率无关，大屏上东西更大、
+   * 看得见的范围一样（推导见 `config.ts` 的 `camera` 那一段）。
+   * 原来这里算的是 `min(1, 画布 / 竞技场)`：整张图塞进屏幕。
+   * 那个式子在整层连续下会得到 **0.12 倍**，画面变成一张蚂蚁大的平面图。
+   */
+  private fitCamera(): void {
+    // ⚠️ 抓取特写期间**不许重算**：这个函数是「整层按配置取景」，
+    //    挂在窗口 resize 上 —— 特写时拖一下窗口，镜头就会被拍回全景，
+    //    而玩家正被按在原地连点，画面却已经拉远（看起来像卡住了）。
+    if (this.grabbing) return
+    const cam = this.cameras.main
+    cam.setZoom(
+      Math.min(
+        this.scale.width / this.cfg.camera.viewWidth,
+        this.scale.height / this.cfg.camera.viewHeight,
+      ),
+    )
+    // 世界边界 = 整层。`setBounds` 之后相机不会跟出地图外（露出黑边）。
+    cam.setBounds(0, 0, this.cfg.arena.width, this.cfg.arena.height)
+    cam.startFollow(
+      this.session.player.anchor,
+      true,
+      this.cfg.camera.followLerp,
+      this.cfg.camera.followLerp,
+    )
+  }
+  /**
+   * 抓取特写：拉近到玩家身上。**不管 HUD** —— 所有 HUD 与覆盖层每帧都按 `1/zoom`
+   * 反算自己的位置，改 zoom 它们自动跟住。
+   */
+  private cameraCloseUp(): void {
+    const cam = this.cameras.main
+    const zoom = Math.min(2.2, Math.max(1.6, cam.zoom * 2.4))
+    cam.setZoom(zoom).centerOn(this.session.player.x, this.session.player.y)
+  }
+  private layoutHud(): void {
+    const camera = this.cameras.main
+    this.minimap.layout(camera)
+    const uiScale = Math.min(1, Math.max(0.3, (camera.width - 36) / 450))
+    this.notice
+      .setScale(uiScale / camera.zoom)
+      .setPosition(
+        camera.width * camera.originX * (1 - 1 / camera.zoom) + 18 / camera.zoom,
+        camera.height * camera.originY * (1 - 1 / camera.zoom) + (16 + 132 * uiScale) / camera.zoom,
+      )
+    this.deathNotice.setScale(Math.min(1, (camera.width - 32) / 320) / camera.zoom)
+  }
+
+  /* ------------------------------------------------------------ 杂项 */
+
   /** 现在是不是「被抓着」—— 一处的判据，别在五个地方各写一遍 `reasons.has('grab')` */
   private get grabbing(): boolean {
     return this.session?.reasons.has('grab') ?? false
@@ -569,381 +1486,6 @@ export class BattleScene extends Phaser.Scene {
       this.grabFrozenMs = 0
       this.fitCamera()
     }
-  }
-  /**
-   * 抓取特写：拉近到玩家身上。**不管 HUD** —— 所有 HUD 与覆盖层每帧都按 `1/zoom`
-   * 反算自己的位置，改 zoom 它们自动跟住。
-   */
-  private cameraCloseUp(): void {
-    const cam = this.cameras.main
-    const zoom = Math.min(2.2, Math.max(1.6, cam.zoom * 2.4))
-    cam.setZoom(zoom).centerOn(this.session.player.x, this.session.player.y)
-  }
-  private drawWorld(): void {
-    this.scenery = new StageBackground(
-      this,
-      this.cfg.arena.width,
-      this.cfg.arena.height,
-      this.stageConfig,
-      // 关别定本间底色；`rectInBox` / `doorTargets` 让观感层把「墙外」和
-      // 「门那边是第几间、什么关别」一起画出来 —— 玩家从门洞看进去就能看见下一间。
-      this.dungeon.rooms.map((r) => ({
-        kind: r.room.kind,
-        rectInBox: r.rectInBox,
-        doorTargets: r.doorTargets,
-        gateSides: r.doorTargets.map((_, i) => paintedGateSide(r, i)),
-      })),
-    )
-  }
-  private layoutHud(): void {
-    const camera = this.cameras.main
-    this.minimap.layout(camera)
-    const uiScale = Math.min(1, Math.max(0.3, (camera.width - 36) / 450))
-    this.notice
-      .setScale(uiScale / camera.zoom)
-      .setPosition(
-        camera.width * camera.originX * (1 - 1 / camera.zoom) + 18 / camera.zoom,
-        camera.height * camera.originY * (1 - 1 / camera.zoom) + (16 + 132 * uiScale) / camera.zoom,
-      )
-    this.deathNotice.setScale(Math.min(1, (camera.width - 32) / 320) / camera.zoom)
-  }
-  private fitCamera(): void {
-    // ⚠️ 抓取特写期间**不许重算**：这个函数是「整张图塞进屏幕」，
-    //    挂在窗口 resize 上 —— 特写时拖一下窗口，镜头就会被拍回全景，
-    //    而玩家正被按在原地连点，画面却已经拉远（看起来像卡住了）。
-    if (this.grabbing) return
-    const zoom = Math.min(
-      1,
-      this.scale.width / this.cfg.arena.width,
-      this.scale.height / this.cfg.arena.height,
-    )
-    this.cameras.main.setZoom(zoom).centerOn(this.cfg.arena.width / 2, this.cfg.arena.height / 2)
-  }
-  private finishRun(): void {
-    if (this.gameWon) return
-    this.gameWon = true
-    this.session.weapons.clear()
-    this.session.pause('victory')
-    this.notice.setText(`全部 ${this.floors} 层已通关 · 按 R 开始新一局`)
-  }
-  /**
-   * 第 `tier` 层首领的中文名。**和 `requestBoss()` 挑模板的规则是同一张表**：
-   * 第 1 档是肉盾模板的首领、第 2 档是远程的霜翼使徒（名字从 `enemies.json` 读）、
-   * 第 3 档（最后一层）是最终首领。
-   */
-  private bossName(tier: number): string {
-    if (tier >= 3) return '终焉蛛王'
-    if (tier === 2) return this.bundle.enemies.stage2Boss.displayName
-    return '蘑菇首领'
-  }
-  /** 第 `n` 间（1 起）的中文关别名。越界给「—」。 */
-  private roomLabel(n: number): string {
-    const k = this.dungeon?.rooms[n - 1]?.room.kind
-    return k ? (ROOM_KIND_LABELS[k] ?? k) : '—'
-  }
-  /**
-   * 还活着、而且**站在本间可走地面上**的怪有几只。
-   *
-   * 清场判定用它，不用 `enemies.remaining` —— 后者把「被挤到墙外、再也打不到的怪」
-   * 也算在内，于是**那一间永远清不完，玩家卡死**。
-   * 挤出墙外本身是物理的锅（已经重叠的静态体会把它继续往外推），
-   * 刷怪那一侧已经用 `safeSpawn()` 堵住了大头；这里是不让它变成死锁的兜底。
-   */
-  private reachableRemaining(): number {
-    if (this.session === undefined) return 0
-    const enemies = this.session.enemies
-    // ⚠️ **起点是 `remaining`，不是 `targets().length`。**
-    //
-    // `remaining = 池子里活着的 + 排队还没出生的`；而 `targets()` 只有**已经出生**的。
-    // 刷怪是带延迟的（第二批有 `phaseDelayMs`），所以进房间那一刻「已出生的」是 0 ——
-    // 拿 `targets().length` 当判据就会**当帧判定清空**：宝箱立刻掉、门立刻开、
-    // 一局七间房连怪都没见着就"通关"了。
-    //
-    // 这里只做一件事：把**已经挤出墙外、再也打不到**的那些从 `remaining` 里扣掉。
-    let escaped = 0
-    for (const t of enemies.targets()) {
-      if (!this.session.terrain.isWalkable(t.x, t.y, 4)) escaped++
-    }
-    return Math.max(0, enemies.remaining - escaped)
-  }
-
-  /**
-   * 门什么时候开：**成长选完 + 这一间的宝箱开完**。
-   *
-   * 两件事都做完才开 —— 少等一件就会出现「门开了但宝箱还没捡」，
-   * 而回头去捡又得绕一圈。
-   */
-  private tryOpenDoor(): void {
-    // ⚠️ **只看成长选完没有，不看宝箱。**
-    //    早先要求「宝箱也开完」，于是清完怪还得去开箱捡一把武器才能过门 ——
-    //    而宝箱现在是**每间都掉的额外奖励**，不是通关条件。捡不捡随你。
-    if (this.rewardDone) this.doorOpen = true
-  }
-  /**
-   * 玩家最近的那扇门通向第几间（0 起）；`null` = 那扇门通向墙外（尽头）。
-   *
-   * **按最近的算**，不按"哪扇都行" —— 一间房有三个门的时候，
-   * "哪扇都行"就等于把另外两个门作废，那正是原来那个 bug。
-   */
-  private doorAhead(): number | null {
-    const brief = this.dungeon.rooms[this.stage - 1]
-    if (brief === undefined) return null
-    // ⚠️ **必须走 `stageGeometry()` 转换后的坐标。**
-    //    `stageConfig.stages[n].solids` 是**取景框坐标**（0~760），而玩家的位置是
-    //    **竞技场坐标**（0~1344，已经 `fitMapFrame` 缩放 + 居中）—— 两者差了 2 倍
-    //    还多一个平移。直接拿原始坐标比，距离永远是个巨大的数，**怎么走都判不过**。
-    //    物理和寻路读的都是这里返回的这一份，所以它才是「门在世界里的位置」。
-    const layout = stageGeometry(
-      this.stageConfig,
-      this.stage,
-      this.cfg.arena.width,
-      this.cfg.arena.height,
-    )
-    let best: number | null = null
-    let bestDist = Infinity
-    const doors = layout.solids.filter((z) => z.id.startsWith('door'))
-    doors.forEach((d, i) => {
-      // ⚠️ 量的是**玩家到这个矩形的距离**，不是到它的中心点。
-      //    门洞长边 120（框坐标）× 缩放后在世界里是 250px —— 按中心点量，
-      //    站在门的一端时离中心 125px，会被判成「没站在门口」而过不去。
-      const dx = Math.max(d.x - this.session.player.x, 0, this.session.player.x - (d.x + d.width))
-      const dy = Math.max(d.y - this.session.player.y, 0, this.session.player.y - (d.y + d.height))
-      const dist = Math.hypot(dx, dy)
-      if (dist < bestDist) {
-        bestDist = dist
-        best = brief.doorTargets[i] ?? null
-      }
-    })
-    // ⚠️ **必须站在门口。**
-    //
-    // 早先只挑「离得最近的那扇」，站在房间中间按 F 也能过 —— 于是走去哪一间
-    // 由距离决定，**看起来就像随机**：明明想走左门，结果因为右门近一点就去了右边那间。
-    // 现在要求贴着门（到矩形 50px 以内），站房间中间按 F 只会提示「走到门口」。
-    return bestDist <= DOOR_REACH ? best : null
-  }
-  /** 本间在不在主干线上（`Room.branch === 'main'`）。宝箱只给主干线。 */
-  private onMainLine(): boolean {
-    return this.dungeon?.rooms[this.stage - 1]?.room.branch === 'main'
-  }
-  /** 本间是不是首领房（`Room.kind === 'boss'`，D2 只放在最后一间）。 */
-  private isBossRoom(): boolean {
-    return this.dungeon?.rooms[this.stage - 1]?.room.kind === 'boss'
-  }
-  /** 本间要不要打（D2 的 `roomNeedsFight`：关别要打 **且** 有刷怪点）。 */
-  private needsFight(): boolean {
-    return this.dungeon?.rooms[this.stage - 1]?.needsFight ?? true
-  }
-  /**
-   * 进第 `order` 间（0 起）。**门指向哪一间就进哪一间** —— 不是 `stage + 1`。
-   *
-   * ⚠️ 原来过门是 `this.stage++`，于是在一间有两个门的房间里，**选哪扇门都去同一间**，
-   * 多出来的门完全没有意义。现在按门的 `toOrder` 走：往前、往后、往侧室，都由门自己说了算。
-   */
-  private enterRoom(order: number): void {
-    if (order < 0 || order >= this.roomCount) return
-    const first = !this.visited.has(order)
-    this.stage = order + 1
-    this.spawnStage(!first)
-  }
-  /**
-   * 生成第 `n` 层（1 起）。
-   *
-   * 种子取的是**开局就抽好的那一串**（`floorSeedList`），不是现抽一个 ——
-   * 这样 `runSeed` 能复现整局，而不只是「回到某一层再生成一次」。
-   *
-   * ⚠️ 一层几间、几间是侧室都走 `combat.json` 的 `arena`，并且**必须过
-   * D2 的 `roomsConfigWithRoomCount()`**：它会把 `totalRooms` / `mainRoomMin` /
-   * `mainRoomMax` 三个数一起改**再跑一遍校验器**（三个数互相约束，只改一个会被拒，
-   * 而绕过校验器拿到的那份配置错了不报错，只会生成出一层怪地图）。
-   */
-  private buildFloor(n: number): DungeonStages {
-    const seed = this.floorSeedList[n - 1] ?? this.runSeed
-    const dungeon = buildDungeonStages(
-      seed,
-      roomsConfigWithRoomCount(
-        this.cache.json,
-        this.cfg.arena.roomsPerFloor,
-        this.cfg.arena.sideRoomsPerFloor,
-      ),
-      this.cfg,
-    )
-    return applyPaintedRooms(
-      dungeon,
-      parseStageCollisions(this.cache.json.get('stage-collisions.json'), 3),
-      parsePaintedRoomConfig(this.cache.json.get('painted-rooms.json')),
-      this.cfg,
-    )
-  }
-  /** 下到下一层。**只在入口亮着、且玩家站在上面时调用**（见 `update()` 里那一段）。 */
-  private descend(): void {
-    if (this.floor >= this.floors) return
-    this.floor++
-    this.loadFloor()
-  }
-  /**
-   * 换上**当前 `this.floor` 那一层**的几何与观感，落到新层的第 1 间。
-   *
-   * ⚠️ **顺序有讲究。**几何要在 `spawnStage()` 之前换好（那一趟里 `enterStage()`
-   * 按新的 `stageConfig` 重算寻路网格与落脚点）；观感层里 `Minimap` 是「换一份排布」，
-   * 而 `StageBackground` **没有「换一层」这个动作**（它构造时就吃下了一层的房间表），
-   * 所以只能整个重建 —— 重建之后别忘了 `setStage()`（`spawnStage()` 会调）。
-   */
-  private loadFloor(): void {
-    this.dungeon = this.buildFloor(this.floor)
-    this.stageConfig = parseStageCollisions(this.dungeon.stages, this.roomCount)
-    this.exit.hide()
-    this.scenery.destroy()
-    this.drawWorld()
-    this.minimap.setFloor(
-      this.dungeon.rooms.map((r) => r.room),
-      this.dungeon.rooms.map((r) => r.doorTargets),
-      this.floor,
-      this.floors,
-    )
-    this.stage = 1
-    // 每一层是**另一张图**：上层的「哪几间走过」在这里全部作废，不然新层的
-    // 第 3 间会被当成「回走」，一进门就门大开、一只怪不刷。
-    this.visited.clear()
-    this.session.loadFloor(this.stageConfig)
-    this.spawnStage()
-  }
-  /**
-   * 在首领房里亮出「下一层」入口，并把话说清楚。
-   *
-   * 位置取本间的**落脚点**往下一点（那是玩家进这一间时站的地方，一定在房间里），
-   * 再过一遍 `safeSpawn()` —— 入口比玩家胖得多（92px 见方），摆在墙边会半个身子在墙里。
-   */
-  private showFloorExit(bonus: { name: string } | null): void {
-    const brief = this.dungeon.rooms[this.stage - 1]
-    const base = brief?.spawnPoints[0] ?? { x: this.session.player.x, y: this.session.player.y }
-    const at = this.session.terrain.safeSpawn(base.x, base.y + 70, FloorExit.SIZE / 2)
-    this.exit.show(at.x, at.y)
-    this.notice.setText(
-      (bonus ? '获得随机武器：' + bonus.name + ' · ' : '') +
-        `第 ${this.floor} 层通关 · ${this.bossName(this.floor)}已击败 · ` +
-        `走到青色方框上按 F 下到第 ${this.floor + 1} 层`,
-    )
-  }
-  private spawnStage(revisit = false): void {
-    if (this.gameWon || this.stage > this.roomCount) return
-    this.visited.add(this.stage - 1)
-    // ⚠️ **进新的一间必须把门关回去。**
-    //    `doorOpen` 是上一间的状态，不清的话会跟着带进来 ——
-    //    表现是「新房间的怪还没打完，门就能过」。
-    //    只有回走（`revisit`，那间已经清过了）和不用打的房间才直接开着。
-    this.doorOpen = revisit
-    this.rewardDone = revisit
-    this.loot.reset()
-    this.session.enterStage(this.stage, revisit)
-    this.scenery.setStage(this.stage)
-    // ⚠️ 第二参数是**必须给的**，别退回 `setState(this.stage)`：
-    //    小地图上「这间走过没有」不能用「间号比当前小」推 —— 门是按 `toOrder` 走的
-    //    （能回头、也能拐进侧室再出来），于是老推理在两个方向都会说假话：
-    //    拐进侧室时宿主右边的房间根本没进过却被画成绿的。
-    //    真值是 `visited`，这里正好刚把它更新过（上面那行 `visited.add`）。
-    this.minimap.setState(this.stage, this.visited)
-    const p = stagePlan(this.bundle, this.cfg, this.difficulty, this.floor),
-      cx = this.session.player.x,
-      cy = this.session.player.y
-    // 不用打的房间（道具关 / 宝箱关）：**一只都不刷**。下方 `remaining === 0`
-    // 于是当帧就判清空、门立刻开 —— 照 `roomNeedsFight()` 的原话，
-    // 不这么做它们会把玩家关在里面（没有可清的怪，门永远不会开）。
-    // 回走的房间已经清过了：**不再刷怪**，门直接开着。
-    if (this.needsFight() && !revisit) {
-      // ⚠️ **刷怪用 D2 给的刷怪点，不要「以玩家为圆心撒一圈」。**
-      //    原来那套（`cx ± 250`）是按 1344×832 的大竞技场调的，而 D2 的房间只有
-      //    520×280 —— 250px 的半径直接把怪撒在玩家脸上，开局被围死、跑都跑不掉。
-      //    `spawnPoints[0]` 是玩家出生的那一个（见 `DungeonStages`），跳过它。
-      // ⚠️ **离玩家出生点太近的刷怪点要跳过。**
-      //    `spawnPoints[0]` 是玩家自己站的那个（`DungeonStages` 按距离排过序），
-      //    但**第二近的那个可能只有一步远** —— 一进房间就被打一下，那不是难度，是偷袭。
-      //    门槛取两倍的 `spawnPointMinGap`（那是「两个刷怪点之间」的最小间距）。
-      const p0 = this.dungeon?.rooms[this.stage - 1]?.spawnPoints[0]
-      const spots = (this.dungeon?.rooms[this.stage - 1]?.spawnPoints ?? [])
-        .slice(1)
-        .filter((q) => {
-          if (p0 === undefined) return true
-          const far = Math.hypot(q.x - p0.x, q.y - p0.y)
-          return far >= SAFE_SPAWN_GAP
-        })
-      // ⚠️ **刷怪点也要过 `safeSpawn()`。**
-      //    D2 的刷怪点是从门可达的，但**不一定离墙够远** —— 怪的物理体一出生就
-      //    和墙重叠，物理解算会把它**继续往外推**（已经重叠的静态体，推开方向由
-      //    最小穿透轴决定，可能是墙外），于是它卡在墙外再也回不来，
-      //    而清场判定数的是「还活着的怪」→ **这一间永远清不完，卡死**。
-      const at = (i: number) => {
-        const raw = spots.length === 0 ? { x: cx, y: cy } : spots[i % spots.length]!
-        return this.session.terrain.safeSpawn(raw.x, raw.y, ENEMY_CLEARANCE)
-      }
-      // 怪比刷怪点多时同一个点会叠人 —— 按序号错开一点，避免完全重合
-      const offset = (i: number) => (spots.length && i >= spots.length ? (i % 3) * 26 - 26 : 0)
-      for (let i = 0; i < p.splitters; i++) {
-        const s = at(i)
-        this.session.enemies.spawn(
-          'splitter',
-          0,
-          s.x + offset(i),
-          s.y + offset(i),
-          i >= Math.ceil(p.splitters * p.secondPhaseFraction) ? p.phaseDelayMs : 0,
-        )
-      }
-      // 抓取怪：第三个轴（`arena.initialGrabbers`，可以是小数 = 概率）。
-      // 第 1 层算出来是 0 只 —— 先让玩家在别处认识「!」，再让它来抓人。
-      for (let i = 0; i < p.grabbers; i++) {
-        const k = p.splitters + p.tanks + i
-        const s = at(k)
-        this.session.enemies.spawn('grabber', 0, s.x + offset(k), s.y + offset(k))
-      }
-      for (let i = 0; i < p.tanks; i++) {
-        const s = at(p.splitters + i)
-        this.session.enemies.spawn(
-          'tank',
-          0,
-          s.x + offset(p.splitters + i),
-          s.y + offset(p.splitters + i),
-        )
-      }
-      // 首领：**只有本层的最后一间出**（`kind: 'boss'`，D2 的生成器只把它放在末间、
-      // 而且不放侧室里）。别的房间一只都不出 —— 一局三层，三个首领，一层一个。
-      //
-      // ⚠️ **别改回「主干线上每一间都出一个」。** 那是「一局只有一层」时期的写法
-      //    （那时一层十几间，隔几间摆一个首领才像有节奏）；现在一局三层、
-      //    每层七个房间，再按主干摆就是一层两三个首领 —— 首领贬值成路障，
-      //    而三个真正的首领（蘑菇 / 霜翼使徒 / 终焉蛛王）该各自守一层。
-      //
-      // 档位 = **层的序号**，不是房间进度：第 1 层是蘑菇首领、第 2 层是远程的霜翼使徒、
-      // 第 3 层（最后一层）是终焉蛛王。`requestBoss()` 按这个号挑模板，
-      // 末层那位走 `finalBoss: true`（不用远程模板 —— 那是「还没到最终战」的区分）。
-      if (this.isBossRoom()) {
-        const tier = this.floor
-        this.session.enemies.spawnBoss(
-          tier,
-          this.dungeon?.rooms[this.stage - 1]?.spawnPoints[0]?.x ?? cx,
-          (this.dungeon?.rooms[this.stage - 1]?.spawnPoints[0]?.y ?? cy) - 40,
-          this.cfg.encounter.bossHp + (tier - 1) * this.cfg.encounter.bossHpPerStage,
-          tier >= this.floors,
-        )
-      }
-    }
-    this.spawned = true
-    this.clearAt = -1
-    this.clearEmitted = revisit
-    if (revisit) this.doorOpen = true
-    // 到达层数：结算的「到达进度 第 N 层」用的就是它，也是币的来源之一（`coinsPerDepth`）。
-    // ⚠️ **报的是层号，不是房间号** —— 一局三层，报「第 7 层」谁也对不上。
-    this.ledger.setDepth(this.floor)
-    const room = this.dungeon?.rooms[this.stage - 1]?.room
-    this.notice.setText(
-      `第 ${this.floor} 层 · 第 ${this.stage} / ${this.roomCount} 间：${room?.kind ?? '?'} ` +
-        `${room ? room.rect.width + '×' + room.rect.height : ''} · ${this.label()} · ` +
-        (this.needsFight()
-          ? p.splitters +
-            ' 分裂怪 + ' +
-            p.tanks +
-            ' 肉盾' +
-            (p.grabbers ? ' + ' + p.grabbers + ' 缠抱怪' : '')
-          : '不用打'),
-    )
   }
   private makeHud(): void {
     this.statusHud = new StatusHud(this)
@@ -1007,12 +1549,17 @@ export class BattleScene extends Phaser.Scene {
       this.session.resume('preview')
     }
   }
+  /**
+   * 调试键 `C`：**请求清房**（把这一间剩下的怪全杀掉）。
+   *
+   * 标志位而不是直接调一次 `simulateClear()`：击杀是**异步回收**的（分裂链要等
+   * `splitDelayMs`、尸体还占着池槽位），调一下走不完，得每帧推一把直到清房判定成立。
+   * `clearRequested` 在 `onRoomCleared()` 里落回 false。
+   */
   private requestClear(): void {
     if (this.session.clock.paused) return
-    if (this.clearEmitted) return
-    if (this.clearAt >= 0) return
-    this.session.enemies.simulateClear()
-    this.clearAt = this.session.clock.nowMs
+    if (this.activeRoom === null || this.clearEmitted) return
+    this.clearRequested = true
     this.notice.setText('已请求清房：等待死亡/分裂链回收')
   }
   private bindKeys(): void {
@@ -1069,6 +1616,9 @@ export class BattleScene extends Phaser.Scene {
       this.settlement?.destroy()
       this.pauseMenu?.destroy()
       this.rewardPanel?.destroy()
+      // 两个换层入口（`FloorExit` 自己画 Graphics、自己挂 Text，得显式收）。
+      this.exit?.destroy()
+      this.upExit?.destroy()
       this.cursor?.destroy()
       this.loot?.destroy()
       this.gallery?.destroy()
@@ -1114,7 +1664,7 @@ export class BattleScene extends Phaser.Scene {
     if (this.runEnded) return
     this.runEnded = true
     this.runOutcome = outcome
-    this.ledger.setDepth(this.stage)
+    this.ledger.setDepth(this.floor)
     if (!this.settlement) return
     this.settlement.show()
   }

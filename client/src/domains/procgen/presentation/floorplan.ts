@@ -27,7 +27,7 @@ import Phaser from 'phaser'
 import type { RoomsConfig } from '../config'
 import { isCombatKind } from '../config'
 import { bottom, clipRect, left, rectsIntersect, right, top } from '../model/rect'
-import type { DungeonMap, Point, Rect, Room } from '../model/types'
+import type { Door, DungeonMap, Point, Rect, Room } from '../model/types'
 import { ROOM_KIND_LABELS } from '../model/types'
 import { gridOfMap } from '../walkability'
 import { cullLabels, doorLabels, fullyInside, passageLabels, planRoom1to1Labels } from './framing'
@@ -37,52 +37,75 @@ import { cullLabels, doorLabels, fullyInside, passageLabels, planRoom1to1Labels 
 /**
  * 配色表。**导出给场子用** —— 图例和画面必须读同一份，
  * 否则图例是对的、画面是错的（或者反过来），而两者都"看起来像那么回事"。
+ *
+ * ---
+ *
+ * ## ★ 改了（v5）：整张表按「位置」（主干/侧室）重排成按「关别」
+ *
+ * 旧表里房间地面分 `mainRoom`（主干蓝）/ `sideRoom`（侧室绿）、描边分
+ * `mainRoomEdge`/`sideRoomEdge`/`nonCombatEdge`，门分 `doorForward`/`doorBack`/
+ * `doorSide`/`doorSealed` —— **四组颜色全都在说「主干道模型」里的那件事**：
+ * 谁是主干、谁是侧室、这扇门是往前走还是回头。
+ * v5 里没有主干道（用户 2026-10-19：在走廊里随意走、随意挑房间进），
+ * 那四组一起作废。**删干净而不是留着不用**：留着的常量迟早会被新代码
+ * 「看起来能用」地捡回去（`mainRoom` 这个名字当年看着也很自然）。
+ *
+ * 现在只剩**两个通道**，各说一件事：
+ *
+ * | 通道 | 说什么 | 用在哪 |
+ * |---|---|---|
+ * | **地面填色** | 这一间**打不打架**（`isCombatKind`） | 整块面，缩略图上一眼看得见 |
+ * | **描边** | 这一层**从哪出发、在哪收尾**（起点黄 / 首领红） | 只有两间，其余一律 `roomEdge` |
+ *
+ * 「非战斗」只走填色一条通道，**描边不再重复说一遍** ——
+ * 两个通道说同一件事，一旦分岔（改了一处忘了另一处）就是两张都"看着对"的图，
+ * 而那正是这个文件存在的理由要防的东西（见文件头）。
  */
 export const COLORS = {
   /** 房间外的底色（整层的"空气"） */
   outside: 0x0b0b10,
   /**
-   * **连廊**地面。**比 `outside` 明显亮一档** —— 差得太小的话，
-   * 1:1 的场子里「门外面是连廊还是空气」看不出来，而那正是要看的。
+   * **走廊**地面。**比 `outside` 明显亮一档** —— 差得太小的话，
+   * 1:1 的场子里「门外面是走廊还是空气」看不出来，而那正是要看的。
    *
    * ⚠️ 它必须是**偏暖的**，不能是中性的灰。第一版用了 `0x262632`
-   * （只比底色亮一点的中性灰），结果在缩略图那条 8:1 的长条上，
-   * 连廊和背景**分不开** —— 一排主干教室里，连廊只有 200px 宽（缩到屏幕上 24px），
-   * 而「教室之间那一段是什么」恰恰是这一排唯一要看的东西。
-   *
-   * 也不能偏蓝或偏绿：那会和两类教室撞。所以取一个深卡其 ——
-   * 两边都不像，一眼能分出来就是它不是教室。
+   * （只比底色亮一点的中性灰），结果在缩略图上走廊和背景**分不开**。
+   * 也不能偏蓝或偏绿：那会和两类房间的地面撞。所以取一个深卡其 ——
+   * 两边都不像，一眼能分出来就是它不是房间。
    */
   passage: 0x453b28,
-  /** 主干教室 */
-  mainRoom: 0x1e3a5f,
-  mainRoomEdge: 0x4a7fb5,
-  /** 侧室 */
-  sideRoom: 0x1e4f3a,
-  sideRoomEdge: 0x4ab58a,
-  /** 起点 / 首领的强调描边 */
+  /** **战斗关**的房间地面（普通 / 精英 / 首领都算）。烂柯蓝，和旧的主干蓝同一个值 */
+  combatRoom: 0x1e3a5f,
+  /** **非战斗关**的房间地面（道具关 / 宝箱关 / 楼梯间） */
+  nonCombatRoom: 0x1e4f3a,
+  /** 起点（楼梯间）的强调描边。**它是出生点**，一层里最先要知道的位置 */
   startEdge: 0xb5a54a,
+  /** 首领关（`YF604`）的强调描边。打完它才能下楼 */
   bossEdge: 0xb54a4a,
   /**
-   * **非战斗关别**（道具关 / 宝箱关，以及被 `combatKinds` 排除的起点/首领）的描边。
+   * 其余所有房间的描边。取一个**浅板岩蓝**。
    *
-   * 取紫罗兰色。它要和已经用掉的四种颜色**都分得开**：主干蓝 `0x4a7fb5`、
-   * 侧室绿 `0x4ab58a`、起点黄 `0xb5a54a`、首领红 `0xb54a4a` ——
-   * 也刻意避开刷怪点的粉 `0xd44a8a`（紫得发红就会和它混）。
-   *
-   * ⚠️ 起点 / 首领的描边**优先级更高**（见 `drawRoomOutline`）：一层的起点在哪
-   * 比「这间打不打架」更值得一眼看见。默认配置里那两个都是战斗房，不冲突；
-   * 真把 `start` 移出 `combatKinds` 时，起点房会保持黄色 —— 那是对的。
+   * 要同时满足两件事：比 `wallEdge`（`0x6a6a80`，1:1 场子里描墙用的）
+   * **亮得看得出来** —— 两者会在同一张 1:1 画面上挨着；
+   * 以及不要和 `startEdge` 的黄、`bossEdge` 的红混。
    */
-  nonCombatEdge: 0x9b6ad4,
+  roomEdge: 0x9aa8c4,
   /** 墙 */
   wall: 0x3a3a4a,
   wallEdge: 0x6a6a80,
-  /** 门：按 `DoorKind` 区分 */
-  doorForward: 0x4ad4a0,
-  doorBack: 0x5a8fd4,
-  doorSide: 0xd4a04a,
-  doorSealed: 0x777788,
+  /**
+   * 门。**只有一种颜色** —— ★ v5 删掉了「前门 / 后门 / 侧门 / 堵死」四色。
+   *
+   * 那四色分的是**主干道模型里门的方向**，而 v5 的门是无向的（`Door.a` / `b`
+   * 按字典序排好，没有"来"与"去"）。今天 16 扇门全是「房间 ↔ 走廊」，
+   * 任何「按类型分色」都会得到一个**恒为同一个颜色**的分岔 ——
+   * 那比不分类更糟：它看起来像分过了。
+   *
+   * ⚠️ 「这扇门通向哪儿」现在只由**门标注**说（`→YF604` / `→C_W`），
+   * 而标注是**可关的**（`FloorplanOptions.doorLabels`）。关掉标注的场子里，
+   * 门就只是一根亮线，读不出任何方向 —— 那是关它的人自己选的，不是漏画。
+   */
+  door: 0x4ad4a0,
   /** 障碍物 */
   desk: 0x8a6a3a,
   chair: 0x6a5a4a,
@@ -103,18 +126,12 @@ export const COLORS = {
   /** 底座的 80px 粗网格（只画线，不判断）。青色，与 40px 网格明确区分 */
   harnessGrid: 0x00d8ff,
   /**
-   * 连廊名的字色。**暖卡其，和 `passage` 是同一个色系但亮得多** ——
-   * 它印在那块深卡其的地面上，同色系的暗色字在 12:1 的缩略图上会被背景吃掉。
+   * 走廊名的字色。**暖卡其，和 `passage` 是同一个色系但亮得多** ——
+   * 它印在那块深卡其的地面上，同色系的暗色字在缩略图上会被背景吃掉。
    */
   passageText: '#c9b483',
   text: '#cfe4ff',
 } as const
-
-const DOOR_COLOR: Record<string, number> = {
-  forward: COLORS.doorForward,
-  back: COLORS.doorBack,
-  side: COLORS.doorSide,
-}
 
 // ---------------------------------------------------------------- 换算
 
@@ -126,7 +143,7 @@ export interface Mapper {
 
 /**
  * 造一个换算器。**导出**：别的绘制（`d2_classroom` / `d2_room_flow` / `joint/d1d2_rooms`
- * 这类只有自己才画的东西）
+ * 这类只有自己才画的东西 —— 那三个场子都已于 2026-10-19 按用户要求删除）
  * 也该走这一条式子 —— 各写一份的话，两份一旦分叉，表现是**整张图整体偏半格**，
  * 而这种偏移看起来永远像「生成器把墙算歪了」。
  */
@@ -169,27 +186,31 @@ function lineWorld(
 }
 
 /**
- * 一扇门该用什么颜色。**门线、门标注的字色都读这一份** ——
- * 各算一遍的话，漂移的表现是「亮线是绿的、旁边那行 `→5` 是黄的」，
- * 而两个都对不上时没人知道该信哪个。
+ * &#32;
+ *
+ * ## ★ 改了（v5）：`doorColor()` 整个删掉了
+ *
+ * 它原来是「按 `DoorKind` 取色、`toOrder === null` 走 `doorSealed`」，
+ * 而那两个字段都不存在了（见 `COLORS.door` 的注释）。
+ * 现在门线一律 `COLORS.door`，**门标注的字色也读同一个常量** ——
+ * 原来那两处读同一个函数是为了防「亮线是绿的、旁边那行字是黄的」，
+ * 现在只有一份常量，那个漂移在语法上就不可能发生。
  */
-function doorColor(door: { kind: string; toOrder: number | null }): number {
-  return door.toOrder === null ? COLORS.doorSealed : (DOOR_COLOR[door.kind] ?? COLORS.doorSealed)
-}
 
 /** 数字色 → CSS 字符串。Phaser 的 `text` 收字色只能收这个形式，转换只此一处。 */
 function cssColor(n: number): string {
   return `#${n.toString(16).padStart(6, '0')}`
 }
 
-/** 门画成一段**亮线**，颜色按 `DoorKind`。线宽在屏幕上是定值，不随缩放变。 */
-function drawDoor(
-  g: Phaser.GameObjects.Graphics,
-  m: Mapper,
-  door: { kind: string; x: number; y: number; width: number; axis: 'h' | 'v'; toOrder: number | null },
-): void {
-  const color = doorColor(door)
-  g.lineStyle(3, color, 1)
+/**
+ * 门画成一段**亮线**。线宽在屏幕上是定值，不随缩放变。
+ *
+ * 参数直接收 `Door` 本身（不再是「长得像 Door 的一个匿名结构」）——
+ * ★ v5 之前这里写的是一个手写的结构类型，所以 `Door` 一变（删 `kind`/`toOrder`）
+ * 编译器只报**调用点**两处，而这里看着一切正常。收真类型就不会有这一层。
+ */
+function drawDoor(g: Phaser.GameObjects.Graphics, m: Mapper, door: Door): void {
+  g.lineStyle(3, COLORS.door, 1)
   const half = door.width / 2
   if (door.axis === 'h') lineWorld(g, m, door.x - half, door.y, door.x + half, door.y)
   else lineWorld(g, m, door.x, door.y - half, door.x, door.y + half)
@@ -208,16 +229,19 @@ export interface FloorplanOptions {
   /** 画 `#序号` 标签（含门标注与连廊名，见下两个开关）。默认 true */
   labels?: boolean
   /**
-   * 门旁标出**它通向哪一间**（`→5`，字色跟门型走）。默认 true。
+   * 门旁标出**它通向哪儿**（`→YF604` / `→C_W`）。默认 true。
    *
-   * 这一条正是「侧室接回主干」读不出来的那个缺口：缩略图上门只画成一段亮线，
-   * 亮线的颜色只说得出「这是前门/后门/侧门」，说不出**穿过它到哪一间**。
-   * 而一段连廊对面那扇门是通往下一间主干、还是退回宿主，靠看图是猜不出来的。
+   * ★ 改了（v5）：**这一条从「锦上添花」变成了唯一的来源。**
+   * 旧图上门线本身还有一种颜色分型（前门绿 / 后门蓝 / 侧门黄）能说点东西，
+   * 所以标注关掉还剩下半句话；v5 的门只有一种颜色（见 `COLORS.door`），
+   * **关掉标注 = 门变成一根没有任何方向的亮线**。
    *
    * 挤不下就由 `cullLabels` 筛掉（**筛掉几个要印在读数里**，见 `FloorplanView.labelsDropped`）。
+   * ⚠️ 而且 v5 的字宽了三倍（`→5` → `→YF604`），筛掉的比例会明显上升 ——
+   * 具体多少**没有实测值**（今天没有场子在画整层门标注）。
    */
   doorLabels?: boolean
-  /** 连廊上标出**它连着哪两间**（`连廊 3→5`）。默认 true */
+  /** 走廊上标出**这一段通向哪几间房**（`连廊 C_W · YF601 YF602…`）。默认 true */
   passageLabels?: boolean
   /** 画门。默认 true */
   doors?: boolean
@@ -228,10 +252,17 @@ export interface FloorplanOptions {
   /**
    * 要画的世界范围。默认 `map.bounds`（整层）。
    *
-   * 有它才能**用同一个函数画局部放大**：整层是一排 15 间房，宽近 8000px、
-   * 高不到 1000px —— 缩到屏幕上是一条 12:1 的长条，侧室与宿主那点搭接
-   * 只剩几个像素。放大那一遍把同一个 `drawFloorplan` 对准其中两三间房，
-   * 于是**两遍的配色、门型、画法天然一致**；各写一份绘制才是分叉的开始。
+   * 有它才能**用同一个函数画局部放大**：把同一个 `drawFloorplan` 对准其中两三间房，
+   * 于是**两遍的配色、门、画法天然一致**；各写一份绘制才是分叉的开始。
+   *
+   * ★ 改了（v5）：原来举的理由是「整层是一排 15 间房、宽近 8000px、高不到 1000px，
+   * 缩到屏幕上是一条 8:1 的长条，侧室与宿主那点搭接只剩几个像素」。
+   * 那是**主干道那张图**的形状，作废了 —— 平面图是一张 **10520×2920px 的 S 形**
+   * （**3.6:1**，263×73 格，与种子无关），缩到 1280 宽的屏幕上高度是 **355px**，
+   * 比原来那条长条舒展得多。局部放大这个用途本身还成立（要看门洞与桌椅的细节
+   * 时得对准那几间房画），只是不再是为了"长条上挤得看不清"。
+   * ⚠️ **今天 `D2/` 下没有场子在用这个参数**（只有 `d2_seeds` 一个 FIELD 场子，
+   * 它画整层）。`drawRoom1to1` 走的是另一个入口，不是这里。
    */
   world?: Rect
 }
@@ -241,86 +272,149 @@ export interface FloorplanView {
   /** 房间 → 屏幕矩形 */
   roomRect(room: Room): { x: number; y: number; width: number; height: number }
   /**
-   * 挤不下被筛掉的门标注条数。**调用方有义务印出来**（`d2_floorplan` 的读数行）。
+   * 挤不下被筛掉的门标注条数。**画门标注的调用方有义务印出来。**
    *
-   * 它是个容易看着像「这一层门少」的数：缩略图是 12:1 的长条，
-   * 一排 15 间房的 28 个门洞全标上会糊成一片，所以筛是必须的 ——
-   * 但**筛掉多少必须说出来**，否则「图上门标注只有 12 条」和
-   * 「这一层只有 12 扇门」在现场是同一种画面。
+   * 它是个容易看着像「这一层门少」的数：缩略图把整层压到一千来像素宽，
+   * 门标注全挤上去会糊成一片，所以筛是必须的 ——
+   * （★ v5：**每张整层恒为 16 条**门标注，16 扇门与几何一起写死在
+   * `floor-plan.json` 里，**与种子无关**。旧的「28 条」是主干道那张图的读数。）
+   * ⚠️ 但 **16 扇门的标注在 v5 的缩略图上筛掉几条，没有实测值** ——
+   * 字从 `→5` 变成了 `→YF604`（宽三倍），而今天没有场子在画整层门标注。
+   * 但**筛掉多少必须说出来**，否则「图上门标注只有 8 条」和
+   * 「这一层只有 8 扇门」在现场是同一种画面。
+   *
+   * ⚠️ **它只数门标注，且门标注关着时恒为 0。** 值是在
+   * `if (opts.doorLabels ?? true)` 里面才赋的（房名与走廊名都不进这个数）。
+   *
+   * 于是有一个**看起来完全正常的读法**会读错：调用方传了 `doorLabels: false`，
+   * 又照义务把 `labelsDropped` 印出来，屏幕上就是「筛掉 0 条 / 标注全画下了」——
+   * 而它那一场**一扇门牌都没画**。0 在这里不是「都挤得下」，是「没画」，
+   * 两者在画面上是同一句话。**关掉门标注的调用方要印的是「没画」，不是 0。**
    */
   labelsDropped: number
 }
 
 /**
- * 缩略图上那一行标签：**位置 · 关别**，例 `侧室·宝箱关`。
+ * 缩略图上那两行标签：**id + 关别**（分两行印，见 `drawFloorplan` 的 `at` 调用）。
  *
- * 两个字段回答两个问题，而这张图两个都要答：
+ * ★ 改了（v5）：原来是 `位置·关别`（例 `侧室·宝箱关`），位置词来自 `room.branch`。
+ * 位置那两个词（主干/侧室）随主干道模型一起作废了，而**房间的身份换了载体**：
+ * v4 里房间是「第 N 间主干 + 它挂着的侧室」（`order` 就是它的名字），
+ * v5 里房间是**平面图上那个编号** —— `YF604`、`C_W`、`STAIR`。
  *
- * | 字段 | 在这张图上的样子 |
- * |---|---|
- * | `branch`（位置） | 位置词 + 底色（主干蓝 / 侧室绿） |
- * | `kind`（内容） | `ROOM_KIND_LABELS` 的中文名 + 非战斗关别的紫色描边 |
- *
- * 早先这里只印位置词（`侧室` / `主干` / `起点` / `首领`），理由是「侧室和主干
- * 都写着 main，照原值印反而分不出来」。那句话在对 `kind` 的**原值**说事，
- * 而关别表落地之后原值不再是唯一的选择 —— 读 `ROOM_KIND_LABELS` 就有中文名，
- * 于是两个字段可以并列写出来，不必二选一。
+ * 为什么用 id 而不是 `order`：`order` 在 v5 里只是「楼梯间 + 其余按 id 升序」
+ * 的下标，**不表示进度、不表示远近**（难度用的是到楼梯间的跳数，
+ * 见 `gen/layout.ts` 文件头）。玩的人和读代码的人嘴里的那一层都是
+ * 「604 是首领关」，而 `#4` 谁也认不出来。
  *
  * ⚠️ **中文名从 `ROOM_KIND_LABELS` 读，不许在这里写第二份关别名册**：
  * 三处各写一遍就是三份会漂移的事实，而漂移的表现是「同一个关别在两块画面上
  * 写着两个词」，谁都不会注意到（spec `procgen-config-contract` 有这一条）。
  */
 function roleLabel(room: Room): string {
-  const where = room.branch === 'side' ? '侧室' : '主干'
-  return `${where}·${ROOM_KIND_LABELS[room.kind]}`
+  return ROOM_KIND_LABELS[room.kind]
 }
 
 /**
- * 一间房描边的颜色与线宽。
+ * 一间房描边的颜色与线宽。**只回答一个问题：这一间是不是这一层的起点或终点。**
  *
- * 优先级：**起点 / 首领 > 非战斗 > 位置**。
+ * ★ 改了（v5）：原来是「起点 / 首领 > 非战斗 > 位置」的三层优先级，
+ * 而现在**只有前两层**，非战斗那一层整条删掉 —— 它已经由**地面填色**
+ * 说了（`roomFillColor`），描边再说一遍就是两个通道说同一件事，
+ * 一旦分岔就是两张都"看着对"的图。
  *
- * - 起点与首领优先：「这层的起点在哪、终点在哪」是一眼就要看见的两个位置，
- *   而它比「这一间打不打架」更基本（默认配置里那两个本来也是战斗房）。
- * - 非战斗优先于位置：位置已经由**底色**表达了（主干蓝 / 侧室绿），描边空出来
- *   正好说第二件事 —— 「这一间不打架」。两件事各占一个通道，谁也不挤谁。
+ * 起点与首领优先这一条**没变**，而且理由更硬了：v5 里这两个位置是
+ * **功能性的**（出生点在里面 / 打完它才能下楼），不再只是"进度轴的两端"。
+ * 默认配置里两个都是战斗房，所以黄/红描边与蓝底不冲突；
+ * 真把 `start` 移出 `combatKinds` 时，起点房会保持黄色 —— 那是对的。
+ *
+ * `cfg` 参数跟着删掉：非战斗那一层走了之后这里没有一处读配置，
+ * 留着它编译器会报 TS6133（未使用的参数）—— 而那正是这类"删了一半"
+ * 最该被抓住的地方。
  */
-function roomOutline(cfg: RoomsConfig, room: Room): { color: number; width: number } {
+function roomOutline(room: Room): { color: number; width: number } {
   if (room.kind === 'start') return { color: COLORS.startEdge, width: 3 }
   if (room.kind === 'boss') return { color: COLORS.bossEdge, width: 3 }
-  if (!isCombatKind(cfg, room.kind)) return { color: COLORS.nonCombatEdge, width: 3 }
-  return { color: room.branch === 'main' ? COLORS.mainRoomEdge : COLORS.sideRoomEdge, width: 2 }
+  return { color: COLORS.roomEdge, width: 2 }
 }
 
 /**
- * 缩略图上两个**门标注**之间最少留多少屏幕像素。**14 是量出来的，不是拍的。**
+ * 一间房地面填什么色：**打不打架**。
  *
- * 依据是这个缩放下两个洞最近能有多近：同一堵墙上相邻的两个洞至少隔
- * `sideRoomTier.width − roomGap` = 200px（侧室的搭接量 `k`），缩到屏幕上 26px ——
- * 14 取它的一半，于是同一个洞口两侧的标注不会互相压住。
+ * ★ 新增（v5）：旧代码在三个地方各写了一遍 `branch === 'main' ? 蓝 : 绿`
+ * （整层填色、1:1 填色、描边），所以 `branch` 一没就是三处编译错误。
+ * 抽成一个函数之后，「填色说什么」只有一份真值 —— 而它现在说的是**关别**，
+ * 不再是位置。
  *
- * 实测（种子 837，984×132 的缩略图 = 缩放 0.13，28 个门洞）：
+ * 判据走 `isCombatKind(cfg, kind)`，不写 `kind === 'main' || 'elite' || 'boss'`：
+ * 后者就是**第二份 `combatKinds`**，改了配置表它不会跟着变，
+ * 而表现是「配置说这关打架、图上画成不打架」。
  *
- * | 间隙 | 筛剩 |
- * |---|---|
- * | 20 | **1 条** —— 只剩一条门号看着像 bug（「为什么只有这扇门有号」） |
- * | 14 | 14 条（筛掉的那 14 条，旁边都正好有一条连廊名，说的事一样） |
+ * ★ 改名并导出（`roomFill` → `roomFillColor`，2026-10-20）：D1 的小地图
+ * （`domains/combat/Minimap.ts`）本来自己写了一遍「战斗关蓝、非战斗关绿」——
+ * 而那句 `kind === 'boss' || 'normal' || 'elite'` 正是上面那条 ⚠️ 说的
+ * **第二份 `combatKinds`**，只是换了个地方。小地图和整层图会把同一间房
+ * 画成两个颜色，而且**谁也不报错** —— 两处各自都"看起来是对的"。
  *
- * 放宽它不会「多标几扇」——门槛一松，字就互相压住，而**糊成一片和没标是一样的**。
- * 想看清每一扇门，看 `d2_floorplan` 下面那张特写（`DOOR_LABEL_GAP_1TO1`，几乎不筛）。
+ * 所以导出，让消费方读这一份。代价是它的签名要一个 `RoomsConfig`
+ * （`isCombatKind` 的输入），所以 `Minimap` 也得收一份 —— 那是应该的：
+ * 「哪几类关别打架」本来就是配置说的，不是小地图能自己决定的。
+ */
+export function roomFillColor(cfg: RoomsConfig, room: Room): number {
+  return isCombatKind(cfg, room.kind) ? COLORS.combatRoom : COLORS.nonCombatRoom
+}
+
+/**
+ * 缩略图上两个**门标注**之间最少留多少屏幕像素。14 取的是「同一个洞口两侧的标注
+ * 不会互相压住」这条口径 —— 门槛一松，字就互相压住，而**糊成一片和没标是一样的**。
  *
- * ⚠️ 「28 条里留 14 条」这个**具体数目**是阈值卡的，配置动一动（`roomGap`、
- * `navCellSize`）就会变。能保证的是口径本身：**留下来的两条之间不会叠字**。
+ * ⚠️ **这个值曾经是量出来的，而它依据的那次测量测的是已经不存在的几何 —— 值还是 14。**
+ *
+ * 原先的实测（种子 837，984×132 的缩略图 = 缩放 0.13，**28 个门洞**，
+ * 在 20 下筛剩 1 条、在 14 下筛剩 14 条）测的是**主干道时代的几何**：
+ * 一条长条（那个盒子 984×132 ≈ **7.5:1**，本文件 49 / 232 行按 8:1 叫它；
+ * 主干道种子 837 实测 **8.6:1**，六种子整体 **5.2:1—8.6:1**，所以「8:1」也只是个约数。
+ * **107 / 232 / 311 行写的「12:1」在仓库里找不到对应的测量，别引用它**）、28 个门洞。
+ * 那张图连同主干道模型一起**已于 2026-10-20 从生成器里摘掉**（任务 4.1—
+ * `gen/generate.ts` 现在收的是已解析的 `FloorPlan`，`planLayout(seed, cfg, plan)`），
+ * 所以**这两组数字谁也复现不了**，它们只剩「14 是从哪儿来的」这一个用途。
+ *
+ * ★ 落地后的几何是**写死的、与种子无关的**（探针实测 60 个种子全同）：
+ * `bounds` **10520×2920**（263×73 格）、**3.6:1** 的 S 形、**16** 扇门、
+ * `largestViewSize` 4840×1840、`roomFitSize` 1920×1160。
+ * 洞从 28 变 16、铺得更开，所以 14 **大概率仍然够用** ——
+ * 但「够用」是推的，不是量的。
+ *
+ * ⚠️ **今天没有任何场子在跑这条路径**：整层场子 `d2_seeds` 明确传 `doorLabels: false`。
+ * 而**理由不是「挤不下」** —— 那是主干道长条的旧理由，`d2_seeds` 自己
+ * （117—121 行）已经撤回了：按落地后的几何复算，gap=14 只筛掉 2—11 条，大头都放得下；
+ * 16 扇门在 S 形上挤不挤，**没人量过**。它关着是出于「特写才画」这条分工。
+ * 所以 `cullLabels` 的门牌筛选**当前没有活的验证者**，一个数字都验不了。
+ *
+ * ⚠️ 「28 条里留 14 条」这个**具体数目**本来就是阈值卡的，配置动一动就变。
+ * 能保证的是口径本身：**留下来的两条之间不会叠字**。
  * 数目变了由读数行报出来（`FloorplanView.labelsDropped`）—— 不静默。
+ * 想重新量一遍，得先有一个**画门标注的**整层场子（现在没有）。
+ *
+ * ⚠️ **1:1 那一档（`DOOR_LABEL_GAP_1TO1`，几乎不筛）今天同样没有场子在跑** ——
+ * 它唯一的使用者就是本文件的 `drawRoom1to1`，而那个函数现在零调用方
+ * （原调用方 `d2_classroom` 已于 2026-10-19 按用户要求删除）。
+ * `_classroomLook.ts` **不含任何门标注代码**（grep `label` 零命中），
+ * 它是落地后重做 1:1 特写时要照抄的那份观感层，**不是门标注的执行者**。
  */
 const DOOR_LABEL_GAP = 14
 
 /**
  * 把一个世界矩形按比例缩进一个屏幕盒子。
  *
- * **按比例，不是按 1:1** —— 一排 15 间房宽近 8000px，塞进 1280×720 必然要缩。
- * 缩略图回答的是「房间怎么串、门开在哪个方向、连廊通不通」，
- * 不是「课桌摆在离墙第几像素」—— 后者是 `d2_classroom` 的活。
+ * **按比例，不是按 1:1** —— 塞进 1280×720 必然要缩。
+ * ★ 落地后整层宽 **10520px**（`floor-plan.json` 的 263 格，与种子无关，探针实测）；
+ * 按 1280px 宽的屏幕盒子算，缩放 **≈ 0.12**。
+ * （主干道时代是 8800—13960px、缩放 ≈ 0.09—0.15 —— 那组数随模型一起作废了。）
+ * 缩略图回答的是「房间怎么串、门开在哪个方向、走廊通不通」，
+ * 不是「课桌摆在离墙第几像素」—— 后者是 1:1 特写那一路的活（`_classroomLook.ts`，
+ * 挂在 `_` 开头所以不进菜单；原先前排那个整间特写场子 `d2_classroom`
+ * 已于 2026-10-19 按用户要求删除）。
  *
  * ## 取景框切到的东西，就不许再替它下结论
  *
@@ -365,7 +459,7 @@ export function drawFloorplan(
   for (const room of map.rooms) {
     const c = clipRect(room.rect, world)
     if (c === null) continue
-    fillWorldRect(g, mapper, c, room.branch === 'main' ? COLORS.mainRoom : COLORS.sideRoom)
+    fillWorldRect(g, mapper, c, roomFillColor(cfg, room))
     if (opts.obstacles ?? false) {
       for (const o of room.obstacles) {
         const oc = clipRect(o.rect, world)
@@ -391,7 +485,7 @@ export function drawFloorplan(
     const p = mapper.toScreen(left(room.rect), top(room.rect))
     const w = room.rect.width * scale
     const h = room.rect.height * scale
-    const line = roomOutline(cfg, room)
+    const line = roomOutline(room)
     g.lineStyle(line.width, line.color, 1)
     g.strokeRect(p.x, p.y, w, h)
   }
@@ -439,15 +533,17 @@ export function drawFloorplan(
       if (!fullyInside(room.rect, world)) continue
       const p = { x: room.rect.x, y: room.rect.y }
       taken.push({ at: p })
-      // 标的是**位置 · 关别**（见 `roleLabel`）：颜色之外还得有字 ——
-      // 一块 24px 宽的色块，光靠蓝/绿/紫分不出「侧室·精英」和「侧室·宝箱关」。
-      at(p, `#${room.order}\n${roleLabel(room)}`, COLORS.text)
+      // 标的是**id + 关别**（见 `roleLabel`）：颜色之外还得有字 ——
+      // 一块 24px 宽的色块，光靠蓝/绿分不出「精英关」和「宝箱关」；
+      // 而 id 是这一层上唯一能把缩略图和 `floor-plan.json` 对上的名字
+      // （★ v5：原先是 `#${room.order}`，那个序号不表示进度也不表示远近）。
+      at(p, `${room.id}\n${roleLabel(room)}`, COLORS.text)
     }
 
     if (opts.passageLabels ?? true) {
       for (const p of passageLabels(map, cfg)) {
         // 只标**整段在框里**的：取景框切到的地方常常挂着半段连廊，
-        // 给半段贴个「连廊 3→5」会被读成「这儿整条路都在画里」。
+        // 给半段贴个「连廊 C_X · YF612」会被读成「这儿整条路都在画里」。
         if (!fullyInside(p.rect, world)) continue
         taken.push({ at: p.at })
         at(p.at, p.text, COLORS.passageText)
@@ -459,7 +555,7 @@ export function drawFloorplan(
       const all = doorLabels(map, cfg).filter((d) => fullyInside(d.rect, world))
       const { kept, dropped } = cullLabels(all, scale, DOOR_LABEL_GAP, taken)
       labelsDropped = dropped.length
-      for (const d of kept) at(d.at, d.text, cssColor(doorColor(d)), Math.max(10, size - 2))
+      for (const d of kept) at(d.at, d.text, cssColor(COLORS.door), Math.max(10, size - 2))
     }
   }
 
@@ -498,7 +594,7 @@ export interface Room1to1Options {
   spawns?: boolean
   labels?: boolean
   /**
-   * 门旁标出**它通向哪一间**（`→5`）。默认 true，随 `labels` 一起关。
+   * 门旁标出**它通向哪儿**（`→YF604` / `→C_X`）。默认 true，随 `labels` 一起关。
    *
    * 1:1 这一场几乎不筛（`DOOR_LABEL_GAP_1TO1`）：这里的字是 12px、
    * 画的是**单间**，一扇门周围有的是地方。缩略图上被筛掉的那些，
@@ -557,7 +653,7 @@ export function drawRoom1to1(
   for (const other of map.rooms) {
     const c = clipRect(other.rect, box)
     if (c === null) continue
-    const color = other.branch === 'main' ? COLORS.mainRoom : COLORS.sideRoom
+    const color = roomFillColor(cfg, other)
     fillWorldRect(g, mapper, c, color, other === room ? 1 : 0.45)
   }
 
@@ -667,22 +763,31 @@ export function drawRoom1to1(
         .setOrigin(0.5)
         .setDepth(-70)
     }
-    // 1:1 这一场印的是**中文关别 + 原始 branch**：关别要和场子读数、
-    // 和缩略图说得一样（`ROOM_KIND_LABELS` 那一份），而 branch 是代码里的字段名，
-    // 对着 `Room` 读代码时用得上。这里本来印的是 `kind` 的**原值** ——
-    // 关别表落地后原值有 8 个，中英混排的 `#9 chest (side)` 不如 `#9 宝箱关 (side)`
-    // 好读，而原值在场子读数里照样查得到。
+    // 1:1 这一场印的是 **id + 中文关别 + `#序号`**。
+    //
+    // 关别要和场子读数、和缩略图说得一样（读 `ROOM_KIND_LABELS` 那一份）。
+    // `id` 是**这一层的名字**（`YF604`），`#序号` 是**代码里的名字**（`Room.order`）——
+    // 1:1 是「对着 `Room` 读代码」的那一面，两个都要有。
+    //
+    // ★ 改了（v5）：原先印的是 `#9 宝箱关 (side)`，括号里那个 `branch` 是代码里的
+    // 字段名。`branch` 删了之后括号换成 `#${room.order}` —— 同一个位置还是放
+    // 「代码里的东西」，只是换成了那个还在的字段。**顺序反了**：id 在前，
+    // 因为它是读的人拿来对照平面图的那个名字。
     at(
       { x: room.rect.x, y: top(room.rect) + cfg.navCellSize },
-      `#${room.order} ${ROOM_KIND_LABELS[room.kind]} (${room.branch})`,
+      `${room.id} ${ROOM_KIND_LABELS[room.kind]} (#${room.order})`,
     )
 
     // 连廊那一段 + 门标注：**谁上谁下由 `planRoom1to1Labels()` 判**（在 `./framing`，
     // 那一层不碰 Phaser，所以判断本身进得了 node 测试；这一层只负责印）。
     //
     // 为什么这个序要紧：837 里 `→11`（挂在连廊正下方的侧室那扇门）和 `连廊 9→11`
-    // 只差 2px，必然撞掉一条。1:1 这一场要的是**门标注**（用户报的缺口就是它），
-    // 连廊名让位 —— 那段连廊通向哪两间，看两端两条 `→N` 就知道了。详见那个函数。
+    // 只差 2px，必然撞掉一条。★ 改了（v5）：那是**主干道时代**的读数 —— 那组坐标
+    // 与那两个 `N` 都随模型一起作废（v5 的门标注印的是 `→C_X` 这样的空间 id）。
+    // 实测（三个种子 × 每层 16 个 1:1 框、gap=34）：筛选**一次都不触发**（筛掉 0 条），
+    // 全层最近的一对是 YF612 的 `→C_X` 与 `连廊 C_X · YF612`（差 dx=60 / dy=50）——
+    // **并排这一对今天不会相撞，这条序是给将来留的**。序本身没变：1:1 这一场要的是
+    // **门标注**（用户报的缺口就是它），连廊名让位。详见那个函数。
     //
     // 连廊**只标整段在框里的**：取景框朝门外长出去一格，框边上常常挂着半段邻居的
     // 连廊；照 `clipRect` 判的话标签会落在框外那片黑上，看起来像「这里标注了一段
@@ -699,7 +804,7 @@ export function drawRoom1to1(
       // 连廊名先印、门标注压在上面 —— 两者已经互不重叠了（上面那道筛保证了这点），
       // 这个先后只决定万一将来筛漏了谁盖住谁。名字底色浅，压在下面更不容易糊。
       for (const p of plan.passages) at(p.at, p.text, COLORS.passageText)
-      for (const d of plan.doors) at(d.at, d.text, cssColor(doorColor(d)), '11px')
+      for (const d of plan.doors) at(d.at, d.text, cssColor(COLORS.door), '11px')
     }
 
     // `spawn` 字走自己的落点（沿屏幕往上挪固定一段，不走 mapper），

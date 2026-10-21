@@ -25,7 +25,13 @@ import type { Point } from '../model/types'
 export interface MapErrorContext {
   /** 这次生成用的种子。**复现的钥匙** */
   seed?: number
-  /** 出问题的房间在进度轴上的序号 */
+  /**
+   * 出问题的房间的**序号**（`Room.order`）。
+   *
+   * ⚠️ **不是进度轴**：v5 起 `order` 就是 `map.rooms` 的数组下标、**显示序**
+   * （`model/types.ts` 那条 ⚠️）。名字里的「order」是沿革，任何按大小推
+   * 「先打哪间 / 打到第几间了」的结论都是错的。
+   */
   roomOrder?: number
   /** 出问题的点（通常是出生点坐标） */
   point?: Point

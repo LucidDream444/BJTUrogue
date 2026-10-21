@@ -6,15 +6,41 @@
  * ## 两层的分工
  *
  * ```
- * 层 1 · 教室之间：房间图上从起点遍历，每间房都要被走到
- *                + 每一段连廊端到端可走
- *                + 侧室的入口接宿主、出口接主干下一间
- * 层 2 · 教室之内：门 → 每一个出生点；外加「门本身通不通」
+ * 层 1 · 空间之间：从楼梯间在**网格上**走一遍，每一间房都要进得去、
+ *                每一段走廊的每一格都要走得到
+ * 层 2 · 教室之内：门的两侧都要站得住人；每个刷怪点都要从门走得到；
+ *                外加实测「全层最窄的窄口」够不够宽
  * ```
  *
- * 层 1 里的「每一段连廊」是**一段一段**验的：连廊从「整层唯一的那条走廊」
- * 变成了「夹在两间教室之间的一小段」，数目由 1 变成 N−1，每一段夹着的两间房
- * 宽度、高度、两端门的开法都可能不同，**验过一段不代表另一段也对**。
+ * ## ★ v5：层 1 从「房间图」换成「网格上的世界」
+ *
+ * v4 的层 1 走的是一张**抽象房间图**：边来自 `Door.toOrder`，
+ * 再加上「侧室入口接宿主、出口接主干下一间」这条接线检查。
+ * 那两样在 v5 里都没有了 —— `toOrder` 随有向门一起作废，侧室不存在了。
+ *
+ * 更关键的是：v4 那张图**漏掉了走廊内部**。它只问「房间之间连不连得通」，
+ * 而 v5 的走廊是一张**网**（6 段拼成 S 形，段与段直接相接、不隔墙）——
+ * 「网里有没有一段是断的」在房间图上根本问不出来。
+ * 所以 v5 直接在**烘好的可走性网格**上从楼梯间 flood 一遍：
+ * 它是运行时唯一真的会发生的走法（`walkability.ts` 就是往 D3 的 `FlowField`
+ * 里注的那份判定），问出来的答案不依赖任何关于「走廊长什么样」的假设。
+ *
+ * ## ★ v5：`checkPassagesWalkable` 的判据整个换掉了（2026-10-20）
+ *
+ * v4 那一条是「**每一段连廊的两端各要有一扇门**」—— 它成立的前提是
+ * 「连廊是夹在两间教室之间的一小段」，所以两端一定是竖直隔墙上的门。
+ *
+ * v5 的这个前提没了：走廊段可以直接接在另一段走廊上（`C_W` 的东端就是 `C_J`，
+ * 中间既没有墙也没有门）。照旧判据走，「每一段的两端都要有门」会把
+ * `C_J` / `C_M` / `C_S` 这些**中段的走廊**全判成错。
+ *
+ * 换掉的判据是**更强的一条**：**这一段走廊里每一个能站的格子，都要从楼梯间走得到**。
+ * 「两端」这个说法在网里本来就不成立（一段走廊可能有三条去处），
+ * 而逐格问「走不走得到」不需要先定义「端」在哪儿。
+ * 它顺带把原来那半条「端到端可走」也盖住了：两端都走得到 ⟹ 中间也走得到。
+ *
+ * ⚠️ 走廊段**互相重叠是允许的**（它们是同一条走廊），所以判据里不能出现
+ * 「两个矩形不许相交」那种话 —— 见 `validate/contract.ts` 里那一节的 ⚠️。
  *
  * ## 层 2 为什么是**回归网**而不是兜底
  *
@@ -40,12 +66,12 @@
  * 窄口净宽也在这里量：它要网格在手才量得出来，而网格是这一层的输入。
  */
 
-import type { DungeonMap, Door, Passage, Rect, Room } from '../model/types'
-import { mainRooms } from '../model/types'
+import type { DungeonMap, Door, Passage, Room } from '../model/types'
 import type { RoomsConfig } from '../config'
-import { bottom, doorRect, left, rectsIntersect, right, top } from '../model/rect'
+import { bottom, left, right, top } from '../model/rect'
 import {
   cellCenter,
+  cellOf,
   doorSideCells,
   gridOfMap,
   isBlockedCell,
@@ -53,24 +79,29 @@ import {
 } from '../walkability'
 import { MapValidationError, type MapErrorContext } from './errors'
 
+/** 一个格子（`cy * cols + cx` 编码）。 */
+type Cell = { cx: number; cy: number }
+
 export interface ReachabilityResult {
-  /** 层 1：房间图遍历是否走到了每一间 */
+  /** 层 1：从楼梯间出发，每一间房、每一段走廊都走得到 */
   layer1Ok: boolean
-  /** 层 2：每扇门都通、每个出生点都从门可达 */
+  /** 层 2：每扇门都通、每个出生点都从门可达、窄口够宽 */
   layer2Ok: boolean
+  /** 层 1 里至少有一格可走、且从楼梯间走得到的房间数 */
   visitedRooms: number
   roomCount: number
   /**
-   * **每一段**连廊的实测净高（px），顺序同 `map.passages`。
+   * **每一段**走廊的实测净宽（px），顺序同 `map.passages`。
    *
-   * 单独报出来是因为它与 `Passage.rect.height` **不是一个数**：矩形是含墙的
-   * （首版 `corridorRect` 同约定），可走的是里面那一条，差着一层墙厚。
-   * 只印矩形高度的话，读到的是 280，而玩家实际能走的是 240 ——
-   * 而这两个数在屏幕上并排出现时，看起来像其中一个是错的。
+   * 「净宽」量的是**短边**：走廊段横着竖着都有（`C_W` 是 119×6 格，
+   * `C_S` 是 6×22 格），量长边量出来的是它的**长度**。v4 只量竖直方向，
+   * 因为那时连廊一律是横向的一小段；v5 的 S 形里有 `C_S` 那样的竖段，
+   * 照旧量法会报出 880 —— 而 `C_S` 的净宽就是 240。
+   * ⚠️ 报大了比报小更糟：窄口读数偏大时，一条真过不去的路会看着像通的。
    */
   passageClearWidths: number[]
   /**
-   * 实测的**窄口净宽**（px）：由网格量出来的连廊净高，与全层最窄的一扇门，取小。
+   * 实测的**窄口净宽**（px）：由网格量出来的走廊净宽，与全层最窄的一扇门，取小。
    * 量出来而不是照配置抄 —— 见下面 `measureNarrowestOpening`。
    */
   narrowestOpeningWidth: number
@@ -78,9 +109,9 @@ export interface ReachabilityResult {
 }
 
 /** 从一组起点做 4-邻域 flood fill，返回可达格集合（`cy * cols + cx` 编码）。 */
-function floodFill(grid: NavGrid, starts: readonly { cx: number; cy: number }[]): Set<number> {
+function floodFill(grid: NavGrid, starts: readonly Cell[]): Set<number> {
   const seen = new Set<number>()
-  const queue: { cx: number; cy: number }[] = []
+  const queue: Cell[] = []
   const push = (cx: number, cy: number): void => {
     if (cx < 0 || cy < 0 || cx >= grid.cols || cy >= grid.rows) return
     const key = cy * grid.cols + cx
@@ -100,156 +131,79 @@ function floodFill(grid: NavGrid, starts: readonly { cx: number; cy: number }[])
 }
 
 /**
- * 与 `floodFill` 同一件事，但**只许在 `bounds` 里走**。
+ * 一个**空间矩形**盖住的格子。
  *
- * 为什么连廊那一段要限定范围：不限定的话，从西端的门出去可以绕「教室 → 别的门 →
- * 整层楼 → 东端的门」，于是**一段被堵死的连廊也会判绿** —— 因为绕路绕到了。
- * 限在连廊矩形里，走的才是「穿过这一段」本身。
+ * 右/下边界用 `- 1` 换成**闭区间**再取格：`right(rect)` 落在格边界上，
+ * 直接拿它 `cellOf` 会落到隔壁那一格 —— 而那一格是墙。
+ * （`gen/spawns.ts` 的 `interiorCells` 是同一件事的更细一版，那边还要按格心收紧。）
  */
-function floodWithin(
+function cellsOfRect(grid: NavGrid, rect: { x: number; y: number; width: number; height: number }): Cell[] {
+  const a = cellOf(grid, left(rect), top(rect))
+  const b = cellOf(grid, right(rect) - 1, bottom(rect) - 1)
+  const out: Cell[] = []
+  for (let cy = a.cy; cy <= b.cy; cy++) {
+    for (let cx = a.cx; cx <= b.cx; cx++) out.push({ cx, cy })
+  }
+  return out
+}
+
+/**
+ * 层 1：从楼梯间在网格上 flood 一遍。
+ *
+ * 起点是**楼梯间里能站的每一格**（`rooms[0]`），也就是玩家出生后脚下那一块 ——
+ * 不从「楼梯间的门」出发：那样量的是「门通不通」，而门通不通是层 2 在问的事，
+ * 这里问的是「从玩家站的地方出发，这一层能走到哪儿」。
+ */
+function walkFromStairwell(
+  map: DungeonMap,
   grid: NavGrid,
-  starts: readonly { cx: number; cy: number }[],
-  bounds: Rect,
-): Set<number> {
-  const seen = new Set<number>()
-  const queue: { cx: number; cy: number }[] = []
-  const bx0 = left(bounds)
-  const bx1 = right(bounds)
-  const by0 = top(bounds)
-  const by1 = bottom(bounds)
-  const push = (cx: number, cy: number): void => {
-    if (cx < 0 || cy < 0 || cx >= grid.cols || cy >= grid.rows) return
-    const key = cy * grid.cols + cx
-    if (seen.has(key) || isBlockedCell(grid, cx, cy)) return
-    const c = cellCenter(grid, cx, cy)
-    if (c.x < bx0 || c.x > bx1 || c.y < by0 || c.y > by1) return
-    seen.add(key)
-    queue.push({ cx, cy })
-  }
-  for (const s of starts) push(s.cx, s.cy)
-  for (let head = 0; head < queue.length; head++) {
-    const { cx, cy } = queue[head]!
-    push(cx + 1, cy)
-    push(cx - 1, cy)
-    push(cx, cy + 1)
-    push(cx, cy - 1)
-  }
-  return seen
-}
-
-/** 层 1：房间图。边来自门（`toOrder`）。 */
-function walkRoomGraph(map: DungeonMap): { visited: Set<number>; problems: string[] } {
+): { visited: Set<number>; visitedRooms: number; problems: string[] } {
   const problems: string[] = []
-  const seen = new Set<number>()
-  const queue: number[] = [0]
-  seen.add(0)
-
-  while (queue.length > 0) {
-    const order = queue.shift()!
-    const room = map.rooms[order]
-    if (room === undefined) continue
-    for (const d of room.doors) {
-      if (d.toOrder === null) continue // 墙外，不是一条边
-      if (seen.has(d.toOrder)) continue
-      seen.add(d.toOrder)
-      queue.push(d.toOrder)
-    }
+  const entry = map.rooms[0]
+  if (entry === undefined) {
+    return { visited: new Set(), visitedRooms: 0, problems: ['层 1：这一层一间房都没有'] }
   }
 
+  const starts = cellsOfRect(grid, entry.rect).filter((c) => !isBlockedCell(grid, c.cx, c.cy))
+  if (starts.length === 0) {
+    problems.push(
+      `层 1：楼梯间「${entry.id}」里一格能站的都没有 —— 出生点没有落脚的地方`,
+    )
+  }
+  const visited = floodFill(grid, starts)
+
+  // ---- 每一间房至少有一格走得到
+  let visitedRooms = 0
   for (const room of map.rooms) {
-    if (!seen.has(room.order)) {
+    const any = cellsOfRect(grid, room.rect).some((c) => visited.has(c.cy * grid.cols + c.cx))
+    if (any) {
+      visitedRooms++
+      continue
+    }
+    problems.push(
+      `层 1：房间 #${room.order}（${room.id} / ${room.kind}）从楼梯间走不到 —— ` +
+        `它的门通向 [${room.doors.map((d) => (d.a === room.id ? d.b : d.a)).join(', ') || '（一扇门都没有）'}]，` +
+        `而这些空间要么不通、要么那一整片被墙围死了`,
+    )
+  }
+
+  // ---- 每一段走廊的**每一格**都要走得到（见文件头：这是 v5 换掉的那条判据）
+  for (const p of map.passages) {
+    const cells = cellsOfRect(grid, p.rect)
+    const walkable = cells.filter((c) => !isBlockedCell(grid, c.cx, c.cy))
+    const missed = walkable.filter((c) => !visited.has(c.cy * grid.cols + c.cx))
+    if (missed.length > 0) {
       problems.push(
-        `层 1：房间 #${room.order}（${room.branch}/${room.kind}）从起点走不到 —— ` +
-          `它的门通向 [${room.doors.map((d) => d.toOrder).join(', ')}]`,
+        `层 1：走廊「${p.id}」有 ${missed.length}/${walkable.length} 格从楼梯间走不到` +
+          `（第一格在 (${cellCenter(grid, missed[0]!.cx, missed[0]!.cy).x}, ` +
+          `${cellCenter(grid, missed[0]!.cx, missed[0]!.cy).y})）—— ` +
+          `走廊是一张**网**，每一段都要通到楼梯间；` +
+          `这一段被墙围住了，或者它与相邻那几段之间的口子没接上`,
       )
     }
   }
-  return { visited: seen, problems }
-}
 
-/** 侧室的入口/出口接对（spec `map-reachability` 层 1 的第二个 Scenario）。 */
-function checkSideWiring(map: DungeonMap): string[] {
-  const problems: string[] = []
-  const mains = mainRooms(map)
-  for (const room of map.rooms) {
-    if (room.branch !== 'side') continue
-    const host = room.anchoredTo
-    if (host === null) {
-      problems.push(`层 1：侧室 #${room.order} 没记锚点（anchoredTo 是 null）`)
-      continue
-    }
-    const idx = mains.findIndex((m) => m.order === host)
-    if (idx < 0) {
-      problems.push(`层 1：侧室 #${room.order} 锚在 order ${host}，但主干轴上没有这一间`)
-      continue
-    }
-    const next = mains[idx + 1]
-    if (next === undefined) {
-      problems.push(`层 1：侧室 #${room.order} 锚在主干最后一间 #${host} 上，没有"下一间"可汇回`)
-      continue
-    }
-    const targets = room.doors.map((d) => d.toOrder)
-    if (!targets.includes(host)) {
-      problems.push(`层 1：侧室 #${room.order} 的入口没接宿主 #${host}（它有门通向 [${targets.join(', ')}]）`)
-    }
-    if (!targets.includes(next.order)) {
-      problems.push(`层 1：侧室 #${room.order} 的出口没汇回主干下一间 #${next.order}（它有门通向 [${targets.join(', ')}]）`)
-    }
-  }
-  return problems
-}
-
-/**
- * 层 1：**每一段**连廊端到端可走（spec `map-reachability` 层 1 的第二个 Scenario）。
- *
- * 首版这里只有一段走廊（贯穿全层），所以「验一次」等于「验全层」。现在连廊是
- * 教室之间的一小段，数目由 1 变成 `N − 1` —— **验过一段不代表另一段也对**，
- * 因为它们各自夹着不同宽度、不同高度的两间房，两端那两扇门又各自开在不同的墙上。
- */
-function checkPassagesWalkable(map: DungeonMap, grid: NavGrid, cfg: RoomsConfig): string[] {
-  const problems: string[] = []
-  const wt = cfg.wallThickness
-
-  for (let i = 0; i < map.passages.length; i++) {
-    const p = map.passages[i]!
-    const label = `层 1：连廊 #${i}（主干 order ${p.between[0]} ↔ ${p.between[1]}）`
-
-    // 这一段两端的门。只看 `axis: 'v'`：连廊的两端是**竖直隔墙**，
-    // 而侧室那两扇 `axis: 'h'` 的门在带的上/下墙上，它们的矩形和连廊矩形
-    // 角上会碰上（墙厚 40、各探出 20），混进来会把「东端有没有门」算错。
-    const west: { cx: number; cy: number }[] = []
-    const east: { cx: number; cy: number }[] = []
-    for (const room of map.rooms) {
-      for (const d of room.doors) {
-        if (d.axis !== 'v') continue
-        if (!rectsIntersect(doorRect(d, wt), p.rect)) continue
-        // 门心在连廊左边的算西端。**不比较浮点相等**：所有坐标都是整格加减半格，
-        // 但从两条不同的式子算出来的同一个数，不该靠 `===` 去认。
-        const bucket = d.x <= p.rect.x ? west : east
-        for (const c of doorSideCells(grid, room, cfg, d).outside) bucket.push(c)
-      }
-    }
-
-    if (west.length === 0 || east.length === 0) {
-      problems.push(
-        `${label} 有一端没有门（西 ${west.length} 扇 / 东 ${east.length} 扇）—— ` +
-          `连廊是"教室之间"的连接，两端各要有一扇`,
-      )
-      continue
-    }
-
-    const starts = west.filter((c) => !isBlockedCell(grid, c.cx, c.cy))
-    if (starts.length === 0) {
-      problems.push(`${label} 西端门外那一格每一格都是堵的 —— 这一段进不去`)
-      continue
-    }
-
-    const reached = floodWithin(grid, starts, p.rect)
-    if (!east.some((c) => reached.has(c.cy * grid.cols + c.cx))) {
-      problems.push(`${label} 从西端的门走不到东端的门 —— 这一段连廊是堵死的`)
-    }
-  }
-  return problems
+  return { visited, visitedRooms, problems }
 }
 
 /** 一扇门的两侧都得能站人，否则这扇门是死的。 */
@@ -262,7 +216,10 @@ function checkDoorPassable(
 ): string[] {
   const problems: string[] = []
   const { inside, outside } = doorSideCells(grid, room, cfg, d)
-  const tag = `#${room.order} 的 doors[${index}]（${d.kind}，通向 ${d.toOrder}）`
+  // 另一端叫什么名字：`a` / `b` 是字典序排好的，所以不能靠「取 a」——
+  // `'C_W' < 'YF601'` 但 `'C_W' > 'STAIR'`，同一个写法在两条数据上给出不同的答案。
+  const other = d.a === room.id ? d.b : d.a
+  const tag = `#${room.order}（${room.id}）的 doors[${index}]（${d.axis}，通向 ${other}）`
 
   const insideOk = inside.some((c) => !isBlockedCell(grid, c.cx, c.cy))
   if (!insideOk) {
@@ -287,7 +244,7 @@ function checkSpawnsFromDoors(
   let spawnsChecked = 0
 
   for (const room of map.rooms) {
-    const starts: { cx: number; cy: number }[] = []
+    const starts: Cell[] = []
     for (const d of room.doors) {
       for (const c of doorSideCells(grid, room, cfg, d).inside) {
         if (!isBlockedCell(grid, c.cx, c.cy)) starts.push(c)
@@ -299,21 +256,21 @@ function checkSpawnsFromDoors(
       spawnsChecked++
       // 出生点自己那一格堵不堵：堵了就是「障碍物盖住了出生点」，
       // 而那是 spec `dungeon-layout` 单列的一个 Scenario，单独报出来更好查。
-      const c = {
-        cx: Math.floor((p.x - grid.originX) / grid.cellSize),
-        cy: Math.floor((p.y - grid.originY) / grid.cellSize),
-      }
+      const c = cellOf(grid, p.x, p.y)
       if (isBlockedCell(grid, c.cx, c.cy)) {
         problems.push(
-          `层 2：房间 #${room.order} 的出生点 (${p.x}, ${p.y}) 被障碍物盖住了 —— ` +
+          `层 2：房间 #${room.order}（${room.id}）的出生点 (${p.x}, ${p.y}) 被障碍物盖住了 —— ` +
             `怪会卡在桌子里`,
         )
         continue
       }
       if (!reachable.has(c.cy * grid.cols + c.cx)) {
+        // ⚠️ v5 里这条的后果**不再是**「一局作废」：玩家可以丢下这间去打别的
+        //（用户 2026-10-19：随意在走廊走、随意挑房间进）。但那个房间永远清不掉，
+        // 门口的挡板（如果 D1 按 `spawnPoints.length > 0` 判它在战斗里）也永远不开。
         problems.push(
-          `层 2：房间 #${room.order} 的出生点 (${p.x}, ${p.y}) 从门走不到 —— ` +
-            `怪出不来 → 玩家打不到 → 房间清不掉 → 「不回头」规则下这一局作废`,
+          `层 2：房间 #${room.order}（${room.id}）的出生点 (${p.x}, ${p.y}) 从门走不到 —— ` +
+            `怪出不来 → 玩家打不到 → 这间房永远清不掉、门口的挡板永远不开`,
         )
       }
     }
@@ -322,57 +279,58 @@ function checkSpawnsFromDoors(
 }
 
 /**
- * 实测连廊的**净高**：从连廊中线那一格往上下两侧扩，数连续的格。
+ * 实测一段走廊的**净宽**（px）：从短边中线那一格往两侧扩，数连续的格。
  *
  * ⚠️ 起点必须是**中线那一格**，不能「数这一列里最长的一段能站几格」——
- * 主干教室与连廊等高，但教室是整间房、连廊外面还有侧室，
- * 取最长段会量到别的地方去，于是一段被堵死的连廊也会报绿。
+ * 走廊外面还有房间，取最长段会量到别的地方去，于是一段被堵死的走廊也会报绿。
  *
- * ⚠️ 光「从中线起、遇堵就停」还不够：**门洞下面没有墙**。
- * 侧室的出口门就开在连廊的中线那一列上（`sideEntranceX` 那套），
- * 于是往上数到连廊北墙时会**穿过门洞走进侧室**，一路数到侧室的北墙 ——
- * 实测报出来是 520（240 的连廊 + 240 的侧室 + 中间那两格门洞），
- * 而这一段连廊的净高就是 240。
+ * ⚠️ 光「从中线起、遇堵就停」还不够：**门洞下面没有墙**。走廊与房间之间那 1 格
+ * 墙在门洞那一列上是空的，于是往上数会**穿过门洞走进房间**，一路数到房间的另一头
+ * —— 实测报出来是「走廊 + 门 + 房间」的和，而那一段的净宽没变。
  *
- * 所以**还要夹在连廊自己的矩形里**（判定用格心，和 `floodWithin` 同一套口径）。
- * 这些格子确实站得住，但它们**不是这段连廊**：报大了比报小更糟 ——
- * 窄口读数偏大时，一条真过不去的路会看着像通的。
+ * 所以**还要夹在走廊自己的矩形里**（判定用格心）。这些格子确实站得住，
+ * 但它们**不是这段走廊**：报大了比报小更糟 —— 窄口读数偏大时，
+ * 一条真过不去的路会看着像通的。
  *
- * ⚠️ 夹的是**里面那一条**，不是整个矩形：`Passage.rect` 含墙（墙骑在它的上下
- * 两条边上、各吃半层），所以可走的是 `rect` 往里各退半个墙厚的那一段 ——
- * 和 `passageClearWidths` 的字段注释里那句话是同一件事。
- * 只夹到矩形边的话，墙上那一格（格心正好落在墙的中线上）会被数进去：
- * 它平时是堵的、恰好在门洞那一列上是通的，于是同一段连廊会量出 240 或 280，
- * **取决于侧室的出口门开在哪一列** —— 一个随种子变的读数。
+ * ★ 改了（v5）：夹的范围就是 `p.rect` **本身**，不再往里退半个墙厚。
+ * v4 的 `Passage.rect` 含墙（墙骑在上下两条边上、各吃半层），所以那时要退；
+ * v5 的矩形**就是可走的那一片**，再退 20px 会把最外圈那两格算漏（差一格 = 差 40px），
+ * 而它不报错 —— 只是读数偏小，于是「够不够宽」这条判定变得保守。
+ * 今天不退也仍然对：墙那两格的**格心落在矩形外面**，本来就夹得掉。
  */
-function measurePassageHeight(grid: NavGrid, cfg: RoomsConfig, p: Passage): number {
-  const cx = Math.floor((p.rect.x - grid.originX) / grid.cellSize)
-  const midCy = Math.floor((p.rect.y - grid.originY) / grid.cellSize)
-  if (isBlockedCell(grid, cx, midCy)) return 0
+function measurePassageClearWidth(grid: NavGrid, p: Passage): number {
+  // 短边才是净宽。竖着的走廊（`C_S`）量竖直方向量出来的是它的长度。
+  const vertical = p.rect.height <= p.rect.width
+  const midX = Math.floor((p.rect.x - grid.originX) / grid.cellSize)
+  const midY = Math.floor((p.rect.y - grid.originY) / grid.cellSize)
 
-  const inner0 = top(p.rect) + cfg.wallThickness / 2
-  const inner1 = bottom(p.rect) - cfg.wallThickness / 2
-  const within = (cy: number): boolean => {
-    const c = cellCenter(grid, cx, cy)
-    return c.y >= inner0 && c.y <= inner1
+  const within = (c: Cell): boolean => {
+    const center = cellCenter(grid, c.cx, c.cy)
+    return (
+      center.x >= left(p.rect) &&
+      center.x <= right(p.rect) &&
+      center.y >= top(p.rect) &&
+      center.y <= bottom(p.rect)
+    )
   }
-  let up = 0
-  while (
-    midCy - up - 1 >= 0 &&
-    !isBlockedCell(grid, cx, midCy - up - 1) &&
-    within(midCy - up - 1)
-  ) {
-    up++
+  const open = (c: Cell): boolean => !isBlockedCell(grid, c.cx, c.cy) && within(c)
+
+  if (!open({ cx: midX, cy: midY })) return 0
+
+  const step = (sign: number): number => {
+    let n = 0
+    for (;;) {
+      const c: Cell = vertical
+        ? { cx: midX, cy: midY + sign * (n + 1) }
+        : { cx: midX + sign * (n + 1), cy: midY }
+      if (c.cx < 0 || c.cy < 0 || c.cx >= grid.cols || c.cy >= grid.rows) break
+      if (!open(c)) break
+      n++
+    }
+    return n
   }
-  let down = 0
-  while (
-    midCy + down + 1 < grid.rows &&
-    !isBlockedCell(grid, cx, midCy + down + 1) &&
-    within(midCy + down + 1)
-  ) {
-    down++
-  }
-  return (up + down + 1) * grid.cellSize
+
+  return (step(1) + step(-1) + 1) * grid.cellSize
 }
 
 /**
@@ -380,14 +338,14 @@ function measurePassageHeight(grid: NavGrid, cfg: RoomsConfig, p: Passage): numb
  *
  * 两个来源取小：
  *
- * - **连廊净高**：网格量出来的。配置写 `mainRoomHeight − wallThickness = 240`
- *   只是意图；真正决定「肉盾过不过得去」的是烘进网格之后剩下的空地，
- *   而两者之间的差额正是墙厚与格对齐会悄悄吃掉的东西。
- * - **每一扇门的门宽**：门是全层最窄的地方。连廊 240 而门 40 的话，
- *   玩家卡在门上，而连廊那边一路绿灯。
+ * - **走廊净宽**：网格量出来的。真正决定「肉盾过不过得去」的是烘进网格之后
+ *   剩下的空地，而那和「平面图上写了 6 格」之间的差额正是墙与格对齐悄悄吃掉的东西。
+ * - **每一扇门的门宽**：门是全层最窄的地方。走廊 240 而门 40 的话，
+ *   玩家卡在门上，而走廊那边一路绿灯。
  *
- * 首版这里量的是「走廊的可走宽度」，而走廊没有了 —— 约束的对象换成了
- * 全层最窄的这几处（spec `procgen-config-contract` 的尺寸契约表里也是这么写的）。
+ * ⚠️ 门宽读的是**门自己的** `width`，不是配置表的 `doorWidth` ——
+ * 门洞的实际宽度写在 `floor-plan.json` 里，两边不一致时照配置抄会量出一个
+ * 这层楼里根本不存在的数。
  */
 function measureNarrowestOpening(
   map: DungeonMap,
@@ -404,11 +362,7 @@ function measureNarrowestOpening(
 export function checkReachability(map: DungeonMap, cfg: RoomsConfig): ReachabilityResult {
   const grid = gridOfMap(map)
 
-  const layer1 = walkRoomGraph(map)
-  const sideProblems = checkSideWiring(map)
-  const passageProblems = checkPassagesWalkable(map, grid, cfg)
-
-  const problems: string[] = [...layer1.problems, ...sideProblems, ...passageProblems]
+  const walk = walkFromStairwell(map, grid)
 
   const doorProblems: string[] = []
   for (const room of map.rooms) {
@@ -418,24 +372,24 @@ export function checkReachability(map: DungeonMap, cfg: RoomsConfig): Reachabili
   }
 
   const spawnResult = checkSpawnsFromDoors(map, grid, cfg)
-  problems.push(...doorProblems, ...spawnResult.problems)
 
-  const passageClearWidths = map.passages.map((p) => measurePassageHeight(grid, cfg, p))
+  const passageClearWidths = map.passages.map((p) => measurePassageClearWidth(grid, p))
   const narrowestOpeningWidth = measureNarrowestOpening(map, passageClearWidths)
+  const narrowProblems: string[] = []
   if (narrowestOpeningWidth < cfg.minPassageWidth) {
-    problems.push(
+    narrowProblems.push(
       `层 2：实测最窄的窄口只有 ${narrowestOpeningWidth}px < minPassageWidth ${cfg.minPassageWidth}px —— ` +
-        `肉盾直径 80px，过不去的窄口会把玩家卡在连廊或门口`,
+        `肉盾直径 80px，过不去的窄口会把玩家卡在走廊或门口`,
     )
   }
 
+  const problems: string[] = [...walk.problems, ...doorProblems, ...spawnResult.problems, ...narrowProblems]
+
   return {
-    layer1Ok:
-      layer1.problems.length === 0 &&
-      sideProblems.length === 0 &&
-      passageProblems.length === 0,
-    layer2Ok: doorProblems.length === 0 && spawnResult.problems.length === 0,
-    visitedRooms: layer1.visited.size,
+    layer1Ok: walk.problems.length === 0,
+    layer2Ok:
+      doorProblems.length === 0 && spawnResult.problems.length === 0 && narrowProblems.length === 0,
+    visitedRooms: walk.visitedRooms,
     roomCount: map.rooms.length,
     passageClearWidths,
     narrowestOpeningWidth,
