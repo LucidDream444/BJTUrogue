@@ -4,8 +4,9 @@
  *
  * ## 一条设计决定：成长线的 key 是 `"<归属者>:<成长项>"`
  *
- * 档里的 `upgrades` 本来就是 `Record<string, number>`，所以**不用改 schema**
- * （也就没有迁移）：键从"角色 id"变成 `"student:maxHp"` 这种复合键即可。
+ * 档里的 `upgrades` 是 `Record<string, number>`：键从"角色 id"变成
+ * `"student:maxHp"` 这种复合键。字段形状没变；个别 key 的语义若变化，
+ * 仍按版本迁移处理（例如 v2 的 `armor` → `maxShield`）。
  * 好处是角色成长线与技能成长线用同一套代码、同一个字段 —— 两者的差别只有
  * "归属者是谁"，而"归属者是谁"本来就不该影响算法。
  *
@@ -13,7 +14,7 @@
  *
  * - **解锁即生效**：档里 `unlocks.skills` 里的技能全都算数，没有"装备哪几个"的概念。
  *   设计上「一个角色可以选择多个技能」—— 那需要一个选择界面，下一版做。
- * - **属性只有四项**：生命上限 / 能量上限 / 护甲 / 攻速，直接相加。
+ * - **属性只有四项**：生命上限 / 能量上限 / 护盾上限加成 / 攻速，直接相加。
  *   没有乘区、没有阈值、没有互相影响 —— 演示够用，也不会把数值调歪。
  */
 
@@ -41,11 +42,18 @@ export function totalLevelsFor(profile: ProfileData, ownerId: string): number {
 }
 
 export interface EffectiveStats {
-  maxHp: number
-  magic: number
-  armor: number
+  /** 局外成长提供的额外生命上限；战斗基础生命仍由 `balance.json` 提供。 */
+  bonusMaxHp: number
+  /** 局外成长提供的额外能量上限；战斗基础能量仍由 `combat.json` 提供。 */
+  bonusMaxEnergy: number
+  /** 局外成长提供的额外护盾上限；战斗基础护盾仍由 `combat.json` 提供。 */
+  bonusShield: number
   /** 攻速加成的百分比（5 表示 +5%），**不是倍率** —— 战斗侧自己决定怎么用 */
   attackSpeedPct: number
+  /** 角色被动：生命上限百分比、移动速度百分比与能量恢复百分比。 */
+  maxHpPct: number
+  moveSpeedPct: number
+  energyRegenPct: number
 }
 
 /**
@@ -65,10 +73,13 @@ export function effectiveStats(
   }
 
   const stats: EffectiveStats = {
-    maxHp: (def?.base.maxHp ?? 0) + gain(characterId, 'maxHp'),
-    magic: (def?.base.magic ?? 0) + gain(characterId, 'magic'),
-    armor: (def?.base.armor ?? 0) + gain(characterId, 'armor'),
+    bonusMaxHp: gain(characterId, 'maxHp'),
+    bonusMaxEnergy: gain(characterId, 'maxEnergy'),
+    bonusShield: gain(characterId, 'maxShield'),
     attackSpeedPct: 0,
+    maxHpPct: def?.combat.maxHpPct ?? 0,
+    moveSpeedPct: def?.combat.moveSpeedPct ?? 0,
+    energyRegenPct: def?.combat.energyRegenPct ?? 0,
   }
 
   // 技能加成叠在同一个数上。MVP 里解锁即生效（见文件头的简化说明）。
@@ -80,6 +91,31 @@ export function effectiveStats(
     stats.attackSpeedPct += levelOf(profile, skillId, 'attackSpeedPct') * track.perLevel
   }
   return stats
+}
+
+/** 战斗最终生命上限 = D1 的基础生命 + D4 的永久成长加成。 */
+export function effectiveMaxHp(
+  baseMaxHp: number,
+  stats: Pick<EffectiveStats, 'bonusMaxHp' | 'maxHpPct'>,
+): number {
+  const beforeCharacter = Math.max(1, baseMaxHp + stats.bonusMaxHp)
+  return Math.max(1, Math.round(beforeCharacter * (1 + stats.maxHpPct / 100)))
+}
+
+/** 战斗最终护盾上限 = D1 的基础护盾 + D4 的永久成长加成。 */
+export function effectiveMaxShield(
+  baseShield: number,
+  stats: Pick<EffectiveStats, 'bonusShield'>,
+): number {
+  return Math.max(0, Math.round(baseShield + stats.bonusShield))
+}
+
+/** 战斗最终能量上限 = D1 的基础能量 + D4 的永久成长加成。 */
+export function effectiveMaxEnergy(
+  baseMaxEnergy: number,
+  stats: Pick<EffectiveStats, 'bonusMaxEnergy'>,
+): number {
+  return Math.max(0, Math.round(baseMaxEnergy + stats.bonusMaxEnergy))
 }
 
 export interface BuyResult {

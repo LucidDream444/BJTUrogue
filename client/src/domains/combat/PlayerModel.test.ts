@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest'
 import { GameClock } from '@/core/time'
 import type { HitRequest } from '@/core/actor/damage'
-import { PlayerModel } from './PlayerModel'
+import { PlayerModel, staminaAfterRegen } from './PlayerModel'
 
 function setup() {
   const clock = new GameClock()
@@ -101,5 +101,27 @@ describe('player shield resource', () => {
     hit(120)
     player.applyStats(230, 200, 500)
     expect([player.hp, player.maxHp, player.shield]).toEqual([180, 230, 0])
+  })
+  it('run-start growth raises max HP and starts full', () => {
+    const { player } = setup()
+    player.applyRunStartStats(230, 200, 500)
+    expect([player.hp, player.maxHp]).toEqual([230, 230])
+  })
+  it('adds only the new shield capacity and keeps damage already taken', () => {
+    const { player, hit } = setup()
+    hit(40)
+    expect([player.shield, player.maxShield]).toEqual([60, 100])
+    player.applyMaxShield(30)
+    expect([player.shield, player.maxShield]).toEqual([30, 30])
+    player.applyMaxShield(130)
+    expect([player.shield, player.maxShield]).toEqual([130, 130])
+  })
+})
+
+describe('character energy regeneration identity', () => {
+  it('applies the scholar percentage without changing the base rate', () => {
+    expect(staminaAfterRegen(100, 500, 10, 0, 1000)).toBe(110)
+    expect(staminaAfterRegen(100, 500, 10, 50, 1000)).toBe(115)
+    expect(staminaAfterRegen(499, 500, 10, 50, 1000)).toBe(500)
   })
 })

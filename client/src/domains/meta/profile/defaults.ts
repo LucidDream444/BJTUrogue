@@ -47,12 +47,10 @@ import { PROFILE_SCHEMA_VERSION, type ProfileData } from './types'
 import { STARTER_SKILL_ID } from '../catalog'
 
 /**
- * ⚠️ **占位值。** 角色目录（4 个角色的定位与差异化）是 D4 的设计输出，
- * 目前还没做。这里只放一个「初始角色」id，等角色目录定稿后由**它**生成 ——
- * 而不是让主菜单、升级页、结算三处各自写一遍 `'student'`。
+ * 角色目录（当前 3 个角色，各有独立战斗身份）由 `catalog.ts` 维护；
+ * 这里只放初始角色 id，避免主菜单、升级页、结算三处各自写一遍 `'student'`。
  *
- * 需求 §4.1 的草图里写着「已解锁 3 / 4」，那是**草图的示例值，不是规格**：
- * 真实的初始解锁数量要等角色目录和资源经济定下来。
+ * 需求 §4.1 草图里的角色数量是示例；当前目录为 3 个角色，初始只解锁新生。
  */
 export const STARTER_CHARACTER_ID = 'student'
 

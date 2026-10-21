@@ -8,7 +8,7 @@ export class PlayerModel extends ActorModel<PlayerState> {
   hurtUntilMs = 0
   attackUntilMs = 0
   iframeMs = 0
-  readonly maxShield: number
+  maxShield: number
   shield: number
   deathCause: 'water' | 'damage' | null = null
   hurtAtMs = -Infinity
@@ -127,6 +127,21 @@ export class PlayerModel extends ActorModel<PlayerState> {
     this.hp = Math.min(maxHp, this.hp)
     this.iframeMs = iframeMs
   }
+  /** 局外成长在开局时生效：提高上限并以新的上限满血开始。 */
+  applyRunStartStats(maxHp: number, speed: number, iframeMs: number): void {
+    this.applyStats(maxHp, speed, iframeMs)
+    this.hp = this.maxHp
+  }
+  /**
+   * 应用永久护盾上限。开局调用时不会 secretly heal：
+   * 只把“新增的上限”同步加到当前护盾，已经损失的护盾不会被补回。
+   */
+  applyMaxShield(maxShield: number): void {
+    const next = Math.max(0, Math.round(maxShield))
+    const gainedCapacity = Math.max(0, next - this.maxShield)
+    this.maxShield = next
+    this.shield = Math.min(next, this.shield + gainedCapacity)
+  }
   /** Recovery is applied only after consuming an enemy drop. Returns the actual amount restored. */
   restoreFromPickup(kind: 'health' | 'shield', amount: number): number {
     if (
@@ -166,6 +181,18 @@ export function moveVelocity(
     step = (n ? acceleration : deceleration) * Math.max(0, dtSec)
   if (distance <= step || !distance) return { x: tx, y: ty }
   return { x: vx + (dx / distance) * step, y: vy + (dy / distance) * step }
+}
+/** 能量恢复的唯一公式；角色被动的百分比在这里作为乘数，不改变基础配置。 */
+export function staminaAfterRegen(
+  current: number,
+  maximum: number,
+  regenPerSec: number,
+  bonusPct: number,
+  deltaMs: number,
+): number {
+  if (!Number.isFinite(deltaMs) || deltaMs <= 0) return current
+  const multiplier = Math.max(0, 1 + bonusPct / 100)
+  return Math.min(maximum, current + (regenPerSec * multiplier * deltaMs) / 1000)
 }
 export class FireGate {
   nextAtMs = 0

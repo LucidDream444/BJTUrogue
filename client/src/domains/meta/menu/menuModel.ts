@@ -14,33 +14,34 @@
  * ## 已解锁计数为什么要和目录求交集
  *
  * 玩家的档里可能存着**本版不认识的**角色 id（来自更新的版本，见 `profile/types.ts`
- * 关于「看不懂的档不覆盖」的说明）。所以「已解锁 3 / 4」的 3 必须是
+ * 关于「看不懂的档不覆盖」的说明）。所以「已解锁 2 / 3」里的 2 必须是
  * **目录里认识的、且已解锁的**数量 —— 拿 `unlocks.characters.length` 直接当 3 的话，
- * 一个来自未来的 id 会让它显示成 6 / 4。
+ * 一个来自未来的 id 会让它显示成 4 / 3。
  */
 
 import { CHARACTERS, characterById, type CharacterDef } from '../catalog'
 import type { ProfileData } from '../profile/types'
 
-/** 主菜单左栏的四个按钮，顺序就是草图里的顺序 */
-export const MENU_ACTIONS = ['start', 'upgrade', 'help', 'quit'] as const
+/** 主菜单左栏的按钮，顺序以产品动线为准；图鉴紧跟在操作说明之后。 */
+export const MENU_ACTIONS = ['start', 'upgrade', 'help', 'codex', 'quit'] as const
 export type MenuAction = (typeof MENU_ACTIONS)[number]
 
 export const MENU_ACTION_LABELS: Readonly<Record<MenuAction, string>> = {
   start: '开始闯关',
   upgrade: '查看升级',
   help: '查看操作说明',
+  codex: '怪物图鉴',
   quit: '退出',
 }
 
 /**
- * 当前显示哪一屏。`main` 是主菜单本体，其余三个是盖在它上面的弹层
- * （需求 §4.6 的页面关系图里，这三个都是从主菜单出去的）。
+ * 当前显示哪一屏。`main` 是主菜单本体，其余是盖在它上面的弹层
+ * （需求 §4.6 的页面关系图里，它们都是从主菜单出去的）。
  *
  * 用**一个字段**而不是三个布尔：三个布尔能有 8 种组合，其中 5 种是"两个弹层
  * 同时开着"这种不合法状态 —— 那种状态迟早会出现，而且只在某个边角操作里出现。
  */
-export type MenuScreen = 'main' | 'help' | 'settings' | 'upgrade' | 'confirm-quit'
+export type MenuScreen = 'main' | 'help' | 'settings' | 'upgrade' | 'codex' | 'confirm-quit'
 
 export interface MenuState {
   screen: MenuScreen
@@ -50,8 +51,8 @@ export interface MenuState {
   notice: string
 }
 
-export function createMenuState(): MenuState {
-  return { screen: 'main', focusIndex: 0, notice: '' }
+export function createMenuState(initialScreen: 'main' | 'upgrade' = 'main'): MenuState {
+  return { screen: initialScreen, focusIndex: 0, notice: '' }
 }
 
 /** 焦点上下移动，**到头绕回**。越界不报错是因为按住方向键连按到底很常见。 */
@@ -100,7 +101,7 @@ export function unlockedCharacters(profile: ProfileData): CharacterDef[] {
  * 「已解锁 X / N」。
  *
  * N 是**目录长度**、X 是目录与档的交集大小 —— 档里那些本版不认识的 id
- * 不计入 X，否则会出现 6 / 4 这种读数（见文件头）。
+ * 不计入 X，否则会出现 4 / 3 这种读数（见文件头）。
  */
 export function unlockedCount(profile: ProfileData): { unlocked: number; total: number } {
   return { unlocked: unlockedCharacters(profile).length, total: CHARACTERS.length }
