@@ -16,8 +16,13 @@
  *        ↓
  * 怪出不来 → 玩家打不到 → 房间清不掉 → 门不开
  *        ↓
- * 「不回头」规则下，这一局直接作废
+ * 这一间永远清不掉，门口的挡板也永远不开
  * ```
+ *
+ * ★ 改了（v5）：末行的后果 v4 写的是「『不回头』规则下，这一局直接作废」——
+ * **「不回头」这条规则随 v5 删了**（`leavesBehind`，见 `roomFlow.ts` 文件头），
+ * 今天的落点轻得多：玩家可以丢下这间去打别的，只是那间永远清不掉
+ * （与 `validate/reachability.ts` 的 ⚠️、`gen/spawns.ts` 的同一条失败链一致）。
  *
  * 全过程中**两边都不会抛异常**，因为两边各自都是自洽的。
  *
@@ -128,11 +133,37 @@ export function isWalkableWorld(grid: NavGrid, x: number, y: number): boolean {
 }
 
 /**
- * 从一张地图建可走性判定。**这是 `FlowField` 与可达性校验共同消费的入口。**
+ * 从一张地图建可走性判定。
  *
- * D1 的写法：
+ * ## ⚠️ 这个函数**今天没有生产调用点** —— 别照下面那段猜运行时是怎么接的
+ *
+ * 2026-10-19 核过（`real-floorplan-layout` 那次 C2 变更的审计）：`grep -rn buildWalkability src/`
+ * 的命中是 **0** —— **生产没有，测试也没有**。
+ *
+ * ⚠️ 我第一版更正说「只被 procgen 自己用（校验器 + 调试渲染）」，**那也错了**：
+ * 那两处 import 的是兄弟函数 **`gridOfMap`**（`validate/reachability.ts:50`、
+ * `presentation/floorplan.ts:32`），不是这个函数。本模块真正被用的导出是
+ * `gridOfMap` / `isBlockedCell` / `cellCenter` / `cellOf` / `doorSideCells`，
+ * 消费方 `gen/generate.ts:41`（`buildGrid` / `navExtentFor`）、`gen/spawns.ts:31`、
+ * 那两个校验/渲染文件和两个测试 —— **全是 D2 内部**。
+ *
+ * **运行时的 `isWalkable` 走的是 D1 自己的路**：`combat/CombatSession.ts` 把
+ * `(x, y) => this.terrain.isWalkable(x, y, largestEnemyRadius)` 交给 `EnemyBridge`，
+ * 而 `TerrainMap` 读的是 `combat.json` 的 `terrain` 数字与 **D1 从 `StageLayout.solids`
+ * 传进来**的那一份。
+ *
+ * ⚠️⚠️ **但那份 `StageLayout` 不是本域生成器产出的那一份**：`BattleScene.ts:770`
+ * 无条件 `applyPaintedRooms(...)`，`PaintedRooms.ts:119` 把每关的 `solids` 换成
+ * `stage-collisions.json` 的贴图模板 + 按 `doorTargets` 长度摆的 `gates`，
+ * `:167` 连整份 `stages` 一起换掉。**也就是说：本域算出来的墙、门与 `seals`
+ * 今天一行都到不了怪的寻路** —— 想让整层对怪可走，要么 D1 不再替换几何，
+ * 要么把平面图喂进他的模板那一侧。**不是这里。**
+ *
+ * 下面这段是**设想的接法**（一度被当成既成事实写进了注释、通知稿和测试文件头），
+ * 不是既有代码 —— 谁要真接，得 D1 先点头，因为那会换掉 `TerrainMap` 这条通道。
  *
  * ```ts
+ * // 设想：D1 侧改成
  * const walkable = buildWalkability(map)
  * new EnemySystem({ ..., nav: { ...navGridOf(map), isWalkable: walkable } })
  * ```
@@ -160,13 +191,20 @@ export function buildWalkability(map: DungeonMap): (x: number, y: number) => boo
 export function doorSideCells(
   grid: NavGrid,
   room: { rect: Rect; doors: readonly Door[] },
-  cfg: { navCellSize: number; wallThickness: number; doorWidth: number },
+  cfg: { navCellSize: number; wallThickness: number },
   door: Door,
 ): { inside: { cx: number; cy: number }[]; outside: { cx: number; cy: number }[] } {
   const cell = cfg.navCellSize
-  // 门洞里几格中心：门洞两端落在格边界上（见 `layout.ts` 文件头 ③），
-  // 所以中心数 = 宽度 / 格边长，不用四舍五入去猜。
-  const count = Math.max(1, Math.round(cfg.doorWidth / cell))
+  // 门洞里几格中心：门洞两端落在格边界上，所以中心数 = 宽度 / 格边长，
+  // 不用四舍五入去猜。
+  //
+  // ★ 改了（v5）：宽度读**门自己的** `door.width`，不再读配置表的 `doorWidth`。
+  // 配置表那份是「标准门宽」，而门洞的实际宽度写在 `floor-plan.json` 里 ——
+  // 两边不一致时（比如有人改门宽只改了配置表），照配置表数会**数错格子**：
+  // 门洞是 5 格而这里只扫 3 格，于是 flood fill 的起点漏掉两格、
+  // 「门通不通」只检查了一部分。**两边都不报错**，只是有些门看着通、实际没人过得去。
+  // 读门自己的宽度之后，「这里到底几格」只有一个真值来源。
+  const count = Math.max(1, Math.round(door.width / cell))
 
   // 往里是哪边：门在墙上，房间中心一定在门的里侧。
   const inward = door.axis === 'h' ? Math.sign(room.rect.y - door.y) : Math.sign(room.rect.x - door.x)
@@ -192,9 +230,12 @@ export function doorSideCells(
  * 网格该盖多大、从哪儿起。**生成器与校验器共用这一个**，所以它们不可能算出
  * 两个不同的 `navOrigin`。
  *
- * 向外留两格余量：地图的包围盒是按墙的中心线算的，而墙本身有厚度 ——
- * 不留余量的话最外圈那几格会被判成"界外"，而界外一律算堵（见 `isBlockedCell`），
- * 症状是**贴着外墙的房间边界少一格可走空间**，莫名其妙地窄一条。
+ * 向外留两格余量：**平面图上没被任何空间占用的格子全是墙**（`layout.ts` 的
+ * `buildWallRects`），而贴着地图边沿的房间与走廊（`C_W` 就在 x = 0 那一列上）
+ * 之外**没有格子**了 —— 不留余量的话那片「墙」就是网格的边界外沿，
+ * 而界外一律算堵（见 `isBlockedCell`）。界内界外都是堵，看似等价，其实不然：
+ * 向外铺的这 2 格是**真的墙矩形**，D1 拿它建物理体，玩家撞得到；
+ * 只靠「界外算堵」的话寻路认为走不出去，而物理体不存在 —— **玩家直接走出地图**。
  *
  * ---
  *
@@ -202,23 +243,27 @@ export function doorSideCells(
  *
  * 这一句是整份可走性里最容易漏的一句，而它漏掉的后果**没有任何报错**。
  *
- * 「按格对齐」有两个方向，靠的就是**格心的相位**：
+ * 「按格对齐」靠的是**格心的相位**：
  *
  * ```
  * 格心所在的 x ≡ 原点 + 格边长/2  (mod 格边长)
  * ```
  *
- * 而**房间边界必须落在格心上**（墙以它为中心，正好封掉一格）。
- * 如果 `pad` 之后原点落在半格上，格心的相位就整体挪了半格 ——
- * 于是每一堵墙都恰好骑在格**边界**上，**一格中心都盖不住**：
- * 寻路认为墙两侧都走得通，物理体照样挡着玩家。
+ * 而 `layout.ts` 是**按格号**铺墙的（第 n 格就是 `原点 + n × 格边长` 那一片）。
+ * 原点落在半格上的话，格心的相位整体挪半格 —— 于是每一堵墙都恰好骑在格**边界**上，
+ * **一格中心都盖不住**：寻路认为墙两侧都走得通，物理体照样挡着玩家。
  * 症状是「怪穿墙、玩家不穿」，两边都不抛异常。
  *
- * 吸附之后相位是**定死的**（格心恒在 `≡ 格边长/2` 处），不再随包围盒漂移 ——
- * 于是「房间边界落在格心上」变成一条能校验的硬规则（见 `validate/contract.ts`），
- * 而不是一句"看情况"。
+ * 吸附之后相位是**定死的**（格心恒在 `≡ 格边长/2` 处），不再随包围盒漂移，
+ * 于是「矩形边界落在格边界上」变成一条能校验的硬规则（`validate/contract.ts` 里
+ * 按 `floor-plan.json` 的整数格核），而不是一句"看情况"。
  *
- * `rectsIntersect` 那一类判定同理：整格对齐之后，所有坐标都是格边长的整数倍加减半格，
+ * ⚠️ **v5 换了方向**：v4 要求「房间边界落在格**中心**」（墙以边界为中心、正好封掉一格），
+ * v5 要求「空间边界落在格**边界**」（墙是**隔壁那一格**）。
+ * 两条都靠这一个吸附函数成立，但拿旧那条去核新的图会把对的判成坏的 ——
+ * 见 `model/types.ts` 文件头「对齐」那一节。
+ *
+ * `rectsIntersect` 那一类判定同理：整格对齐之后，所有坐标都是格边长的整数倍，
  * 不存在"差一点点算相交还是不算"的浮点纠结。
  */
 export function navExtentFor(bounds: Rect, cellSize: number): {

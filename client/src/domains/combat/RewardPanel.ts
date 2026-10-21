@@ -104,9 +104,14 @@ export class RewardPanel {
     header.className = 'd1-reward-header'
     const badge = document.createElement('span')
     badge.className = 'd1-reward-kicker'
-    const round = Number(roomId.match(/(\d+)$/)?.[1])
-    badge.textContent =
-      Number.isFinite(round) && round > 0 ? `第 ${round} 轮 · 清怪完成` : '清怪完成'
+    // ⚠️ **`/(\d+)$/` 曾经在这儿，它现在是个陷阱。**
+    //    那个式子从 `d1-room-7` 里抠出「7」当轮次，而整层连续之后房号是
+    //    `YF604` —— 同一个式子会抠出 **604**，界面上写着「第 604 轮 · 清怪完成」。
+    //    它**不抛异常、不落在兜底分支上**（604 是个有限的正数），所以只在画面上看着荒谬。
+    //    改成只认**完整形状**：`d1-room-<数字>` 才算「第 n 轮」（老宿主 / 测试场那份），
+    //    其余一律把房号原样印出来 —— 房号本来就是个名字，比一个假轮次有信息量。
+    const legacy = roomId.match(/^d1-room-(\d+)$/)
+    badge.textContent = legacy ? `第 ${legacy[1]} 轮 · 清怪完成` : `${roomId} · 清怪完成`
     const title = document.createElement('h1')
     title.id = 'd1-reward-title'
     title.textContent = '选择你的成长'

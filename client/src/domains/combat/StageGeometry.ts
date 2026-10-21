@@ -19,10 +19,34 @@ export interface MapFurniture {
   scale: number
   offset: MapPoint
 }
+/**
+ * 门洞的一块**挡板**：矩形 + 它属于哪一间房。
+ *
+ * ★ 新增（2026-10-21，整层连续）。坐标与 `SolidRect` **同一约定**（`x` / `y` 是
+ * **左上角**）—— 两者在 `StageColliders` 里挨着造 Zone，约定不同就是半个身位的错位，
+ * 而且**两种都画得出来**（画面上一块门偏了半截，不报错）。转换在 `DungeonStages` 那一处做。
+ *
+ * 语义见 `DungeonStages.ts` 文件头：**它不在 `solids` 里**，是一个可以原地开关的实体。
+ */
+export interface StageBarrier extends MapRect {
+  /** 这扇门开在**第几间房**的墙上（`Room.order`）。清场开门按它判 */
+  ownerOrder: number
+  /** 另一头是哪个空间（今天恒为一段走廊的 id） */
+  toId: string
+}
 export interface StageLayout {
   stage: number
   playerSpawn: MapPoint
   solids: SolidRect[]
+  /**
+   * 门洞挡板。**可选** —— 只有「整层连续」的几何（`DungeonStages`）会给，
+   * 手画的 `stage-collisions.json` 那一份没有（它是「一间房一关」时代的产物）。
+   *
+   * ⚠️ **不许把它们并进 `solids`**：`solids` 会进寻路网格，而把门也填上的话
+   * 整层会被切成一间间孤岛 —— `reachableCells()` 到不了别的房、`safeSpawn()`
+   * 只能在当前这一间里找落脚点，表现是「怪全挤在门口」。见 `DungeonStages.ts` 文件头。
+   */
+  barriers?: StageBarrier[]
 }
 export interface StageCollisionConfig {
   navigationCellSize: number
@@ -153,6 +177,17 @@ export function parseStageCollisions(raw: unknown, stageCount: number): StageCol
           throw new Error('stage-collisions: 家具裁切轮廓越界')
       }
     }
+    // 挡板是**可选**的（见 `StageLayout.barriers`）。有就查：矩形合法、
+    // `ownerOrder` 是个非负整数。**不查「有没有和 solids 重叠」** —— 门洞是墙上挖掉的
+    // 那一格，它天然贴着两侧的墙，用「不许相交」会保守到把每一扇门都拒掉，
+    // 而那是**这批几何的常态**，不是错误。
+    if (layout.barriers !== undefined) {
+      if (!Array.isArray(layout.barriers)) throw new Error('stage-collisions: 门洞挡板必须是数组')
+      for (const b of layout.barriers) {
+        if (!validRect(b) || !Number.isInteger(b.ownerOrder) || b.ownerOrder < 0)
+          throw new Error('stage-collisions: 门洞挡板越界或房号无效')
+      }
+    }
     const p = layout.playerSpawn
     if (
       !validPoint(p) ||
@@ -202,5 +237,14 @@ export function stageGeometry(
       { id: 'frame_left', x: 0, y: 0, width: frame.x, height },
       { id: 'frame_right', x: width - frame.x, y: 0, width: frame.x, height },
     )
-  return { stage, playerSpawn: point(layout.playerSpawn), solids }
+  // 挡板跟着一起搬。整层连续那一份里 `frame` 是恒等（`sourceSize` = 竞技场），
+  // 但这里**照搬不省**：省掉的话，将来谁把手画的那份几何换回非恒等的取景框，
+  // 门会留在原处而墙移走 —— 表现是「门开在一堵空墙上」，两边都不报错。
+  const barriers = layout.barriers?.map((b) => ({
+    ...b,
+    ...point(b),
+    width: b.width * frame.scale,
+    height: b.height * frame.scale,
+  }))
+  return { stage, playerSpawn: point(layout.playerSpawn), solids, barriers }
 }
