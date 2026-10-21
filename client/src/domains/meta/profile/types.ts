@@ -32,7 +32,7 @@
 import type { Difficulty } from '@/core/config'
 
 /** 当前 schema 版本。**改字段语义时加一**，并在 `migrate.ts` 里补一步迁移。 */
-export const PROFILE_SCHEMA_VERSION = 2
+export const PROFILE_SCHEMA_VERSION = 3
 
 /** 存储 key。**只有一个，且版本不在 key 里**（理由见文件头）。 */
 export const PROFILE_STORAGE_KEY = 'bjtu-rogue:profile'
@@ -75,7 +75,7 @@ export interface ProfileCurrency {
   coins: number
 }
 
-/** 角色 id → 升级次数（需求 §4.4 角色升级页的「升级次数」） */
+/** `"<角色 id>:skill"` → 已付费购买过的技能升级次数（0..3）。 */
 export type ProfileUpgrades = Record<string, number>
 
 export interface ProfileStats {

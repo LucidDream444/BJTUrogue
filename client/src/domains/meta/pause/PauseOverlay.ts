@@ -418,8 +418,7 @@ export class PauseOverlay {
 
   private upgradesOf(characterId: string | undefined): number {
     if (!characterId) return 0
-    // 升级次数 = 这个角色名下所有成长线（含它的技能）的级数之和。
-    // **不要写 `upgrades[characterId]`** —— 键是 `"owner:track"` 的复合键。
+    // 升级次数 = 该角色唯一技能的已付费升级次数。
     return totalLevelsFor(this.store.profile, characterId)
   }
 

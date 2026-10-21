@@ -43,6 +43,7 @@ export type MigrationRegistry = Readonly<Record<number, MigrationStep>>
 
 export const MIGRATIONS: MigrationRegistry = {
   1: migrateV1ToV2,
+  2: migrateV2ToV3,
 }
 
 /**
@@ -235,6 +236,46 @@ function migrateV1ToV2(data: Record<string, unknown>): Record<string, unknown> {
       characterId: selected.characterId === 'leader' ? 'student' : selected.characterId,
     },
   }
+}
+
+/**
+ * v3 把自由成长线收敛为“每个角色一个四阶技能”。
+ *
+ * 旧等级不硬映射到新机制，否则玩家会拿到自己没选择过的技能阶数。
+ * 这里按旧成本曲线把已消费金币原样退回，再清空旧成长与旧技能列表。
+ * 各角色新技能的第 1 阶不需要写存档，读到已解锁角色时会自动按 1 级处理。
+ */
+function migrateV2ToV3(data: Record<string, unknown>): Record<string, unknown> {
+  const oldUpgrades = asRecord(data.upgrades)
+  const refund = Object.entries(oldUpgrades).reduce((sum, [key, value]) => {
+    const trackId = key.slice(key.lastIndexOf(':') + 1)
+    const level = Math.max(0, Math.round(num(value, 0)))
+    const legacy = LEGACY_TRACK_COSTS[trackId]
+    if (!legacy) return sum
+    let spent = 0
+    for (let i = 0; i < Math.min(level, legacy.maxLevel); i++) {
+      spent += Math.round(legacy.baseCost * Math.pow(legacy.costGrowth, i))
+    }
+    return sum + spent
+  }, 0)
+  const currency = asRecord(data.currency)
+  const unlocks = asRecord(data.unlocks)
+  return {
+    ...data,
+    schemaVersion: 3,
+    currency: { ...currency, coins: num(currency.coins, 0) + refund },
+    upgrades: {},
+    unlocks: { ...unlocks, skills: [] },
+  }
+}
+
+const LEGACY_TRACK_COSTS: Readonly<
+  Record<string, { baseCost: number; costGrowth: number; maxLevel: number }>
+> = {
+  maxHp: { baseCost: 30, costGrowth: 1.6, maxLevel: 10 },
+  maxEnergy: { baseCost: 25, costGrowth: 1.6, maxLevel: 10 },
+  maxShield: { baseCost: 40, costGrowth: 1.8, maxLevel: 5 },
+  attackSpeedPct: { baseCost: 35, costGrowth: 1.7, maxLevel: 10 },
 }
 
 function asRecord(v: unknown): Record<string, unknown> {
