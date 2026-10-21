@@ -296,6 +296,29 @@ export interface PermanentRunStats {
   moveSpeedPct: number
   energyRegenPct: number
 }
+
+export type CharacterSkillKind = 'haste' | 'dash' | 'summon'
+
+/** D4 把当前角色技能等级折算成这一份纯配置，D1 不认识 profile/meta 结构。 */
+export interface CharacterSkillConfig {
+  id: string
+  name: string
+  kind: CharacterSkillKind
+  level: number
+  cooldownMs: number
+  durationMs: number
+  attackSpeedPct: number
+  distance: number
+  iframeMs: number
+  attackSpeedPerEnemyPct: number
+  maxMechanicEnemies: number
+  shieldPerEnemy: number
+  maxShieldRestore: number
+  pageDamage: number
+  fireIntervalMs: number
+  range: number
+  maxCharges: number
+}
 export const COMBAT_CONFIG_FILES = ['combat.json', 'rewards.json'] as const
 export function combatConfigUrl(name: (typeof COMBAT_CONFIG_FILES)[number]): string {
   return `config/${name}`
@@ -637,6 +660,7 @@ export function deriveStats(
   defs: readonly RewardDef[],
   stacks: ReadonlyMap<string, number>,
   permanent?: PermanentRunStats,
+  temporaryAttackSpeedPct = 0,
 ): EffectiveStats {
   const sum = Object.fromEntries(STATS.map((k) => [k, 0])) as Record<Stat, number>
   for (const r of defs) {
@@ -648,6 +672,7 @@ export function deriveStats(
   const permanentMaxHp = permanent?.maxHp ?? b.player.maxHp
   const permanentMaxStamina = permanent?.maxStamina ?? config.player.maxStamina
   const permanentAttackSpeed = Math.max(0, permanent?.attackSpeedPct ?? 0) / 100
+  const temporaryAttackSpeed = Math.max(0, temporaryAttackSpeedPct) / 100
   const permanentMoveSpeed = Math.max(0, permanent?.moveSpeedPct ?? 0) / 100
   return {
     damage:
@@ -657,7 +682,10 @@ export function deriveStats(
       (1 + sum.damage),
     cooldownMs:
       (b.bullet.fireIntervalMs * weapon.cooldownScale) /
-      Math.min(l.fireRateScale, 1 + sum.fireRate + permanentAttackSpeed),
+      Math.min(
+        l.fireRateScale,
+        1 + sum.fireRate + permanentAttackSpeed + temporaryAttackSpeed,
+      ),
     bulletSpeed:
       b.bullet.speed * weapon.speedScale * Math.min(l.bulletSpeedScale, 1 + sum.bulletSpeed),
     spreadDeg: weapon.spreadDeg * Math.max(l.spreadScaleMin, 1 + sum.spread),

@@ -23,8 +23,10 @@ import {
   type WeaponId,
   type EffectiveStats,
   type PermanentRunStats,
+  type CharacterSkillConfig,
 } from './config'
 import type { CombatEvents } from './events'
+import { CharacterSkill, type SkillStatus } from './CharacterSkill'
 export type PauseReason =
   | 'user'
   | 'hidden'
@@ -67,6 +69,8 @@ export class CombatSession {
   weapon: WeaponDef
   stats: EffectiveStats
   private permanent: PermanentRunStats
+  private temporaryAttackSpeedPct = 0
+  private skill: CharacterSkill | null = null
   kills = 0
   private dead = false
   private disposed = false
@@ -103,6 +107,7 @@ export class CombatSession {
       rewardDefs,
       this.rewards.stacks,
       this.permanent,
+      0,
     )
     scene.physics.world.resume()
     scene.physics.world.setBounds(0, 0, cfg.arena.width, cfg.arena.height)
@@ -346,6 +351,7 @@ export class CombatSession {
       this.weapons.clear()
     }
     this.enemies.update(delta)
+    this.skill?.update(this.clock.nowMs)
     this.drops.update()
     this.player.draw()
     this.weapons.resolveTerrain()
@@ -492,6 +498,7 @@ export class CombatSession {
       this.rewardDefs,
       this.rewards.stacks,
       this.permanent,
+      this.temporaryAttackSpeedPct,
     )
     this.player.model.applyRunStartStats(
       this.stats.maxHp,
@@ -502,6 +509,33 @@ export class CombatSession {
     this.player.applyEnergyRegenBonus(this.permanent.energyRegenPct)
     this.player.model.applyMaxShield(this.permanent.maxShield)
   }
+  configureCharacterSkill(config: CharacterSkillConfig): void {
+    this.skill?.destroy()
+    this.temporaryAttackSpeedPct = 0
+    this.skill = new CharacterSkill(
+      {
+        scene: this.scene,
+        clock: this.clock,
+        player: this.player,
+        enemies: this.enemies,
+        terrain: this.terrain,
+        setTemporaryAttackSpeed: (pct) => {
+          this.temporaryAttackSpeedPct = pct
+          this.recompute()
+        },
+      },
+      config,
+    )
+  }
+  activateSkill(aim: { x: number; y: number }): boolean {
+    return this.skill?.activate(aim) ?? false
+  }
+  clearRoomSkillObjects(): void {
+    this.skill?.clearRoom()
+  }
+  skillStatus(): SkillStatus | null {
+    return this.skill?.status() ?? null
+  }
   private recompute(): void {
     this.stats = deriveStats(
       this.bundle.balance,
@@ -510,6 +544,7 @@ export class CombatSession {
       this.rewardDefs,
       this.rewards.stacks,
       this.permanent,
+      this.temporaryAttackSpeedPct,
     )
     this.player.model.applyStats(this.stats.maxHp, this.stats.moveSpeed, this.stats.iframeMs)
     this.player.applyStaminaLimit(this.stats.maxStamina)
@@ -533,7 +568,15 @@ export class CombatSession {
   rewardChanges(r: RewardDef): { label: string; before: string; after: string }[] {
     const next = new Map(this.rewards.stacks)
     next.set(r.id, (next.get(r.id) ?? 0) + 1)
-    const after = deriveStats(this.bundle.balance, this.cfg, this.weapon, this.rewardDefs, next)
+    const after = deriveStats(
+      this.bundle.balance,
+      this.cfg,
+      this.weapon,
+      this.rewardDefs,
+      next,
+      this.permanent,
+      this.temporaryAttackSpeedPct,
+    )
     const display = (value: number) => Number(value.toFixed(2)).toString()
     const metrics: {
       key: keyof EffectiveStats
@@ -565,6 +608,8 @@ export class CombatSession {
   destroy(): void {
     if (this.disposed) return
     this.disposed = true
+    this.skill?.destroy()
+    this.skill = null
     this.scene.events.off(Phaser.Scenes.Events.PRE_UPDATE, this.beforePhysics, this)
     this.scene.input.off(Phaser.Input.Events.POINTER_DOWN, this.onDown, this)
     this.scene.input.off(Phaser.Input.Events.POINTER_UP, this.onUp, this)
