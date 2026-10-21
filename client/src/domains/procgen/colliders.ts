@@ -31,19 +31,26 @@
  * - 门挡板偏半格 → 门缝里能挤过去一个人，看起来像「碰撞没生效」
  * - 门挡板数错（同一洞口记了两次，见下）→ 多出一块看不见的墙
  *
- * ## ⚠️ 一个洞口在数据里出现**两次**，这里只出一块挡板
+ * ## ⚠️ 同一个洞口在数据里可能出现**两次**，这里只出一块挡板
  *
- * 侧室的门在**宿主和侧室上各记了一次**（`gen/layout.ts`）：因为 `toOrder` 是有方向的，
- * 宿主那扇写着「去侧室」，侧室那扇写着「回宿主」，两扇说的是同一个洞。
+ * `Room.doors` 按「谁在门的两端」建（`gen/layout.ts`）：**「房间 ↔ 房间」的门
+ * 会在两间房的 `doors` 里各出现一次**，两扇说的是同一个洞。
  * 墙上那个缺口只挖一次（挖两次等于挖一次），但**照着 `doors` 逐个造挡板就会造两块**。
  * 两块重叠的挡板不会崩、也不影响手感，只是**多算一份物理**，而且让「本层有几扇门」
- * 这个读数从此开始说谎。所以 `barriers` 按洞口去重 —— 去重按几何（`axis + 位置 + 宽`），
- * 不按 `toOrder`：后者本来就是分岔的那一维。
+ * 这个读数从此开始说谎。
+ *
+ * 所以 `barriers` 按**几何**去重（`axis + 位置 + 宽`），不按 `ownerOrder`：
+ * 后者本来就是分岔的那一维。
+ *
+ * ⚠️ **今天这一条是空转的** —— `floor-plan.json` 里 16 扇门全部是「房间 ↔ 走廊」，
+ * 而走廊不是 `Room`（没有 `doors` 数组），所以每个洞口只被记了一次。
+ * 留着去重不是洁癖：删掉它的代价是**下一个人加一扇房间互通的门时才会暴露**，
+ * 而那时的症状是「凭空多出一块看不见的墙」，与这里毫无关联。
  */
 
 import type { RoomsConfig } from './config'
 import { clipRect, doorRect, left, top } from './model/rect'
-import type { Door, DoorKind, DungeonMap, Rect } from './model/types'
+import type { Door, DungeonMap, Rect, Room } from './model/types'
 
 /**
  * 一块碰撞矩形**是什么东西**。
@@ -68,24 +75,32 @@ export interface ColliderRect {
  * —— 地图是只读的，而「这一扇现在关着没有」是运行时的事，归 D1。
  *
  * 判「要不要封」的输入也一并带上：`ownerOrder` 是门洞**开在哪一间**的墙上
- * （清场开门要按房判），`toOrder` 是它通向哪一间。
+ * （清场开门要按房判），`toId` 是它通向哪个空间。
+ *
+ * ★ 改了（v5）：删掉了 `kind`（`back` / `forward` / `side`）与 `toOrder`。
+ * 那两个字段是**主干道模型**的产物 —— 它们表达的是「沿进度轴往前走还是回头」，
+ * 而 v5 里进度轴没有了（玩家在走廊里随意走、随意挑房间进）。
+ * 今天每一扇门都是「房间 ↔ 走廊」，所以 `ownerOrder` 恒为**那间房**的序号，
+ * `toId` 恒为一段走廊的 id。**不留着 `toOrder: null` 占位**：
+ * 一个恒为 null 的字段会让消费方那边「按它分支」的代码静默地什么都不做，
+ * 而删掉它至少是个编译错误。
  */
 export interface DoorBarrier {
   /** 门洞那块矩形。**正好填住墙上的缺口** —— 不压在两侧的墙上，也不留缝 */
   readonly rect: Rect
   readonly axis: 'h' | 'v'
-  readonly kind: DoorKind
-  /** 这扇门开在**第几间**的墙上（`Room.order`）。`back` / `forward` 是同一间的两侧 */
+  /** 这扇门开在**第几间房**的墙上（`Room.order`）。清场开门就是按它判的 */
   readonly ownerOrder: number
-  /** 穿过去到哪一间。`null` = 墙外（尽头） */
-  readonly toOrder: number | null
+  /** 另一头是哪个空间 —— `Room.id` 或走廊段 id（今天恒为后者，如 `'C_W'`） */
+  readonly toId: string
 }
 
 export interface MapColliders {
   /**
    * **挡移动的**：墙 + 课桌 + 椅子，全都在里面。
    *
-   * ⚠️ **给玩家，不要给怪。** 怪走的是寻路网格（`walkability.ts` 的 `gridOfMap`），
+   * ⚠️ **给玩家，不要给怪。** 怪走的是寻路网格（运行时那份由 D1 的 `TerrainMap` 喂给
+   * `EnemySystem`，见 `walkability.ts` 文件头那段更正 —— **不是**本域的 `gridOfMap`），
    * 撞墙只是兜底；给几百只怪逐个接 `collider`，每一次分离力都要做一次碰撞解算
    * （《Phaser3性能与引擎事实》§5）。**怪只吃 `isWalkable`。**
    *
@@ -148,7 +163,7 @@ function barriersOf(map: DungeonMap, cfg: RoomsConfig): DoorBarrier[] {
       const key = `${d.axis}:${rect.x.toFixed(1)}:${rect.y.toFixed(1)}:${rect.width.toFixed(1)}:${rect.height.toFixed(1)}`
       if (seen.has(key)) continue
       seen.add(key)
-      out.push(barrier(rect, d, room.order))
+      out.push(barrier(rect, d, room))
     }
   }
   out.sort(
@@ -160,8 +175,18 @@ function barriersOf(map: DungeonMap, cfg: RoomsConfig): DoorBarrier[] {
   return out
 }
 
-function barrier(rect: Rect, d: Door, ownerOrder: number): DoorBarrier {
-  return { rect, axis: d.axis, kind: d.kind, ownerOrder, toOrder: d.toOrder }
+function barrier(rect: Rect, d: Door, room: Room): DoorBarrier {
+  // 另一头：`a` / `b` 是**字典序**排好的两个空间名，这里取的是「不是这间房的那一头」。
+  //
+  // ★ 改了（v5 复核）：旧注释说「取 a」/「取 b」会随字母顺序选中房间那一侧或走廊那一侧
+  // —— **实测为假**。走廊 id 一律以 `'C_'` 开头，字典序排在**全部**房间 id
+  // （`'STAIR'` / `'YF6xx'`）之前（`'C_W' < 'YF601'`、`'C_W' < 'STAIR'` 都成立），
+  // 所以今天 16 扇门里 `a` **恒是走廊**、`b` **恒是房间**（`d.a === room.id` 一次都不成立）：
+  // 「恒取 a」与现在这个写法 16/16 逐项相同、「恒取 b」16/16 会指回房自己 ——
+  // **不是各错一半**。显式比较这一头留着，是因为这里问的本来就是「另一头」：
+  // 房间 ↔ 房间 的门（见文件头 ⚠️）一旦出现，`a` / `b` 两头都是房间，
+  // 「恒取 a」在 id 较小那间房的记录上会把 `toId` 指成房自己。
+  return { rect, axis: d.axis, ownerOrder: room.order, toId: d.a === room.id ? d.b : d.a }
 }
 
 /**
@@ -177,7 +202,7 @@ function barrier(rect: Rect, d: Door, ownerOrder: number): DoorBarrier {
  * ## 为什么不各自推
  *
  * 推错的两种写法都**不会报错**：**差一**（`index + 1`）会让「开这间」开到隔壁；
- * **忘了跳过重复洞口**（同一个洞在宿主与侧室上各记一次，见文件头 ⚠️）
+ * **忘了跳过重复洞口**（「房间 ↔ 房间」的门在两间房上各记一次，见文件头 ⚠️）
  * 会让所有下标从某一间开始整体偏移。两种都表现为「门开了，但不是那一扇」，
  * 而看画面只会以为是判定写错了。
  *

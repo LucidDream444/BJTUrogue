@@ -2,7 +2,7 @@
  * `rooms.json` 的加载与校验。**零 Phaser 依赖**，node 下可直接单测。
  *
  * 风格照 `core/config.ts`：错误一律抛 `ConfigError` 并**带字段路径**
- * （形如 `rooms.sideRoomTiers[1].width`）。理由在那个文件里写着 ——
+ * （形如 `rooms.roomKindWeights.main`）。理由在那个文件里写着 ——
  * 「配置表写错了」和「生成器写错了」在现场长得一模一样，而字段路径是唯一
  * 能让人一眼分辨的东西。
  *
@@ -24,63 +24,62 @@
  */
 
 import { ConfigError } from '@/core/config'
-import { ROOM_KINDS, ROOM_KIND_LABELS } from './model/types'
-import type { Rect, RoomKind } from './model/types'
+import { ROOM_KINDS, ROOM_KINDS_EMITTED, ROOM_KIND_LABELS } from './model/types'
+import type { RoomKind } from './model/types'
 
 // ---------------------------------------------------------------- 形状
-
-export interface RoomSizeTier {
-  width: number
-  height: number
-}
 
 /**
  * `rooms.json` 的落地形状。
  *
  * 名字里的 `Min` / `Max` 一律**含两端**（和 `Rng.between` 的语义一致）。
+ *
+ * ⚠️ **这一份里已经没有几何了。** 房间数、尺寸、间距、走廊宽度在 v5 全部搬去了
+ * `floor-plan.json`（那边是照 6F 平面图照片量出来的格坐标）。留在这一份里的是
+ * 与种子有关的东西：关别权重、桌椅、刷怪点、预算曲线。
+ * 看见 `rooms.json` 里想加一个 `mainWidthTiers` 的时候，先问一句
+ * 「改这个数会不会让房间挪位置」—— 会的话它属于平面图那张表。
  */
 export interface RoomsConfig {
   schemaVersion: number
 
-  // 房间数量。**侧室数不在这里** —— 由 totalRooms − 主干数 得出，
-  // 独立配置的话迟早出现「主干 + 侧室 ≠ 15」这种自相矛盾的地图。
-  totalRooms: number
-  mainRoomMin: number
-  mainRoomMax: number
+  /**
+   * 这一层有几间**编号教室**（今天 15）。
+   *
+   * ⚠️ **不是「这一层有几间房」** —— 那个数是 `FLOOR_ROOM_TOTAL`（16，多一间楼梯间）。
+   * 楼梯间不按种子抽关别（`kind` 恒为 `start`），所以它不在这个数里。
+   * 名字从 `totalRooms` 改过来就是因为这一点：叫 `totalRooms` 时，
+   * 读的人会照着它去生成「15 间房」，而出生点就没有一间属于它的房 ——
+   * 且校验器也照着 15 查、全绿。
+   *
+   * 它的作用只剩**与平面图对账**：`floorPlan.ts` 的 `checkRoomCount` 拿
+   * 平面图上的条数核这个数，对不上就当场炸。
+   */
+  classroomCount: number
 
   /**
-   * 主干教室的宽度档位（px）。每一档取一次 `Rng`，同一排里可以混着出现
-   * ——「随机刷新」在这排房子上的表现就是宽度不一。
+   * **按种子抽关别的那 12 间教室，各是普通 / 精英 / 道具 / 宝箱里的哪一类。**
+   *
+   * 内部按总和归一化（不必配成和为 1）。**这一张表是发牌的依据，不是 12 次独立抽签**
+   * —— `layout.ts` 的 `kindBag()` 先按最大余数法把它折成一副正好 12 张的牌再洗牌发下去。
+   * 独立抽的问题不是概率算错，而是**某些种子会抽出一层 10 间道具房**：
+   * 那一局没有仗可打，且不报错、不抛异常。
+   *
+   * 键 MUST NOT 出现 `start` / `boss`，也 MUST NOT 出现本期不产出的
+   * `shop` / `hidden`：前两个由**位置**决定（出生点恒在楼梯间、首领恒在 YF604），
+   * 不是能抽出来的内容；后两个抽出来会让 `ROOM_KINDS_EMITTED` 对不上。
+   * 校验器在**加载配置时**就拒绝，而不是生成出一局有两个首领的图。
+   *
+   * **权重必须为正：写 `0` 在加载期就会被拒**（`needRoomKindWeights`）——
+   * 「这一类不要」在这张表里的写法是**把这个键删掉**。留一个恒为 0 的名字，
+   * 下一个人会以为把它改大就能出这一类。
+   *
+   * ⚠️ 这里原写的是「写 `0` 有权重表里的语义……`kindBag()` 补余数时会跳过它」
+   * —— 那是**读 kindBag 的实现倒推**出来的说法，而正常路径根本到不了那儿：
+   * 配置表在 `parseRoomsConfig` 就被拦下了。`kindBag()` 里那条「权重 ≤ 0 不补名额」
+   * 是给**手写权重表**兜底的第二道（测试会直接喂它），不是可用的配置写法。
    */
-  mainWidthTiers: number[]
-
-  /**
-   * **主干教室与连廊的统一高度**（px）。含两端的墙。
-   *
-   * 为什么高度不像宽度那样分档：侧室朝主干的那面墙要**同时**贴住宿主教室和
-   * 它东边那段连廊。两者高度不一，这两条线就不重合 —— 连廊的墙得在每两间房
-   * 之间跳一次台阶，而侧室的那面墙只能贴住其中一个，另一个露出缝。
-   * 缝在数据里看不出来，在游戏里是「怪从这个洞里走进教室」。
-   *
-   * ⚠️ 必须是**奇数格**（`≡ navCellSize (mod 2 × navCellSize)`），
-   * 校验会当场拒绝偶数格的值，理由见那里。
-   */
-  mainRoomHeight: number
-
-  // 侧室按**宽高两维**取档：它只有一面墙与主干相邻，没有对齐的束缚。
-  sideRoomTiers: RoomSizeTier[]
-
-  /**
-   * **侧室的关别权重** —— 一间侧室抽一次，内部按总和归一化（所以不必配成和为 1）。
-   *
-   * 用权重而不是概率（要凑成 1，改一个就得动另一个）也不是固定配比
-   * （房间数随种子在 8—11 间主干之间浮动，固定数量会在边界上要特判）。
-   *
-   * 键 MUST NOT 出现 `start` / `boss` —— 那两个由**位置**决定
-   * （起点恒为第一间、首领恒为最后一间），不是能抽出来的内容。
-   * 校验器在**加载配置时**就拒绝，而不是生成出一局「首领房挂在教室上面」的地图。
-   */
-  sideKindWeights: Partial<Record<RoomKind, number>>
+  roomKindWeights: Partial<Record<RoomKind, number>>
 
   /**
    * **哪几类关别要打。** 这一个集合同时决定三件事，而且是**唯一**的判据：
@@ -96,7 +95,14 @@ export interface RoomsConfig {
    * 它们在数据里不报错、在画面上看不出来，而它们都是错的。
    * 等真的出现「商店想要课桌」这种需求时再拆，那时拆的理由是具体的。
    *
-   * `main`（普通战）是**必须**在里面的一项：一排主干教室里总得有要打的屋子。
+   * `main`（普通战）是**必须**在里面的一项。`boss` 也是 —— 首领关不打怪的话，
+   * 那一局没有出口（打完首领才能下楼）。
+   *
+   * ⚠️ **`start` MUST NOT 在里面**，这条是 v5 加的硬要求：
+   * `start` 是**楼梯间**，也就是玩家的出生点。它在里面意味着出生点摆课桌、
+   * 刷一屋子怪 —— 怪直接围在玩家脸上，而那是这一层的第一帧。
+   * 首版的 `start` 在集合里，因为那时「起点房」是一间真的教室（主干第一间）；
+   * 现在起点恒为楼梯间，语义完全不同了，所以校验器会当场拒绝。
    */
   combatKinds: RoomKind[]
 
@@ -124,20 +130,30 @@ export interface RoomsConfig {
    */
   settleMs: number
 
-  // 几何（px）
+  // 几何（px）。**只剩三个数** —— 房间在哪、多大、间距多少全在 floor-plan.json 里
   /**
-   * **连廊沿 x 的长度** —— 精确地说，是相邻两间主干教室**面向彼此的两条边界
-   * 之间的距离**（隔墙就骑在这两条线上，所以连廊矩形两端**各含半堵墙**）。
-   * 不是「房间之间让出来的空隙」。
+   * 全层最窄的可走净宽下限（px）。
    *
-   * 首版它是后者（`roomGap` 是挂在走廊上的房间之间的让位），语义在这里换了、
-   * 名字没换，所以 `rooms.json` 里必须写清 —— 沿用旧名字是**刻意**的：
-   * 换名字会让 D1/D3 那边「搜 `roomGap` 没有结果」变成一次静默的语义漂移，
-   * 而在配置表顶部写清楚，代价只是一行注释。
+   * v4 它的窄口是「连廊净宽与门宽」两个；v5 里连廊的净宽由平面图决定，
+   * 所以它今天只剩一个窄口：**门洞**。`floorPlan.ts` 的 `checkDoors` 拿它判
+   * 「这门玩家挤不挤得过」—— 门太窄时地图上看着只是一条正常的缝。
    */
-  roomGap: number
-  /** 全层最窄的可走净宽下限。**窄口 = 连廊净宽与门宽**（首版是「走廊宽度」）。 */
   minPassageWidth: number
+  /**
+   * 墙厚（px）。**门的短边恒为「一格」** —— 平面图上的门是整格挖出来的
+   * （今天一律 3 格长：3×1 / 1×3，见 `floor-plan.json`），短边那一格 = `navCellSize`。
+   *
+   * ⚠️ 这里原写「门的短边**恒等于它**，`checkDoors` 也拿它核门矩形的短边」——
+   * **`checkDoors` 不核这个**（2026-10-21 查：它只核三件事 —— 净宽 ≥ `minPassageWidth`、
+   * 门的每一格都落在墙上、两侧正好是它声称的那两个空间）。而「短边 = 墙厚」今天
+   * 只是因为 `wallThickness` 与 `navCellSize` 恰好都等于 40（校验只要求
+   * `wallThickness ≥ navCellSize`，不是等号）。**要动这两个数中的一个时先看这一条。**
+   *
+   * ⚠️ v5 里墙是「空间之间空出来的那一格」（`layout.ts` 的 `buildWallRects`），
+   * 所以这个数**不再是墙上的一块厚度**，而是「一堵墙默认占几格」的声明 ——
+   * 平面图的 `_gap_comment` 要求相邻空间空出整整 1 格，那个 1 格 = 它。
+   * 平面图上的格距与它不等时，墙仍然按**空出来的格子**长，不按这个数长。
+   */
   wallThickness: number
 
   // 门
@@ -153,9 +169,21 @@ export interface RoomsConfig {
    */
   deskWidthCellsMax: number
   deskHeightCells: number
-  /** 同一排相邻两张桌之间留几格走道 */
+  /**
+   * **两组桌椅之间**至少留几格走道。
+   *
+   * ⚠️ 这里原写「同一排相邻两张桌」—— v4 是成排摆的，这个数就只管「排内」。
+   * 2026-10-16 改成散着摆之后它是**组间**的净距（哪个方向都算），见
+   * `gen/obstacles.ts`：挨着摆的两组会连成一张更长的桌，也就是一堵过不去的墙。
+   */
   deskGapCells: number
-  /** 两排桌椅之间留几格走道 */
+  /**
+   * ⚠️ **今天没有任何生成代码读它**（只有本文件的解析与 `rooms.json` 的键）。
+   *
+   * 「排」的概念随 2026-10-16 的「摆几组、散着摆」一起不用了 ——
+   * 组间净距统一由 `deskGapCells` 管。留着键是因为删配置字段要走 C2 契约流程，
+   * **不是因为它还有用**；要拿它做点什么之前先读 `gen/obstacles.ts` 的文件头。
+   */
   deskRowGapCells: number
   deskRowsMin: number
   deskRowsMax: number
@@ -178,13 +206,19 @@ export const ROOMS_CONFIG_NAME = 'rooms.json'
 export const ROOMS_CONFIG_URL = `config/${ROOMS_CONFIG_NAME}`
 
 // ---------------------------------------------------------------- 取值
+//
+// 这四个**导出**给 `gen/floorPlan.ts` 用（`floor-plan.json` 的解析）。
+// 另起一份的代价不是几行重复，是**报错形状会分岔**：一边写「缺这个字段」、
+// 一边写「缺少字段」，于是「配置表写错了」在不同文件里读起来像两种毛病，
+// 而它们本来就是同一种。错误信息是这个项目里区分「配置错」与「代码错」的唯一凭据，
+// 凭据分岔比代码分岔贵得多。
 
-function need<T>(value: T | undefined | null, path: string): T {
+export function need<T>(value: T | undefined | null, path: string): T {
   if (value === undefined || value === null) throw new ConfigError(path, '缺这个字段')
   return value
 }
 
-function needNumber(
+export function needNumber(
   value: unknown,
   path: string,
   opts: { min?: number; max?: number; integer?: boolean } = {},
@@ -204,14 +238,14 @@ function needNumber(
   return value
 }
 
-function needObject(value: unknown, path: string): Record<string, unknown> {
+export function needObject(value: unknown, path: string): Record<string, unknown> {
   if (typeof value !== 'object' || value === null || Array.isArray(value)) {
     throw new ConfigError(path, `要一个对象，拿到 ${JSON.stringify(value)}`)
   }
   return value as Record<string, unknown>
 }
 
-function needArray(value: unknown, path: string, minLen = 1): unknown[] {
+export function needArray(value: unknown, path: string, minLen = 1): unknown[] {
   if (!Array.isArray(value)) {
     throw new ConfigError(path, `要一个数组，拿到 ${JSON.stringify(value)}`)
   }
@@ -239,34 +273,14 @@ export function parseRoomsConfig(raw: unknown): RoomsConfig {
   }
   const schemaVersion = needNumber(root.schemaVersion, 'rooms.schemaVersion', { integer: true })
 
-  const totalRooms = needNumber(need(root.totalRooms, 'rooms.totalRooms'), 'rooms.totalRooms', {
-    integer: true,
-    min: 2,
-  })
-  const mainRoomMin = needNumber(need(root.mainRoomMin, 'rooms.mainRoomMin'), 'rooms.mainRoomMin', {
-    integer: true,
-    min: 2,
-  })
-  const mainRoomMax = needNumber(need(root.mainRoomMax, 'rooms.mainRoomMax'), 'rooms.mainRoomMax', {
-    integer: true,
-    min: 2,
-  })
+  const classroomCount = needNumber(
+    need(root.classroomCount, 'rooms.classroomCount'),
+    'rooms.classroomCount',
+    { integer: true, min: 2 },
+  )
 
-  if (mainRoomMax < mainRoomMin) {
-    throw new ConfigError(
-      'rooms.mainRoomMax',
-      `不能小于 mainRoomMin（${mainRoomMin}），拿到 ${mainRoomMax}`,
-    )
-  }
-  if (mainRoomMax > totalRooms) {
-    throw new ConfigError(
-      'rooms.mainRoomMax',
-      `主干教室数不能超过总房间数 ${totalRooms}，拿到 ${mainRoomMax}`,
-    )
-  }
-
-  // 尺寸档位。**宽高必须是寻路格的整数倍** —— 按格对齐是「可视 = 可走性」的前提，
-  // 而它必须从档位这一层就成立，否则后面每一处都得各自取整，迟早有一处忘了。
+  // 格的边长。**全部几何换算的分母** —— 平面图里的格坐标靠它换成 px，
+  // 而 `floor-plan.json` 与这一份的对账（`checkRoomCount`）也要它。
   const navCellSizeRaw = need(root.navCellSize, 'rooms.navCellSize')
   const navCellSize = needNumber(navCellSizeRaw, 'rooms.navCellSize', {
     integer: true,
@@ -274,60 +288,11 @@ export function parseRoomsConfig(raw: unknown): RoomsConfig {
     max: 96,
   })
 
-  // 主干教室的**宽度**档位。宽必须是寻路格的整数倍 —— 按格对齐是「可视 = 可走性」
-  // 的前提，而它必须从档位这一层就成立，否则后面每一处都得各自取整，迟早有一处忘了。
-  const mainWidthTiers = needArray(
-    need(root.mainWidthTiers, 'rooms.mainWidthTiers'),
-    'rooms.mainWidthTiers',
-  ).map((w, i) => {
-    const width = needNumber(w, `rooms.mainWidthTiers[${i}]`, { integer: true, min: 1 })
-    if (width % navCellSize !== 0) {
-      throw new ConfigError(
-        `rooms.mainWidthTiers[${i}]`,
-        `必须是 navCellSize（${navCellSize}）的整数倍，拿到 ${width}`,
-      )
-    }
-    return width
-  })
-
-  const mainRoomHeight = needNumber(
-    need(root.mainRoomHeight, 'rooms.mainRoomHeight'),
-    'rooms.mainRoomHeight',
-    { integer: true, min: 1 },
-  )
-
-  // 侧室的档位是**宽高两维**：它只有一面墙与主干相邻，没有「上下墙要对齐」的束缚。
-  // 主干教室不行，所以它只按宽度分档（见 mainRoomHeight）。
-  const sideRoomTiers = needArray(
-    need(root.sideRoomTiers, 'rooms.sideRoomTiers'),
-    'rooms.sideRoomTiers',
-  ).map((t, i): RoomSizeTier => {
-    const o = needObject(t, `rooms.sideRoomTiers[${i}]`)
-    const width = needNumber(o.width, `rooms.sideRoomTiers[${i}].width`, { integer: true, min: 1 })
-    const height = needNumber(o.height, `rooms.sideRoomTiers[${i}].height`, {
-      integer: true,
-      min: 1,
-    })
-    if (width % navCellSize !== 0) {
-      throw new ConfigError(
-        `rooms.sideRoomTiers[${i}].width`,
-        `必须是 navCellSize（${navCellSize}）的整数倍，拿到 ${width}`,
-      )
-    }
-    if (height % navCellSize !== 0) {
-      throw new ConfigError(
-        `rooms.sideRoomTiers[${i}].height`,
-        `必须是 navCellSize（${navCellSize}）的整数倍，拿到 ${height}`,
-      )
-    }
-    return { width, height }
-  })
-
-  // 关别：侧室抽哪几类、哪几类要打。**这两张表在几何校验之前读** ——
+  // 关别：12 间泛型教室抽哪几类、哪几类要打。**这两张表在几何校验之前读** ——
   // 它们不影响几何，但错了的话后面所有关于房间内容的判定都建立在错的集合上。
-  const sideKindWeights = needSideKindWeights(
-    need(root.sideKindWeights, 'rooms.sideKindWeights'),
-    'rooms.sideKindWeights',
+  const roomKindWeights = needRoomKindWeights(
+    need(root.roomKindWeights, 'rooms.roomKindWeights'),
+    'rooms.roomKindWeights',
   )
   const combatKinds = needCombatKinds(
     need(root.combatKinds, 'rooms.combatKinds'),
@@ -339,7 +304,6 @@ export function parseRoomsConfig(raw: unknown): RoomsConfig {
     'rooms.minPassageWidth',
     { min: 1 },
   )
-  const roomGap = needNumber(need(root.roomGap, 'rooms.roomGap'), 'rooms.roomGap', { min: 1 })
   const wallThickness = needNumber(
     need(root.wallThickness, 'rooms.wallThickness'),
     'rooms.wallThickness',
@@ -359,95 +323,52 @@ export function parseRoomsConfig(raw: unknown): RoomsConfig {
     )
   }
 
-  // ⚠️ **主干高度必须是奇数格**（`h ≡ navCellSize (mod 2 × navCellSize)`）。
-  // 这一条是给一个**绕不过去**的半格偏移守门的，推导如下：
-  //
-  //   带的上墙中心线在 ±h/2，而它必须落在**格中心**上（`20 + 40n`）：
-  //       h/2 ≡ navCellSize/2 (mod navCellSize)   →   h ≡ navCellSize (mod 2 × navCellSize)
-  //
-  // 于是带高**永远是奇数格**，带的中线（y = 0）就永远落在一条**格边界**上。
-  // 而门洞两端必须落在格边界上（否则 120px 的门会放过去 4 格，见 `layout.ts` 文件头 ③），
-  // 所以竖直墙上那两扇门（主干 ↔ 连廊）的门心只能取 `y ≡ navCellSize/2 (mod navCellSize)`
-  // —— **取不到 0**。
-  //
-  // 谁把 h 调成偶数格（240 / 320），中线就变回格中心、门心本可以放回 0，
-  // 而 `layout.ts` 里那个偏移会**悄悄变成错的**（门洞两端落到格中心上，实际能过 4 格）。
-  // 与其让下一个人对着 `y = 20` 推一遍，不如在这里当场拒绝偶数格的高度。
-  if (mainRoomHeight % (navCellSize * 2) !== navCellSize) {
-    throw new ConfigError(
-      'rooms.mainRoomHeight',
-      `必须是奇数格（≡ ${navCellSize} mod ${navCellSize * 2}），否则带的中线会落在格中心上、` +
-        `而竖直墙上的门心偏移 ${navCellSize / 2}px 会变成错的（门洞两端落到格中心，` +
-        `实际能过的格子数多一个）。拿到 ${mainRoomHeight}`,
-    )
-  }
-
-  // 连廊净宽 = 带高减去**一层**墙厚（墙骑在带的上下两条边上，各往里吃半个墙厚，
-  // 所以减的是 1×wt 而不是 2×wt —— 首版的 corridorRect 有同一个陷阱）。
-  // 它也得守住「最宽的东西过得去」：门够宽而连廊本身挤，玩家一样过不去。
-  const passageClear = mainRoomHeight - wallThickness
-  if (passageClear < minPassageWidth) {
-    throw new ConfigError(
-      'rooms.mainRoomHeight',
-      `连廊净宽（mainRoomHeight − wallThickness = ${passageClear}）` +
-        `不能小于 minPassageWidth（${minPassageWidth}）`,
-    )
-  }
-
-  // ⚠️ **连廊长度必须是整格。** 一排里每间主干教室的东边界都是「格中心线」
-  // （首版就有的相位不变量：房间边界落在格中心上，墙才正好封掉一格）。
-  // `roomGap` 是相邻两条这种线之间的距离，所以它只能是格长的整数倍 ——
-  // 写 170 的话下一间教室的西边界整体偏了 10px，**一排里所有后续的房间与墙**
-  // 都跟着偏，寻路格子与几何错开半格，而生成器自己一声不吭。
-  if (roomGap % navCellSize !== 0) {
-    throw new ConfigError(
-      'rooms.roomGap',
-      `必须是 navCellSize（${navCellSize}）的整数倍，否则相邻两间主干教室的边界` +
-        `相差半格，整排房间与寻路格错开。拿到 ${roomGap}`,
-    )
-  }
-
-  // 连廊内部沿 x 的长度也得留出来。这一条守的**不是**「最宽的东西过得去」
-  // （沿 x 走的时候，横截面是那条 240px 高的净宽，不是长度），而是
-  // **它得真的是个空间**：`roomGap` 收到 40 以下，两端的隔墙就会重叠成一块实心
-  // 厚墙，「主干 ↔ 连廊」那两扇门就会开在一块实心墙里 —— 门在数据里存在，
-  // 几何上却没地方可开。校验器看得见这个矛盾，生成器看不见。
-  const passageInterior = roomGap - wallThickness
-  if (passageInterior < minPassageWidth) {
-    throw new ConfigError(
-      'rooms.roomGap',
-      `连廊内部沿 x 的长度（roomGap − wallThickness = ${passageInterior}）` +
-        `不能小于 minPassageWidth（${minPassageWidth}）—— 再短它就不是连廊，` +
-        `而是两间教室之间的一堵厚墙`,
-    )
-  }
-
   const doorWidth = needNumber(need(root.doorWidth, 'rooms.doorWidth'), 'rooms.doorWidth', {
     min: 1,
   })
   if (doorWidth % navCellSize !== 0) {
     throw new ConfigError(
       'rooms.doorWidth',
-      `必须是 navCellSize（${navCellSize}）的整数倍，否则门洞两端会落在格中心上、` +
-        `实际能过的格子数比设计的多一个。拿到 ${doorWidth}`,
+      `必须是 navCellSize（${navCellSize}）的整数倍（门洞要整格），拿到 ${doorWidth}。` +
+        `这一条与下面的奇偶规则今天只约束 doorWidth 自己 —— 平面图里的门是另写的`,
     )
   }
 
   // ⚠️ **门宽还必须是奇数格**（`≡ navCellSize (mod 2 × navCellSize)`）。
-  // 整数格只保证「门洞长度是整格」，保证不了「两端落在格**边界**上」：
   //
-  //   门心落在格**中心**上（`20 + 40n`，见 `layout.ts` 文件头 ②），
-  //   两端 = 门心 ± 门宽/2 —— 要落回格边界（`40n`），门宽/2 就得是**半格**
-  //   （`≡ 20 mod 40`），于是门宽 ≡ 40 (mod 80)：**奇数格**。
+  // ★ 改了（v5）：**下面这套推导是 v4 的，今天它已经不成立了。**
+  // 那时门洞由 `doorWidth` 算出来、墙以门心为中心，于是门心必须落在格中心
+  // （`20 + 40n`）上：整数格只保证「门洞长度是整格」，保证不了「中心落在格中心上」，
+  // 偶数格的门（80 / 160）中心落在格**边界**上、两侧的墙各差半格，实际能过的格子
+  // 比设计的多一个（120px 的门过 4 格）。
   //
-  // 偶数格的门（80 / 160）两端落在格**中心**上，实际能过的格子数比设计的多一个
-  // —— 120px 的门过 4 格。这正是「窄口净宽」那条约束想守的东西，而它
-  // 在数据里看不出来（门宽写的还是 120），只在游戏里表现为「这扇门特别宽」。
+  // **v5 里门是平面图上整格挖出来的几格**（`floor-plan.json`，今天一律 3 格长：
+  // 3×1 / 1×3），**偶数格的门几何上完全成立** —— `validate/contract.ts:334-336`
+  // 写着同一件事（「奇偶那一条也作废了……留着这条会把对的门判成错的」），
+  // 2026-10-21 实测把那扇门改成 4×1 之后 parse + generate + validateContract 全过。
+  // 所以这条规则今天**只剩「约束 `doorWidth` 这一个值自己」**，与那 16 扇门无关。
+  //
+  // ⚠️ **下一句以前是错的，2026-10-20 改掉了**。原文写的是
+  // 「`floorPlan.ts` 的 `checkDoors` 会核『每扇门的净宽 = doorWidth』」——
+  // **它不核这个**。`checkDoors` 只核 `clearPx >= minPassageWidth`（净宽够不够过），
+  // 宽一点的门是合法的，不是错。
+  //
+  // 于是跨文件约定的真实样子是：平面图里每扇门写的是**格矩形**（今天一律 3×1），
+  // `parseFloorPlan` 换算成 px 之后**只跟 `minPassageWidth` 比**。
+  // `doorWidth` 与本层的 16 扇门之间**没有任何代码在核**，只有这个奇数格规则
+  // 在核 `doorWidth` 自己。所以：
+  //
+  // - 把 `doorWidth` 改成别的奇数格 → **16 扇门一个数都不用动**，只是
+  //   `doorWidth` 变成只被 `colliders.test.ts` 读的**测试口径**（挡板该盖住几格）；
+  // - 真要「每扇门都一样宽」，得**另加**一条判定，而那是收紧约束：
+  //   比 `minPassageWidth` 宽的门本来是对的（双开门、走廊接口都会比它宽）。
+  //   **没加**，因为「统一」这件事没人要求，而多加一条会挡掉合法的宽门。
   if (doorWidth % (navCellSize * 2) !== navCellSize) {
     throw new ConfigError(
       'rooms.doorWidth',
-      `必须是奇数格（≡ ${navCellSize} mod ${navCellSize * 2}），否则门洞两端会落在` +
-        `格中心而不是格边界上，实际能过的格子数比设计的多一个。拿到 ${doorWidth}`,
+      `必须是奇数格（≡ ${navCellSize} mod ${navCellSize * 2}），拿到 ${doorWidth}。` +
+        `⚠️ 理由（门心要落在格中心上）是 v4 的，v5 的门是平面图上整格挖出来的、` +
+        `偶数格也成立 —— 这条规则今天只剩「管住 doorWidth 自己」，见上面那段 ★`,
     )
   }
   const doorClearance = needNumber(
@@ -477,13 +398,9 @@ export function parseRoomsConfig(raw: unknown): RoomsConfig {
     )
   }
 
-  // 门洞不能比窄口下限还窄。**窄口 = 连廊净宽与门宽**，两者守的是同一条
-  // 「最宽的东西过得去」（肉盾直径 80 + 余量）。
-  // 反过来的配置（连廊 200、门 40）会长成「能并排走两个人的连廊，
-  // 尽头是一扇要侧身过的门」——那种地方会变成玩家的卡点。
-  //
-  // 注意这一条与上面那条连廊净宽的检查**不重复**：上面守的是连廊本身，
-  // 这一条守的是门；两处都要单独过闸，因为它们各自可以单独被调窄。
+  // 门洞不能比窄口下限还窄。**v5 里窄口只剩门这一个** —— 连廊的净宽由
+  // 平面图决定，而平面图上的走廊是 6 格（240px），比门宽得多。
+  // 「最宽的东西过得去」量的是肉盾直径 80 + 余量，门是它唯一可能的卡点。
   if (doorWidth < minPassageWidth) {
     throw new ConfigError(
       'rooms.doorWidth',
@@ -598,17 +515,11 @@ export function parseRoomsConfig(raw: unknown): RoomsConfig {
 
   return {
     schemaVersion,
-    totalRooms,
-    mainRoomMin,
-    mainRoomMax,
-    mainWidthTiers,
-    mainRoomHeight,
-    sideRoomTiers,
-    sideKindWeights,
+    classroomCount,
+    roomKindWeights,
     combatKinds,
     settleMs,
     minPassageWidth,
-    roomGap,
     wallThickness,
     doorWidth,
     doorClearance,
@@ -644,17 +555,26 @@ function needRoomKind(value: unknown, path: string): RoomKind {
 }
 
 /**
- * `sideKindWeights`：非空、键是合法关别、权重为正、**不许出现由位置决定的关别**。
+ * `roomKindWeights`：非空、键是合法关别、权重为正、**只许出现「能抽的」那几类**。
  *
- * 最后一条是这个函数存在的主要理由。`start` / `boss` 不是「内容」而是「位置」：
- * 起点恒为第一间、首领恒为最后一间。让它们进这张表，抽签就会产出
- * 「首领房挂在普通教室上方」这种地图 —— 而它在几何上完全合法、校验器一句话都不会说。
+ * 最后一条是这个函数存在的主要理由，而且它拦的是三类不同的错：
+ *
+ * - **`start` / `boss` 是位置，不是内容。** 起点恒为楼梯间（`STAIR`）、
+ *   首领恒为 `YF604` —— 都在平面图里写死了。放进这张表，抽签就会产出
+ *   「一层两个首领」或者「首领房被抽成了宝箱房」的地图，而它在几何上完全合法、
+ *   校验器不说一句话，只是在游戏里没有出口。
+ * - **`shop` / `hidden` 本期不产出**（不在 `ROOM_KINDS_EMITTED` 里）。
+ *   抽出来会让 `validate/contract.ts` 的「关别必须是本期产出集合的一员」当场炸 ——
+ *   但那时报的是**地图**错，真正的原因在配置表里，报错位置指错了地方。
+ * - **写 0**：语义上「这一类不要」，但 `kindBag()` 补余数时会跳过它，
+ *   所以它和「不在表里」等价。**留一个恒为 0 的名字不如删掉** ——
+ *   留着的话，下一个人会以为改大一点就能出这一类，而它连名额都拿不到。
  */
-function needSideKindWeights(value: unknown, path: string): Partial<Record<RoomKind, number>> {
+function needRoomKindWeights(value: unknown, path: string): Partial<Record<RoomKind, number>> {
   const obj = needObject(value, path)
   const keys = Object.keys(obj)
   if (keys.length === 0) {
-    throw new ConfigError(path, '至少要有一类关别 —— 侧室的关别就是从这张表里抽的')
+    throw new ConfigError(path, '至少要有一类关别 —— 那 12 间教室的关别就是从这张表里抽的')
   }
   const out: Partial<Record<RoomKind, number>> = {}
   for (const key of keys) {
@@ -662,16 +582,25 @@ function needSideKindWeights(value: unknown, path: string): Partial<Record<RoomK
     if (kind === 'start' || kind === 'boss') {
       throw new ConfigError(
         `${path}.${key}`,
-        `「${ROOM_KIND_LABELS[kind]}」由**位置**决定（起点恒为第一间、首领恒为最后一间），` +
-          `不是能抽出来的内容 —— 放进来的话会生成出「首领房挂在普通教室上方」的地图，` +
+        `「${ROOM_KIND_LABELS[kind]}」由**位置**决定（出生点恒在楼梯间、首领恒在 YF604，` +
+          `两者都写在 floor-plan.json 里），不是能抽出来的内容 —— ` +
+          `放进来的话会生成出两个首领、或者一层没有首领的地图，` +
           `而它在几何上完全合法`,
+      )
+    }
+    if (!ROOM_KINDS_EMITTED.includes(kind)) {
+      throw new ConfigError(
+        `${path}.${key}`,
+        `「${ROOM_KIND_LABELS[kind]}」本期不产出（生成器只出 ` +
+          `${ROOM_KINDS_EMITTED.join(' / ')}）—— 抽到它会让地图校验的「关别必须是产出集合的一员」` +
+          `当场炸，而真正的原因在配置表里`,
       )
     }
     const w = needNumber(obj[key], `${path}.${key}`)
     if (w <= 0) {
       throw new ConfigError(
         `${path}.${key}`,
-        `权重要大于 0，拿到 ${w} —— 写 0 等于「这一类永远抽不到」，` +
+        `权重要大于 0，拿到 ${w} —— 写 0 等于「这一类拿不到名额」，` +
           `那就该把它从表里删掉，而不是留一个抽不到的名字`,
       )
     }
@@ -681,11 +610,17 @@ function needSideKindWeights(value: unknown, path: string): Partial<Record<RoomK
 }
 
 /**
- * `combatKinds`：非空、无重复、每个都是合法关别、**必须含 `main`**。
+ * `combatKinds`：非空、无重复、每个都是合法关别、**必须含 `main` 与 `boss`**、
+ * **不许含 `start`**。
  *
- * 必须含 `main` 的理由很具体：一排主干教室里「普通战」是默认量，
- * 把它排除掉就等于整层楼没有可打的屋子。`start` / `boss` 反而是可以排除的
- * （起点房空着、首领房留出闪避空间，都是合理的配置）—— 所以只钉 `main` 这一条。
+ * 三条各有各的具体理由：
+ *
+ * - **含 `main`**：普通战是整层的默认量，排除掉就等于一层楼没有可打的屋子。
+ * - **含 `boss`**：打完首领才能下楼。首领房不打怪 = 那一局没有出口。
+ * - **不含 `start`**：⚠️ **这条是 v5 加的。** `start` 是**楼梯间**，
+ *   也就是玩家的出生点（首版它在集合里，因为那时起点房是一间真的教室）。
+ *   把它留在集合里意味着出生点摆满课桌椅、还刷一屋子怪 ——
+ *   怪直接围在玩家脸上，而那是这一层的第一帧。
  */
 function needCombatKinds(value: unknown, path: string): RoomKind[] {
   const arr = needArray(value, path)
@@ -700,8 +635,22 @@ function needCombatKinds(value: unknown, path: string): RoomKind[] {
   if (!out.includes('main')) {
     throw new ConfigError(
       path,
-      `必须含 main（${ROOM_KIND_LABELS.main}）：一排主干教室里总要有要打的屋子，` +
+      `必须含 main（${ROOM_KIND_LABELS.main}）：一层楼总要有要打的屋子，` +
         `否则整层没有威胁预算、也没有一处会刷怪。拿到 [${out.join(', ')}]`,
+    )
+  }
+  if (!out.includes('boss')) {
+    throw new ConfigError(
+      path,
+      `必须含 boss（${ROOM_KIND_LABELS.boss}）：打完首领才能下楼，` +
+        `首领房不打怪那一局就没有出口。拿到 [${out.join(', ')}]`,
+    )
+  }
+  if (out.includes('start')) {
+    throw new ConfigError(
+      `${path}`,
+      `不许含 start（${ROOM_KIND_LABELS.start}）：start 是**楼梯间**，也就是玩家的出生点 —— ` +
+        `在里面意味着出生点摆课桌、刷一屋子怪，而那是这一层的第一帧。拿到 [${out.join(', ')}]`,
     )
   }
   return out
@@ -744,66 +693,6 @@ export function roomsConfigFromCache(cache: { get(key: string): unknown }): Room
 }
 
 /**
- * 同上一份，但先把配置改成「整层只要 `roomCount` 间」的版本，**再走一遍校验器**。
- *
- * 用途一是测试场要的**短层**：`joint/d1d2_rooms` 要三间（= 起点 / 普通战 / 首领）。
- * 侧室数 = `totalRooms − 主干数`，所以三个数一起钉成 N，侧室自然是 0 间
- * —— 想要的那三间就都在主干上，生成器一行都不用动。
- *
- * ## ⚠️ 改的是**原始 JSON**，不是展开已经解析好的 `RoomsConfig`
- *
- * `{ ...cfg, totalRooms: 3 }` 看着更短，但它**绕过了 `parseRoomsConfig`** ——
- * 字段类型、`mainRoomMax ≤ totalRooms`、档位与寻路格对齐那些守护全在那个函数里。
- * 展开之后拿到的是一个**没人校验过**的对象，下一步就进生成器了；
- * 它错了不会报错，只会生成出一层「看着像那么回事」的怪地图。
- *
- * 三个数也必须**一起**改：只改 `totalRooms` 会被校验器当场挡下
- * （`mainRoomMax` 还是 15 > 3）；只改主干那两条则还剩 12 间侧室，不是要的三间。
- * 三种改法只有一种自洽 —— 所以这里替调用方把它定下来，并让校验器照常说话。
- *
- * @param sideRooms 其中几间是**侧室**（挂在主干侧墙上的支线），默认 0 = 全是主干。
- *   正式游戏要留出岔路（一层一条直线就没有路线决策，而那正是随机生成的全部意义），
- *   所以 `combat.json` 的 `arena.sideRoomsPerFloor` 会传进来；测试场的短层要的是
- *   「起点 / 战斗 / 首领」三间都在主干上，于是走默认值。
- *   主干数 = `roomCount − sideRooms`，由 `mainRoomMin` / `mainRoomMax` 一起钉住
- *   —— **随种子在区间里取**会让同一层的主干数上下跳，一层就这么多间，一跳侧室数就跟着变。
- */
-export function roomsConfigWithRoomCount(
-  cache: { get(key: string): unknown },
-  roomCount: number,
-  sideRooms = 0,
-): RoomsConfig {
-  const raw = needObject(cache.get(ROOMS_CONFIG_NAME), 'rooms')
-  const main = roomCount - sideRooms
-  return parseRoomsConfig({
-    ...raw,
-    totalRooms: roomCount,
-    mainRoomMin: main,
-    mainRoomMax: main,
-  })
-}
-
-/** 便利取数器：某个尺寸档位的世界矩形（`x` / `y` 是中心，见 `model/types.ts`）。 */
-export function tierRect(tier: RoomSizeTier, x: number, y: number): Rect {
-  return { x, y, width: tier.width, height: tier.height }
-}
-
-/**
- * 连廊的**净宽**（可走的那一条，不含墙），也就是全层「窄口」的候选之一。
- *
- * **为什么要有这个函数，而不是各写各的 `h − wt`：** 这里最容易算错的就是减几层墙。
- * 墙骑在带的上下两条边上、各往里吃半个墙厚，所以是 `− 1 × wallThickness`，
- * 不是 `− 2 × wallThickness`。首版的 `corridorRect`（同样是含墙的矩形）
- * 在缩略图里就被当成可走区域读过一次，两个场子对同一个种子报出 200 / 160 两个数
- * —— 差的那 40 正好是一层墙厚。
- *
- * 生成器、校验器、测试场都走这一个函数，那条坑就只存在一处。
- */
-export function passageClearWidth(cfg: RoomsConfig): number {
-  return cfg.mainRoomHeight - cfg.wallThickness
-}
-
-/**
  * 这一类关别**要不要打** —— 摆桌椅、刷怪、威胁预算三件事的唯一判据。
  *
  * 抽成函数而不是各处写 `cfg.combatKinds.includes(...)`：那行代码抄三遍之后，
@@ -812,4 +701,24 @@ export function passageClearWidth(cfg: RoomsConfig): number {
  */
 export function isCombatKind(cfg: RoomsConfig, kind: RoomKind): boolean {
   return cfg.combatKinds.includes(kind)
+}
+
+/**
+ * 这一间**进门就该摆一个宝箱**吗。
+ *
+ * 判据是关别：`reward`（道具关）与 `chest`（宝箱关）—— 这两类**存在的意义就是进来拿东西**：
+ * 不刷怪、门不封，宝箱就是它们的全部内容（见 `roomNeedsFight()`）。
+ *
+ * ⚠️ **判据不是「非战斗房」**，这一条是 2026-10-21 用户报的
+ * 「进入楼梯间会生成一个宝箱，这不对」：楼梯间（`start`）也不打架，
+ * 但它是**上下楼的中转站**（见 `ROOM_KIND_LABELS.start`），不是一间内容房 ——
+ * 在里面摆宝箱等于给过道发奖励，而且它**每层都会再生成一个**（换层时
+ * `lootedRooms` 会清空），三层的楼就白送三个。
+ *
+ * ⚠️ 加新的**非战斗**关别时要回来看这一行、明确表态（进名单还是不进）。
+ * 写成 `!isCombatKind(cfg, kind)` 那种反判的话，新关别会**默认**捞到一个宝箱，
+ * 而那种错只在有人真的走进那一间时才看得到。
+ */
+export function roomHasChest(kind: RoomKind): boolean {
+  return kind === 'reward' || kind === 'chest'
 }

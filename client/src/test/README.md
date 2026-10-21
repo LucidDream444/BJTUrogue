@@ -67,7 +67,8 @@ npm run dev
 - **测试场：<http://localhost:5173/test.html>**
 - 直接进某个场子：<http://localhost:5173/test.html?arena=tank_grind>
 
-现在是哪几个场子（都在 `arenas/D3/` 里）：
+**现在有哪些场子，以 `test.html` 的菜单为准** —— 菜单是 `arenaCatalog.ts` 运行时扫出来的，
+加一个场子这里一行都不用改。下面这张表是 **D3 最早那四张**的说明（留作范例，**不是索引**）：
 
 | id | 名字 | 看什么 |
 |---|---|---|
@@ -75,6 +76,10 @@ npm run dev
 | `splitter_chain` | 分裂链 | 三只一代 = 33 杀。第 5 杀闪屏、出生间隔、`ledger` 归零 |
 | `tank_grind` | 肉盾磨血 | 肉盾 + 带 160px 缺口的墙。帧伤 tick、音效限频、音高、减速、绕路 |
 | `swarm_stress` | 压力场 | 150+ 只怪铺满场。`queue` 排空、`moving` 不掉、`ai near/far` 比例、`frame` 不停。**默认那批是第三代 —— 不打爆了也不分裂，设计如此**；按 `G` 换成第一代就能看分裂链 |
+
+⚠️ **别拿这张表当「现在有哪几个场子」**（2026-10-21 更正：它原来写的是
+「现在是哪几个场子（都在 `arenas/D3/` 里）」，两处都不对了 —— 四个域后来都建了文件夹，
+D3 自己也多了 `grabber_grind`、`d3_campus_art`）。
 
 ### 场子按域分文件夹：`arenas/D1/` `arenas/D2/` `arenas/D3/` `arenas/D4/`（+ 跨域的 `joint/`）
 
@@ -87,12 +92,19 @@ src/test/
 ├── registry.ts  arenaCatalog.ts          ← 自动收场子，加场子不用改这里
 └── arenas/
     ├── _ArenaTemplate.ts                 ← 共用模板（下划线开头，不进菜单）
-    ├── D3/                               ← D3 的场子
-    │   ├── basic_hit.ts  splitter_chain.ts  tank_grind.ts  swarm_stress.ts
-    │   └── （D1 / D2 / D4 各建自己的）
+    ├── D1/   d1_battle.ts  `_AssetGallery.ts`  tools/
+    ├── D2/   d2_seeds.ts   `_shared.ts`  `_classroomLook.ts`
+    ├── D3/   basic_hit.ts  splitter_chain.ts  tank_grind.ts  swarm_stress.ts
+    │         grabber_grind.ts  d3_campus_art.ts  tools/
+    ├── D4/   d4_main_menu.ts  d4_pause.ts  d4_profile.ts  d4_reward.ts  d4_settlement.ts
     └── joint/                            ← 跨域联调（见下）
-        └── d1d2_rooms.ts
+        └── _d1Scenes.ts                  ← D1×D2 联调的共用件（下划线开头，不进菜单）
+            （联调的**场子本身**今天一个都没有：2026-10-19 按用户要求删了
+              菜单 2/3/4/5/17 那几场，见各场子的文件头）
 ```
+
+⚠️ 这张树是 **2026-10-21 照磁盘抄的**（`ls src/test/arenas/*/`），一样会旧 ——
+它给的是「文件放在哪儿」，不是「菜单里有哪些」；后者看 `test.html`。
 
 文件夹**只影响谁的东西在哪儿，不影响 URL**：id 取的是文件名，
 所以 `arenas/D3/tank_grind.ts` 还是 `?arena=tank_grind`，
@@ -223,7 +235,7 @@ cp src/test/arenas/_ArenaTemplate.ts src/test/arenas/D1/我的场子.ts   #    �
    当场抛，异常从 `Systems.shutdown()` 冲出 `Game.step()` —— **rAF 不再排帧，整页只剩一张
    静止的图**，只有刷新能救（症状看起来像「游戏崩了」，其实是一条顺序问题）。
    顺序反过来（趁场景还活着先 `destroy()`，`SHUTDOWN` 里那一步自然成了空操作）就没事 ——
-   D1 的 `BattleScene.restartDifficulty()`、`joint/d1d2_rooms` 的 `R` / `N` / `ESC` 都是这么写的。
+   D1 的 `BattleScene.restartDifficulty()` 就是这么写的（`joint/d1d2_rooms` 的 `R` / `N` / `ESC` 也一样 —— 那个场子已于 2026-10-19 按用户要求删除）。
    继承 `ArenaBase` 的场子不受影响（它们没有 `CombatSession`）。
    （这就是 `docs/Phaser3性能与引擎事实.md` §7 那条「`SHUTDOWN` 里做清理时引擎已经先拆过一遍了」
    的又一个实例 —— 那条读一遍，比在这里重学一遍便宜。）

@@ -194,6 +194,11 @@
       "slowDurationMs": 1200
     }
   ],
+  "camera": {
+    "viewWidth": 1344,
+    "viewHeight": 832,
+    "followLerp": 0.14
+  },
   "arena": {
     "seed": 20261012,
     "width": 1344,

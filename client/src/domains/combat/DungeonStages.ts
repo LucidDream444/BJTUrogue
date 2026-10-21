@@ -1,223 +1,401 @@
 /**
- * 把 **D2 生成的一层楼**，拆成 **D1 认的「一间房 = 一关」**。
+ * 把 **D2 生成的一层楼**，交成 **D1 认的一张整层几何**。
  *
- * ## 为什么是「一间房 = 一关」而不是一整个大地图
+ * ## ★ 2026-10-21：从「一间房 = 一关」改成「**整层连续**」
  *
- * D2 的房间是 640×280，D1 的竞技场是 1344×832 —— 差 6 倍。真做成一张连通的大地图，
- * 玩家尺寸、移动速度、刷怪间距、寻路格子全都要重调一遍，而那些数现在都是调好的。
+ * 上一版把一层楼拆成 16 屏，过门 = `enterStage(下一间)`。那个拆法有一个**前提**：
+ * 门通向另一间房。v5 的 `floor-plan.json` 把 16 扇门**全部**改成了「房间 ↔ 走廊」，
+ * 前提当场不成立 —— `sidesOfOpening()` 只在 `map.rooms` 里找，走廊不是 `Room`，
+ * 于是每扇门都只探得到一侧、全被当成「通向连廊的洞」**封死**，
+ * `doorTargets` 恒空 → 按 F 无处可去 → **玩家出不了第一间房**（且不抛任何错）。
  *
- * 拆成一间一关之后：
+ * 用户 2026-10-21 拍板走 **「A 整层连续（按平面图玩）」**：战斗场景直接跑在 D2 的
+ * 平面图上，走廊与房间是**同一张连续地图里的真实空间**，出生点在楼梯间门外的走廊上，
+ * 走到哪扇门就进哪一间。于是这个文件交出去的东西整个换了形状：
  *
- * - **`CombatSession` 一行都不用改** —— 它只读 `stageConfig`，
- *   而 `enterStage(n)` 本来就是「换几何 → 重建碰撞 → 找落脚点 → 挪人」这一套。
- *   门外那一步就是 `enterStage(下一间)`。
- * - **`StageBackground` 一行都不用改** —— 它画的就是 `stageGeometry(config, n, …)`。
- *
- * 两个域的接口因此收在一处：**这个文件**。
- *
- * ## 每间房交出去的东西
- *
- * | 项 | 来源 | 少了会怎样 |
+ * | | 上一版 | 现在 |
  * |---|---|---|
- * | 实体（墙 / 课桌 / 椅子） | `collidersOf().solids` **裁进本间取景框** | 隔壁房间的桌子挡在本间里 |
- * | 门洞挡板 | `collidersOf().barriers` 同法裁 | 门开着，怪顺着洞走出去打不着 |
- * | 出生点 | `room.spawnPoints` 里离房间中心最近的 | 站到墙里 |
- * | 要不要打 | `roomNeedsFight()` | 道具关把玩家关死在里面 |
+ * | `stages` | 16 关，每关一间房、各自一个取景框 | **恰好 1 关 = 整层**，无取景框 |
+ * | 坐标 | 每间的取景框坐标（`dx` / `dy` 挪到公共盒子正中） | **地图坐标原样**，一格不挪 |
+ * | 缩放 | `fitMapFrame(1344, 832, 1920, 1160)` ≈ 0.70 | **1:1**（`sourceSize` = 竞技场） |
+ * | 门 | 裁进本间、编成 `door-…` 实体，靠 `doorTargets` 指路 | **不进 `solids`** —— 是 D1 手里的可开关挡板 |
+ * | 出生点 | 「离房间中心最近的那个刷怪点」 | **楼梯间门外那条走廊上** |
+ * | `DoorBarrier` 的 `toId` | 只用来判「是不是通向房间」 | **走廊段 id**，再也不需要探两侧 |
  *
- * ⚠️ **碰撞一律从 `collidersOf()` 里裁，不要从 `map.walls` / `room.obstacles` 各推一遍。**
- * 那两个数组正是 `solids` 的来源（见 `colliders.ts` 文件头「一座楼只有这一份」）。
- * 在这儿重推一遍就是第二份会漂的事实：D2 哪天把某类家具挪出挡人列表，
- * 这里会照旧挡着，而那个样子看起来像「碰撞体没跟着更新」。
+ * ## 为什么 `sourceSize` 就等于整层尺寸：`fitMapFrame` 会**自然退化成恒等**
  *
- * ## 取景框为什么要留边
+ * `stageGeometry()` 拿 `fitMapFrame(arena.width, arena.height, sourceSize.width, sourceSize.height)`
+ * 算缩放与平移。两者相等时 `scale = 1`、`x = y = 0`，于是：
  *
- * 口径逐字抄 `procgen/presentation/framing.ts` 的 `roomFitSize`：`wallThickness`
- * 让**墙整条**落在框里（切掉半条墙的话，那一侧的碰撞体一半在框外，
- * `clipRect` 会把它裁短，于是墙看起来「薄了一半」）；半格 `navCellSize`
- * 让门和门外那一点点露出来。
+ * - 所有矩形**原样**出来，地图坐标就是世界坐标 —— 少一层换算就少一处会静默偏掉的错；
+ * - `frame_top` / `frame_bottom` / `frame_left` / `frame_right` 那四块**不会被 emit**
+ *   （条件是 `frame.x > 0` / `frame.y > 0`），正好 —— 整层的外沿是物理世界边界
+ *   （`physics.world.setBounds`）而不是四块人造的墙。
  *
- * 不用 `roomViewBox()` —— 那个会把门外的连廊、侧室整块并进来，
- * 并进来之后教室在屏上只剩一半。
+ * ⚠️ 这条等式是**这一版成立的地基**。谁要把 `arena` 改回 1344×832，
+ * 整层会在一瞬间被缩到七分之一并居中，而且**什么都不报** —— 看起来像「地图没加载」。
+ *
+ * ## 竞技场就是 `map.bounds`，而 `bounds` 的左上角必须是 (0,0)
+ *
+ * 世界坐标 = 地图坐标 = 从 `map.bounds` 的左上角起算。`floor-plan.json` 从格 (0,0)
+ * 开始画，所以今天 `left(bounds) === top(bounds) === 0`，这一条是**恒等的**。
+ *
+ * 但它不是假设出来的：`stageGeometry` 要求每个实体的 `x >= 0 且 x + width <= arena.width`
+ * （`parseStageCollisions` 的 `validRect`）。平面图哪天往左上挪出 (0,0)，
+ * 这里会**当场被 D1 的校验器拒掉**，而不是整层悄悄偏掉 80px。
+ * **宁可当场炸，不要静默偏。**
+ *
+ * ## 墙的两个方向：`map.walls` 往外多铺 2 格，那 2 格在这里被裁掉
+ *
+ * `walls` 含平面图外围整整 2 格（`navExtentFor` 给的余量，为了让贴着地图边缘的
+ * 房间不在寻路网格的外沿上）。那 2 格**在世界之外**：裁掉它们不打开任何通路
+ * （它们本来就在所有空间的外面），而留着它们会让 `validRect` 的 `x >= 0` 不成立。
+ * 世界的外沿由 `physics.world.setBounds` 与 `isWalkable` 的边界判据一起兜住。
  */
-import { collidersOf, type DoorBarrier } from '@/domains/procgen/colliders'
+import { collidersOf } from '@/domains/procgen/colliders'
 import { generateDungeon } from '@/domains/procgen/gen/generate'
+import type { FloorPlan } from '@/domains/procgen/gen/floorPlan'
 import { Rng } from '@/core/rng'
-import { bottom, clipRect, containsPoint, left, rectFromCorners, right, top } from '@/domains/procgen/model/rect'
-import { fitMapFrame } from './StageGeometry'
+import {
+  bottom,
+  clipRect,
+  containsPoint,
+  left,
+  rectFromCorners,
+  right,
+  top,
+} from '@/domains/procgen/model/rect'
 import type { RoomsConfig } from '@/domains/procgen/config'
-import type { DungeonMap, Point, Rect, Room } from '@/domains/procgen/model/types'
+import type { DungeonMap, Door, Point, Rect, Room } from '@/domains/procgen/model/types'
 import { roomNeedsFight } from '@/domains/procgen/roomFlow'
 import type { CombatConfig } from './config'
-import type { SolidRect, StageCollisionConfig, StageLayout } from './StageGeometry'
+import type {
+  SolidRect,
+  StageBarrier,
+  StageCollisionConfig,
+  StageLayout,
+} from './StageGeometry'
+
+/**
+ * **整层只有一关**，关号恒为它。
+ *
+ * 留着「关」这个概念（而不是把 `StageCollisionConfig` 也换掉）是**故意的**：
+ * `TerrainMap` / `StageColliders` / `parseStageCollisions` 那一整套吃的都是它，
+ * 而它们关心的是「一份几何 + 一个落脚点」，与「一间房」从来不是一回事。
+ * 换成整层之后那一整套**一行都不用改** —— 这也正是当初选它做接口的回报。
+ */
+export const FLOOR_STAGE = 1
+
+/**
+ * 一扇门：挡板的几何（世界坐标 = 地图坐标，**左上角**，与 `StageBarrier` 同一份）
+ * 加上它开在谁身上、以及朝向。
+ *
+ * ⚠️ **`axis` 是「人穿过它的方向」**（`Door.axis` 的原话），不是门的长边方向。
+ * 判「玩家站在这扇门前没有」要按**矩形**量距离，不是按中心点 ——
+ * 门洞长边 120px，站在一端时离中心 60px，按中心判就会漏。见 `BattleScene.doorAhead()`。
+ */
+export interface DoorBrief extends StageBarrier {
+  readonly axis: 'h' | 'v'
+}
 
 export interface DungeonRoom {
-  /** 0 起。**D1 的关号是它 + 1** —— `enterStage()` 吃的是关号。 */
+  /** = `Room.order`。**不是关卡号** —— 整层只有一关，它只是「第几间房」 */
   readonly order: number
   readonly room: Room
   /** 这一间要不要打（`roomNeedsFight`：关别要打 **且** 有刷怪点）。 */
   readonly needsFight: boolean
-  /** 取景框（地图坐标），调试读数用。 */
-  readonly box: Rect
-  /** 本间在**取景框坐标**里的矩形 —— 观感层用它铺地板（框减去它就是「墙外」）。 */
-  readonly rectInBox: Rect
   /**
-   * 本间的每一扇门通向第几间（0 起；`null` = 尽头），**顺序与 solids 里
-   * `door-…` 那几条一致**。观感层靠它把门外那一小块涂成下一间的颜色 ——
-   * 这样玩家在门开着的时候能**看见隔壁是什么关别**，而不是两眼一抹黑。
+   * 本间的刷怪点，**世界坐标**。`spawnPoints[0]` 离房间中心最近的那个是
+   * 「玩家站的那一个」，刷怪时跳过它（与 D2 `nearestSpawn()` 同一个口径）。
    */
-  readonly doorTargets: readonly (number | null)[]
-  /** 本间每扇门在**地图坐标**里的位置（和 `doorTargets` 同序）。小地图靠它画出拓扑。 */
-  readonly doorRects: readonly Rect[]
-  /**
-   * 本间的刷怪点，**已经换算到竞技场坐标**（D1 的敌人系统用的是这一套）。
-   *
-   * ⚠️ **别再用「以玩家为圆心撒一圈」那套。** D1 原来是 `cx + cos(a)*250`，
-   * 而竞赛场是 1344×832 的大场子、D2 的房间只有 520×280 —— 250px 的半径
-   * 直接把怪撒在玩家脸上，**开局被围死、跑都跑不掉**。
-   * D2 的刷怪点是按房间量出来的，而且「每一个都从门可达」（那边 `types.ts` 的原话）。
-   *
-   * 玩家的出生点是**离房间中心最近的那个**刷怪点，所以这里把它排在最前面 ——
-   * 刷怪时跳过它，免得怪直接生在玩家身上。
-   */
-  readonly spawnPoints: readonly { x: number; y: number }[]
+  readonly spawnPoints: readonly Point[]
+  /** 开在这一间身上的门（世界坐标）。今天恒为 1 扇。 */
+  readonly doors: readonly DoorBrief[]
 }
 
 export interface DungeonStages {
   readonly map: DungeonMap
+  /** **恰好一关**：整层的墙 + 家具（`stages[0].barriers` 是整层的门）。 */
   readonly stages: StageCollisionConfig
-  /** 整层的门洞挡板。**没裁进任何一间** —— 开合状态由场景按 `ownerOrder` 判。 */
-  readonly barriers: readonly DoorBarrier[]
+  /** 整层的每一扇门：几何 + 归属 + 朝向。与 `stages[0].barriers` 是同序同值。 */
+  readonly doors: readonly DoorBrief[]
   readonly rooms: readonly DungeonRoom[]
+  /** 玩家出生点：**楼梯间门外那条走廊上**（用户 2026-10-21 的原话） */
+  readonly spawn: Point
+  /**
+   * 楼梯间那一间房的矩形（`x` / `y` 是**中心**，见 `model/types.ts`）。
+   *
+   * ★ 改了（2026-10-21）：原来只给一个中心点（`Point`）。用户把楼梯间定成
+   * 「每层之间的中转站」之后，里面要摆**两个**入口（上一层 / 下一层），
+   * 而两个入口摆在哪儿要看这一间**多大**（`stairPadSpots()` 按它钳制）——
+   * 只给中心点的话，那个函数只能拿到一个「往两边各挪多少」的常数，房间一小就出墙。
+   */
+  readonly stairwell: Rect
 }
 
 /**
- * **一个洞口连通哪两间房 —— 从几何算，不看 `ownerOrder` / `toOrder`。**
+ * 界面上「整层是多大」的两个数 —— **就是 `map.bounds` 的尺寸**（世界坐标从它的左上角起）。
  *
- * D2 的 `collidersOf()` 是**按洞口去重**的（那边文件头写着）：一个洞口只出一条，
- * `ownerOrder` 只是「谁先被扫到」。所以拿 `toOrder` 当唯一真值会出两类错：
- *
- * - 一层里大部分洞口只有单向记录，照它走会以为「B 没有回 A 的门」；
- * - 而我早先的兜底（缺哪条补哪条）**可能把同一个洞口补成两条**，
- *   表现就是「两扇门通向同一间」。
- *
- * 门的**位置**是可信的（墙上那个洞就在那儿），所以连通关系直接量：
- * 沿门的法线往两边各跨一段，落进哪两间房，这个洞就连通哪两间。
- * **按构造不可能不对称** —— 因为它本来就是对称的（一个洞有两面）。
- *
- * ## ⚠️ 门**不一定通向房间** —— 它可能通向「连廊」
- *
- * 实测 seed 1 的第 1 间（侧室，x 220~620）：它上边那面墙上有个洞在 x=540，
- * 而 x=540 的正上方是**连廊**（房间 0 到 x=420 就结束了、房间 2 从 x=620 才开始）
- * —— 不是任何一间房。这类门**只探得到一侧**，于是会被下面的 `length === 2` 滤掉。
- *
- * **别为了让它们凑出两侧而加兜底**（换另一根轴再探一次）—— 我加过，
- * 结果是沿错轴探到了**假的邻居**：那间房的两扇门于是都指向同一间，
- * 而真正的邻居反而回不去。探不到就是「这门通向连廊」，丢掉它对这一层模型是对的
- * （这一版没有把连廊当一格，见文件头）。
+ * 提出来是因为 `BattleScene` 要在**建场景之前**就知道它（物理世界边界、相机边界、
+ * `cfg.arena` 都得是它）。从 `dungeon.map.bounds` 现推也行，但那样就有两处推法。
  */
-function sidesOfOpening(
-  rect: Rect,
-  rooms: readonly Room[],
-  cfg: RoomsConfig,
-): number[] {
-  // ⚠️ **门开在哪面墙上，看门洞自己的形状**：竖墙上的洞是**高**的。
+export function arenaOf(map: DungeonMap): { width: number; height: number } {
+  return { width: map.bounds.width, height: map.bounds.height }
+}
+
+/**
+ * `(x, y)` 落在哪一间房里；不在任何一间（走廊里）给 `null`。
+ *
+ * `inset`：把每间房的矩形**四边各收进去这么多**再判。用在两个地方：
+ *
+ * 1. 玩家「**进来了没有**」—— `inset = 玩家半径`。取 0 的话，人刚跨过门口那条线
+ *    （身体还有一截留在门洞里）就算「进来了」，而那一刻会**同时**发生两件事：
+ *    刷怪 + 封门。封门是把门洞那一格变成实体，而玩家的身体正压在上面 ——
+ *    物理会把他弹一下。收进去一个半径，封门时人已经整个在房里，一点不弹。
+ * 2. 小地图上「现在在哪一间」—— 同一个 `inset`，于是**「门开了一半」在两处都不算进来**。
+ *    两处共用一个判据，比各写一遍强：分岔的那天表现是「小地图说在房里、门却还没封」。
+ *
+ * ⚠️ **走廊不是房**，所以「在走廊里」返回 `null` 是正确答案，不是失败。
+ */
+export function roomAt(
+  rooms: readonly DungeonRoom[],
+  x: number,
+  y: number,
+  inset = 0,
+): DungeonRoom | null {
+  for (const unit of rooms) {
+    const r = unit.room.rect
+    if (
+      x >= left(r) + inset &&
+      x <= right(r) - inset &&
+      y >= top(r) + inset &&
+      y <= bottom(r) - inset
+    )
+      return unit
+  }
+  return null
+}
+
+/**
+ * 宝箱该摆在哪：玩家身前 `lift` 像素，但**夹进 `unit` 这一间**里（四周各留 `half`）。
+ *
+ * ⚠️ 那个「夹」不是保险，是**必需**的：进门是在玩家**刚跨过门口**那一刻判定的
+ * （`roomAt()` 要求身体整个进到房里），这时玩家离门外的走廊只有十几像素 ——
+ * 「玩家上面 60px」正好落在**墙外**。而走廊和房里一样是可走地面，
+ * `TerrainMap.safeSpawn()` 看不出区别（它只认地面不认墙），宝箱就摆到门外去了。
+ *
+ * 纯函数、零依赖：node 下可直接单测（`DungeonStages.test.ts` 拿 8 个种子逐间验）。
+ */
+export function chestSpotIn(
+  unit: DungeonRoom,
+  x: number,
+  y: number,
+  lift: number,
+  half: number,
+): Point {
+  const r = unit.room.rect
+  const clamp = (v: number, lo: number, hi: number) => Math.min(hi, Math.max(lo, v))
+  return {
+    x: clamp(x, left(r) + half, right(r) - half),
+    y: clamp(y - lift, top(r) + half, bottom(r) - half),
+  }
+}
+
+/**
+ * **不用打的那些房（道具关 / 宝箱关）里，宝箱摆在房间正中心。**
+ *
+ * 与上面那个「玩家身前 60px」是**两种**摆法，各有各的理由，别合并：
+ *
+ * - 精英关那个是**打完怪那一刻**掉的，它要的是「在你眼前出现」→ 跟玩家走；
+ * - 道具关 / 宝箱关是**推门进去取东西**的房，它要的是「一眼看见它在这儿」。
+ *
+ * ⚠️ 用「玩家身前 60px」摆这一类房是**错的**，而且错得很稳定（用户 2026-10-21 报的
+ * 「宝箱生成和显示有问题」）：进门是在玩家**刚跨过门口**那一刻判定的
+ * （`roomAt()` 要求身体整个进到房里），所以「身前」永远等于**贴着刚进来的那扇门**，
+ * 而 `chestSpotIn()` 的 clamp 还会把它贴在门口的墙上 —— 实测离房间中心 240—260px，
+ * 人站在自己刚进来的门口时，宝箱**正好画在他头上**。
+ *
+ * ⚠️ 正中心**只对非战斗房成立**：`gen/obstacles.ts` 对非战斗关别早返回空房
+ * （「没有敌人的房间里，一模一样的课桌只是占地方、还把宝箱的落点挤掉」），
+ * 所以中心一定是空地。**别把这个函数用到会摆桌椅的房间上** ——
+ * 那时中心可能正好是一张课桌，而 `safeSpawn()` 会把它挪开几十像素，
+ * 挪完之后「正中心」这个承诺就只剩个近似。
+ *
+ * 纯函数、零依赖：node 下按 8 个种子逐间验（`DungeonStages.test.ts`）。
+ */
+export function chestSpotAtCenter(unit: DungeonRoom): Point {
+  // `Rect` 的 `x` / `y` **就是中心点**（`model/types.ts` 的约定），不用再加半个宽。
+  return { x: unit.room.rect.x, y: unit.room.rect.y }
+}
+
+/**
+ * **楼梯间门外那条走廊上**的一个点。
+ *
+ * 判据是**几何**，不是字段：从门洞中心往两侧各迈几格，落进哪一段走廊就是哪一段。
+ * 不读 `Door.a` / `Door.b` —— `colliders.ts` 已经写过一次「位置本来就比字段可信」
+ * （`sidesOfOpening` 那段把 `axis` 换成了量形状），这里照同一条走。
+ *
+ * 步长取 `navCellSize` 的整数倍：**门就骑在一格墙上**，所以第 1 步正好落在门外那一格的格心。
+ *
+ * ⚠️ 先迈 **2 格**、再退回 1 格、最后才试 3 格。先 1 格的话落脚点离墙只有 40px，
+ * 而玩家半径 16 —— 判据是 `containsPoint`（**含边界**），门框那一格一有风吹草动
+ * 就会在「在走廊里」与「在墙里」之间跳。2 格（80px）离墙远、又还在门正前方。
+ */
+function corridorPointAt(door: Door, map: DungeonMap, cell: number): Point {
+  // 沿**人穿过它的方向**迈步：`axis === 'h'`（门开在水平墙上）→ 人沿 y 穿过。
+  // 读 `axis` 而不是比 `width` / `height`：`Door` 上就只有这一个字段在说方向，
+  // 而比宽高等于从形状里**再推一遍**同一件事 —— 两处推法迟早会有一处推反，
+  // 而推反的表现是「出生点算在墙里」，看起来像平面图画错了。
+  const alongX = door.axis === 'v'
+  for (const step of [2, 1, 3]) {
+    for (const sign of [1, -1]) {
+      const p = alongX
+        ? { x: door.x + sign * step * cell, y: door.y }
+        : { x: door.x, y: door.y + sign * step * cell }
+      if (map.passages.some((q) => containsPoint(q.rect, p.x, p.y))) return p
+    }
+  }
+  const ids = map.passages.map((p) => p.id).join(', ')
+  throw new Error(
+    `楼梯间的门（${door.a} ↔ ${door.b}）两侧 ${3 * cell}px 内都没有走廊（这一层有：${ids}）——` +
+      `出生点算不出来。门的位置是 (${door.x}, ${door.y})`,
+  )
+}
+
+/** 把一块地图矩形裁进世界，再把 `x` / `y` / `width` / `height` 四舍五入到 0.01px。 */
+function toSolid(rect: Rect, id: string, world: Rect): SolidRect | null {
+  const r = clipRect(rect, world)
+  if (r === null) return null
+  return {
+    id,
+    x: Math.round(left(r) * 100) / 100,
+    y: Math.round(top(r) * 100) / 100,
+    width: Math.round(r.width * 100) / 100,
+    height: Math.round(r.height * 100) / 100,
+  }
+}
+
+/**
+ * 生成一层楼，交成 D1 的一张整层几何。**纯函数**（零 Phaser、零场景），node 下可直接单测。
+ *
+ * @param seed 种子。**它只决定内容**（关别、障碍物、刷怪点）—— 几何与种子无关
+ * @param roomsCfg 已校验的 `rooms.json`（`parseRoomsConfig` 过了才传进来）
+ * @param plan 已校验的 `floor-plan.json`（`parseFloorPlan` 过了才传进来）。
+ *   几何的唯一真值，「这一层楼长什么样」全在它里面，**不由种子算出来**
+ * @param d1 D1 的配置，只为拿 `terrain.navigationCellSize`
+ */
+export function buildDungeonStages(
+  seed: number,
+  roomsCfg: RoomsConfig,
+  plan: FloorPlan,
+  d1: CombatConfig,
+): DungeonStages {
+  const map = generateDungeon(seed, roomsCfg, plan)
+  const arena = arenaOf(map)
+  // 世界矩形 = 竞技场。四边各自从 bounds 的左上角/右下角取，别写死 0（见文件头）。
+  const world = rectFromCorners(left(map.bounds), top(map.bounds), right(map.bounds), bottom(map.bounds))
+  if (left(world) !== 0 || top(world) !== 0) {
+    // 这一条不是形式：`stageGeometry` 要求每个实体都落在 [0, arena] 里，
+    // 左上角不为 0 的话整层要么被裁掉一片、要么被校验器拒掉。
+    // 与其让它以「某个房间莫名少了一半」的形式出现，不如在这里说清楚。
+    throw new Error(
+      `整层的包围盒不贴在 (0,0) 上（左上角是 ${left(world)}, ${top(world)}）——` +
+        `世界坐标的起点必须是它，见 DungeonStages.ts 文件头。` +
+        `修 floor-plan.json 的坐标原点，或在这里加一次平移（**两处只能有一处**）。`,
+    )
+  }
+  const col = collidersOf(map, roomsCfg)
+
+  // ---- 实体：墙 + 课桌 + 椅子，一次全给。整层只有这一份。
   //
-  // 早先用的是 D2 的 `DoorBarrier.axis` —— 但那个字段的语义（`'v'` 是「墙竖直」
-  // 还是「洞竖直」）从名字上看不出来，而按它探会**探到斜对面的房间**：
-  // 表现是「左边的门和下面的门都通向下面那一间，左边的 A 回不去了」。
-  // 形状没有歧义，而且是从位置本身推出来的 —— 位置本来就比字段可信。
-  const alongX = rect.height >= rect.width
-  const steps = [cfg.roomGap, cfg.roomGap * 1.5, cfg.roomGap * 2, cfg.roomGap * 3].map(
-    (d) => d + cfg.wallThickness,
-  )
-  const probe = (dirX: boolean, sign: number): number | null => {
-    for (const step of steps) {
-      const p = dirX
-        ? { x: rect.x + sign * step, y: rect.y }
-        : { x: rect.x, y: rect.y + sign * step }
-      const hit = rooms.find((r) => containsPoint(r.rect, p.x, p.y))
-      if (hit) return hit.order
-    }
-    return null
+  // id 按种类带前缀（`wall-` / `desk-` / `chair-`）：观感层按前缀上色，
+  // 而 `StageGeometry` 的校验器只要「唯一且非空」。**别改成 `s0` / `s1`** ——
+  // 那样墙和课桌在画面上一个色，而「哪条是墙」是玩家唯一能读到的地形。
+  const counters: Record<string, number> = {}
+  const solids: SolidRect[] = []
+  for (const c of col.solids) {
+    const n = (counters[c.kind] = (counters[c.kind] ?? 0) + 1)
+    const solid = toSolid(c.rect, `${c.kind}-${n}`, world)
+    if (solid !== null) solids.push(solid)
   }
-  const out: number[] = []
-  for (const sign of [1, -1]) {
-    const hit = probe(alongX, sign)
-    if (hit !== null && !out.includes(hit)) out.push(hit)
+  if (!solids.length) throw new Error('整层一块碰撞体都没有 —— 生成器或裁剪出了问题')
+  const ids = new Set(solids.map((s) => s.id))
+  if (ids.size !== solids.length) throw new Error('碰撞体标识重复')
+
+  // ---- 门：按 `ownerOrder` 归到各间房。门**不进 solids**（见文件头）。
+  //
+  // ⚠️ **`DoorBarrier.rect` 的 `x` / `y` 是中心点**（`colliders.ts` 的约定），
+  //    而 `StageBarrier` 是**左上角**（与 `SolidRect` 一起进 `StageColliders`，
+  //    两者差半个身位、而**两种都画得出来**）。转换就在这一行做完，
+  //    别处一律按左上角读 —— 门洞正好是「墙厚 × 门宽」，所以左上角 = 中心 − 半宽。
+  const doors: DoorBrief[] = col.barriers.map((b) => ({
+    ownerOrder: b.ownerOrder,
+    toId: b.toId,
+    axis: b.axis,
+    x: b.rect.x - b.rect.width / 2,
+    y: b.rect.y - b.rect.height / 2,
+    width: b.rect.width,
+    height: b.rect.height,
+  }))
+
+  // ---- 出生点：楼梯间门外那条走廊上。
+  const stairRoom = map.rooms.find((r) => r.kind === 'start')
+  if (!stairRoom) throw new Error("这一层没有楼梯间（kind === 'start'）—— 出生点无从而来")
+  if (!stairRoom.doors.length)
+    throw new Error(`楼梯间 ${stairRoom.id} 一扇门都没有 —— 出生点算不出来（门外得先有走廊）`)
+  const spawn = corridorPointAt(stairRoom.doors[0]!, map, roomsCfg.navCellSize)
+  // 直接给整间房的矩形，不是它的中心：上下两个入口摆在哪儿要按这一间的大小算
+  // （`Stairwell.stairPadSpots()`）。中心仍然读 `rect.x` / `rect.y`（`Rect` 的约定）。
+  const stairwell = stairRoom.rect
+
+  // ---- 每间房交出去的那一份。★ 没有再「换算到竞技场坐标」这一步了：世界坐标就是地图坐标。
+  const rooms: DungeonRoom[] = map.rooms.map((room) => ({
+    order: room.order,
+    room,
+    needsFight: roomNeedsFight(room, roomsCfg),
+    spawnPoints: [...room.spawnPoints].sort(
+      (a, b) =>
+        (a.x - room.rect.x) ** 2 +
+        (a.y - room.rect.y) ** 2 -
+        ((b.x - room.rect.x) ** 2 + (b.y - room.rect.y) ** 2),
+    ),
+    doors: doors.filter((d) => d.ownerOrder === room.order),
+  }))
+
+  const layout: StageLayout & { furniture: [] } = {
+    stage: FLOOR_STAGE,
+    playerSpawn: spawn,
+    solids,
+    // 门**不进 `solids`**（见文件头）：它们会进寻路网格，把整层切成孤岛。
+    barriers: doors.map((d) => ({
+      ownerOrder: d.ownerOrder,
+      toId: d.toId,
+      x: d.x,
+      y: d.y,
+      width: d.width,
+      height: d.height,
+    })),
+    // 家具是 D1 手绘图里那套「一坨能缩放的部件」；D2 的几何本来就是事实，
+    // 没有需要缩放的东西 —— 空数组是 D1 校验器明确接受的形状。
+    furniture: [],
   }
-  return out
-}
 
-/** 0.01px 的零头是浮点噪声，留着只会让读数上下跳。 */
-function round2(n: number): number {
-  return Math.round(n * 100) / 100
-}
-
-/**
- * 一间房的取景框：房间 + 一整条墙 + **隔壁**。
- *
- * 外扩量 = `wallThickness + navCellSize/2 + roomGap`：
- *
- * | 这一段 | 为什么 |
- * |---|---|
- * | `wallThickness` | 让**墙整条**落在框里。切掉半条的话那一侧的碰撞体会被裁短，墙看起来「薄了一半」 |
- * | `navCellSize/2` | 半格门外 —— 门与门框之间那一丁点 |
- * | **`roomGap`** | **让隔壁的墙和一小条地板走进框里。** 这就是「房间拼接」那层观感：站在门口看得见下一间的地一直铺过去、并带着它自己的边框 |
- *
- * ⚠️ 这个量**不是随手加的**，它还兼任「比例尺」：`fitMapFrame()` **会放大**
- * （没有 1.0 上限），外扩只有 60 时比例是 **2.08×** —— 房间被放大一倍、
- * 玩家相对只有一半大，而且隔壁全在框外。加上 `roomGap` 之后比例回到 **≈1.04**，
- * 也就是 D2 测试场那个 1:1 的口径。
- */
-function boxOf(room: Room, cfg: RoomsConfig): Rect {
-  const margin = cfg.wallThickness + cfg.navCellSize / 2
-  return rectFromCorners(
-    left(room.rect) - margin,
-    top(room.rect) - margin,
-    right(room.rect) + margin,
-    bottom(room.rect) + margin,
-  )
-}
-
-/**
- * 地图一块 → 盒子一块（左上角原点）。`null` = 这一块整个在盒子外。
- *
- * `dx` / `dy` 是**这一间的平移量**：把它的取景框挪到公共盒子正中，
- * 于是宽窄不同的房间都居中、缩放也只有一个。算错了**不报错** ——
- * 房间会偏一边，而偏一边看起来像「生成器把房间摆歪了」。
- */
-function toBoxRect(r: Rect, dx: number, dy: number, id: string): SolidRect | null {
-  const x = round2(left(r) + dx)
-  const y = round2(top(r) + dy)
-  const x1 = round2(right(r) + dx)
-  const y1 = round2(bottom(r) + dy)
-  if (x1 <= x || y1 <= y) return null
-  return { id, x, y, width: round2(x1 - x), height: round2(y1 - y) }
-}
-
-/**
- * 地图**一个点** → 盒子坐标。
- *
- * ⚠️ 点不能借 `toBoxRect()` 走 —— 那个吃的是**中心点约定**的 `Rect`，
- * `left(r)` 会先减掉半个宽；拿一个 `width: 1` 的假矩形去装一个点，
- * 结果正好偏 0.5px，两个轴一起偏就是 0.707px。
- */
-function toBoxPoint(p: Point, dx: number, dy: number): Point {
-  return { x: round2(p.x + dx), y: round2(p.y + dy) }
-}
-
-/** 离房间中心最近的刷怪点。**不是离取景框中心** —— 两个场子要读到同一个数。 */
-function nearestSpawn(room: Room): Point | null {
-  let best: Point | null = null
-  let bestDist = Infinity
-  for (const p of room.spawnPoints) {
-    const d = (p.x - room.rect.x) ** 2 + (p.y - room.rect.y) ** 2
-    if (d < bestDist) {
-      bestDist = d
-      best = p
-    }
+  return {
+    map,
+    rooms,
+    doors,
+    spawn,
+    stairwell,
+    stages: {
+      // 网格口径用 **D1 自己的那个**（`combat.json` 的 `terrain.navigationCellSize`）：
+      // 这份 `StageCollisionConfig` 是 D1 的东西、进的是它的 `TerrainMap`。
+      navigationCellSize: d1.terrain.navigationCellSize,
+      schemaVersion: 1,
+      // ⚠️ **必须等于竞技场**，否则 `fitMapFrame` 会开始缩放整层，见文件头。
+      sourceSize: { width: arena.width, height: arena.height },
+      stages: [layout],
+    },
   }
-  return best
 }
 
 /**
@@ -227,8 +405,11 @@ function nearestSpawn(room: Room): Point | null {
  *
  * - **同一个 `runSeed` → 同一组种子** —— 报出 `runSeed` 就能复现整局（每一层都是同一张图）；
  * - **相邻两层不会撞成同一张图** —— 直接拿 `runSeed + floor` 当种子的话，
- *   只要房间尺寸档位是「按种子取档」的，相邻两层会长得极像（差 1 的种子在
- *   低位上几乎一样）。这里是走一遍 `Rng`，第 n 个种子与第 n+1 个之间没有可预测的关系。
+ *   相邻两层会长得极像（差 1 的种子在低位上几乎一样）。这里是走一遍 `Rng`。
+ *
+ * ⚠️ 两层之间**只有内容不同**（关别 / 障碍物 / 刷怪点），几何是一模一样的
+ * —— `floor-plan.json` 画死了这一层楼。所以「换层」在画面上是「换了桌椅和怪」，
+ * 不是「换了一张地图」。
  *
  * ⚠️ **必须 `Rng`，不能 `Math.random()`** —— 那样 `runSeed` 就复现不出这一局了。
  */
@@ -238,142 +419,33 @@ export function floorSeeds(runSeed: number, floors: number): number[] {
 }
 
 /**
- * 生成一层楼并拆成 D1 的关卡表。**纯函数**（零 Phaser、零场景），node 下可直接单测。
+ * 把「一组 `Room.order`」翻成「一组 `Room.id`」—— **每帧现翻，不许缓存成字段**。
  *
- * @param seed 种子。同一个种子 + 同一份 `roomsCfg` → 完全相同的一层楼
- * @param roomsCfg 已校验的 `rooms.json`（`parseRoomsConfig` 过了才传进来）
- * @param d1 D1 的配置，只为拿 `terrain.navigationCellSize`
+ * ⚠️ **它是通用换算，不是「走过」专用的。** 名字原来是 `visitedRoomIds`，
+ * 而 `BattleScene` 里**同时**有「去过没有」（`visited`，喂小地图的「走过 N / 16 间」）
+ * 和「打完没有」（`cleared`，喂地上的房号和门色）两份，两份都走这个函数。
+ * 名字只提 `visited` 的时候，第二处调用看起来就像「把 visited 又翻了一遍」——
+ * 2026-10-21 用户报的「刚进普通关还没打怪就显示已清」正是那么来的（见 `StageBackground`）。
+ *
+ * ⚠️ **不许缓存。** 缓存的话就有两个真值来源，而序号那一份每帧都在变 ——
+ * 分岔的那天不会报错，只会有一间房在小地图上一直灰着或一直绿着。
+ * 整层 16 间，一次 `Set` 构造是常数级的小事。
+ *
+ * ⚠️ **认不出来的下标直接跳过，不抛**：换层的那一瞬间集合里可能还留着上一层的位置，
+ * 拿它去索引新层的房间会越界 —— 而越界在 JS 里读出来是 `undefined`，
+ * 拼进 `Set` 里就是一条永远匹配不上的垃圾 id，**不报错**。
  */
-export function buildDungeonStages(
-  seed: number,
-  roomsCfg: RoomsConfig,
-  d1: CombatConfig,
-): DungeonStages {
-  const map = generateDungeon(seed, roomsCfg)
-  const boxes = map.rooms.map((room) => boxOf(room, roomsCfg))
-  const box = {
-    width: Math.max(...boxes.map((b) => b.width)),
-    height: Math.max(...boxes.map((b) => b.height)),
+export function roomIdsOf(
+  orders: ReadonlySet<number>,
+  rooms: readonly DungeonRoom[],
+): ReadonlySet<string> {
+  const ids = new Set<string>()
+  for (const order of orders) {
+    // ⚠️ **下标就是 `order`** 这条前提由 `DungeonStages.test.ts` 钉着
+    // （生成器按平面图序推，两者相等）。破了的话这里是**静默错位一整间**。
+    const id = rooms[order]?.room.id
+    if (id !== undefined) ids.add(id)
   }
-  const col = collidersOf(map, roomsCfg)
-  // 房间几何 → 竞技场坐标要用的那把尺子。和 `StageGeometry.stageGeometry()` 同一套
-  // （`fitMapFrame`），所以刷怪点和墙、出生点在同一个坐标系里。
-  const frame = fitMapFrame(d1.arena.width, d1.arena.height, box.width, box.height)
-  const toArena = (p: Point, dx: number, dy: number) => ({
-    x: frame.x + (p.x + dx) * frame.scale,
-    y: frame.y + (p.y + dy) * frame.scale,
-  })
-  // 每个洞口**两侧都建一条**，通向哪一间由几何算 —— 于是每间房拿到的门是一份
-  // 从它自己看出去的完整列表，且天然对称。
-  const openings = col.barriers
-    .map((b) => ({ rect: b.rect, axis: b.axis, kind: b.kind, sides: sidesOfOpening(b.rect, map.rooms, roomsCfg) }))
-    .filter((o) => o.sides.length === 2)
-
-  const rooms: DungeonRoom[] = []
-  const stageList: (StageLayout & { furniture: [] })[] = []
-  map.rooms.forEach((room, i) => {
-    const own = boxes[i]!
-    // 取景框挪到公共盒子正中
-    const dx = (box.width - own.width) / 2 - left(own)
-    const dy = (box.height - own.height) / 2 - top(own)
-
-    // ⚠️ **必须用裁剪后的矩形，不能用原始的**。墙是「一整条」——房间四边各一条，
-    //    而取景框只比房间大 wallThickness + 半格。直接用 `c.rect`，那条墙会伸到
-    //    框外一截，于是 solids 里出现越界的矩形，D1 的校验器当场拒绝
-    //    （`stage-collisions: 碰撞范围越界或标识重复`）。
-    const inside = col.solids
-      .map((c) => clipRect(c.rect, own))
-      .filter((r): r is Rect => r !== null)
-    // 门洞也填成实体：不填，门开着的时候怪会顺着洞走出去，而玩家追不出去。
-    //
-    // 门按 **`ownerOrder`（开在哪一间的墙上）** 取，不按几何裁 —— 顺带就拿到了
-    // 「这扇通向第几间」（`toOrder`），观感层要用它把门外那一小块涂成下一间的颜色。
-    // 裁一遍就把结果和 `toOrder` 一起收下，**不裁两遍** —— 两遍就是第二份会漂的事实。
-    const doors: Rect[] = []
-    const doorTargets: (number | null)[] = []
-    const doorRects: Rect[] = []
-    // ⚠️ **通向连廊的洞口要封死**，不能只是「不当作门」。
-    //
-    //    这类洞的另一侧不是房间（是连廊），所以它在 `openings` 里被滤掉了 ——
-    //    但墙上那个洞**还在**。不封的话玩家能从那儿**走出房间**，
-    //    走到一片没有地板、没有边界的地方去（表现就是「侧室边界不全被包围」）。
-    //    这一版是「一间房一屏」，连廊不是一格，房间之间靠 F 过门；
-    //    所以连廊那一侧的口子就该当作**墙**。
-    const seals: Rect[] = []
-    for (const b of col.barriers) {
-      const sides = sidesOfOpening(b.rect, map.rooms, roomsCfg)
-      if (sides.length === 2) continue
-      if (!sides.includes(room.order)) continue
-      const r = clipRect(b.rect, own)
-      if (r !== null) seals.push(r)
-    }
-    for (const o of openings) {
-      if (!o.sides.includes(room.order)) continue
-      const r = clipRect(o.rect, own)
-      if (r === null) continue
-      doors.push(r)
-      doorTargets.push(o.sides.find((s) => s !== room.order) ?? null)
-      doorRects.push(o.rect)
-    }
-
-    // ⚠️ 门的 id 要**留得住**：观感层靠 id 前缀分辨「这块是门」，
-    //    全叫 `s1-0` 的话门和墙画成一个色，玩家打完一间找不到门出不去。
-    const solids = [
-      ...inside.map((r, n) => [r, `s${room.order + 1}-${n}`] as const),
-      ...doors.map((r, n) => [r, `door-${room.order + 1}-${n}`] as const),
-      // 封口用 `wall-` 前缀，观感层才会把它画成墙的颜色（见 `StageBackground` 的 colorFor）
-      ...seals.map((r, n) => [r, `wall-seal-${room.order + 1}-${n}`] as const),
-    ]
-      .map(([r, id]) => toBoxRect(r, dx, dy, id))
-      .filter((r): r is SolidRect => r !== null)
-
-    const spawnMap = nearestSpawn(room) ?? { x: room.rect.x, y: room.rect.y }
-    // 玩家占掉最近的那个刷怪点，其余的留给怪
-    const spawnPoints = room.spawnPoints
-      .map((p) => toArena(p, dx, dy))
-      .sort((a, b) => {
-        const da = (a.x - toArena(spawnMap, dx, dy).x) ** 2 + (a.y - toArena(spawnMap, dx, dy).y) ** 2
-        const db = (b.x - toArena(spawnMap, dx, dy).x) ** 2 + (b.y - toArena(spawnMap, dx, dy).y) ** 2
-        return da - db
-      })
-    rooms.push({
-      spawnPoints,
-      order: room.order,
-      room,
-      needsFight: roomNeedsFight(room, roomsCfg),
-      box: own,
-      rectInBox: {
-        x: round2(left(room.rect) + dx),
-        y: round2(top(room.rect) + dy),
-        width: room.rect.width,
-        height: room.rect.height,
-      },
-      doorTargets,
-      doorRects,
-    })
-    stageList.push({
-      stage: room.order + 1,
-      playerSpawn: toBoxPoint(spawnMap, dx, dy),
-      solids,
-      // 家具是 D1 手绘图里那套「一坨能缩放的部件」；D2 的几何本来就是事实，
-      // 没有需要缩放的东西 —— 空数组是 D1 校验器明确接受的形状。
-      furniture: [],
-    })
-  })
-
-  return {
-    map,
-    rooms,
-    barriers: col.barriers,
-    stages: {
-      // 网格口径用 **D1 自己的那个**（`combat.json` 的 `terrain.navigationCellSize`）：
-      // 这份 `StageCollisionConfig` 是 D1 的东西、进的是它的 `TerrainMap`。
-      // 换成 D2 的 `navCellSize`（40）等于「D1 的网格跟着地图的可变参数走」——
-      // D2 的墙按 40 对齐、D1 的网格是 32，差半格的地方会多出或少掉一排格子，**且不报错**。
-      navigationCellSize: d1.terrain.navigationCellSize,
-      schemaVersion: 1,
-      sourceSize: { width: box.width, height: box.height },
-      stages: stageList,
-    },
-  }
+  return ids
 }
+

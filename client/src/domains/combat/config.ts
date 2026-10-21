@@ -177,8 +177,49 @@ export interface CombatConfig {
     spawnSpread: number
     camps: { x: number; y: number }[]
   }
+  /**
+   * 战斗相机的取景。
+   *
+   * ★ 新增（2026-10-21，整层连续）。**上一版不需要这几个数**：那时竞技场
+   * （`arena.width` × `arena.height`）就是屏幕，`fitCamera()` 把整张图塞进去、
+   * 相机不动，一个数都不用配。
+   *
+   * 整层连续之后整层有 **10520×2920**（`floor-plan.json` 实测），塞不进屏幕，
+   * 相机必须跟着玩家走 —— 于是"看得见多大一片"从一个**推到的事实**变成了
+   * **一个要定的数**。红线 2 说配置数值不许写在代码里，所以它在这儿。
+   *
+   * ⚠️ 这两个数**不是屏幕分辨率**，是「相机的窗口在世界里有多大」。
+   * `zoom = min(画布宽 / viewWidth, 画布高 / viewHeight)` —— 画布越大 zoom 越大，
+   * 于是**看得见的世界范围与分辨率无关**。想「在大屏上看得更远」，
+   * 改这两个数；想让大屏上东西更大，那是**另一个决定**，别顺手改 `zoom` 的算法。
+   */
+  camera: {
+    /** 相机窗口的世界宽度（px）。1344 = 旧竞技场的宽度，见上面那段 */
+    viewWidth: number
+    /** 相机窗口的世界高度（px）。832 = 旧竞技场的高度 */
+    viewHeight: number
+    /**
+     * 跟随的平滑系数（0—1）。`1` = 硬跟（相机钉在玩家身上，画面会随每一步抖），
+     * 越小越"拖"。**别调到 1**：玩家每帧的位移都变成画面的位移，
+     * 而射击时的后坐、受击抖动也一起传过去 —— 看着像掉帧。
+     */
+    followLerp: number
+  }
   arena: {
     seed: number
+    /**
+     * 竞技场的宽高（世界像素）—— **出生点、物理世界边界、寻路网格、相机的取景框
+     * 全都读它**。
+     *
+     * ⚠️ **整层连续之后这两个数是「生成结果」，不是「配置」**：`BattleScene` 在每层
+     * 生成完之后用 `DungeonStages.arenaOf()` 把整层的包围盒写回来（`applyArena()`），
+     * 覆盖 `combat.json` 里写的值。配置里写的这一对只是**生成之前**的占位读数。
+     *
+     * 为什么非写回不可：`DungeonStages` 交出的几何是**地图坐标、1:1**
+     * （`sourceSize` = 整层尺寸），而 `stageGeometry()` 的取景框是
+     * `fitMapFrame(arena.width, arena.height, sourceSize…)` —— 两个数不相等时
+     * 整层会被缩到七分之一并居中，且**什么都不报**（见 `DungeonStages` 文件头）。
+     */
     width: number
     height: number
     initialSplitters: number
@@ -186,10 +227,21 @@ export interface CombatConfig {
     /**
      * **每间房期望刷几只抓取怪**（可以是小数 = 概率）。
      *
-     * 与另外两个轴不同，它**允许为 0** —— 第 1 层就是要 0 只：先让玩家在别的房间
-     * 认识「!」和抓取，再让它真的来抓人。整条曲线见 `stagePlan()`。
+     * 与另外两个轴不同，它**允许为 0，而且今天真的会是 0** —— 最靠近楼梯间的那几间
+     * （强度倍数 1）算出来就是 0：先让玩家在近处认识「!」和抓取，再让它来抓人。
+     * 整条曲线见 `roomPlan()`。
      */
     initialGrabbers: number
+    /**
+     * ⚠️ **这个字段今天没有消费方**（2026-10-21 整层连续之后）。
+     *
+     * 它原来是**层与层之间的**强度斜率（`1 + (层号 - 1) × 0.3`），而整层连续之后
+     * 「这一间多难」由 D2 的威胁预算（到楼梯间的跳数）说，层号不再参与刷怪数量。
+     * 留着是因为它在 `combat.json` 里、删一个配置字段要走配置契约那一套；
+     * **但别照着它改难度** —— 改它不会有任何效果，而它看着像是会有的
+     * （那正是最难查的一种「配置改了没用」）。要调难度改 `rooms.json` 的
+     * `budgetBase` / `budgetGrowth`。
+     */
     stageGrowth: number
     phaseBaseMs: number
     phaseCountScale: number
@@ -260,6 +312,17 @@ export function parseCombatConfig(raw: unknown): CombatConfig {
       if (typeof v !== 'number' || !Number.isFinite(v) || v < 0)
         throw new Error(`${path}.${k}: 非法数值`)
   }
+  numeric(c.camera, 'camera')
+  if (
+    !(c.camera.viewWidth > 0) ||
+    !(c.camera.viewHeight > 0) ||
+    !(c.camera.followLerp > 0) ||
+    c.camera.followLerp > 1
+  )
+    // `>` 而不是 `>=`：`zoom` 是**除以**这两个数，给 0 会算出 `Infinity`
+    // 而 Phaser 会照单全收 —— 画面直接变成空白（不是报错），
+    // 于是「配置写错了」表现成「游戏打不开」。
+    throw new Error('camera: 取景窗口必须为正，跟随系数必须在 (0, 1] 内')
   numeric(c.audio, 'audio')
   if (
     ![c.audio.bgmVolume, c.audio.shotVolume].every((v) => Number.isFinite(v) && v >= 0 && v <= 1) ||
