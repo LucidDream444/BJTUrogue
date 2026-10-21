@@ -12,8 +12,9 @@ import { bottom, left, right, top } from '@/domains/procgen/model/rect'
  *
  * 那个函数**直接往场景里加对象、而且吃屏幕坐标** —— 战斗相机有缩放
  * （`fitCamera()` 算出来 ≈0.95），钉不到屏幕上，会跟着相机一起偏。
- * 而这个类画的是一张 Graphics，位置与缩放由 `layout()` 按相机反算，
- * 所以相机怎么动它都钉在原地。
+ * 而这个类画的是**一个 `scrollFactor = 0` 的容器**（整块在**相机空间**里），
+ * 位置与缩放由 `layout()` 反解，所以相机怎么动它都钉在原地 ——
+ * 为什么必须是 `scrollFactor` 而不是"每帧按 `worldView` 反算"，见 `layout()` 上面那段。
  *
  * **配色和关别名册仍然只此一份**：`COLORS` / `ROOM_KIND_LABELS` 都从
  * `domains/procgen/` 读，这里不抄。抄一份的表现是「同一个关别在两块画面上
@@ -198,7 +199,14 @@ export class Minimap {
     this.cfg = cfg
     this.floor = floor
     this.floors = floors
-    this.root = scene.add.container(0, 0).setDepth(4600)
+    // ⚠️ **`setScrollFactor(0)` 是「钉住」的前提，不是修饰。**
+    //    容器渲染时 Phaser 会把容器的 scrollFactor **乘进每一个子对象**
+    //    （`ContainerWebGLRenderer`：`child.setScrollFactor(childSfx * containerSfx, …)`），
+    //    所以这一句把整块面板（Graphics / 标题 / 标号 / 那个点）一起改成**相机空间**，
+    //    相机怎么滚都不参与 —— **构造上就不会抖**，而不是"抖得比较小"。
+    //    不设的话就得在 `layout()` 里按 `worldView` 反算世界坐标，而那会**晚一帧**：
+    //    见 `layout()` 里那段（走一步抖一下的实测）。
+    this.root = scene.add.container(0, 0).setScrollFactor(0).setDepth(4600)
     this.gfx = scene.add.graphics()
     this.title = scene.add.text(0, 0, '', {
       fontFamily: 'Microsoft YaHei, sans-serif',
@@ -455,21 +463,74 @@ export class Minimap {
   /**
    * 钉到屏幕右上角。**整块一起搬**（见 `root` 那段注释）。
    *
-   * ⚠️ 世界坐标 = **相机可视区左上角** + 屏幕坐标 / 缩放。就这么简单，别绕。
+   * ---
    *
-   * 早先这里写的是 `画布高 × 0.5 × (1 − 1/zoom) + sy/zoom`（从 `notice` 那条抄的），
-   * 那个式子**只在「相机中心正好落在画布正中」时才成立**。而这里相机取的是
+   * ## ★ 改了（2026-10-21）：不再按 `worldView` 反算世界坐标 —— 那会**晚一帧**，走一步抖一下
+   *
+   * 上一版摆的是世界坐标：`root.x = camera.worldView.x + 常数 / zoom`。看着等价，其实
+   * **每帧都差一个「本帧的相机位移」**：
+   *
+   * - `worldView` **只在 `Camera.preRender()` 里被写**（`cameras/2d/Camera.js`），
+   *   而那是**渲染阶段**的事 —— 连相机跟随的插值（`preRender` 里那几行 `Linear(sx, …)`）
+   *   都在那里跑；
+   * - 本方法却是在 `Scene.update()` 里调的（`layoutHud()` 那一行）。而
+   *   `CameraManager.update` 挂在 `UPDATE` 事件上，**先于** `sceneUpdate`。
+   *
+   * 于是面板按**上一帧**的相机位置摆好，渲染时相机已经往前走了 Δ —— 屏幕上看，
+   * 整块面板偏 Δ·zoom。Δ 就是角色这一帧走的距离：**走一步抖一下，
+   * 停下之后要等相机 lerp 收敛才不抖。**
+   *
+   * ## 实测（`minimap_shake.mjs`，真浏览器逐帧采样；它**同一次运行里把新旧两种摆法都量一遍**）
+   *
+   * 判据是**面板左上角落在画布上的像素位置** —— 照抄渲染真正用的那条算式
+   * （`GetCalcMatrix.js:55` 的 `−scrollX × scrollFactor`，再乘相机矩阵），
+   * 所以 `scrollFactor` 是 0 还是 1，同一个尺子都量得动。
+   *
+   * | | 面板屏幕位置 | 静止 | 走动（每帧挪 2px） | 停下之后 |
+   * |---|---|---|---|---|
+   * | **旧摆法**（`worldView`，sf=1） | 静止时 948.48（差 0.48px） | 0.00px | **1.73px** | **1.73px** |
+   * | **现在**（相机空间，sf=0） | 948.00 = 目标 | **0.00px** | **0.00px** | **0.00px** |
+   *
+   * 走动那一列的 1.73px = 探针每帧挪的 **2px 世界距离 × zoom 0.865** —— 就是「每帧少算一步」
+   * 换算到屏幕上的样子。⚠️ **别把它和 2.00px 当两个数**：上一版探针量的是**世界**坐标差
+   * `root.x − scrollX`（那会儿 sf=1，那个差正好代表屏幕位置），读出来是 2.00px；
+   * 这里换成屏幕像素，同一个位移就成了 1.73px。**是换了尺子，不是"修完从 2.00 变 1.73"。**
+   *
+   * 静止那格的 948.48 是另一回事：**`worldView` 被 `Math.floor(… + 0.5)` 取整过**
+   * （`Camera.js:584`），所以连"摆对了"的那一帧也只能准到 ±0.5 世界像素（≈0.43 屏幕像素）。
+   * **相机空间里没有这个取整**，正好是 948.00。
+   *
+   * ## 现在这么算：面板在**相机空间**（`scrollFactor = 0`）
+   *
+   * 屏幕位置 = `对象坐标 × zoom + 画布 × origin × (1 − zoom)`
+   * （那是 `TransformMatrix.applyITRS(x + originX, …)` 再 `translate(−originX, …)` 的结果：
+   * 相机矩阵把对象坐标按 zoom 缩放，「缩放中心在哪」由 `origin` 决定）。
+   * 反解出「想让面板左上角落在屏幕 `(宽 − inset − 面板宽, inset)`」的对象坐标：
+   *
+   * ```
+   * root.x = 画布宽 × originX × (1 − 1/zoom) + (宽 − inset − 面板宽) / zoom
+   * root.y = 画布高 × originY × (1 − 1/zoom) + inset / zoom
+   * ```
+   *
+   * **和另外三个 HUD 写成同一个形状**（`StatusHud.update()` / `LoadoutHud.update()` /
+   * `BattleScene.layoutHud()` 里的 `notice`）—— 同一个式子在仓库里长四个样子，
+   * 就是下次有人「顺手统一一下」时改错其中一个的开始。
+   * **式子里没有 scroll**：相机怎么滚都影响不到它，这才是"钉住"。
+   *
+   * ⚠️ 早先这里抄的是 `画布高 × 0.5 × (1 − 1/zoom) + sy/zoom` —— 形状一样，但 `origin` 被
+   * **写死成 0.5**，于是只在「相机中心正好落在画布正中」时才成立。而这里相机取的是
    * 竞技场中心（1344/2 = 672）对画布中心（1250/2 = 625），差 47px ——
    * 结果小地图的 y 算成 **−42**，整个面板画在可视区**之上**，
    * 看起来就是「根本没有小地图」，而且不报任何错。
+   * 写 `camera.originX/Y` 而不是 0.5，换画布尺寸、换 `fitCamera()` 的取景都不会再错。
    */
   layout(camera: Phaser.Cameras.Scene2D.Camera): void {
-    const wv = camera.worldView
+    const z = camera.zoom
     this.root
-      .setScale(1 / camera.zoom)
+      .setScale(1 / z)
       .setPosition(
-        wv.x + (camera.width - PANEL.inset - PANEL.width) / camera.zoom,
-        wv.y + PANEL.inset / camera.zoom,
+        camera.width * camera.originX * (1 - 1 / z) + (camera.width - PANEL.inset - PANEL.width) / z,
+        camera.height * camera.originY * (1 - 1 / z) + PANEL.inset / z,
       )
   }
 
