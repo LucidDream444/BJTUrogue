@@ -67,6 +67,7 @@ import {
   type PanelSink,
   type SettingsPanelParts,
 } from '../ui/panels'
+import { SaveStatusBanner } from '../ui/SaveStatusBanner'
 import { Slider } from '../ui/Slider'
 import { THEME, fontPx } from '../ui/theme'
 
@@ -113,6 +114,7 @@ export class MainMenuScene extends Phaser.Scene {
   private sliders: Slider[] = []
   private overlayButtons: Button[] = []
   private settingsParts: SettingsPanelParts | null = null
+  private saveBanner: SaveStatusBanner | null = null
   private noticeText: Phaser.GameObjects.Text | null = null
   private unlockedText: Phaser.GameObjects.Text | null = null
   private codexPanel: CodexPanel | null = null
@@ -361,11 +363,14 @@ export class MainMenuScene extends Phaser.Scene {
       this.add.container((W - dw * scale) / 2, (H - dh * scale) / 2, content).setScale(scale),
     )
     if (this.state.screen !== 'main') this.buildOverlay(W, H, this.state.screen)
+    this.saveBanner = new SaveStatusBanner(this, this.store, W / 2, 44, W)
 
     this.refresh()
   }
 
   private clearObjects(): void {
+    this.saveBanner?.destroy()
+    this.saveBanner = null
     for (const b of this.buttons.values()) b.destroy()
     for (const b of this.difficultyButtons.values()) b.destroy()
     for (const b of this.overlayButtons) b.destroy()
@@ -667,6 +672,7 @@ export class MainMenuScene extends Phaser.Scene {
 
     const mode = p.settings.displayMode
     if (this.settingsParts) applyDisplayModeSelection(this.settingsParts, mode)
+    this.saveBanner?.refresh()
 
     if (this.noticeText) {
       const name = characterById(p.selected.characterId)?.name ?? p.selected.characterId
