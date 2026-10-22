@@ -30,7 +30,9 @@ import type {
   GrabberDef,
   SplitterDef,
   TankDef,
+  SprayerDef,
 } from '@/core/config'
+import { deriveSprayer, type DifficultyModifiers, type BalanceConfig } from '@/core/config'
 
 export type EnemyState =
   /** 刚生成，生成宽限期内：会动但减速，且不打人 */
@@ -166,6 +168,29 @@ export function specFromTank(t: DerivedTank, def: TankDef): EnemySpec {
   }
 }
 
+export function specFromSprayer(
+  def: SprayerDef,
+  diff: DifficultyModifiers,
+  balance: BalanceConfig,
+): EnemySpec {
+  return {
+    kind: 'sprayer',
+    gen: 0,
+    stats: deriveSprayer(def, diff, balance),
+    pierceImmune: false,
+    graceMs: 0,
+    graceMoveMult: 1,
+    flinchMs: 0,
+    slowPerHit: 0,
+    slowMaxStacks: 0,
+    slowDurationMs: 0,
+    slowMultPerStack: 1,
+    minSpeedMult: 1,
+    vulnerableMult: 1,
+    windupMoveMult: 0,
+  }
+}
+
 export class EnemyModel extends ActorModel<EnemyState> {
   readonly enemyKind: EnemyKind
   /** 从 spec 灌入：子弹不穿过我。见 `EnemySpec.pierceImmune` */
@@ -199,6 +224,8 @@ export class EnemyModel extends ActorModel<EnemyState> {
   flinchUntilMs = 0
   /** 肉盾下砸的冷却结束时刻 */
   slamReadyAtMs = 0
+  sprayX = 0
+  sprayY = 0
   /** 踉跄的结束时刻 */
   staggerUntilMs = 0
   /**
@@ -267,6 +294,7 @@ export class EnemyModel extends ActorModel<EnemyState> {
     this.graceUntilMs = spec.graceMs > 0 ? nowMs + spec.graceMs : 0
     this.flinchUntilMs = 0
     this.slamReadyAtMs = nowMs
+    this.sprayX = this.sprayY = 0
     this.staggerUntilMs = 0
     this.staggerReadyAtMs = 0
     this.stuckSinceMs = 0

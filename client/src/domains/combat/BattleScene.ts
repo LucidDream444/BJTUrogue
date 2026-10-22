@@ -1112,6 +1112,11 @@ export class BattleScene extends Phaser.Scene {
       const s = at(k)
       this.session.enemies.spawn('grabber', 0, s.x + offset(k), s.y + offset(k))
     }
+    for (let i = 0; i < p.sprayers; i++) {
+      const k = p.splitters + p.tanks + p.grabbers + i
+      const s = at(k)
+      this.session.enemies.spawn('sprayer', 0, s.x + offset(k), s.y + offset(k))
+    }
     for (let i = 0; i < p.tanks; i++) {
       const s = at(p.splitters + i)
       this.session.enemies.spawn(

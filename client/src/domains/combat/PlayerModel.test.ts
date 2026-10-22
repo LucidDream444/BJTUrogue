@@ -21,6 +21,35 @@ function setup() {
 }
 
 describe('player shield resource', () => {
+  it('催化液移动代价只扣生命，不吃护盾、不触发硬直或受击无敌，且同帧去重', () => {
+    const { player, clock } = setup()
+    let hurt = 0
+    player.onHurt = () => hurt++
+    player.protectedUntilMs = 10000
+    player.takeLiquidDrain(3, 9, clock.frameId, clock.nowMs)
+    player.takeLiquidDrain(3, 9, clock.frameId, clock.nowMs)
+    expect(player.hp).toBe(197)
+    expect(player.shield).toBe(100)
+    expect(player.protectedUntilMs).toBe(10000)
+    expect(hurt).toBe(0)
+  })
+  it('催化液代价尊重暂停/顿帧，致死时只发布一次死亡', () => {
+    const { player, clock } = setup()
+    let deaths = 0
+    player.sink = { onDamaged: () => {}, onKilled: () => deaths++ }
+    clock.pause()
+    player.takeLiquidDrain(999, 9, 1, 0)
+    expect(player.hp).toBe(200)
+    clock.resume()
+    clock.freeze(100)
+    player.takeLiquidDrain(999, 9, 2, 0)
+    expect(player.hp).toBe(200)
+    clock.advance(200)
+    player.takeLiquidDrain(999, 9, 3, clock.nowMs)
+    player.takeLiquidDrain(999, 9, 4, clock.nowMs)
+    expect(player.alive).toBe(false)
+    expect(deaths).toBe(1)
+  })
   it('signals a hit even when the shield absorbs it, and does not signal invulnerable hits', () => {
     const { player, clock, hit } = setup()
     const feedback: Array<[number, number]> = []

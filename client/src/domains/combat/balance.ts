@@ -40,6 +40,7 @@ export function roomPlan(
     //    先让玩家在近处认识「!」和抓取，再让它真的来抓人。
     //    给它套上 `max(1, ...)` 会让第一间房就出现它，那正是这一档要避免的。
     grabbers: Math.max(0, Math.round(a.initialGrabbers * growth * d.enemyCount)),
+    sprayers: Math.max(0, Math.round(a.initialSprayers * growth * d.enemyCount)),
     phaseDelayMs: a.phaseBaseMs / d.enemySpeed,
     secondPhaseFraction: a.phaseCountScale,
   }

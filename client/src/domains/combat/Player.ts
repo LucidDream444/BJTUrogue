@@ -3,6 +3,7 @@ import { D1_ART, D1_ANIMS } from '@/core/d1AssetManifest'
 import { textureKeyFor } from '@/core/assets'
 import type { GameClock } from '@/core/time'
 import type { TypedBus } from '@/core/events'
+import type { Unsubscribe } from '@/core/events'
 import type { CombatEvents } from './events'
 import type { CombatConfig, WeaponDef } from './config'
 import { PlayerModel, moveVelocity, staminaAfterRegen } from './PlayerModel'
@@ -44,6 +45,7 @@ export function displayArt(
   sprite.setOrigin(flip ? 1 - anchor[0] : anchor[0], anchor[1])
 }
 export class Player {
+  private readonly liquidUnsubs: Unsubscribe[] = []
   readonly model: PlayerModel
   readonly body: Phaser.Physics.Arcade.Body
   readonly sprite: Phaser.GameObjects.Sprite
@@ -91,6 +93,15 @@ export class Player {
       })
     }
     this.model.iframeMs = balance.baseline.player.iframeMs
+    this.liquidUnsubs.push(
+      bus.on('player_liquid_changed', (e) => {
+        if (e.playerId === this.model.id) this.model.liquidSpeedMultiplier = e.speedMultiplier
+      }),
+      bus.on('player_liquid_drain', (e) => {
+        if (e.playerId === this.model.id)
+          this.model.takeLiquidDrain(e.amount, e.sourceId, e.frameId, e.nowMs)
+      }),
+    )
     this.model.protectedUntilMs = clock.nowMs + cfg.player.spawnGraceMs
     const radius = this.model.stats.radius
     this.anchor = scene.add.zone(x, y, radius * 2, radius * 2)
@@ -185,7 +196,7 @@ export class Player {
       this.body.velocity.y,
       dx,
       dy,
-      this.model.stats.speed,
+      this.model.stats.speed * this.model.liquidSpeedMultiplier,
       this.cfg.player.acceleration,
       this.cfg.player.deceleration,
       dtMs / 1000,
@@ -375,6 +386,7 @@ export class Player {
       this.cfg.player.visualScale * GOOSE_ART.visualScale, { x: this.aimX, y: this.aimY })
   }
   destroy(): void {
+    for (const off of this.liquidUnsubs) off()
     this.model.sink = null
     this.model.onHurt = null
     this.goose?.destroy()

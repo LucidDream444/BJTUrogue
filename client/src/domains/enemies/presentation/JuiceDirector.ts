@@ -61,7 +61,7 @@ import { GrabAlertFx } from './GrabAlertFx'
 import { PaperDeathFx } from './PaperDeathFx'
 import { EmpBlastFx } from './EmpBlastFx'
 import { GrabImpactFx } from './GrabImpactFx'
-import { ASSETS, ANIMS, GRABBER_ART, TANK_ART } from '@/core/assetManifest'
+import { ASSETS, ANIMS, GRABBER_ART, TANK_ART, SPRAYER_ART } from '@/core/assetManifest'
 import { textureKeyFor } from '@/core/assets'
 
 /** 受击冲击淡出用多久。**小于肉盾的 `damageEventBatchMs` 才不会糊成一片常亮** */
@@ -507,6 +507,14 @@ export class JuiceDirector {
           index =
             (Math.floor((this.clock.nowMs * anim.frameRate) / 1000) + model.id) % anim.frames.length
         }
+      } else if (model.enemyKind === 'sprayer') {
+        key = SPRAYER_ART.texture
+        directFrame =
+          model.state === 'windup'
+            ? SPRAYER_ART.windupFrame
+            : model.state === 'recover'
+              ? SPRAYER_ART.sprayFrame
+              : Math.floor((this.clock.nowMs * 6) / 1000) % 4
       } else if (model.enemyKind === 'grabber') {
         key = GRABBER_ART.texture
         const hit = this.visuals.get(model.id)

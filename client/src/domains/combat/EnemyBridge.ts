@@ -199,6 +199,9 @@ export class EnemyBridge implements BulletContactPort {
   simulateClear(): void {
     this.system.killAll()
   }
+  clearLiquid(): void {
+    this.system.clearLiquid()
+  }
   get remaining(): number {
     return this.system.pool.live + this.system.spawns.length
   }

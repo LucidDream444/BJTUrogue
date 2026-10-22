@@ -256,6 +256,7 @@ export class CombatSession {
    * 那些东西的坐标属于旧那一层，带下去只会散在新房间的地板上。
    */
   loadFloor(stageConfig: StageCollisionConfig): void {
+    this.enemies.clearLiquid()
     this.stageConfig = stageConfig
     this.enterStage(1)
   }
