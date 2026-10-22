@@ -129,11 +129,11 @@ export function buildUpgradePanel(
     nextCost === null ? '已满级' : `升级  ${nextCost} 币`,
     () => {
       let result = { ok: false, notice: '' }
-      store.update((draft) => {
+      const saved = store.update((draft) => {
         const bought = buySkillUpgrade(draft, meta, characterId)
         result = { ok: bought.ok, notice: bought.notice }
       })
-      onChanged(result.notice)
+      onChanged(result.ok && !saved ? `${result.notice}（但未保存到本机）` : result.notice)
     },
     { width: 130, height: 36, fontSize: THEME.font.small },
   )
@@ -176,10 +176,16 @@ export function buildUpgradePanel(
         '解锁',
         () => {
           let ok = false
-          store.update((draft) => {
+          const saved = store.update((draft) => {
             ok = unlock(draft, meta, candidate.id).ok
           })
-          onChanged(ok ? `已解锁：${candidate.name}` : `没解锁成：需要 ${cost} 币`)
+          onChanged(
+            ok
+              ? saved
+                ? `已解锁：${candidate.name}`
+                : `已解锁：${candidate.name}（但未保存到本机）`
+              : `没解锁成：需要 ${cost} 币`,
+          )
         },
         { width: 90, height: 30, fontSize: THEME.font.small },
       )

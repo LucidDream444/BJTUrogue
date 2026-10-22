@@ -43,6 +43,18 @@ class ThrowingStorage implements ProfileStorage {
   remove(_key: string): void {}
 }
 
+class FlakyStorage extends MemoryProfileStorage {
+  failWrites = 0
+
+  override write(key: string, value: string): void {
+    if (this.failWrites > 0) {
+      this.failWrites -= 1
+      throw new Error('这次没写进去')
+    }
+    super.write(key, value)
+  }
+}
+
 function storeWith(storage: ProfileStorage): ProfileStore {
   return new ProfileStore({ storage })
 }
@@ -59,6 +71,7 @@ describe('默认档', () => {
 
   it('默认值就是需求 §4.5 / §4.1 上写的那些', () => {
     const p = createDefaultProfile()
+    expect(p.revision).toBe(0)
     expect(p.settings.bgmVolume).toBe(0.6)
     expect(p.settings.sfxVolume).toBe(0.8)
     // 「窗口」不是草图上的「全屏」：浏览器不允许无手势进全屏，
@@ -150,6 +163,7 @@ describe('落盘', () => {
     const raw = storage.read(PROFILE_STORAGE_KEY)
     expect(raw).not.toBeNull()
     expect(JSON.parse(raw!).schemaVersion).toBe(PROFILE_SCHEMA_VERSION)
+    expect(JSON.parse(raw!).revision).toBe(1)
   })
 
   it('写不进去（配额满）→ 返回 false，但内存档已经改了，这一局照常玩', () => {
@@ -160,6 +174,7 @@ describe('落盘', () => {
 
     expect(store.update((d) => void (d.currency.coins = 50))).toBe(false)
     expect(store.profile.currency.coins).toBe(50)
+    expect(store.profile.revision).toBe(1)
     expect(store.lastError).toContain('配额满了')
     quiet.mockRestore()
   })
@@ -190,8 +205,12 @@ describe('落盘', () => {
     store.update((d) => void (d.currency.coins = 300))
 
     expect(store.reset()).toBe(true)
-    expect(store.profile).toEqual(createDefaultProfile())
-    expect(JSON.parse(storage.read(PROFILE_STORAGE_KEY)!)).toEqual(createDefaultProfile())
+    expect({ ...store.profile, revision: 0 }).toEqual(createDefaultProfile())
+    expect(store.profile.revision).toBe(2)
+    expect({
+      ...JSON.parse(storage.read(PROFILE_STORAGE_KEY)!),
+      revision: 0,
+    }).toEqual(createDefaultProfile())
   })
 })
 
@@ -235,7 +254,7 @@ describe('迁移链', () => {
     if (!result.ok) expect(result.reason).toContain('超限')
   })
 
-  it('真实 v1 → v3 迁移旧成长退款并清空旧技能', () => {
+  it('真实 v1 → v4 迁移旧成长退款、清空旧技能并建立同步版本号', () => {
     const real = migrateProfile({
       schemaVersion: 1,
       upgrades: {
@@ -246,7 +265,7 @@ describe('迁移链', () => {
       unlocks: { characters: ['student', 'leader'], skills: ['rapid_fire'] },
       selected: { characterId: 'leader', difficulty: 'normal' },
     })
-    expect(real.outcome).toEqual({ status: 'migrated', from: 1, to: 3 })
+    expect(real.outcome).toEqual({ status: 'migrated', from: 1, to: 4 })
     expect(real.profile.upgrades['student:armor']).toBeUndefined()
     expect(real.profile.upgrades['student:magic']).toBeUndefined()
     expect(real.profile.upgrades).toEqual({})
@@ -254,6 +273,71 @@ describe('迁移链', () => {
     expect(real.profile.unlocks.characters).toEqual(['student'])
     expect(real.profile.unlocks.skills).toEqual([])
     expect(real.profile.selected.characterId).toBe('student')
+    expect(real.profile.revision).toBe(0)
+  })
+})
+
+describe('云同步准备', () => {
+  it('每次成功修改只增加一次 revision，并由存储原样带回', () => {
+    const storage = new MemoryProfileStorage()
+    const store = storeWith(storage)
+    store.load()
+
+    store.update((d) => {
+      d.currency.coins = 10
+      d.revision = 999
+    })
+    store.update((d) => void (d.stats.runs = 1))
+    expect(store.profile.revision).toBe(2)
+
+    const reopened = storeWith(storage)
+    reopened.load()
+    expect(reopened.profile.revision).toBe(2)
+  })
+
+  it('写盘失败不发布写了一半的档，但 revision 仍前进；重试保存会写出最新版本', () => {
+    const quiet = vi.spyOn(console, 'warn').mockImplementation(() => {})
+    const storage = new FlakyStorage()
+    const store = storeWith(storage)
+    store.load()
+    storage.failWrites = 1
+
+    expect(store.update((d) => void (d.currency.coins = 50))).toBe(false)
+    expect(store.profile.revision).toBe(1)
+    expect(store.lastError).toContain('这次没写进去')
+
+    expect(store.save()).toBe(true)
+    expect(store.lastError).toBeNull()
+    expect(JSON.parse(storage.read(PROFILE_STORAGE_KEY)!).revision).toBe(1)
+    expect(JSON.parse(storage.read(PROFILE_STORAGE_KEY)!).currency.coins).toBe(50)
+    quiet.mockRestore()
+  })
+
+  it('snapshot 是给云同步读取的深拷贝，外部修改不会污染运行中的内存档', () => {
+    const store = storeWith(new MemoryProfileStorage())
+    store.load()
+
+    const snapshot = store.snapshot()
+    snapshot.currency.coins = 999
+    snapshot.unlocks.characters.push('外部乱改')
+
+    expect(store.profile.currency.coins).toBe(0)
+    expect(store.profile.unlocks.characters).not.toContain('外部乱改')
+  })
+
+  it('手动重试会发出成功/失败事件，界面可据此刷新而不轮询', () => {
+    const quiet = vi.spyOn(console, 'warn').mockImplementation(() => {})
+    const storage = new FlakyStorage()
+    const store = storeWith(storage)
+    store.load()
+    const seen: string[] = []
+    store.subscribe((_p, event) => seen.push(event))
+    storage.failWrites = 1
+
+    expect(store.save()).toBe(false)
+    expect(store.save()).toBe(true)
+    expect(seen).toEqual(['save-failed', 'saved'])
+    quiet.mockRestore()
   })
 })
 
@@ -326,5 +410,22 @@ describe('订阅', () => {
     expect(seen).toEqual([7])
     expect(quiet).toHaveBeenCalled()
     quiet.mockRestore()
+  })
+})
+
+describe('显示模式', () => {
+  it('只跟随浏览器实际状态写盘，重复同步不改 revision', () => {
+    const store = storeWith(new MemoryProfileStorage())
+    store.load()
+
+    expect(store.syncDisplayMode(false)).toBe(true)
+    expect(store.profile.revision).toBe(0)
+
+    expect(store.syncDisplayMode(true)).toBe(true)
+    expect(store.profile.settings.displayMode).toBe('fullscreen')
+    expect(store.profile.revision).toBe(1)
+
+    expect(store.syncDisplayMode(true)).toBe(true)
+    expect(store.profile.revision).toBe(1)
   })
 })

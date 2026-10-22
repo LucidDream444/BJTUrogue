@@ -67,6 +67,7 @@ import {
   type PanelSink,
   type SettingsPanelParts,
 } from '../ui/panels'
+import { SaveStatusBanner } from '../ui/SaveStatusBanner'
 import { Slider } from '../ui/Slider'
 import { THEME, fontPx } from '../ui/theme'
 
@@ -113,6 +114,7 @@ export class MainMenuScene extends Phaser.Scene {
   private sliders: Slider[] = []
   private overlayButtons: Button[] = []
   private settingsParts: SettingsPanelParts | null = null
+  private saveBanner: SaveStatusBanner | null = null
   private noticeText: Phaser.GameObjects.Text | null = null
   private unlockedText: Phaser.GameObjects.Text | null = null
   private codexPanel: CodexPanel | null = null
@@ -128,7 +130,7 @@ export class MainMenuScene extends Phaser.Scene {
   } as const
   /** 每屏的面板高度。写在一起，改一处就够 —— 分开写在两个地方必然漂。 */
   private static readonly OVERLAY_HEIGHTS = {
-    help: 320,
+    help: 440,
     settings: 360,
     // 内容有四段（金币 / 三条角色成长线 / 技能 / 可解锁三项）+ 底部一行说明，
     // 470 会让最后一条解锁行溢出面板底 —— 实测过，所以留足余量。
@@ -257,6 +259,29 @@ export class MainMenuScene extends Phaser.Scene {
     this.scale.on(Phaser.Scale.Events.RESIZE, onResize)
     this.disposers.push(() => this.scale.off(Phaser.Scale.Events.RESIZE, onResize))
 
+    // 显示模式以浏览器实际状态为准。进入 / 退出全屏、以及玩家按 Esc 退出，
+    // Phaser 都会发事件；在这些事件之后写档，才能避免“按钮显示全屏、
+    // 实际却已经回到窗口”的假状态。
+    const syncDisplayMode = (): void => {
+      this.store.syncDisplayMode(this.scale.isFullscreen)
+      this.refresh()
+    }
+    const fullscreenFailed = (): void => {
+      this.state = withNotice(this.state, '全屏切换失败，浏览器未进入全屏')
+      this.refresh()
+    }
+    this.scale.on(Phaser.Scale.Events.ENTER_FULLSCREEN, syncDisplayMode)
+    this.scale.on(Phaser.Scale.Events.LEAVE_FULLSCREEN, syncDisplayMode)
+    this.scale.on(Phaser.Scale.Events.FULLSCREEN_FAILED, fullscreenFailed)
+    this.scale.on(Phaser.Scale.Events.FULLSCREEN_UNSUPPORTED, fullscreenFailed)
+    this.disposers.push(() => {
+      this.scale.off(Phaser.Scale.Events.ENTER_FULLSCREEN, syncDisplayMode)
+      this.scale.off(Phaser.Scale.Events.LEAVE_FULLSCREEN, syncDisplayMode)
+      this.scale.off(Phaser.Scale.Events.FULLSCREEN_FAILED, fullscreenFailed)
+      this.scale.off(Phaser.Scale.Events.FULLSCREEN_UNSUPPORTED, fullscreenFailed)
+    })
+    syncDisplayMode()
+
     // 档变了就刷新外观（设置弹层的滑杆改了音量、别处改了选择）。
     // **这条只调 refresh()，不调 rebuild()** —— 理由见文件头。
     this.disposers.push(this.store.subscribe(() => this.refresh()))
@@ -361,11 +386,14 @@ export class MainMenuScene extends Phaser.Scene {
       this.add.container((W - dw * scale) / 2, (H - dh * scale) / 2, content).setScale(scale),
     )
     if (this.state.screen !== 'main') this.buildOverlay(W, H, this.state.screen)
+    this.saveBanner = new SaveStatusBanner(this, this.store, W / 2, 44, W)
 
     this.refresh()
   }
 
   private clearObjects(): void {
+    this.saveBanner?.destroy()
+    this.saveBanner = null
     for (const b of this.buttons.values()) b.destroy()
     for (const b of this.difficultyButtons.values()) b.destroy()
     for (const b of this.overlayButtons) b.destroy()
@@ -511,7 +539,7 @@ export class MainMenuScene extends Phaser.Scene {
       H - 34,
       compact
         ? '方向键选择  /  Enter 确认'
-        : 'WASD 移动    鼠标瞄准    Q 技能    1/2 换武器    E 交互',
+        : 'WASD 移动    鼠标瞄准    Space 技能    1/2 换武器    E 交互',
       11,
       '#8fa18c',
     )
@@ -627,7 +655,6 @@ export class MainMenuScene extends Phaser.Scene {
         `全屏切换失败：${err instanceof Error ? err.message : err}`,
       )
     }
-    this.store.setSettings({ displayMode: mode })
     this.refresh()
   }
 
@@ -667,6 +694,7 @@ export class MainMenuScene extends Phaser.Scene {
 
     const mode = p.settings.displayMode
     if (this.settingsParts) applyDisplayModeSelection(this.settingsParts, mode)
+    this.saveBanner?.refresh()
 
     if (this.noticeText) {
       const name = characterById(p.selected.characterId)?.name ?? p.selected.characterId

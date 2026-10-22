@@ -32,7 +32,7 @@
 import type { Difficulty } from '@/core/config'
 
 /** 当前 schema 版本。**改字段语义时加一**，并在 `migrate.ts` 里补一步迁移。 */
-export const PROFILE_SCHEMA_VERSION = 3
+export const PROFILE_SCHEMA_VERSION = 4
 
 /** 存储 key。**只有一个，且版本不在 key 里**（理由见文件头）。 */
 export const PROFILE_STORAGE_KEY = 'bjtu-rogue:profile'
@@ -99,6 +99,15 @@ export interface ProfileSelection {
 
 export interface ProfileData {
   schemaVersion: number
+  /**
+   * 本地档的单调递增版本号。
+   *
+   * 云存档接入后用它判断“这一份是否比服务器上的新”、去重重复上传，
+   * 以及避免旧请求晚到后覆盖新档。它只描述**这份档被修改过几次**，
+   * 不参与玩法数值；写盘失败时也会增加，因为内存里的玩家进度确实已经变了，
+   * 后续“重试保存”写出去的必须是这个新 revision。
+   */
+  revision: number
   settings: ProfileSettings
   unlocks: ProfileUnlocks
   currency: ProfileCurrency

@@ -44,6 +44,7 @@ export type MigrationRegistry = Readonly<Record<number, MigrationStep>>
 export const MIGRATIONS: MigrationRegistry = {
   1: migrateV1ToV2,
   2: migrateV2ToV3,
+  3: migrateV3ToV4,
 }
 
 /**
@@ -158,6 +159,7 @@ export function normalizeProfile(raw: unknown): ProfileData {
 
   return {
     schemaVersion: PROFILE_SCHEMA_VERSION,
+    revision: boundedInt(root.revision, fallback.revision, 0, MAX_COUNTER),
     settings: {
       bgmVolume: unit(settings.bgmVolume, fallback.settings.bgmVolume),
       sfxVolume: unit(settings.sfxVolume, fallback.settings.sfxVolume),
@@ -267,6 +269,16 @@ function migrateV2ToV3(data: Record<string, unknown>): Record<string, unknown> {
     upgrades: {},
     unlocks: { ...unlocks, skills: [] },
   }
+}
+
+/**
+ * v4 为云存档增加本地 revision。
+ *
+ * 旧档从未参与过同步，所以从 0 开始是准确的：下一次修改会得到 revision 1。
+ * 不能拿旧档里的统计数当 revision，那会把两种完全不同的计数语义混在一起。
+ */
+function migrateV3ToV4(data: Record<string, unknown>): Record<string, unknown> {
+  return { ...data, schemaVersion: 4, revision: 0 }
 }
 
 const LEGACY_TRACK_COSTS: Readonly<
