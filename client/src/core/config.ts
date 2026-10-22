@@ -366,11 +366,12 @@ export interface SprayerDef {
   coating: {
     speedMultiplier: number
     cleanseStillMs: number
+    cleanseMovingMs: number
     stillSpeedThreshold: number
     drainIntervalMs: number
     drainDamage: number
-    ramDamage: number
-    ramCooldownMs: number
+    contactDamagePerTick: number
+    contactTickMs: number
   }
   fx: { color: number; edgeColor: number; warningColor: number; bubbleCount: number }
 }
@@ -1262,11 +1263,12 @@ function validateSprayer(raw: unknown): SprayerDef {
         min: 1.01,
       }),
       cleanseStillMs: positive(coating, 'cleanseStillMs', 'coating.'),
+      cleanseMovingMs: positive(coating, 'cleanseMovingMs', 'coating.'),
       stillSpeedThreshold: positive(coating, 'stillSpeedThreshold', 'coating.'),
       drainIntervalMs: positive(coating, 'drainIntervalMs', 'coating.'),
       drainDamage: positive(coating, 'drainDamage', 'coating.'),
-      ramDamage: positive(coating, 'ramDamage', 'coating.'),
-      ramCooldownMs: positive(coating, 'ramCooldownMs', 'coating.'),
+      contactDamagePerTick: positive(coating, 'contactDamagePerTick', 'coating.'),
+      contactTickMs: positive(coating, 'contactTickMs', 'coating.'),
     },
     fx: {
       color: count(fx, 'color', 'fx.', 0xffffff),

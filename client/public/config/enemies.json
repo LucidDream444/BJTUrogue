@@ -263,11 +263,12 @@
       "coating": {
         "speedMultiplier": 1.55,
         "cleanseStillMs": 3000,
+        "cleanseMovingMs": 4000,
         "stillSpeedThreshold": 6,
-        "drainIntervalMs": 500,
-        "drainDamage": 3,
-        "ramDamage": 80,
-        "ramCooldownMs": 650
+        "drainIntervalMs": 1000,
+        "drainDamage": 2,
+        "contactDamagePerTick": 12,
+        "contactTickMs": 100
       },
       "fx": {
         "color": 10343488,
@@ -275,7 +276,7 @@
         "warningColor": 16765801,
         "bubbleCount": 3
       },
-      "_design": "沾液后加速、移动耗生命并可高伤冲撞。液滩踩过即消失；静止累计三秒清除，移动不重置进度，再次踩液不叠加、不刷新。"
+      "_design": "沾液后加速并自由穿怪，重叠时持续帧伤；实际移动累计每秒扣2点生命，累计移动4秒或静止3秒任一完成即清除。液滩踩过即消失，再次踩液不叠加、不刷新两种进度。"
     }
   }
 }

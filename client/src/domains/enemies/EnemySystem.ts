@@ -410,7 +410,7 @@ export class EnemySystem implements ActorEventSink {
       // ⚠️ 账本配对（不变式 ④）。池的 `release()` 一定会调到这里，所以
       // 「怪回池了但账本还记着它」在结构上就不可能发生 —— 不需要任何调用方记得。
       onRelease: (model) => {
-        this.liquid.releaseEnemy(model.id)
+        this.liquid.releaseEnemy(model)
         this.radialShots.removeOwner(model.id)
         this.ledger.releaseTarget(model)
         this.brains.delete(model)
@@ -610,6 +610,7 @@ export class EnemySystem implements ActorEventSink {
         if (entry) this.registerPlayerContact(entry.model, player, nowMs)
       }
     this.pendingPlayerContacts.clear()
+    this.liquid.stepContact(nowMs, frameId)
     this.ledger.step(nowMs, frameId)
 
     // **把 brain 写好的速度意图落到物理体上。这是它唯一的写入点。**
@@ -658,6 +659,7 @@ export class EnemySystem implements ActorEventSink {
   private stepLiquid(target: PlayerView | null, nowMs: number, frameId: number): void {
     const oldActive = this.liquid.active
     const oldStill = this.liquid.stillMs
+    const drainSourceId = this.liquid.sourceId
     const amount = this.liquid.step(
       nowMs,
       frameId,
@@ -668,7 +670,7 @@ export class EnemySystem implements ActorEventSink {
     if (amount > 0 && target?.alive)
       this.bus.emit('player_liquid_drain', {
         playerId: target.model.id,
-        sourceId: this.liquid.sourceId,
+        sourceId: drainSourceId,
         amount,
         frameId,
         nowMs,
@@ -1192,20 +1194,11 @@ export class EnemySystem implements ActorEventSink {
 
   private registerPlayerContact(model: EnemyModel, target: PlayerView, nowMs: number): void {
     if (!model.alive || model.state === 'spawning') return
+    this.liquid.touchContact(target.model.id, model, nowMs)
     if (this.liquid.active) {
-      const amount = this.liquid.ram(model.id, nowMs)
-      if (amount > 0)
-        model.takeHit({
-          sourceId: target.model.id,
-          hitKey: `liquid-ram:${model.id}:${this.clock.frameId}`,
-          sourceKind: 'contact',
-          mode: 'instant',
-          amount,
-          nowMs,
-          frameId: this.clock.frameId,
-        })
-      // 沾液只赋予接触攻击，不额外赠送接触免伤；击杀后尸体不再伤害玩家。
-      if (!model.alive) return
+      // 穿怪时保留重叠帧伤，移除敌人旧接触伤害配对，不让穿梭被受击硬直打断。
+      this.ledger.releaseSource(model.id)
+      return
     }
     const amountPerTick = this.contactDamagePerTick(model)
     if (amountPerTick <= 0) return

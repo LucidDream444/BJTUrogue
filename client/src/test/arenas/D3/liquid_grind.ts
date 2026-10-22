@@ -26,7 +26,7 @@ class LiquidGrindArena extends ArenaBase {
 
   protected override onArenaCreate(ctx: ArenaContext): void {
     ctx.hud.setNotice(
-      '催化液：踩过即消失 · 加速撞怪 · 移动耗血 · 静止累计三秒清除 · P 脚下喷液 · G 重新摆场',
+      '催化液：自由穿怪与接触帧伤 · 累计移动4秒 / 静止3秒清除 · P 脚下喷液 · G 重新摆场',
     )
     this.readout = this.add
       .text(24, 135, '', {
@@ -84,6 +84,7 @@ class LiquidGrindArena extends ArenaBase {
         coated: ctx.enemies.liquid.active,
         moving: ctx.enemies.liquid.moving,
         stillMs: ctx.enemies.liquid.stillMs,
+        movingMs: ctx.enemies.liquid.movingMs,
         drained: this.drainTotal,
         ramHits: this.ramHits,
         puddles: ctx.enemies.liquid.puddles
@@ -112,15 +113,16 @@ class LiquidGrindArena extends ArenaBase {
     this.readout.setText([
       `催化喷洒怪 · 前摇 ${field.cfg.spray.windupMs / 1000} 秒后落液`,
       `液滩 ${field.puddles.filter((p) => p.active).length} / ${field.cfg.spray.maxPuddles}  ·  玩家 ${Math.ceil(ctx.player.hp)} / ${ctx.player.maxHp}`,
-      `状态 ${field.active ? '沾液' : '干净'}  ·  累计静止 ${(field.stillMs / 1000).toFixed(2)} 秒`,
-      `累计移动耗血 ${this.drainTotal}  ·  实际冲撞命中 ${this.ramHits}`,
+      `状态 ${field.active ? '沾液' : '干净'}  ·  累计移动 ${(field.movingMs / 1000).toFixed(2)} 秒 / 静止 ${(field.stillMs / 1000).toFixed(2)} 秒`,
+      `累计移动耗血 ${this.drainTotal}  ·  接触帧伤已结算 ${this.ramHits} 跳`,
       'WASD 移动 · 左键射击 · P 脚下喷液 · G 重摆 · SPACE 暂停 · R 重启',
     ])
   }
 }
 
 export const arena: ArenaDefinition = {
-  displayName: '催化喷洒怪 · 沾液与冲撞',
-  description: '躲落液预警，或踩液加速撞怪；移动耗血，静止累计三秒清除。P 立即体验，G 重摆。',
+  displayName: '草坪喷灌怪 · 沾液与接触帧伤',
+  description:
+    '草坪喷灌器喷洒催化液，沾液后加速穿怪与接触帧伤；移动4秒 / 静止3秒清除。P 立即体验，G 重摆。',
   scene: LiquidGrindArena,
 }

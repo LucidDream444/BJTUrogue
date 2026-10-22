@@ -190,6 +190,7 @@ export class CombatSession {
       this.player.anchor,
       this.enemies.group,
       (_player, enemy) => this.enemies.touchPlayer(enemy as Phaser.GameObjects.GameObject),
+      () => this.player.model.collidesWithEnemies,
     )
     this.audio = new CombatAudio(scene, this.bus, cfg.audio)
     this.weapons = new Weapons(

@@ -90,7 +90,10 @@ export class LiquidFx {
     }
     this.label.setVisible(active)
     if (!active || !target) return
-    const progress = field.stillMs / cfg.coating.cleanseStillMs
+    const progress = Math.max(
+      field.stillMs / cfg.coating.cleanseStillMs,
+      field.movingMs / cfg.coating.cleanseMovingMs,
+    )
     const r = target.radius + 7
     coating.lineStyle(3, cfg.fx.color, 0.9).strokeCircle(target.x, target.y, r)
     coating
@@ -118,8 +121,9 @@ export class LiquidFx {
         c.height * c.originY * (1 - 1 / c.zoom) + 92 / c.zoom,
       )
       .setText([
-        `催化沾液  ·  移速 ×${cfg.coating.speedMultiplier}  ·  撞击 ${cfg.coating.ramDamage}`,
-        `${field.moving ? `移动耗血 ${cfg.coating.drainDamage} / ${cfg.coating.drainIntervalMs / 1000}秒` : '静止清除中'}  ·  累计静止 ${(field.stillMs / 1000).toFixed(1)} / ${cfg.coating.cleanseStillMs / 1000} 秒`,
+        `催化沾液  ·  移速 ×${cfg.coating.speedMultiplier}  ·  接触帧伤 ${cfg.coating.contactDamagePerTick} / ${cfg.coating.contactTickMs / 1000}秒`,
+        `自由穿怪  ·  移动耗血 ${cfg.coating.drainDamage} / ${cfg.coating.drainIntervalMs / 1000}秒`,
+        `清除：累计移动 ${(field.movingMs / 1000).toFixed(1)} / ${cfg.coating.cleanseMovingMs / 1000} 秒  或  静止 ${(field.stillMs / 1000).toFixed(1)} / ${cfg.coating.cleanseStillMs / 1000} 秒`,
       ])
   }
 

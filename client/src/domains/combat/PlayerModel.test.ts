@@ -21,6 +21,18 @@ function setup() {
 }
 
 describe('player shield resource', () => {
+  it('沾液时关闭敌人实体阻挡，效果清除时恢复原速度与碰撞', () => {
+    const { player } = setup()
+    expect(player.collidesWithEnemies).toBe(true)
+    const baseSpeed = player.stats.speed
+    player.applyLiquidCoating(true, 1.55)
+    expect(player.collidesWithEnemies).toBe(false)
+    expect(player.liquidSpeedMultiplier).toBe(1.55)
+    player.applyLiquidCoating(false, 1)
+    expect(player.collidesWithEnemies).toBe(true)
+    expect(player.liquidSpeedMultiplier).toBe(1)
+    expect(player.stats.speed).toBe(baseSpeed)
+  })
   it('催化液移动代价只扣生命，不吃护盾、不触发硬直或受击无敌，且同帧去重', () => {
     const { player, clock } = setup()
     let hurt = 0

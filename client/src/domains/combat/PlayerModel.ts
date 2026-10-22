@@ -5,6 +5,14 @@ import type { GameClock } from '@/core/time'
 export type PlayerState = 'idle' | 'move' | 'attack' | 'hurt' | 'dead'
 export class PlayerModel extends ActorModel<PlayerState> {
   liquidSpeedMultiplier = 1
+  private liquidActive = false
+
+  get collidesWithEnemies(): boolean { return !this.liquidActive }
+
+  applyLiquidCoating(active: boolean, speedMultiplier: number): void {
+    this.liquidActive = active
+    this.liquidSpeedMultiplier = active ? speedMultiplier : 1
+  }
 
   /** 催化液的移动代价：经基类去重/死亡流程，跳过护盾和普通受击保护。 */
   takeLiquidDrain(amount: number, sourceId: number, frameId: number, nowMs: number): HitResult {
