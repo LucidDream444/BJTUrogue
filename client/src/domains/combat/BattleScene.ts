@@ -47,6 +47,7 @@ import {
 import { ROOM_KIND_LABELS } from '@/domains/procgen/model/types'
 import { Minimap } from './Minimap'
 import { FloorExit } from './FloorExit'
+import { ElevatorPanel, type FloorRow } from './ElevatorPanel'
 import { FloorProgress, stairPadSpots } from './Stairwell'
 import { FirstBossLoot } from '@/domains/combat/FirstBossLoot'
 import { LoadoutHud } from '@/domains/combat/LoadoutHud'
@@ -234,6 +235,21 @@ export class BattleScene extends Phaser.Scene {
    * 楼梯间是这一层楼**唯一的上下楼口**，入口摆在门口等于把「中转站」这个名字
    * 挂在一个玩家路过都不必进去的门框上。
    */
+  /**
+   * ★ 新增（2026-10-22 晚·七）：**电梯能去第几层** —— 「已解锁」= 走到过的最高层。
+   *
+   * 用户：「可以在电梯间选择层数前往（**仅能前往当前已解锁层数**）」。
+   * 解锁的口径就是**走过**：`loadFloor()` 每落一层把这里推到那一层，
+   * 于是电梯只会亮起「你到过的地方」，不会把玩家直接送进没打过的楼。
+   * `init()` 里回到 1（新的一局从第 1 层开始）。
+   */
+  private maxFloorReached = 1
+  /**
+   * ★ 2026-10-23：电梯的**楼层选择面板**（用户：「进去后可以选择楼层（之后楼层比较多），
+   * 不然和楼梯没区别」）。原来电梯里摆的是一列方框 —— 和楼梯间同一个交互，
+   * 而且楼层一多就摆不下。现在走进电梯间弹这个面板，点一下 / 按数字键就去。
+   */
+  private elevatorPanel!: ElevatorPanel
   private exitUp!: FloorExit
   /**
    * 楼梯间里那个「**下一层**」入口 —— **它就是回去的路**：**第 1 层没有**
@@ -372,6 +388,7 @@ export class BattleScene extends Phaser.Scene {
   init(data: { difficulty?: Difficulty } = {}): void {
     this.difficulty = data.difficulty ?? 'normal'
     this.floor = 1
+    this.maxFloorReached = 1
     this.floorSeedList = []
     this.roomOrder = -1
     this.activeRoom = null
@@ -486,6 +503,8 @@ export class BattleScene extends Phaser.Scene {
       // `exitDown` 画朝下的（青绿，「下一层」）—— 见 `FloorExit.LOOKS`。
       this.exitUp = new FloorExit(this, { reach: EXIT_REACH, dir: 'up' })
       this.exitDown = new FloorExit(this, { reach: EXIT_REACH, dir: 'down' })
+      // ★ 2026-10-23：电梯的楼层面板（走进去弹、走出去关）。选完直接换层。
+      this.elevatorPanel = new ElevatorPanel((floor) => this.goToFloor(floor))
       this.rewardPanel = new RewardPanel(this.session)
       this.gallery = new AssetGallery(this, () => this.toggleGallery())
       this.makeHud()
@@ -682,6 +701,7 @@ export class BattleScene extends Phaser.Scene {
       // 没有门槛（`bossDown()`），所以一进游戏，楼梯间北半那个暖黄的「上一层」
       // 就已经亮着 —— 这正是用户要的「进去后先是 YF1，然后可以从楼梯间上一层」。
       this.refreshStairPads()
+      // 电梯面板这时是关着的（玩家不在电梯间里），建出来就行 —— 走进去才弹。
       this.notice.setText(this.floorBrief())
     } catch (e) {
       this.showFatal(e)
@@ -707,6 +727,8 @@ export class BattleScene extends Phaser.Scene {
       //    那时该改的是那两个数，而不是在这里挑一个先判。
       const px = this.session.player.x,
         py = this.session.player.y
+      // ★ 改了（2026-10-23）：**电梯不再用 `F`** —— 走进电梯间弹的是楼层面板，
+      // 点一下 / 按数字键就走（`ElevatorPanel`）。`F` 只剩楼梯间那两个方框。
       if (this.exitUp.visible && this.exitUp.near(px, py)) this.goUp()
       else if (this.exitDown.visible && this.exitDown.near(px, py)) this.goDown()
       else if (this.exitUp.visible || this.exitDown.visible)
@@ -781,6 +803,7 @@ export class BattleScene extends Phaser.Scene {
     this.roomOrder = order
     // 走到走廊里：把「现在在哪一间」清掉（小地图的黄点本来就在那儿，见 `setPlayer`）。
     if (unit === null) {
+      this.syncElevatorPanel(null)
       this.syncRoomState()
       return
     }
@@ -795,6 +818,9 @@ export class BattleScene extends Phaser.Scene {
     // ⚠️ **离开这一间之前先把宝箱结账**（见 `settleChest()`）：出了这道门，
     //    下面任何一条分支都可能 `loot.reset()` 把它连同「开过没有」一起抹掉。
     this.settleChest()
+    // ★ 2026-10-23：电梯面板**跟着「人现在在哪一间」开关** —— 走进电梯间弹、
+    //    走进别的房（或走廊）关。放在最前面：后面每条分支都会 return。
+    this.syncElevatorPanel(unit.room.kind)
     // ⚠️ **「还在打」要排在最前面，而且只看 `combatRooms`，不看 `visited`。**
     //
     // `roomAt()` 的判据是「身体整个进到房间里」（`inset = 玩家半径`），而门就开在房间的
@@ -860,9 +886,27 @@ export class BattleScene extends Phaser.Scene {
       //
       // 它有的是**上下楼的入口**（那两个方框），而那件事每层都可能不同
       // （第 1 层下面没有楼、没打完首领的层上不去），所以每进一次现算一遍。
-      this.refreshStairPads()
+      //
+      // ★ 改了（2026-10-22 晚·七）：**这一支现在只给 `start`**。原来它接的是
+      // 所有「不用打又没宝箱」的房 —— 空房、商店、以及新加的电梯间全挤进来，
+      // 于是走进电梯间时通知栏写的是「每层之间的中转站 · 楼梯间里有下第 1 层的入口」
+      // （那句是楼梯间的事，电梯里既没有楼梯也没有那两个方框）。
+      if (unit.room.kind === 'start') {
+        this.refreshStairPads()
+        this.syncRoomState()
+        this.notice.setText(this.stairBrief(unit))
+        return
+      }
+      if (unit.room.kind === 'elevator') {
+        this.syncRoomState()
+        this.notice.setText(this.elevatorBrief(unit))
+        return
+      }
+      // 其余「不用打又没宝箱」的房：空房 / 商店。门一直开着，里面什么都没有。
       this.syncRoomState()
-      this.notice.setText(this.stairBrief(unit))
+      this.notice.setText(
+        `${unit.room.id} ${this.kindLabel(unit)} · 这间不用打 · 门一直开着`,
+      )
       return
     }
     if (!first) {
@@ -1262,9 +1306,9 @@ export class BattleScene extends Phaser.Scene {
    */
   private goUp(): void {
     if (this.floor >= this.floors) return
-    this.leaveFloor()
-    this.floor++
-    this.loadFloor()
+    // ★ 改了（2026-10-22 晚·七）：走 `goToFloor()` —— 上层永远已解锁
+    // （刚站着的这一层就是往上走的起点），所以行为与原来逐字一样。
+    this.goToFloor(this.floor + 1)
   }
   /**
    * **下一层**（`floor--`）—— 回去的路。**只在 `exitDown` 亮着、而玩家站在上面时调用**
@@ -1278,9 +1322,7 @@ export class BattleScene extends Phaser.Scene {
    */
   private goDown(): void {
     if (this.floor <= 1) return
-    this.leaveFloor()
-    this.floor--
-    this.loadFloor()
+    this.goToFloor(this.floor - 1)
   }
   /**
    * 记下**现在这一层**的进度，然后才准换层。
@@ -1359,10 +1401,14 @@ export class BattleScene extends Phaser.Scene {
     this.session.rewards.forgetFloor()
     this.session.loadFloor(this.stageConfig)
     this.syncRoomState()
+    // ★ 新增（2026-10-22 晚·七）：落地即**解锁这一层**（电梯只去走到过的楼）。
+    this.maxFloorReached = Math.max(this.maxFloorReached, this.floor)
     // 楼梯间里那两个入口：**每层都要重算**（第 1 层下面没楼、没打完首领的层
     // 上不去、走回来的层则是「首领早就打完了」，而第 1 层根本没有首领）。
     // 它自己会先 `hide()`。
     this.refreshStairPads()
+    // ★ 换层了：电梯面板必须关掉 —— 它列的是**上一层**能去哪儿。
+    this.syncElevatorPanel(null)
     // ⚠️ **通知栏必须在这里重写。** 它是「我现在在哪、该往哪走」的唯一说明，
     // 而换层之后它还留着**上一层**的话 —— 实测上到第 2 层时屏幕上写的是
     // 「第 1 层通关 · …已击败 · 回楼梯间，走到方框上按 F 到第 2 层」，
@@ -1385,6 +1431,21 @@ export class BattleScene extends Phaser.Scene {
       `走廊里随便走，推开哪扇门就打哪一间（${this.dungeon.rooms.length} 间）` +
       (stairs === '' ? '' : ` · ${stairs}`)
     )
+  }
+  /**
+   * 走进**电梯间**时通知栏那一行（★ 2026-10-22 晚·七）。
+   *
+   * 说的是「这儿能去哪」：已经解锁的层**有几个就报几个**（方框就摆在电梯里，
+   * 一个已解锁的层一个）；一层都还没解锁时说明白**为什么**没有 ——
+   * 不然玩家会以为电梯坏了。
+   */
+  private elevatorBrief(unit: DungeonRoom): string {
+    const unlocked: number[] = []
+    for (let n = 1; n <= this.maxFloorReached; n++) if (n !== this.floor) unlocked.push(n)
+    const here = unlocked.length
+      ? `面板里选一层（第 ${unlocked.join(' / ')} 层），或按数字键`
+      : '别的层还没解锁 —— 先从楼梯间往上走，或打完这层的首领'
+    return `${unit.room.id} ${this.kindLabel(unit)} · 电梯 · ${here}`
   }
   /**
    * 楼梯间那一间（`kind === 'start'`）。三层三张平面图（`floors.json`），
@@ -1440,6 +1501,82 @@ export class BattleScene extends Phaser.Scene {
    * `safeSpawn()` —— 楼梯间是非战斗房、里面没有桌椅（`obstacles.ts` 对非战斗房
    * 直接返回空），所以这一步今天必然落在原地；留着他管的是**将来**。
    */
+  /**
+   * ★ 新增（2026-10-22 晚·七）：**电梯间里那几个方框**。
+   *
+   * 用户：「每层添加三个电梯间，可以在电梯间选择层数前往（**仅能前往当前已解锁层数**）」。
+   *
+   * | | 什么时候亮 | 摆在哪 |
+   * |---|---|---|
+   * | 第 N 层那个方框 | `N ≤ maxFloorReached` 且 `N ≠ 当前层` | 电梯间**竖着**排（第 1 层在最上、第 3 层在最下），与楼梯间两个方框同一个画法 |
+   *
+   * ⚠️ **三个电梯间各一套方框**（同一层里三处都能坐电梯），不是只认某一个。
+   * 方框的 `dir` 只决定**颜色与箭头**：目标更高 = 暖黄朝上、更低 = 青绿朝下 ——
+   * 与楼梯间那两个入口同一套色，玩家不用重新学。
+   *
+   * ⚠️ 位置那次 `safeSpawn()` 与楼梯间同理：电梯间今天是非战斗房、里面没有桌椅，
+   * 所以今天必然落在原地；留着它管的是**将来**（电梯间里摆了东西的那天）。
+   */
+  /**
+   * ★ 新增（2026-10-23）：**电梯允许去的层**。
+   *
+   * - **来过的层**（`≤ maxFloorReached`）：随便去 —— 回下层看看是应该的。
+   * - **前进的下一层**：与楼梯间**同一个门槛**（本层首领已倒，或本层根本没有首领房）。
+   *   用户：「YF1 开局……可以直接**楼梯或电梯**上 YF3」—— 1F 没有首领房 ⇒ 一进游戏，
+   *   电梯里就该亮着「第 2 层」那个方框，而不是要先去楼梯间走一趟才「解锁」。
+   *
+   * ⚠️ 两条合起来才是「已解锁」：只按 `maxFloorReached` 算的话，开局电梯是个摆设
+   * （实测就是这么发现的：第 1 层一个方框都没有，只能走楼梯）。
+   * 而**再往上跳**（3F 没打完首领就想坐电梯去 6F）两条都不满足 ⇒ 没有方框。
+   */
+  private elevatorTargets(): number[] {
+    const out: number[] = []
+    for (let n = 1; n <= this.floors; n++) {
+      if (n === this.floor) continue
+      if (n <= this.maxFloorReached) out.push(n)
+      else if (n === this.floor + 1 && this.bossDown()) out.push(n)
+    }
+    return out
+  }
+  /**
+   * ★ 2026-10-23：**电梯面板现在该摆什么**（用户：「进去后可以选择楼层」）。
+   *
+   * 一列 `第 1..N 层`：当前层标「当前」、能去的标「前往」、其余标「未解锁」。
+   * **能去哪些层由 `elevatorTargets()` 一处判定**（来过的 + 楼梯间那一步能到的下一层）。
+   */
+  private elevatorRows(): FloorRow[] {
+    const targets = new Set(this.elevatorTargets())
+    const rows: FloorRow[] = []
+    for (let n = 1; n <= this.floors; n++) {
+      rows.push({ floor: n, here: n === this.floor, unlocked: targets.has(n) })
+    }
+    return rows
+  }
+  /** 玩家走进 / 走出电梯间时开关面板。**一处在判定，别处只读结果。** */
+  private syncElevatorPanel(kind: DungeonRoom['room']['kind'] | null): void {
+    if (kind === 'elevator') {
+      this.elevatorPanel.show(this.elevatorRows())
+      return
+    }
+    this.elevatorPanel.hide()
+  }
+  /**
+   * ★ 新增（2026-10-22 晚·七）：**坐电梯去第 `target` 层**。
+   *
+   * 与 `goUp()` / `goDown()` 是同一件事（存下这一层 → 换层号 → `loadFloor()`），
+   * 只是**跨几步**而不是一步 —— 所以它俩现在是它的特例。
+   *
+   * ⚠️ **这里不判「解锁」**：`goUp()` 走的也是这条路，而**往上走一层**永远该通
+   * （楼梯间就是前进的路，解锁是到达之后才发生的事）—— 在函数里拦一道的话，
+   * 第 1 层上第 2 层会被 `maxFloorReached = 1` 挡死。电梯的门槛在
+   * `elevatorTargets()`（面板里**没解锁的层是灰的**，点不动）。
+   */
+  private goToFloor(target: number): void {
+    if (target < 1 || target > this.floors || target === this.floor) return
+    this.leaveFloor()
+    this.floor = target
+    this.loadFloor()
+  }
   private refreshStairPads(): void {
     this.exitUp.hide()
     this.exitDown.hide()
@@ -1513,6 +1650,10 @@ export class BattleScene extends Phaser.Scene {
    */
   private showFloorExit(bonus: { name: string } | null): void {
     this.refreshStairPads()
+    // ★ 2026-10-23：**电梯面板也一样**，首领倒下之后「下一层」对电梯同样开门
+    //（`elevatorTargets()` 读的就是 `bossDown()`）—— 玩家这时要是正站在电梯里，
+    // 面板得当场多出那一层。不在电梯里时这一步只是「按当前状态刷一遍」。
+    this.syncElevatorPanel(this.roomOrder >= 0 ? this.dungeon.rooms[this.roomOrder]?.room.kind ?? null : null)
     this.notice.setText(
       (bonus ? '获得随机武器：' + bonus.name + ' · ' : '') +
         `第 ${this.floor} 层通关 · ${this.bossName(this.floor)}已击败 · ` +

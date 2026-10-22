@@ -53,9 +53,12 @@ describe('真的那份 floor-plan.json', () => {
   const plan = parseFloorPlan(readJson('floor-plan.json'), METRICS)
 
   it('过得了全部校验（这一条红了就是配置表与解析器对不上了）', () => {
-    expect(plan.rooms).toHaveLength(15)
+    // ★ 改了（2026-10-22 晚·七）：房间 15 → **18**、门 16 → **19**。
+    // 多出来的三间是**电梯间** `E_A` / `E_B` / `E_C`（用户「每层添加三个电梯间」），
+    // 每间一扇门，走廊段数没动（电梯是房间，不是走廊）。
+    expect(plan.rooms).toHaveLength(18)
     expect(plan.corridors).toHaveLength(6)
-    expect(plan.doors).toHaveLength(16)
+    expect(plan.doors).toHaveLength(19)
     expect(plan.stairwell.id).toBe('STAIR')
   })
 
@@ -69,22 +72,31 @@ describe('真的那份 floor-plan.json', () => {
     expect(yf604.rect.height).toBe(24 * 40)
   })
 
-  it('写死的关别：YF604 是首领，两间教休室是道具房，其余按种子抽', () => {
+  it('写死的关别：YF604 是首领，两间教休室是道具房，三个电梯间是设施，其余按种子抽', () => {
+    // ★ 改了（2026-10-22 晚·七）：多出三间 `elevator` —— 与 `shop` / `empty` 同一类，
+    // 只由平面图钉死，发牌池抽不到（写进 `roomKindWeights` 会在加载配置时被拒）。
     const fixed = plan.rooms.filter((r) => r.fixed !== null).map((r) => `${r.id}=${r.fixed}`)
-    expect(fixed.sort()).toEqual(['YF604=boss', 'YF607=reward', 'YF612=reward'])
+    expect(fixed.sort()).toEqual([
+      'E_A=elevator',
+      'E_B=elevator',
+      'E_C=elevator',
+      'YF604=boss',
+      'YF607=reward',
+      'YF612=reward',
+    ])
     // 楼梯间恒为 start，且**不在** rooms 里（它不是按种子抽的那个集合的一员）
     expect(plan.rooms.some((r) => r.id === 'STAIR')).toBe(false)
   })
 
-  it('这一层声明 16 间房：15 间编号教室 + 1 间楼梯间', () => {
+  it('这一层声明 19 间房：15 间编号教室 + 3 间电梯间 + 1 间楼梯间', () => {
     // ★ 改了（2026-10-22）：原先这里对着两个数（`rooms.json` 的 classroomCount 是
     //    15、代码里的 FLOOR_ROOM_TOTAL 是 16），因为「同一个量有两个名字」是这一节
     //    最容易读错的地方。现在**只有一个数**：平面图自己声明的 `roomTotal`，
     //    而它必须等于「rooms 的条数 + 楼梯间」—— 少加那 1 就是出生点没有一间
     //    属于它的房，多减那 1 就是漏了楼梯间。三层楼的间数各不相同（这里是 6F 的 16，
     //    1F 是 14、3F 是 15），所以这个数跟着文件走，不再是全局常量。
-    expect(plan.rooms.length).toBe(15)
-    expect(plan.roomTotal).toBe(16)
+    expect(plan.rooms.length).toBe(18)
+    expect(plan.roomTotal).toBe(19)
     expect(plan.rooms.length + 1).toBe(plan.roomTotal)
   })
 
@@ -289,7 +301,7 @@ describe('校验器：每一类各一条「改坏 → 报对」', () => {
     expect(err.message).not.toContain('YF601')
   })
 
-  it('声明了 16 间而几何只有 15 间（删了一间教室）→ **两个数字都报出来**', () => {
+  it('声明了 19 间而几何只有 18 间（删了一间教室）→ **两个数字都报出来**', () => {
     const plan = brokenPlan()
     // ⚠️ 删房必须**连它的门一起删**。只删房的话，那扇门就成了悬空引用，
     //    而 `checkDoors` 排在 `checkRoomCount` 前面 —— 报出来的是「门引用了不存在
@@ -300,9 +312,9 @@ describe('校验器：每一类各一条「改坏 → 报对」', () => {
     plan.rooms = roomsOf(plan).filter((r) => r !== yf607)
     plan.doors = doorsOf(plan).filter((d) => d.a !== 'YF607' && d.b !== 'YF607')
     const err = expectConfigError(plan)
-    expect(err.message).toContain('16') // 声明的
-    expect(err.message).toContain('14') // 几何里还有几间
-    expect(err.message).toContain('15') // 14 + 楼梯间
+    expect(err.message).toContain('19') // 声明的
+    expect(err.message).toContain('17') // 几何里还有几间
+    expect(err.message).toContain('18') // 17 + 楼梯间
     // 报错要说清楼梯间**算在总数里** —— 不然读的人会把它当成「多出来的那一间」
     expect(err.message).toContain('楼梯间')
   })

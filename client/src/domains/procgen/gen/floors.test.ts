@@ -109,10 +109,12 @@ describe('一局的楼层表（floors.json）', () => {
 
   it('每一项都解析得出来，且**间数写在它自己身上**（三层楼各不相同）', () => {
     expect(plans).toHaveLength(MAX_STAGES)
-    expect(plans[0]!.roomTotal).toBe(14) // 逸夫楼 1F：13 间编号教室 + 楼梯间
+    // ★ 改了（2026-10-22 晚·七）：每层 +3 —— 三个**电梯间**（`E_A` / `E_B` / `E_C`）。
+    // 它们是房间（不是走廊），所以算进 `roomTotal`；三层各多 3 间，三个数仍互不相同。
+    expect(plans[0]!.roomTotal).toBe(17) // 逸夫楼 1F：13 间编号教室 + 3 电梯间 + 楼梯间
     expect(plans[0]!.rooms.length + 1).toBe(plans[0]!.roomTotal)
-    expect(plans[1]!.roomTotal).toBe(15) // 3F：13 间编号教室 + 商店 + 楼梯间
-    expect(plans[2]!.roomTotal).toBe(16) // 6F：15 间编号教室 + 楼梯间
+    expect(plans[1]!.roomTotal).toBe(18) // 3F：13 间编号教室 + 商店 + 3 电梯间 + 楼梯间
+    expect(plans[2]!.roomTotal).toBe(19) // 6F：15 间编号教室 + 3 电梯间 + 楼梯间
     // 三个数**互不相同** —— 这是「它必须跟着平面图走」那件事的反向证据：
     // 一个全局常量配不了三层。
     expect(new Set(plans.map((p) => p.roomTotal)).size).toBe(3)
@@ -217,8 +219,12 @@ describe('一局的楼层表（floors.json）', () => {
     const first = new Set(ids(plans[0]!))
     // 楼梯间三层同名（`STAIR`）是有意的：它就是「上下楼的那个地方」，
     // 而它**不打怪、不给强化、不记进度**，同名不会串。
-    expect(ids(plans[1]!).filter((id) => first.has(id))).toEqual(['STAIR'])
-    expect(ids(plans[2]!).filter((id) => first.has(id))).toEqual(['STAIR'])
+    // ★ 改了（2026-10-22 晚·七）：**三个电梯间也三层同名**（`E_A` / `E_B` / `E_C`）——
+    // 理由与楼梯间一模一样：它们是**同一部电梯在三层的同一个位置**，也是设施。
+    // 它们同样不打怪、不给强化、不记进度（`kind = 'elevator'`，不在 `combatKinds` 里）。
+    const facilities = ['E_A', 'E_B', 'E_C', 'STAIR']
+    expect(ids(plans[1]!).filter((id) => first.has(id)).sort()).toEqual(facilities)
+    expect(ids(plans[2]!).filter((id) => first.has(id)).sort()).toEqual(facilities)
     // ⚠️ ★ 改了（2026-10-22 晚）：这一段原先是**另一条用例**
     //    （「第 2、3 层是同一张图」），它守的是「按房号的记账必须按层清」这件事
     //    还在 —— 那时第 2、3 层都是 6F，房号一模一样。现在三层三张图，

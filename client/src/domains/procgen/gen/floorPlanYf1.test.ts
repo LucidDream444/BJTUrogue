@@ -90,31 +90,41 @@ const sortedIds = (xs: readonly FloorPlanSpace[]): string[] => xs.map(idOf).sort
 //    照样是升的，蛇形那条**照样绿**，只是测的已经是别的东西了。
 const numOf = (id: string): number => Number(id.slice(2))
 
-/** 房是一条蛇：上排（走廊以北）与下排（走廊以南）。 */
-const topRow = (): FloorPlanSpace[] => yf1.rooms.filter((r) => r.cells.y + r.cells.height <= ROW_Y0)
-const bottomRow = (): FloorPlanSpace[] => yf1.rooms.filter((r) => r.cells.y >= ROW_Y1)
+/** 房是一条蛇：上排（走廊以北）与下排（走廊以南）。**只数编号教室** ——
+ *  电梯间（`E_`）也坐在同样的带里，但它们不参与房号蛇形。 */
+const topRow = (): FloorPlanSpace[] =>
+  yf1.rooms.filter((r) => r.id.startsWith('YF1') && r.cells.y + r.cells.height <= ROW_Y0)
+const bottomRow = (): FloorPlanSpace[] =>
+  yf1.rooms.filter((r) => r.id.startsWith('YF1') && r.cells.y >= ROW_Y1)
 
 describe('真的那份 floor-plan-yf1.json', () => {
   it('过得了全部校验 —— 几何、门、连通性都在 parseFloorPlan 里（它没抛就是过了）', () => {
-    expect(yf1.rooms).toHaveLength(13)
-    // ★ 改了（2026-10-22）：7 → **3**（一行直走廊）→ ★ 晚·二：**5**（一张网）
-    // → ★ 晚·六：**6**（多了北厅 `C_N`，给上面那扇 ↑ 门做北边）。
-    // 这一层的走廊段数从来不是产品旋钮，但它一变就说明「构造」变了，所以钉在这里。
-    expect(yf1.corridors).toHaveLength(6)
-    // ★ 改了（2026-10-22 晚·二）：14 → **17**。房间那 14 扇没动，多出来的是
-    // 大厅与两块之间那三扇（安全出口的位置，见 `_source.exit_doors`）。
-    expect(yf1.doors).toHaveLength(17)
+    // ★ 改了（2026-10-22 晚·七）：13 → **16** —— 多了三个电梯间
+    // （用户「每层添加三个电梯间」）。
+    expect(yf1.rooms).toHaveLength(16)
+    // ★ 改了：7 → 3（一行直走廊）→ 5（一张网）→ 6（多了北厅 `C_N`）
+    // → ★ 晚·七：**7**（多了西侧大厅 `C_WN`，用户「楼梯间左侧位置变成可活动范围」）。
+    expect(yf1.corridors).toHaveLength(7)
+    // ★ 改了：14 → 17（安全出口那三扇）→ ★ 晚·七：**20**（三个电梯间各一扇）。
+    expect(yf1.doors).toHaveLength(20)
     expect(yf1.stairwell.id).toBe('STAIR')
-    expect(yf1.roomTotal).toBe(14)
+    expect(yf1.roomTotal).toBe(17)
     expect(yf1.rooms.length + 1).toBe(yf1.roomTotal)
   })
 
-  it('房号与照片逐间对应：YF101—YF113 一个不缺，也不掺别的前缀', () => {
+  it('房号与照片逐间对应：YF101—YF113 一个不缺；额外的只有三个电梯间', () => {
     const ids = sortedIds(yf1.rooms)
-    expect(ids).toEqual(Array.from({ length: 13 }, (_, i) => `YF1${String(i + 1).padStart(2, '0')}`))
-    // 这一层是三份平面图里唯一一份房号从 01 起、且**没有**额外空间的
-    //（6F 是 15 间 YF601—YF615，3F 是 13 间 + 一间 SHOP）。
-    expect(ids.filter((id) => !id.startsWith('YF1'))).toEqual([])
+    const classrooms = ids.filter((id) => id.startsWith('YF1'))
+    expect(classrooms).toEqual(
+      Array.from({ length: 13 }, (_, i) => `YF1${String(i + 1).padStart(2, '0')}`),
+    )
+    // ★ 改了（2026-10-22 晚·七）：额外的空间从「没有」变成「三个电梯间」——
+    // 它们是**设施**（与楼梯间同一类），所以叫 `E_A` / `E_B` / `E_C`，不占房号。
+    // 三层同名同位置：同一部电梯在三层楼里是同一个地方。
+    expect(ids.filter((id) => !id.startsWith('YF1')).sort()).toEqual(['E_A', 'E_B', 'E_C'])
+    for (const id of ['E_A', 'E_B', 'E_C']) {
+      expect(yf1.rooms.find((r) => r.id === id)!.fixed).toBe('elevator')
+    }
   })
 
   it('楼梯间与 6F / 3F **逐格相同** —— 「三层的楼梯间都改」', () => {
@@ -163,51 +173,72 @@ describe('真的那份 floor-plan-yf1.json', () => {
     }
   })
 
-  it('★ 同位置的教室规格与 6F / 3F 差不多 —— 「YF1 教室太大了」', () => {
-    // ★ 新增（2026-10-22 晚）：上一版的北排是 y0..42（43 格高），YF104 一间就有
-    // 55×43 格 —— 比 6F 最大的教室（YF606，39×17）大出三倍，用户一眼就看出来了。
+  it('★ 房间尺寸就是用户 2026-10-22 晚·七 点名的那一批（正对 / 左靠 / 调大调小）', () => {
+    // ★ 改了（2026-10-22 晚·七）：上一版这条守的是「与 6F 同位置那几间**逐格相同**」。
+    // 用户看完之后点名改了一批尺寸 —— 那一条**不再成立**（101/102/110/103/104/106/107
+    // 都动了），换成「用户点名的那几条成立」。逐格相同的那几间（113 / 108）留在下面。
     //
-    // ⚠️ 「太大了」**不该**由校验器管：一间 55×43 的房完全合法、走得通、门也开得对。
-    //    「大」本身不是错，所以只有这里钉得住它。
+    // ⚠️ 这些数**不该**由校验器管：任何一套尺寸都是合法的图，只有对不对得上照片
+    //    是人的判断。所以它们只能钉在这里。
     const at = (plan: FloorPlan, id: string): FloorPlanSpace =>
       [plan.stairwell, ...plan.rooms].find((s) => s.id === id)!
+    const box = (id: string): [number, number, number, number] => {
+      const c = at(yf1, id).cells
+      return [c.x, c.y, c.width, c.height]
+    }
 
-    // ① 上下两条带**就是 6F 的那两条** —— 它决定「厚不厚」。
-    for (const r of yf1.rooms) {
-      const band = topRow().includes(r) ? [25, 18] : [51, 22]
+    // ① 两条带仍是 6F 的：北排 y25 高 18、南排 y51 高 22。
+    //    ★ 2026-10-22 晚·八：**电梯间不在这条判据里** —— 它们只有教休室那么大
+    //    （8×8），贴着北带的**下沿**（y35..42），下面单列一条。
+    for (const r of yf1.rooms.filter((x) => !x.id.startsWith('E_'))) {
+      const band = r.cells.y < ROW_Y0 ? [25, 18] : [51, 22]
       expect([r.cells.y, r.cells.height], `${r.id} 不在 ${band.join(' / ')} 那条带上`).toEqual(band)
     }
-
-    // ② 同位置的那几间**逐格相同**（房号不同，位置是同一处）。
-    expect(at(yf1, 'YF101').cells).toEqual(at(six, 'YF602').cells) // 楼梯间东边第一间
-    expect(at(yf1, 'YF102').cells).toEqual(at(six, 'YF603').cells)
-    expect(at(yf1, 'YF113').cells).toEqual(at(six, 'YF615').cells) // 西块南排最西一间
-    // 东块北排那两间：6F 把它们放在 y5..21 那条带上（东翼是另一套分带），而 1F
-    // 只有一行走廊，东块北排也只能落在北排带上 —— 所以比的是 **x 与宽**（房宽是
-    // 「规格」里更硬的那一半），高差 1 格。
-    for (const [mine, theirs] of [
-      ['YF103', 'YF605'],
-      ['YF104', 'YF606'],
-    ] as const) {
-      expect(at(yf1, mine).cells.x, `${mine} 的 x`).toBe(at(six, theirs).cells.x)
-      expect(at(yf1, mine).cells.width, `${mine} 的宽`).toBe(at(six, theirs).cells.width)
+    // 电梯间：8×8、贴着北带下沿（门开在 y43 那一行墙上，房间必须顶到它）。
+    for (const id of ['E_A', 'E_B', 'E_C']) {
+      expect(box(id), `${id} 不是 8×8 或没贴住 y42`).toEqual([
+        at(yf1, id).cells.x,
+        35,
+        8,
+        8,
+      ])
+      expect(at(yf1, id).cells.y + at(yf1, id).cells.height).toBe(43)
     }
-    // 3F 也照这份走（`_edits_comment`：3F 与 6F 的差别只有 SHOP / C_W / 那两扇门）。
-    expect(at(yf3, 'YF302').cells).toEqual(at(yf1, 'YF101').cells)
-    expect(at(yf3, 'YF303').cells).toEqual(at(yf1, 'YF102').cells)
 
-    // ③ 剩下那几间：宽度落在 6F 编号教室的区间里（今天 17..39）。
-    const classroomWidths = six.rooms
-      .filter((r) => r.fixed !== 'boss' && r.fixed !== 'reward')
-      .map((r) => r.cells.width)
-    const minW = Math.min(...classroomWidths)
-    const maxW = Math.max(...classroomWidths)
+    // ② 「113 调小」+「112 左靠贴近并调小」：112 与 113 之间只隔 1 格墙
+    expect(box('YF113')).toEqual([0, 51, 18, 22])
+    expect(box('YF112')).toEqual([19, 51, 10, 22])
+
+    // ③ 「111 左靠」+「楼梯间正对 111」：111 的 x 跨度必须**包住**楼梯间那一列
+    const stair = yf1.stairwell.cells
+    const yf111 = at(yf1, 'YF111').cells
+    expect(box('YF111')).toEqual([38, 51, 23, 22])
+    expect(yf111.x, '111 的西界要 ≤ 楼梯间的西界').toBeLessThanOrEqual(stair.x)
+    expect(yf111.x + yf111.width, '111 的东界要 ≥ 楼梯间的东界').toBeGreaterThanOrEqual(
+      stair.x + stair.width,
+    )
+
+    // ④ 「110 调大」：从 19 宽变成夹在 111 与 109 之间的那一整段
+    expect(box('YF110')).toEqual([62, 51, 37, 22])
+    // ⑤ 「101 调大」+「102 占据配电室位置（大小大概适当）」
+    expect(box('YF101')).toEqual([50, 25, 21, 18])
+    expect(box('YF102')).toEqual([72, 25, 23, 18])
+    // ⑥ 「107 调窄」+「103 调窄」
+    expect(box('YF107')).toEqual([174, 51, 15, 22])
+    expect(box('YF103')).toEqual([181, 25, 12, 18])
+    // ⑦ 没点名的那几间照旧：113/109/108/105 与 6F 同位置（或上一版）逐格相同
+    expect(box('YF109')).toEqual([100, 51, 19, 22])
+    expect(box('YF108')).toEqual([145, 51, 28, 22])
+    expect(box('YF105')).toEqual([234, 51, 29, 22])
+
+    // ⑧ 面积上界：任何一间都不许比 6F 的首领房（YF604，45×24）还大 ——
+    //    「调大」不是「想多大就多大」，这一条挡的是下一次手滑。
+    const biggest6 = Math.max(...six.rooms.map((r) => r.cells.width * r.cells.height))
     for (const r of yf1.rooms) {
-      expect(r.cells.width, `${r.id} 比 6F 最宽的教室还宽`).toBeLessThanOrEqual(maxW)
-      expect(r.cells.width, `${r.id} 比 6F 最窄的教室还窄`).toBeGreaterThanOrEqual(minW)
+      expect(r.cells.width * r.cells.height, `${r.id} 比 6F 最大的房间还大`).toBeLessThanOrEqual(
+        biggest6,
+      )
     }
-    // ⚠️ 这条用例是照着上一版那间 55×43 的 YF104 写的：它**两条都过不了**
-    //    （55 > 39；而 43 既不是 18 也不是 22）。别把上界放宽成「多宽都行」。
   })
 
   it('**两块确实分开了**：那条空档里只有大厅，没有别的东西', () => {
@@ -258,6 +289,8 @@ describe('真的那份 floor-plan-yf1.json', () => {
     // 网：两条主横廊 + 两条竖段 + 中段一个 40×17 的厅。这一条钉的就是那个「网」。
     // ⚠️ **不**由 `parseFloorPlan` 守：走廊各摆各的也完全合法（连通性由
     //    `connectsTo` 给），只是长得不像那栋楼 —— 而那正是用户两次挑出来的毛病。
+    // ★ 改了（2026-10-22 晚·七）：6 → **7** —— 多了西侧大厅 `C_WN`
+    //（用户「楼梯间左侧位置变成可活动范围」）。
     expect(yf1.corridors.map((c) => c.id).sort()).toEqual([
       'C_E',
       'C_EH',
@@ -265,6 +298,7 @@ describe('真的那份 floor-plan-yf1.json', () => {
       'C_J',
       'C_N',
       'C_W',
+      'C_WN',
     ])
 
     // ① 两块各有一条主横廊，而且仍开在 6F 那一行上（房间带才不会跟着挪）。
@@ -298,6 +332,7 @@ describe('真的那份 floor-plan-yf1.json', () => {
       'C_HALL',
       'C_J',
       'C_N',
+      'C_WN',
     ])
     // ④ 大厅与它的北臂 `C_N` 是**同一个厅**：两者直接相接（走廊↔走廊，不隔墙）。
     expect([...yf1.corridors.find((c) => c.id === 'C_HALL')!.connectsTo]).toEqual(['C_N'])
@@ -397,11 +432,20 @@ describe('真的那份 floor-plan-yf1.json', () => {
     // ★ 改了（2026-10-22）：上一版是**一间 fixed 都不写**（= 全部进发牌池，
     // 按 `roomKindWeights` 抽成普通战 / 精英 / 道具关 / 宝箱关，抽到战斗关的
     // 还摆桌椅、刷怪）。用户要的是字面意义的空房间，所以逐间钉 `empty`。
-    expect(yf1.rooms.filter((r) => r.fixed !== 'empty')).toEqual([])
-    // `empty` 是**平面图钉得出来、发牌池抽不到**的关别（与 `shop` 同一类）：
-    // 它在 `ROOM_KINDS` 里、不在 `ROOM_KINDS_EMITTED` 里，写进
+    // ★ 改了（2026-10-22 晚·七）：13 间编号教室仍是 `empty`；三个电梯间是
+    // `elevator`（设施，与 `empty` / `shop` 同一类：只由平面图钉死、抽不到）。
+    expect(
+      yf1.rooms.filter((r) => r.id.startsWith('YF1') && r.fixed !== 'empty'),
+    ).toEqual([])
+    expect(yf1.rooms.filter((r) => r.id.startsWith('E_')).map((r) => r.fixed)).toEqual([
+      'elevator',
+      'elevator',
+      'elevator',
+    ])
+    // `empty` 与 `elevator` 都是**平面图钉得出来、发牌池抽不到**的关别（与 `shop`
+    // 同一类）：它们在 `ROOM_KINDS` 里、不在 `ROOM_KINDS_EMITTED` 里，写进
     // `rooms.json` 的 `roomKindWeights` 会在加载配置时被拒。
-    expect(yf1.rooms.every((r) => r.fixed === 'empty')).toBe(true)
+    expect(yf1.rooms.every((r) => r.fixed === 'empty' || r.fixed === 'elevator')).toBe(true)
   })
 
   it('★ 因此这一层**没有首领房** —— 而它现在真的排在一局里，所以门槛必须不生效', () => {
@@ -413,7 +457,7 @@ describe('真的那份 floor-plan-yf1.json', () => {
     expect(yf1.rooms.filter((r) => r.fixed === 'boss')).toEqual([])
     // 对照：另外两层的首领照旧各一间 —— 上界没被顺手放宽掉。
     expect(six.rooms.filter((r) => r.fixed === 'boss').map(idOf)).toEqual(['YF604'])
-    expect(yf3.rooms.filter((r) => r.fixed === 'boss').map(idOf)).toEqual(['YF304'])
+    expect(yf3.rooms.filter((r) => r.fixed === 'boss').map(idOf)).toEqual(['YF303'])
   })
 
   it('把 `roomTotal` 改坏 → 当场抛（它是这一层自己的字段，别处没有第二份可对）', () => {
