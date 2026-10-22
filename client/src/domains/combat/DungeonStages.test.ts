@@ -93,9 +93,10 @@ const cfg: RoomsConfig = parseRoomsConfig(readJson('rooms.json'))
  * 解析一次、下面所有种子共用一份。
  *
  * ⚠️ 2026-10-22：这个文件通篇钉的是 **6F 那一层**（首领恒为 `YF604`、恒 16 间房）。
- * 产品里第 1 层是逸夫楼 3F（`floor-plan-yf3.json`，首领 `YF304`、15 间房），
- * 期望值不一样 —— 跨层那几条在 `procgen/gen/floors.test.ts` 与
- * `floorPlanYf3.test.ts`，别照着这里改产品。
+ * 产品里另外两层不一样：第 1 层是逸夫楼 1F（`floor-plan-yf1.json`，14 间房、
+ * **一间首领房都没有**），第 2 层是逸夫楼 3F（`floor-plan-yf3.json`，首领 `YF304`、
+ * 15 间房）—— 期望值各不相同，跨层那几条在 `procgen/gen/floors.test.ts`、
+ * `floorPlanYf1.test.ts` 与 `floorPlanYf3.test.ts`，别照着这里改产品。
  */
 const plan: FloorPlan = parseFloorPlan(readJson('floor-plan.json'), cfg)
 
@@ -156,8 +157,8 @@ describe('DungeonStages — 一局多层：层种子与「一层一个首领」'
     // 只剩「拿不到地图时的兜底读数」。
     //
     // ★ 又改了（2026-10-22）：这个 16 从代码常量 `FLOOR_ROOM_TOTAL` 变成
-    // **平面图自己声明的 `plan.roomTotal`** —— 一局两层楼间数不同（6F 16 / YF3 15），
-    // 一个全局常量配不了两张图。
+    // **平面图自己声明的 `plan.roomTotal`** —— 一局三层楼间数各不相同
+    // （1F 14 / 3F 15 / 6F 16），一个全局常量配不了三张图。
     //
     // ★ 又改了（2026-10-21，整层连续）：老版这里断言的是
     // `d.stages.stages` **也是 16 张**（一间房一张几何表）。那个拆法就是这次要拆掉的
