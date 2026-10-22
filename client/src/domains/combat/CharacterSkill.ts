@@ -24,6 +24,18 @@ interface SkillBook {
   nextFireAt: number
 }
 
+interface DashState {
+  startX: number
+  startY: number
+  dirX: number
+  dirY: number
+  distance: number
+  startedAt: number
+  hitIds: Set<number>
+  lastX: number
+  lastY: number
+}
+
 interface SkillDeps {
   scene: Phaser.Scene
   clock: GameClock
@@ -45,6 +57,7 @@ export class CharacterSkill {
   private charges = 1
   private rechargeAt = Infinity
   private readonly books: SkillBook[] = []
+  private dash: DashState | null = null
 
   constructor(
     private readonly deps: SkillDeps,
@@ -70,6 +83,7 @@ export class CharacterSkill {
 
   update(nowMs: number): void {
     if (this.deps.clock.paused || this.deps.clock.frozen) return
+    if (this.dash) this.updateDash(nowMs)
     if (this.buffUntil > 0 && nowMs >= this.buffUntil) {
       this.buffUntil = 0
       this.buffAttackSpeedPct = 0
@@ -108,7 +122,7 @@ export class CharacterSkill {
       return {
         name: this.cfg.name,
         level: this.cfg.level,
-        state: ready ? `Q 放置参考书 · 充能 ${charges}` : `充能 ${charges}`,
+        state: ready ? `Space 放置参考书 · 充能 ${charges}` : `充能 ${charges}`,
         detail: `场上 ${this.books.length} 本${recharging}`,
         ready,
       }
@@ -122,17 +136,30 @@ export class CharacterSkill {
         ready: true,
       }
     }
+    if (this.dash) {
+      return {
+        name: this.cfg.name,
+        level: this.cfg.level,
+        state: '突进中 · 无敌',
+        detail: `${this.cfg.distance}px · 沿途伤害 ${this.cfg.dashDamage}`,
+        ready: false,
+      }
+    }
     const remain = Math.max(0, this.nextReadyAt - now)
     return {
       name: this.cfg.name,
       level: this.cfg.level,
-      state: remain > 0 ? `冷却 ${Math.ceil(remain / 1000)} 秒` : 'Q 可释放',
+      state: remain > 0 ? `冷却 ${Math.ceil(remain / 1000)} 秒` : 'Space 可释放',
       detail:
         this.cfg.kind === 'haste'
           ? `攻速 +${this.cfg.attackSpeedPct}% · ${this.cfg.durationMs / 1000} 秒`
-          : `突进 ${this.cfg.distance}px`,
+          : `突进 ${this.cfg.distance}px · 沿途伤害 ${this.cfg.dashDamage}`,
       ready: remain <= 0,
     }
+  }
+
+  isDashing(): boolean {
+    return this.dash !== null
   }
 
   destroy(): void {
@@ -158,7 +185,7 @@ export class CharacterSkill {
     const dirX = length > 0.001 ? dx / length : 1
     const dirY = length > 0.001 ? dy / length : 0
     const start = { x: player.x, y: player.feetY }
-    let end = start
+    let safeDistance = 0
     const steps = 12
     for (let i = 1; i <= steps; i++) {
       const distance = (this.cfg.distance * i) / steps
@@ -167,28 +194,59 @@ export class CharacterSkill {
         y: start.y + dirY * distance,
       }
       if (this.deps.terrain.crossesSolid(start, candidate, player.model.stats.radius)) break
-      end = candidate
+      safeDistance = distance
     }
-    const crossed = this.crossedTargets(start, end)
-    player.body.reset(end.x, end.y)
+    this.dash = {
+      startX: start.x,
+      startY: start.y,
+      dirX,
+      dirY,
+      distance: safeDistance,
+      startedAt: now,
+      hitIds: new Set(),
+      lastX: start.x,
+      lastY: start.y,
+    }
+    player.body.stop()
     player.model.protectedUntilMs = Math.max(
       player.model.protectedUntilMs,
       now + this.cfg.iframeMs,
     )
     this.nextReadyAt = now + this.cfg.cooldownMs
-    this.flashDash(start, end)
-    if (this.cfg.level >= 4 && crossed.length > 0) {
-      const counted = Math.min(crossed.length, this.cfg.maxMechanicEnemies)
+    this.flashDash(start, {
+      x: start.x + dirX * safeDistance,
+      y: start.y + dirY * safeDistance,
+    })
+    return true
+  }
+
+  private updateDash(now: number): void {
+    const dash = this.dash
+    if (!dash) return
+    const t = Phaser.Math.Clamp((now - dash.startedAt) / this.cfg.dashMs, 0, 1)
+    const travelled = dash.distance * t
+    const x = dash.startX + dash.dirX * travelled
+    const y = dash.startY + dash.dirY * travelled
+    const from = { x: dash.lastX, y: dash.lastY }
+    const to = { x, y }
+    for (const target of this.deps.enemies.targets()) {
+      if (dash.hitIds.has(target.id)) continue
+      if (segmentHit(from, to, target, this.deps.player.model.stats.radius) === null) continue
+      dash.hitIds.add(target.id)
+      this.deps.enemies.hit(target.id, allocActorId(), this.cfg.dashDamage, null)
+    }
+    this.deps.player.body.reset(x, y)
+    dash.lastX = x
+    dash.lastY = y
+    if (t < 1) return
+
+    this.dash = null
+    if (this.cfg.level >= 4 && dash.hitIds.size > 0) {
+      const counted = Math.min(dash.hitIds.size, this.cfg.maxMechanicEnemies)
       this.buffAttackSpeedPct = counted * this.cfg.attackSpeedPerEnemyPct
       this.buffUntil = now + this.cfg.durationMs
       this.deps.setTemporaryAttackSpeed(this.buffAttackSpeedPct)
-      const restore = Math.min(
-        counted * this.cfg.shieldPerEnemy,
-        this.cfg.maxShieldRestore,
-      )
-      player.model.restoreFromPickup('shield', restore)
     }
-    return true
   }
 
   private activateSummon(aim: { x: number; y: number }, now: number): boolean {
@@ -226,15 +284,6 @@ export class CharacterSkill {
       bestDistance = distance
     }
     return best
-  }
-
-  private crossedTargets(
-    start: { x: number; y: number },
-    end: { x: number; y: number },
-  ): WeaponTarget[] {
-    return this.deps.enemies
-      .targets()
-      .filter((target) => segmentHit(start, end, target, 0) !== null)
   }
 
   private destroyBook(index: number): void {

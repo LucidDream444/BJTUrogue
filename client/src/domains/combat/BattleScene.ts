@@ -64,15 +64,20 @@ import {
   parseMetaConfig,
   type MetaConfig,
 } from '@/domains/meta/metaConfig'
+import { CHARACTERS, characterById } from '@/domains/meta/catalog'
 import { PauseOverlay } from '@/domains/meta/pause/PauseOverlay'
 import { ProfileStore } from '@/domains/meta/profile/ProfileStore'
-import { LocalStorageProfileStorage } from '@/domains/meta/profile/storage'
+import {
+  LocalStorageProfileStorage,
+  MemoryProfileStorage,
+} from '@/domains/meta/profile/storage'
 import {
   effectiveMaxEnergy,
   effectiveMaxHp,
   effectiveMaxShield,
   effectiveStats,
   skillLevelOf,
+  trackKey,
   type RunInput,
 } from '@/domains/meta/progress/progress'
 import { RunLedger } from '@/domains/meta/run/RunLedger'
@@ -129,6 +134,22 @@ document.head.append(style)
  * 但写成「全图」之后，一个被挤出墙外的怪的处置、以及将来任何一次「同时两间在打」
  * 都会把别的房间的怪算进来，表现是「这间明明清完了，门不开」。
  */
+export interface BattleSceneData {
+  difficulty?: Difficulty
+  /** 测试场专用：使用内存档并开放角色 / 技能等级调试。 */
+  skillLab?: boolean
+  skillLabCharacterId?: string
+  skillLabLevel?: number
+}
+
+export interface SkillLabState {
+  characterId: string
+  characterName: string
+  skillName: string
+  level: number
+  lines: readonly string[]
+}
+
 export class BattleScene extends Phaser.Scene {
   private scenery!: StageBackground
   private loot!: FirstBossLoot
@@ -136,6 +157,9 @@ export class BattleScene extends Phaser.Scene {
   private skillHud!: SkillHud
   private bossLabel!: Phaser.GameObjects.Text
   private difficulty: Difficulty = 'normal'
+  private skillLab = false
+  private skillLabCharacterId: string | undefined
+  private skillLabLevel = 1
   private session!: CombatSession
   private rewardPanel!: RewardPanel
   private cursor!: GameCursor
@@ -385,8 +409,11 @@ export class BattleScene extends Phaser.Scene {
   private get floors(): number {
     return this.cfg.arena.maxStages
   }
-  init(data: { difficulty?: Difficulty } = {}): void {
+  init(data: BattleSceneData = {}): void {
     this.difficulty = data.difficulty ?? 'normal'
+    this.skillLab = data.skillLab === true
+    this.skillLabCharacterId = data.skillLabCharacterId
+    this.skillLabLevel = Phaser.Math.Clamp(data.skillLabLevel ?? 1, 1, 4)
     this.floor = 1
     this.maxFloorReached = 1
     this.floorSeedList = []
@@ -561,8 +588,22 @@ export class BattleScene extends Phaser.Scene {
       //
       // 战斗场景需要一份档（结算要发币），但**不是**在战斗里读它改它 ——
       // 档只在"这一局结束"和"打开暂停菜单"这两个时刻被碰，核心循环里一个字都没有。
-      this.store = new ProfileStore({ storage: new LocalStorageProfileStorage() })
+      this.store = new ProfileStore({
+        storage: this.skillLab
+          ? new MemoryProfileStorage()
+          : new LocalStorageProfileStorage(),
+      })
       this.store.load()
+      if (this.skillLab) {
+        this.store.update((draft) => {
+          draft.unlocks.characters = CHARACTERS.map((character) => character.id)
+          const characterId =
+            this.skillLabCharacterId ?? CHARACTERS[0]?.id ?? 'student'
+          draft.selected.characterId = characterId
+          draft.upgrades[trackKey(characterId, 'skill')] = this.skillLabLevel - 1
+        })
+        this.skillLabCharacterId = this.store.profile.selected.characterId
+      }
       this.session.player.setCharacter(this.store.profile.selected.characterId)
       const syncAudio = (): void => {
         const { bgmVolume, sfxVolume } = this.store.profile.settings
@@ -579,50 +620,7 @@ export class BattleScene extends Phaser.Scene {
         this.meta = null
         console.error('[meta] 成长配置读不出来：', err)
       }
-      if (this.meta) {
-        const permanent = effectiveStats(
-          this.store.profile,
-          this.meta,
-          this.store.profile.selected.characterId,
-        )
-        this.session.applyPermanentRunStats({
-          maxHp: effectiveMaxHp(this.bundle.balance.baseline.player.maxHp, permanent),
-          maxStamina: effectiveMaxEnergy(this.cfg.player.maxStamina),
-          maxShield: effectiveMaxShield(this.cfg.player.maxShield),
-          attackSpeedPct: 0,
-          moveSpeedPct: permanent.moveSpeedPct,
-          energyRegenPct: permanent.energyRegenPct,
-        })
-        const characterSkill =
-          this.meta.characters[this.store.profile.selected.characterId]?.skill
-        const skillLevel = skillLevelOf(
-          this.store.profile,
-          this.meta,
-          this.store.profile.selected.characterId,
-        )
-        const rank = characterSkill?.levels[Math.max(0, skillLevel - 1)]
-        if (characterSkill && rank) {
-          this.session.configureCharacterSkill({
-            id: characterSkill.id,
-            name: characterSkill.name,
-            kind: characterSkill.kind,
-            level: skillLevel,
-            cooldownMs: rank.cooldownMs,
-            durationMs: rank.durationMs,
-            attackSpeedPct: rank.attackSpeedPct,
-            distance: rank.distance,
-            iframeMs: rank.iframeMs,
-            attackSpeedPerEnemyPct: rank.attackSpeedPerEnemyPct,
-            maxMechanicEnemies: rank.maxMechanicEnemies,
-            shieldPerEnemy: rank.shieldPerEnemy,
-            maxShieldRestore: rank.maxShieldRestore,
-            pageDamage: rank.pageDamage,
-            fireIntervalMs: rank.fireIntervalMs,
-            range: rank.range,
-            maxCharges: rank.maxCharges,
-          })
-        }
-      }
+      this.applyProfileToRun()
       this.ledger = new RunLedger(this.session.bus)
       if (this.meta) {
         this.settlement = new SettlementOverlay({
@@ -707,6 +705,145 @@ export class BattleScene extends Phaser.Scene {
       this.showFatal(e)
     }
   }
+
+  /** 把当前测试/正式档里的角色被动和技能重新应用到本局。 */
+  private applyProfileToRun(): void {
+    if (!this.meta) return
+    const characterId = this.store.profile.selected.characterId
+    const permanent = effectiveStats(this.store.profile, this.meta, characterId)
+    this.session.player.setCharacter(characterId)
+    this.session.applyPermanentRunStats({
+      maxHp: effectiveMaxHp(this.bundle.balance.baseline.player.maxHp, permanent),
+      maxStamina: effectiveMaxEnergy(this.cfg.player.maxStamina),
+      maxShield: effectiveMaxShield(this.cfg.player.maxShield),
+      attackSpeedPct: 0,
+      moveSpeedPct: permanent.moveSpeedPct,
+      energyRegenPct: permanent.energyRegenPct,
+    })
+    const characterSkill = this.meta.characters[characterId]?.skill
+    const skillLevel = skillLevelOf(this.store.profile, this.meta, characterId)
+    const rank = characterSkill?.levels[Math.max(0, skillLevel - 1)]
+    if (!characterSkill || !rank) return
+    this.session.configureCharacterSkill({
+      id: characterSkill.id,
+      name: characterSkill.name,
+      kind: characterSkill.kind,
+      level: skillLevel,
+      cooldownMs: rank.cooldownMs,
+      durationMs: rank.durationMs,
+      attackSpeedPct: rank.attackSpeedPct,
+      distance: rank.distance,
+      dashMs: rank.dashMs,
+      dashDamage: rank.dashDamage,
+      iframeMs: rank.iframeMs,
+      attackSpeedPerEnemyPct: rank.attackSpeedPerEnemyPct,
+      maxMechanicEnemies: rank.maxMechanicEnemies,
+      pageDamage: rank.pageDamage,
+      fireIntervalMs: rank.fireIntervalMs,
+      range: rank.range,
+      maxCharges: rank.maxCharges,
+    })
+  }
+
+  /** 测试场专用状态。正式入口始终返回 null。 */
+  skillLabState(): SkillLabState | null {
+    if (!this.skillLab || !this.meta) return null
+    const characterId = this.store.profile.selected.characterId
+    const character = this.meta.characters[characterId]
+    if (!character) return null
+    const level = skillLevelOf(this.store.profile, this.meta, characterId)
+    const rank = character.skill.levels[Math.max(0, level - 1)]!
+    return {
+      characterId,
+      characterName: characterById(characterId)?.name ?? characterId,
+      skillName: character.skill.name,
+      level,
+      lines: this.skillLabLines(character.skill.kind, rank),
+    }
+  }
+
+  /** 测试场专用角色切换。 */
+  cycleSkillLabCharacter(delta: number): boolean {
+    if (!this.skillLab) return false
+    const ids = CHARACTERS.map((character) => character.id)
+    const current = Math.max(0, ids.indexOf(this.store.profile.selected.characterId))
+    const next = (current + delta + ids.length) % ids.length
+    const characterId = ids[next]
+    if (!characterId) return false
+    this.skillLabCharacterId = characterId
+    this.store.update((draft) => {
+      if (!draft.unlocks.characters.includes(characterId)) {
+        draft.unlocks.characters.push(characterId)
+      }
+      draft.selected.characterId = characterId
+      draft.upgrades[trackKey(characterId, 'skill')] = this.skillLabLevel - 1
+    })
+    this.applyProfileToRun()
+    return true
+  }
+
+  /** 测试场专用技能等级调整，范围为 1—4。 */
+  changeSkillLabLevel(delta: number): boolean {
+    if (!this.skillLab || !this.meta) return false
+    const characterId = this.store.profile.selected.characterId
+    const level = skillLevelOf(this.store.profile, this.meta, characterId)
+    const next = Phaser.Math.Clamp(level + delta, 1, 4)
+    if (next === level) return false
+    this.skillLabLevel = next
+    this.store.update((draft) => {
+      draft.upgrades[trackKey(characterId, 'skill')] = next - 1
+    })
+    this.applyProfileToRun()
+    return true
+  }
+
+  private skillLabLines(
+    kind: 'haste' | 'dash' | 'summon',
+    rank: {
+      cooldownMs: number
+      durationMs: number
+      attackSpeedPct: number
+      distance: number
+      dashMs: number
+      dashDamage: number
+      iframeMs: number
+      attackSpeedPerEnemyPct: number
+      maxMechanicEnemies: number
+      pageDamage: number
+      fireIntervalMs: number
+      range: number
+      maxCharges: number
+    },
+  ): string[] {
+    if (kind === 'haste') {
+      return [
+        `冷却 ${rank.cooldownMs / 1000}s`,
+        `攻速 +${rank.attackSpeedPct}%`,
+        `持续 ${rank.durationMs / 1000}s`,
+      ]
+    }
+    if (kind === 'summon') {
+      return [
+        `冷却 ${rank.cooldownMs / 1000}s`,
+        `参考书 ${rank.durationMs / 1000}s · 射程 ${rank.range}px`,
+        `书页 ${rank.pageDamage} 伤害 / ${rank.fireIntervalMs}ms`,
+        `充能 ${rank.maxCharges}`,
+      ]
+    }
+    const lines = [
+      `冷却 ${rank.cooldownMs / 1000}s`,
+      `突进 ${rank.distance}px / ${rank.dashMs}ms`,
+      `沿途伤害 ${rank.dashDamage} · 无敌 ${rank.iframeMs}ms`,
+    ]
+    if (rank.attackSpeedPerEnemyPct > 0) {
+      lines.push(
+        `穿敌 +${rank.attackSpeedPerEnemyPct}% 攻速/名，最多 ${rank.maxMechanicEnemies} 名`,
+        `Buff ${rank.durationMs / 1000}s`,
+      )
+    }
+    return lines
+  }
+
   override update(_time: number, delta: number): void {
     if (!this.session) return
     this.driveGrab(delta)
@@ -1899,16 +2036,10 @@ export class BattleScene extends Phaser.Scene {
       this.loot.replacementPending ? this.loot.chooseReplacement(1) : this.session.equipSlot(1),
     )
     k?.on('keydown-X', () => this.session.cycleWeapon())
-    k?.on('keydown-Q', () => {
-      if (this.grabbing || this.session.clock.paused) return
-      const pointer = this.input.activePointer
-      const aim = this.cameras.main.getWorldPoint(pointer.x, pointer.y)
-      this.session.activateSkill({ x: aim.x, y: aim.y })
-    })
     if (k) {
       // 这几个键默认会让页面滚动（`Scale.RESIZE` 下画布就是整页）—— 不捕获的话
       // 按一下空格整页就跳。
-      k.addCapture(['SPACE', 'ESC', 'UP', 'DOWN', 'ENTER', 'Q', 'X'])
+      k.addCapture(['SPACE', 'ESC', 'UP', 'DOWN', 'ENTER', 'X'])
       // ⚠️ 暂停的键盘入口**只有这一处**（`togglePauseMenu`）。宿主自己再绑一个
       // "Esc 关菜单"，按一下就会同时又关又开 —— 见 `PauseOverlay` 文件头。
       k.on('keydown-ESC', () => {
@@ -1917,8 +2048,10 @@ export class BattleScene extends Phaser.Scene {
         else this.togglePauseMenu()
       })
       k.on('keydown-SPACE', () => {
-        if (this.grabbing) return
-        this.togglePauseMenu()
+        if (this.grabbing || this.session.clock.paused) return
+        const pointer = this.input.activePointer
+        const aim = this.cameras.main.getWorldPoint(pointer.x, pointer.y)
+        this.session.activateSkill({ x: aim.x, y: aim.y })
       })
       k.on('keydown-UP', () => this.pauseMenu.handleMoveFocus(-1))
       k.on('keydown-DOWN', () => this.pauseMenu.handleMoveFocus(1))
@@ -2035,7 +2168,12 @@ export class BattleScene extends Phaser.Scene {
   }
   private restartDifficulty(d: Difficulty): void {
     this.session.destroy()
-    this.scene.restart({ difficulty: d })
+    this.scene.restart({
+      difficulty: d,
+      skillLab: this.skillLab,
+      skillLabCharacterId: this.skillLabCharacterId,
+      skillLabLevel: this.skillLabLevel,
+    })
   }
   private label(): string {
     return this.difficulty === 'easy' ? '入门' : this.difficulty === 'hard' ? '困难' : '普通'
