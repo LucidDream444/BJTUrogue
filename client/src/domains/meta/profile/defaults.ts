@@ -44,7 +44,6 @@
  */
 
 import { PROFILE_SCHEMA_VERSION, type ProfileData } from './types'
-import { STARTER_SKILL_ID } from '../catalog'
 
 /**
  * 角色目录（当前 3 个角色，各有独立战斗身份）由 `catalog.ts` 维护；
@@ -68,9 +67,8 @@ export function createDefaultProfile(): ProfileData {
     },
     unlocks: {
       characters: [STARTER_CHARACTER_ID],
-      // MVP：唯一的技能默认解锁。设计上「一个角色可以选择多个技能」——
-      // 那需要一个装备界面，记在改动日志的缺口清单里。
-      skills: [STARTER_SKILL_ID],
+      // 新技能模型按角色固定，不再有全局技能解锁列表。
+      skills: [],
     },
     currency: { coins: 0 },
     upgrades: {},
