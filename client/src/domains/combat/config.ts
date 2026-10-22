@@ -223,6 +223,7 @@ export interface CombatConfig {
     width: number
     height: number
     initialSplitters: number
+    initialSprayers: number
     initialTanks: number
     /**
      * **每间房期望刷几只抓取怪**（可以是小数 = 概率）。
@@ -477,6 +478,8 @@ export function parseCombatConfig(raw: unknown): CombatConfig {
   numeric(c.arena, 'arena')
   if (!Number.isInteger(c.arena.maxStages) || c.arena.maxStages < 1)
     throw new Error('arena.maxStages: 关卡上限无效')
+  if (!Number.isFinite(c.arena.initialSprayers) || c.arena.initialSprayers < 0)
+    throw new Error('arena.initialSprayers: 必须为非负有限数')
   if (!Number.isFinite(c.arena.initialGrabbers) || c.arena.initialGrabbers < 0)
     throw new Error('arena.initialGrabbers: 不能为负（0 是合法值：第一层不出抓取怪）')
   // 一局几层 = `maxStages`（第 1..N 层的首领按层的序号挑），一层几间 = 下面这两个数。

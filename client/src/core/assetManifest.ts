@@ -71,6 +71,12 @@ export const STATUS_HUD_ART = {
 export const STATUS_BAR_FILL_BOUNDS = { left: 31, rightInset: 32 } as const
 
 export const TANK_ART = { walk: 'enemy_tank_walk', attack: 'enemy_tank_idle' } as const
+export const SPRAYER_ART = { texture: 'enemy_sprayer_idle', windupFrame: 4, sprayFrame: 5 } as const
+export const LIQUID_SFX = {
+  spray: 'sfx_liquid_spray',
+  pickup: 'sfx_liquid_pickup',
+  cleanse: 'sfx_liquid_cleanse',
+} as const
 
 /** 抓取怪的笔记本电脑动作图集。帧由 D3 的抓取状态驱动，不把玩家画进敌人图。 */
 export const GRABBER_ART = {
@@ -233,6 +239,23 @@ function playerLayerAssets(): AssetEntry[] {
 }
 
 export const ASSETS: readonly AssetEntry[] = [
+  {
+    key: SPRAYER_ART.texture,
+    path: 'sprites/enemies/enemy_sprayer_idle.png',
+    kind: 'spritesheet',
+    placeholder: false,
+    width: 64,
+    height: 64,
+    frameWidth: 64,
+    frameHeight: 64,
+  },
+  ...Object.values(LIQUID_SFX).map((key): AssetEntry => ({
+    key,
+    path: `audio/sfx/enemies/${key}`,
+    kind: 'audio',
+    placeholder: false,
+    codecs: ['ogg', 'mp3'],
+  })),
   ...['pencil', 'pulse', 'venom', 'flare', 'rail', 'smg'].flatMap((weapon) =>
     ['up', 'down'].flatMap((direction) =>
       ['run', 'stand'].map((state): AssetEntry => ({
@@ -1485,6 +1508,13 @@ export const PAPER_DEATH_ANIMS: readonly AnimDef[] = [
 ]
 
 export const ANIMS: readonly AnimDef[] = [
+  {
+    animKey: 'enemy_sprayer_idle_loop',
+    textureKey: SPRAYER_ART.texture,
+    frames: [0, 1, 2, 3],
+    frameRate: 6,
+    repeat: -1,
+  },
   ...GOOSE_ANIMS,
   ...PAPER_DEATH_ANIMS,
   {

@@ -30,6 +30,7 @@ describe('怪物图鉴目录', () => {
       'splitter-2',
       'tank',
       'grabber',
+      'sprayer',
       'stage2-boss',
     ])
     expect(entries.filter((entry) => entry.category === '首领')).toHaveLength(1)

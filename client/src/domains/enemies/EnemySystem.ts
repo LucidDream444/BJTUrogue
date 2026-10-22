@@ -76,12 +76,14 @@ import {
   type GrabberDef,
   type SplitterGenerationDef,
   type TankDef,
+  type SprayerDef,
 } from '@/core/config'
 import {
   EnemyModel,
   specFromGrabber,
   specFromSplitter,
   specFromTank,
+  specFromSprayer,
   type EnemySpec,
   type EnemyState,
 } from './model/EnemyModel'
@@ -100,6 +102,9 @@ import { targetsInBlast } from './grab/blast'
 import { makeRadialBossBrain } from './brains/RadialBossBrain'
 import { RadialProjectiles } from './projectiles/RadialProjectiles'
 import { bossArt } from './presentation/bossArt'
+import { LiquidField } from './liquid/LiquidField'
+import { makeSprayerBrain, type SprayAttack } from './brains/SprayerBrain'
+import { LiquidFx } from './presentation/LiquidFx'
 
 type EnemyActor = Actor<EnemyState>
 export type Entry = PooledEnemy<EnemyActor>
@@ -262,6 +267,11 @@ export const GRAB_PRESS_SOURCE_ID = -11
 const SEP_QUERY_MARGIN = 120
 
 export class EnemySystem implements ActorEventSink {
+  readonly liquid: LiquidField
+  private readonly liquidFx: LiquidFx
+  private liquidPlayerId = 0
+  private readonly pendingPlayerContacts = new Set<number>()
+  private liquidDeathUnsub: (() => void) | null = null
   private readonly scene: Phaser.Scene
   private readonly bus: TypedBus<GameEvents>
   private readonly clock: GameClock
@@ -359,6 +369,16 @@ export class EnemySystem implements ActorEventSink {
     this.bus = opts.bus
     this.clock = opts.clock
     this.bundle = opts.bundle
+    this.liquid = new LiquidField(opts.bundle.enemies.enemies.sprayer)
+    this.liquidFx = new LiquidFx(opts.scene, opts.clock, this.liquid, opts.player, () =>
+      this.liveEnemies
+        .filter((e) => e.model.enemyKind === 'sprayer' && e.model.state === 'windup')
+        .map((e) => ({
+          x: e.model.sprayX,
+          y: e.model.sprayY,
+          progress: e.model.stateAgeMs(opts.clock.nowMs) / this.liquid.cfg.spray.windupMs,
+        })),
+    )
     this.radialShots = new RadialProjectiles(opts.bundle.enemies.stage2Boss.projectile)
     this.diffMods = opts.bundle.difficulty.difficulties[opts.difficulty]
     this.playerOf = opts.player
@@ -390,6 +410,7 @@ export class EnemySystem implements ActorEventSink {
       // ⚠️ 账本配对（不变式 ④）。池的 `release()` 一定会调到这里，所以
       // 「怪回池了但账本还记着它」在结构上就不可能发生 —— 不需要任何调用方记得。
       onRelease: (model) => {
+        this.liquid.releaseEnemy(model.id)
         this.radialShots.removeOwner(model.id)
         this.ledger.releaseTarget(model)
         this.brains.delete(model)
@@ -452,7 +473,11 @@ export class EnemySystem implements ActorEventSink {
 
   /** 挂到物理世界的 step 事件上。**在场景的 `create()` 里调一次。** */
   create(): void {
+    if (this.wired) return
     this.wired = true
+    this.liquidDeathUnsub = this.bus.on('entity_killed', (e) => {
+      if (e.kind === 'player' && e.id === this.liquidPlayerId) this.clearLiquid()
+    })
     this.scene.physics.world.on(Phaser.Physics.Arcade.Events.WORLD_STEP, this.onWorldStep, this)
   }
 
@@ -509,6 +534,10 @@ export class EnemySystem implements ActorEventSink {
   shutdown(): void {
     if (this.disposed) return
     this.disposed = true
+    this.liquidDeathUnsub?.()
+    this.liquidDeathUnsub = null
+    this.clearLiquid()
+    this.liquidFx.destroy()
 
     // `?.` 两层都要：`physics` 是场景插件本身（关了也还在），被置 null 的是 `.world`
     const world = this.scene.physics?.world
@@ -544,6 +573,7 @@ export class EnemySystem implements ActorEventSink {
   /** 世界步回调。挂在 WORLD_STEP 上，掉帧时一帧会被调 N 次（N 次共用同一个 frameId）。 */
   private onWorldStep(): void {
     if (this.disposed) return
+    if (this.clock.paused || this.clock.frozen) return
     this.worldStepCount++
 
     const nowMs = this.clock.nowMs
@@ -558,6 +588,7 @@ export class EnemySystem implements ActorEventSink {
 
       this.refreshSnaps()
       const target = this.playerOf()
+      this.stepLiquid(target, nowMs, frameId)
       this.nav?.update(target?.x ?? 0, target?.y ?? 0, nowMs)
       this.runAi(target, nowMs)
       this.stepRadialShots(target, nowMs)
@@ -572,6 +603,13 @@ export class EnemySystem implements ActorEventSink {
     // 掉帧时一帧内跑 N 次是正确的：物理步多了，接触次数本来就该多，
     // 而「每个配对单帧最多结算一次」由账本的 lastSettledFrameId 闸门守着。
     this.touchContact(nowMs)
+    const player = this.playerOf()
+    if (player?.alive)
+      for (const id of this.pendingPlayerContacts) {
+        const entry = this.byId.get(id)
+        if (entry) this.registerPlayerContact(entry.model, player, nowMs)
+      }
+    this.pendingPlayerContacts.clear()
     this.ledger.step(nowMs, frameId)
 
     // **把 brain 写好的速度意图落到物理体上。这是它唯一的写入点。**
@@ -615,6 +653,43 @@ export class EnemySystem implements ActorEventSink {
       }
       entry.view.writeSnapshot(snap)
     }
+  }
+
+  private stepLiquid(target: PlayerView | null, nowMs: number, frameId: number): void {
+    const oldActive = this.liquid.active
+    const oldStill = this.liquid.stillMs
+    const amount = this.liquid.step(
+      nowMs,
+      frameId,
+      target ? { ...target, id: target.model.id } : null,
+    )
+    if (target) this.liquidPlayerId = target.model.id
+    if (oldActive !== this.liquid.active || oldStill !== this.liquid.stillMs) this.publishLiquid()
+    if (amount > 0 && target?.alive)
+      this.bus.emit('player_liquid_drain', {
+        playerId: target.model.id,
+        sourceId: this.liquid.sourceId,
+        amount,
+        frameId,
+        nowMs,
+      })
+  }
+
+  private publishLiquid(): void {
+    this.bus.emit('player_liquid_changed', {
+      playerId: this.liquidPlayerId,
+      active: this.liquid.active,
+      speedMultiplier: this.liquid.active ? this.liquid.cfg.coating.speedMultiplier : 1,
+      stillMs: this.liquid.stillMs,
+      cleanseMs: this.liquid.cfg.coating.cleanseStillMs,
+    })
+  }
+
+  /** 换楼层时旧坐标的液滩与身上效果一起清除。 */
+  clearLiquid(): void {
+    this.liquid.clear()
+    this.publishLiquid()
+    this.pendingPlayerContacts.clear()
   }
 
   private rebuildHash(): void {
@@ -1031,6 +1106,19 @@ export class EnemySystem implements ActorEventSink {
   }
 
   private resolveAttack(entry: Entry, attack: BrainAttack): void {
+    if (attack.kind === 'spray') {
+      const spray = attack as SprayAttack
+      const from = entry.view.body.center
+      this.liquid.spray(
+        entry.model.id,
+        spray.x,
+        spray.y,
+        this.clock.nowMs,
+        (x, y, radius) => !this.projectileBlocked?.(from.x, from.y, x, y, radius),
+      )
+      this.liquidFx.spray()
+      return
+    }
     if (attack.kind === 'grab') {
       // ⚠️ **不重新量距离。** 肉盾的下砸要在这一帧重量一次（前摇的意义就是「跑得掉」），
       //    抓取相反：预警到点就锁死、必定扑中。躲的窗口是那 2 秒预警本身，
@@ -1099,11 +1187,26 @@ export class EnemySystem implements ActorEventSink {
     const model = actor.model as EnemyModel | undefined
     if (!model || this.byId.get(model.id)?.view !== actor) return
     const target = this.playerOf()
-    if (target?.alive) this.registerPlayerContact(model, target, this.clock.nowMs)
+    if (target?.alive) this.pendingPlayerContacts.add(model.id)
   }
 
   private registerPlayerContact(model: EnemyModel, target: PlayerView, nowMs: number): void {
     if (!model.alive || model.state === 'spawning') return
+    if (this.liquid.active) {
+      const amount = this.liquid.ram(model.id, nowMs)
+      if (amount > 0)
+        model.takeHit({
+          sourceId: target.model.id,
+          hitKey: `liquid-ram:${model.id}:${this.clock.frameId}`,
+          sourceKind: 'contact',
+          mode: 'instant',
+          amount,
+          nowMs,
+          frameId: this.clock.frameId,
+        })
+      // 沾液只赋予接触攻击，不额外赠送接触免伤；击杀后尸体不再伤害玩家。
+      if (!model.alive) return
+    }
     const amountPerTick = this.contactDamagePerTick(model)
     if (amountPerTick <= 0) return
     this.ledger.touch(
@@ -1292,6 +1395,8 @@ export class EnemySystem implements ActorEventSink {
         return this.bundle.enemies.enemies.tank
       case 'grabber':
         return this.bundle.enemies.enemies.grabber
+      case 'sprayer':
+        return this.bundle.enemies.enemies.sprayer
       default: {
         const never: never = kind
         throw new Error(`未处理的敌人模板：${String(never)}`)
@@ -1306,10 +1411,8 @@ export class EnemySystem implements ActorEventSink {
    * （`generations[]`），拿不到一个平坦值 —— 所以它的那几处永远走「按代际」的支路。
    * 这个类型收窄不是洁癖：它让「以后再加模板时忘了补支路」变成编译错误。
    */
-  private unitDefFor(kind: 'tank' | 'grabber'): TankDef | GrabberDef {
-    return kind === 'tank'
-      ? this.bundle.enemies.enemies.tank
-      : this.bundle.enemies.enemies.grabber
+  private unitDefFor(kind: 'tank' | 'grabber' | 'sprayer'): TankDef | GrabberDef | SprayerDef {
+    return this.bundle.enemies.enemies[kind]
   }
 
   /** **配置 → 模型参数的唯一入口。** 派生结果按 (代际, 难度) 缓存。 */
@@ -1329,6 +1432,12 @@ export class EnemySystem implements ActorEventSink {
         const def = this.bundle.enemies.enemies.grabber
         return specFromGrabber(this.derivedGrabber(def), def)
       }
+      case 'sprayer':
+        return specFromSprayer(
+          this.bundle.enemies.enemies.sprayer,
+          this.diffMods,
+          this.bundle.balance,
+        )
       default: {
         const never: never = kind
         throw new Error(`未处理的敌人模板：${String(never)}`)
@@ -1462,6 +1571,8 @@ export class EnemySystem implements ActorEventSink {
   }
 
   private makeBrain(model: EnemyModel): Brain {
+    if (model.enemyKind === 'sprayer')
+      return makeSprayerBrain(model, this.bundle.enemies.enemies.sprayer)
     if (this.isStage2Boss(model.id)) {
       const cfg = this.bundle.enemies.stage2Boss
       return makeRadialBossBrain(

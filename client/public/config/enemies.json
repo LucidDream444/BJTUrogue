@@ -227,6 +227,55 @@
         "escapeSfxVoices": 3,
         "biteSfxMinIntervalMs": 1500
       }
+    },
+    "sprayer": {
+      "kind": "sprayer",
+      "displayName": "催化喷洒怪",
+      "threatLevel": 3,
+      "hpMode": "shots",
+      "hpValue": 8,
+      "speed": 72,
+      "radius": 22,
+      "visualScale": 0.9,
+      "textureKey": "enemy_sprayer_idle",
+      "contactDamagePerTick": 8,
+      "aggroRadius": 700,
+      "loseTargetRadius": 900,
+      "ai": {
+        "nearTickHz": 30,
+        "farTickHz": 5,
+        "flinchMs": 0,
+        "separationPad": 16,
+        "separationStrength": 90
+      },
+      "spray": {
+        "range": 320,
+        "keepDistance": 220,
+        "windupMs": 900,
+        "cooldownMs": 3600,
+        "recoverMs": 500,
+        "puddleRadius": 25,
+        "lifetimeMs": 12000,
+        "spreadDistance": 54,
+        "puddlesPerSpray": 4,
+        "maxPuddles": 48
+      },
+      "coating": {
+        "speedMultiplier": 1.55,
+        "cleanseStillMs": 3000,
+        "stillSpeedThreshold": 6,
+        "drainIntervalMs": 500,
+        "drainDamage": 3,
+        "ramDamage": 80,
+        "ramCooldownMs": 650
+      },
+      "fx": {
+        "color": 10343488,
+        "edgeColor": 14614203,
+        "warningColor": 16765801,
+        "bubbleCount": 3
+      },
+      "_design": "沾液后加速、移动耗生命并可高伤冲撞。液滩踩过即消失；静止累计三秒清除，移动不重置进度，再次踩液不叠加、不刷新。"
     }
   }
 }

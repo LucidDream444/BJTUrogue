@@ -12,6 +12,7 @@ import {
   deriveGrabber,
   deriveSplitterGeneration,
   deriveTank,
+  deriveSprayer,
   type ConfigBundle,
   type Difficulty,
 } from '@/core/config'
@@ -137,6 +138,31 @@ export function buildCodexEntries(
       { label: '抓取距离', value: `${grabber.grab.range} px` },
       { label: '预警时间', value: `${formatSeconds(grabber.grab.telegraphMs)}` },
       { label: '连点挣脱', value: `${grabberDerived.pressesToEscape} 次` },
+    ],
+    lorePlaceholder: LORE_PLACEHOLDER,
+  })
+
+  const sprayer = bundle.enemies.enemies.sprayer
+  const sprayerStats = deriveSprayer(sprayer, modifiers, bundle.balance)
+  entries.push({
+    id: 'sprayer',
+    category: '普通敌人',
+    name: sprayer.displayName,
+    variant: '喷洒型',
+    role: `喷洒催化液 · 沾液加速撞怪，移动耗血；静止累计 ${formatSeconds(sprayer.coating.cleanseStillMs)} 清除`,
+    threatLevel: sprayer.threatLevel,
+    textureKey: sprayer.textureKey,
+    visualScale: sprayer.visualScale,
+    hasArt: hasDeliveredArt(sprayer.textureKey),
+    stats: [
+      { label: '生命值', value: `${sprayerStats.maxHp}` },
+      { label: '移动速度', value: `${sprayerStats.speed} px/s` },
+      { label: '沾液加速', value: `×${sprayer.coating.speedMultiplier}` },
+      { label: '冲撞伤害', value: `${sprayer.coating.ramDamage}` },
+      {
+        label: '移动耗血',
+        value: `${sprayer.coating.drainDamage} / ${formatSeconds(sprayer.coating.drainIntervalMs)}`,
+      },
     ],
     lorePlaceholder: LORE_PLACEHOLDER,
   })

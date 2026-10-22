@@ -79,7 +79,7 @@ export class TypedBus<E extends EventMap> {
 export type EmptyPayload = Record<string, never>
 
 export type ActorKind = 'player' | 'enemy'
-export type EnemyKind = 'splitter' | 'tank' | 'grabber'
+export type EnemyKind = 'splitter' | 'tank' | 'grabber' | 'sprayer'
 
 // 伤害相关的两个枚举只定义在 actor/damage.ts 一份，这里转发，避免两处漂移。
 // 依赖方向是 events → damage，反过来是禁止的（damage.ts 必须保持零依赖，见 architecture.test.ts）。
@@ -92,6 +92,22 @@ import type { DamageSourceKind, DamageMode } from './actor/damage'
  * 命名约定：`<名词>_<过去式动词>`，全小写下划线。
  */
 export interface GameEvents extends EventMap {
+  /** D3 发布液体状态；玩家所属域应用速度，界面显示累计静止进度。 */
+  player_liquid_changed: {
+    playerId: number
+    active: boolean
+    speedMultiplier: number
+    stillMs: number
+    cleanseMs: number
+  }
+  /** 移动代价直接消耗生命，不消耗护盾、不触发受击硬直或无敌帧。 */
+  player_liquid_drain: {
+    playerId: number
+    sourceId: number
+    amount: number
+    frameId: number
+    nowMs: number
+  }
   entity_spawned: {
     bossStage?: number
     id: number

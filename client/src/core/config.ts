@@ -337,7 +337,45 @@ export interface GrabberDef {
   juice: GrabberJuiceConfig
 }
 
-export type EnemyDef = SplitterDef | TankDef | GrabberDef
+export interface SprayerDef {
+  kind: 'sprayer'
+  displayName: string
+  threatLevel: number
+  hpMode: 'shots'
+  hpValue: number
+  speed: number
+  radius: number
+  visualScale: number
+  textureKey: string
+  contactDamagePerTick: number
+  aggroRadius: number
+  loseTargetRadius: number
+  ai: AiConfig
+  spray: {
+    range: number
+    keepDistance: number
+    windupMs: number
+    cooldownMs: number
+    recoverMs: number
+    puddleRadius: number
+    lifetimeMs: number
+    spreadDistance: number
+    puddlesPerSpray: number
+    maxPuddles: number
+  }
+  coating: {
+    speedMultiplier: number
+    cleanseStillMs: number
+    stillSpeedThreshold: number
+    drainIntervalMs: number
+    drainDamage: number
+    ramDamage: number
+    ramCooldownMs: number
+  }
+  fx: { color: number; edgeColor: number; warningColor: number; bubbleCount: number }
+}
+
+export type EnemyDef = SplitterDef | TankDef | GrabberDef | SprayerDef
 
 export interface RadialProjectileConfig {
   count: number
@@ -372,6 +410,7 @@ export interface EnemiesConfig {
     splitter: SplitterDef
     tank: TankDef
     grabber: GrabberDef
+    sprayer: SprayerDef
   }
 }
 
@@ -439,6 +478,14 @@ export interface DerivedGrabber {
   flingSpeed: number
   /** 落地爆炸伤害（已乘难度 `enemyDamage`，只打其它敌人） */
   blastDamage: number
+}
+
+export function deriveSprayer(def: SprayerDef, diff: DifficultyModifiers, balance: BalanceConfig) {
+  return {
+    maxHp: Math.max(1, roundHalfUp(def.hpValue * balance.baseline.bullet.damage * diff.enemyHp)),
+    speed: roundHalfUp(def.speed * diff.enemySpeed),
+    radius: def.radius,
+  }
 }
 
 // ---------------------------------------------------------------- 错误
@@ -761,11 +808,12 @@ export function validateEnemies(raw: unknown): EnemiesConfig {
   const splitter = validateSplitter(need(enemies.splitter, 'enemies.enemies.splitter'))
   const tank = validateTank(need(enemies.tank, 'enemies.enemies.tank'))
   const grabber = validateGrabber(need(enemies.grabber, 'enemies.enemies.grabber'))
+  const sprayer = validateSprayer(need(enemies.sprayer, 'enemies.enemies.sprayer'))
 
   return {
     schemaVersion: needNumber(r.schemaVersion, 'enemies.schemaVersion', { min: 1 }),
     stage2Boss: validateStage2Boss(r.stage2Boss),
-    enemies: { splitter, tank, grabber },
+    enemies: { splitter, tank, grabber, sprayer },
   }
 }
 
@@ -1152,6 +1200,79 @@ function validateTank(raw: unknown): TankDef {
       jitterHz: needNumber(juice.jitterHz, `${path}.juice.jitterHz`, { min: 0 }),
       squashHz: needNumber(juice.squashHz, `${path}.juice.squashHz`, { min: 0 }),
       hpPitchCents: needNumber(juice.hpPitchCents, `${path}.juice.hpPitchCents`, { min: 0 }),
+    },
+  }
+}
+
+function validateSprayer(raw: unknown): SprayerDef {
+  const path = 'enemies.enemies.sprayer'
+  const r = need(raw as Record<string, unknown>, path)
+  if (r.kind !== 'sprayer' || r.hpMode !== 'shots')
+    throw new ConfigError(path, '喷洒怪必须使用 sprayer / shots')
+  const spray = need(r.spray as Record<string, unknown>, `${path}.spray`)
+  const coating = need(r.coating as Record<string, unknown>, `${path}.coating`)
+  const fx = need(r.fx as Record<string, unknown>, `${path}.fx`)
+  const positive = (o: Record<string, unknown>, key: string, prefix: string) =>
+    needNumber(o[key], `${path}.${prefix}${key}`, { min: 0.01 })
+  const count = (o: Record<string, unknown>, key: string, prefix: string, max: number) => {
+    const value = needNumber(o[key], `${path}.${prefix}${key}`, { min: 1, max })
+    if (!Number.isInteger(value)) throw new ConfigError(`${path}.${prefix}${key}`, '必须为整数')
+    return value
+  }
+  const range = positive(spray, 'range', 'spray.')
+  const keepDistance = positive(spray, 'keepDistance', 'spray.')
+  const puddlesPerSpray = count(spray, 'puddlesPerSpray', 'spray.', 16)
+  const maxPuddles = count(spray, 'maxPuddles', 'spray.', 128)
+  if (keepDistance >= range || maxPuddles < puddlesPerSpray)
+    throw new ConfigError(`${path}.spray`, '保持距离必须小于射程，液滩容量不得小于一轮喷洒')
+  return {
+    kind: 'sprayer',
+    hpMode: 'shots',
+    displayName: needString(r.displayName, `${path}.displayName`),
+    threatLevel: needNumber(r.threatLevel, `${path}.threatLevel`, { min: 1, max: 5 }),
+    hpValue: positive(r, 'hpValue', ''),
+    speed: positive(r, 'speed', ''),
+    radius: positive(r, 'radius', ''),
+    visualScale: positive(r, 'visualScale', ''),
+    textureKey: validateTextureKey(
+      needString(r.textureKey, `${path}.textureKey`),
+      `${path}.textureKey`,
+      'image',
+    ),
+    contactDamagePerTick: needNumber(r.contactDamagePerTick, `${path}.contactDamagePerTick`, {
+      min: 0,
+    }),
+    aggroRadius: positive(r, 'aggroRadius', ''),
+    loseTargetRadius: positive(r, 'loseTargetRadius', ''),
+    ai: validateAi(r.ai, `${path}.ai`),
+    spray: {
+      range,
+      keepDistance,
+      puddlesPerSpray,
+      maxPuddles,
+      windupMs: positive(spray, 'windupMs', 'spray.'),
+      cooldownMs: positive(spray, 'cooldownMs', 'spray.'),
+      recoverMs: positive(spray, 'recoverMs', 'spray.'),
+      puddleRadius: positive(spray, 'puddleRadius', 'spray.'),
+      lifetimeMs: positive(spray, 'lifetimeMs', 'spray.'),
+      spreadDistance: needNumber(spray.spreadDistance, `${path}.spray.spreadDistance`, { min: 0 }),
+    },
+    coating: {
+      speedMultiplier: needNumber(coating.speedMultiplier, `${path}.coating.speedMultiplier`, {
+        min: 1.01,
+      }),
+      cleanseStillMs: positive(coating, 'cleanseStillMs', 'coating.'),
+      stillSpeedThreshold: positive(coating, 'stillSpeedThreshold', 'coating.'),
+      drainIntervalMs: positive(coating, 'drainIntervalMs', 'coating.'),
+      drainDamage: positive(coating, 'drainDamage', 'coating.'),
+      ramDamage: positive(coating, 'ramDamage', 'coating.'),
+      ramCooldownMs: positive(coating, 'ramCooldownMs', 'coating.'),
+    },
+    fx: {
+      color: count(fx, 'color', 'fx.', 0xffffff),
+      edgeColor: count(fx, 'edgeColor', 'fx.', 0xffffff),
+      warningColor: count(fx, 'warningColor', 'fx.', 0xffffff),
+      bubbleCount: count(fx, 'bubbleCount', 'fx.', 12),
     },
   }
 }
