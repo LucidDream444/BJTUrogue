@@ -164,7 +164,7 @@ export class BattleScene extends Phaser.Scene {
   private roomOrder = -1
   /**
    * 这一层楼的生成结果（D2）。**整层连续**：`stages` 里**只有一关**（整层），
-   * `rooms` 是这一层 16 间房的逐间信息（几间、什么关别、刷怪点在哪、门开在谁身上）。
+   * `rooms` 是这一层**每一间房**的逐间信息（几间、什么关别、刷怪点在哪、门开在谁身上）。
    * 拆法见 `DungeonStages.ts` 的文件头。
    *
    * ⚠️ 一局有**多层**楼（`arena.maxStages`），所以它会被整个换掉 ——
@@ -189,8 +189,13 @@ export class BattleScene extends Phaser.Scene {
    * 用户要的是「进入游戏先是 YF3，下一层是 YF6」，于是换层**整层换掉几何**。
    * 哪一层走哪张图不在这里决定（那是配置：`floors.json`），这里只拿那一串。
    *
-   * ⚠️ 第 2、3 层今天**是同一张图**（手头只有两份）—— 所以「房号在两层之间
-   * 会重复」这件事仍然成立，`loadFloor()` 里那些按房号的记账照旧要清。
+   * ⚠️ ★ 改了（2026-10-22 晚）：上一版这里写的是「第 2、3 层**是同一张图**，
+   * 所以房号在两层之间会重复」—— 三层三张图之后那句话不成立了（1F / 3F / 6F
+   * 的房号各是各的，三张都有的只剩楼梯间那一个 `STAIR`）。**但按房号的记账
+   * 照旧要清**，理由换成了另一条，而且是更硬的一条：**同一层可以来回走**
+   * （上了 3F 还能从楼梯间下回 1F），回到同一层时房号当然**一模一样**。
+   * 清理（`loadFloor()`）与还原（`FloorProgress`）是同一件事的两半，
+   * 见 `Stairwell.ts` 那个类头上「不还原的后果」。
    */
   private plans!: readonly FloorPlan[]
   /**
@@ -201,9 +206,11 @@ export class BattleScene extends Phaser.Scene {
    * **首领写死在平面图里**（6F 是 `YF604`，16 间里排第 5、离末位很远），
    * 每层变的只是**内容**（关别、障碍物、刷怪点）。
    *
-   * ★ 又改了（2026-10-22）：上一句里「楼整局一份」也没了 —— 第 1 层是逸夫楼 3F
-   * （`floor-plan-yf3.json`）、第 2/3 层是 6F，换层连**几何**一起换（`plans`）。
-   * 首领房因此**逐层不同**（3F 是 `YF304`），别再当成一个全局常量。
+   * ★ 又改了（2026-10-22）：上一句里「楼整局一份」也没了 —— **三层三张图**
+   * （`floors.json`：1F → 3F → 6F），换层连**几何**一起换（`plans`）。
+   * 首领房因此**逐层不同**（3F 是 `YF304`、6F 是 `YF604`），别再当成一个全局常量；
+   * 而第 1 层（逸夫楼 1F）**一间首领房都没有**（13 间全空房），
+   * 所以「本层首领」在这三层里是**可有可无**的 —— 见 `bossDown()`。
    */
   private floor = 1
   /**
@@ -212,26 +219,37 @@ export class BattleScene extends Phaser.Scene {
    */
   private floorSeedList: number[] = []
   /**
-   * 楼梯间里那个「**下一层**」入口。打完本层首领才亮，最后一层不亮（那是通关）。
+   * 楼梯间里那个「**上一层**」入口 —— **它就是前进方向**：打完本层首领才亮，
+   * 最后一层不亮（那是通关）。
    *
-   * ★ 改了（2026-10-21，用户报的）：它原来亮在**楼梯间门外的走廊上**（= 玩家出生的那个点）。
+   * ★ 改了（2026-10-22 晚，用户：「原来的上下概念颠倒，不再是向下的地牢层数，
+   * 而是向上的楼层」）：上一版前进 = **下**第 N+1 层（那时层号是「往下挖」的），
+   * 现在前进 = **上**第 N+1 层。一局的层号与楼的层号从此是同一个方向
+   * （`floors.json`：1F → 3F → 6F），所以「上楼」既是关卡前进、也是字面意思。
+   *
+   * 位置见 `stairPadSpots()` 的 `up`（那间房的**北半**，见 `refreshStairPads()`）。
+   *
+   * ★ 2026-10-21（用户报的）：它原来亮在**楼梯间门外的走廊上**（= 玩家出生的那个点）。
    * 用户的原话是「打完该层首领后去下一层的路应该出现在楼梯间里，而不是楼梯间门口」——
    * 楼梯间是这一层楼**唯一的上下楼口**，入口摆在门口等于把「中转站」这个名字
-   * 挂在一个玩家路过都不必进去的门框上。位置见 `stairPadSpots()`。
+   * 挂在一个玩家路过都不必进去的门框上。
    */
-  private exit!: FloorExit
+  private exitUp!: FloorExit
   /**
-   * 楼梯间里那个「**上一层**」入口。**第 1 层没有**（上面没有楼），其余每层一直在。
+   * 楼梯间里那个「**下一层**」入口 —— **它就是回去的路**：**第 1 层没有**
+   * （下面没有楼），其余每层一直在，**从不看首领**。
    *
-   * 用户 2026-10-21：「如果有上一层，在楼梯间里可以回去」。
+   * 用户 2026-10-21：「如果有上一层，在楼梯间里可以回去」（那时方向还是反的），
+   * ★ 2026-10-22 晚上下调了个个儿：这一格是「回去」的那一个，位置在
+   * `stairPadSpots()` 的 `down`（那间房的**南半**）。
    *
-   * ⚠️ **它和「下一层」是两件事，别合并成一个「换层」入口**：
-   * 一个要打完首领才出现、一个从下楼那一刻起就在；一个把玩家送到没打过的楼层、
+   * ⚠️ **它和「上一层」是两件事，别合并成一个「换层」入口**：
+   * 一个要打完首领才出现、一个从上一层楼那一刻起就在；一个把玩家送到没打过的楼层、
    * 一个送回去。合成一个「按 F 换层」的话，玩家在楼梯间里按下去是上还是下，
    * 只能靠代码里的顺序决定 —— 而那正是「一次按键同时满足两条判据」的经典写法
    * （见 `stairPadSpots()`：两个方框刻意离得比够得着的门槛远）。
    */
-  private upExit!: FloorExit
+  private exitDown!: FloorExit
   /**
    * **每一层各自记着的进度**（进过哪些房、打完哪些房、开过哪些宝箱）。
    *
@@ -257,7 +275,7 @@ export class BattleScene extends Phaser.Scene {
    * 没有这一条，回头再进门就是重打一遍，而「能回头」立刻变成惩罚。
    *
    * ⚠️ **它不等于「打完了」。** 一进门就写进来（封门与刷怪也在那一刻），
-   * 而小地图那一行的「走过 N / 16 间」问的正是「去过没有」—— 两份是一件事。
+   * 而小地图那一行的「走过 N / M 间」问的正是「去过没有」—— 两份是一件事。
    * 「打完了没有」是下面那个 `cleared`，**别再把这一份喂给房号那行字**。
    */
   private visited = new Set<number>()
@@ -392,7 +410,7 @@ export class BattleScene extends Phaser.Scene {
       // 场景生命周期保证 `create()` 一定在所有加载完成之后才跑。
       ROOMS_CONFIG_NAME,
       // ★ 改了（2026-10-22）：平面图从**一张**变成 `FLOOR_PLAN_FILES` 那**一串**
-      //   （今天两张：6F + 逸夫楼 3F）。**一局用哪几张，这里看不出来** ——
+      //   （今天三张：逸夫楼 1F + 3F + 6F）。**一局用哪几张，这里看不出来** ——
       //   加载清单必须是常量（`floors.json` 自己也是被加载进来的，先有鸡才有蛋），
       //   哪一层走哪张由下面那份 `FLOORS_CONFIG_NAME` 说。
       ...FLOOR_PLAN_FILES,
@@ -420,13 +438,13 @@ export class BattleScene extends Phaser.Scene {
       //    **算**出来的、房间数是个自由参数。现在几何是**画**出来的
       //    （`public/config/floor-plan-*.json`，照平面图照片量的），
       //    一间房几间、在哪儿 = 改那张图；而「这一层有几间」由平面图自己声明
-      //    （`roomTotal`，★ 2026-10-22 从 `rooms.json` 搬过去的 —— 两层楼间数不同）。
+      //    （`roomTotal`，★ 2026-10-22 从 `rooms.json` 搬过去的 —— 三层楼间数各不同）。
       // ⚠️ **种子必须每局换**。`combat.json` 里那个 `arena.seed` 是**固定值**
       //    （它本来是给测试场复现用的），拿它当每局的种子 = 每局都生成一模一样的楼，
       //    「随机生成」四个字就没了。下面把 `runSeed` 留在场上，方便复现整局。
       this.rooms = roomsConfigFromCache(this.cache.json)
-      // **整局的每一层平面图一次取好**（★ 2026-10-22）：第 1 层是逸夫楼 3F、
-      // 第 2/3 层是 6F，走的是 `floors.json` 那张表。
+      // **整局的每一层平面图一次取好**（★ 2026-10-22）：第 1 层是逸夫楼 1F、
+      // 第 2 层是 3F、第 3 层是 6F，走的是 `floors.json` 那张表。
       // ⚠️ **顺序**：`floorPlansForRun` 第二个参数要一份 `FloorPlanMetrics`，
       //    而 `RoomsConfig` 结构上满足它（签名就是这么写的）。
       //    所以三个 `this.xxx` 之间是**有依赖的**，别为了「看着对称」把行换个位。
@@ -462,10 +480,12 @@ export class BattleScene extends Phaser.Scene {
         this.scale.off('resize', this.fitCamera, this),
       )
       this.minimap = new Minimap(this, this.dungeon.map, this.rooms, this.floor, this.floors)
-      // 楼梯间里那两个入口（往上 / 往下）。**两个都要先建出来**，哪怕第 1 层
-      // 上面没有楼 —— 「有没有上一层」是 `refreshStairPads()` 每层现判的事。
-      this.exit = new FloorExit(this, { reach: EXIT_REACH, dir: 'down' })
-      this.upExit = new FloorExit(this, { reach: EXIT_REACH, dir: 'up' })
+      // 楼梯间里那两个入口（上楼 / 下楼）。**两个都要先建出来**，哪怕第 1 层
+      // 下面没有楼 —— 「这一层有没有楼下」是 `refreshStairPads()` 每层现判的事。
+      // ⚠️ `dir` 与字段名一一对应：`exitUp` 画朝上的箭头（暖黄，「上一层」），
+      // `exitDown` 画朝下的（青绿，「下一层」）—— 见 `FloorExit.LOOKS`。
+      this.exitUp = new FloorExit(this, { reach: EXIT_REACH, dir: 'up' })
+      this.exitDown = new FloorExit(this, { reach: EXIT_REACH, dir: 'down' })
       this.rewardPanel = new RewardPanel(this.session)
       this.gallery = new AssetGallery(this, () => this.toggleGallery())
       this.makeHud()
@@ -655,10 +675,12 @@ export class BattleScene extends Phaser.Scene {
       this.bindKeys()
       // 出生点就在楼梯间门外的走廊上（`DungeonStages.spawn`），一帧都不用进房。
       this.syncRoomState()
-      // 第 1 层上面没有楼、首领也还没打 —— 这一趟什么都不亮，但**要走一遍**：
-      // 上/下两个入口的可见性是 `refreshStairPads()` 一处算的，别让"开局这一层"
-      // 成为唯一一条不走它的路径（那正是「以后有人给第 1 层加了个入口、
-      // 而它只在换层时才亮」这类错的温床）。
+      // 开局这一屏也要走一遍 `refreshStairPads()`：上/下两个入口的可见性是它一处
+      // 算的，别让"开局这一层"成为唯一一条不走它的路径（那正是「以后有人给第 1 层
+      // 加了个入口、而它只在换层时才亮」这类错的温床）。
+      // ★ 2026-10-22 晚起，第 1 层（逸夫楼 1F）**真的会亮一个**：它没有首领房 =
+      // 没有门槛（`bossDown()`），所以一进游戏，楼梯间北半那个暖黄的「上一层」
+      // 就已经亮着 —— 这正是用户要的「进去后先是 YF1，然后可以从楼梯间上一层」。
       this.refreshStairPads()
       this.notice.setText(this.floorBrief())
     } catch (e) {
@@ -685,13 +707,13 @@ export class BattleScene extends Phaser.Scene {
       //    那时该改的是那两个数，而不是在这里挑一个先判。
       const px = this.session.player.x,
         py = this.session.player.y
-      if (this.exit.visible && this.exit.near(px, py)) this.descend()
-      else if (this.upExit.visible && this.upExit.near(px, py)) this.ascend()
-      else if (this.exit.visible || this.upExit.visible)
+      if (this.exitUp.visible && this.exitUp.near(px, py)) this.goUp()
+      else if (this.exitDown.visible && this.exitDown.near(px, py)) this.goDown()
+      else if (this.exitUp.visible || this.exitDown.visible)
         this.notice.setText(this.stairHintWhenMissed())
     }
-    this.exit.update(this.time.now)
-    this.upExit.update(this.time.now)
+    this.exitUp.update(this.time.now)
+    this.exitDown.update(this.time.now)
     this.trackChestOpened()
     // 门一开就换成亮绿 + 呼吸 —— 打完一间找不到门出不去是这一层最容易卡人的地方。
     // 用场景时间（`this.time.now`）而不是 `performance.now()`：暂停时场景时间会停，
@@ -837,7 +859,7 @@ export class BattleScene extends Phaser.Scene {
       // 它没有"做完"这件事，房号那行字就一直读作「不用打」。
       //
       // 它有的是**上下楼的入口**（那两个方框），而那件事每层都可能不同
-      // （第 1 层上面没有楼、没打完首领的层下面去不了），所以每进一次现算一遍。
+      // （第 1 层下面没有楼、没打完首领的层上不去），所以每进一次现算一遍。
       this.refreshStairPads()
       this.syncRoomState()
       this.notice.setText(this.stairBrief(unit))
@@ -923,10 +945,10 @@ export class BattleScene extends Phaser.Scene {
    *
    * 三个收件人**各自幂等**（`setSealed` / `setCleared` 都比对集合，`setState` 重画一次），
    * 所以每帧调也不会抖 —— 但调用点仍然只在**状态真的变了**的时候，
-   * 因为 `setSealed` 会触发 16 扇门重画。
+   * 因为 `setSealed` 会把**这一层的门**全部重画一遍。
    *
    * ⚠️ **「去过没有」和「打完没有」是两份，三个收件人要的不是同一份**：
-   * 小地图的标题写着「走过 N / 16 间」，问的是**去过**（`visited`）；
+   * 小地图的标题写着「走过 N / M 间」，问的是**去过**（`visited`）；
    * 而地上的房号和门的颜色说的是**这一间能不能走了**，问的是**打完**（`cleared`）。
    * 两边都喂 `visited` 就是用户 2026-10-21 报的那条：「刚进普通关还没打怪就显示已清」。
    */
@@ -1133,9 +1155,14 @@ export class BattleScene extends Phaser.Scene {
     //    每层十六间房，再按主干摆就是一层两三个首领 —— 首领贬值成路障，
     //    而三个真正的首领（蘑菇 / 霜翼使徒 / 终焉蛛王）该各自守一层。
     //
-    // 档位 = **层的序号**，不是房间进度：第 1 层是蘑菇首领、第 2 层是远程的霜翼使徒、
-    // 第 3 层（最后一层）是终焉蛛王。`requestBoss()` 按这个号挑模板，
+    // 档位 = **层的序号**，不是房间进度：第 1 档是蘑菇首领（肉盾模板）、
+    // 第 2 档是远程的霜翼使徒、第 3 档（最后一层）是终焉蛛王。`requestBoss()` 按这个号挑模板，
     // 末层那位走 `finalBoss: true`（不用远程模板 —— 那是「还没到最终战」的区分）。
+    //
+    // ⚠️ ★ 2026-10-22 晚：一局里第 1 档**今天不会出现** —— 第 1 层是逸夫楼 1F，
+    //    它一间首领房都没有（13 间全空房），所以「蘑菇首领」这一局碰不到；
+    //    真正要打的是第 2 层的霜翼使徒与第 3 层的终焉蛛王。
+    //    **这是这一局的形状，不是 bug**：档位仍按层的序号取，改的是哪一层有首领。
     if (unit.room.kind === 'boss') {
       const tier = this.floor
       // 首领摆在**离房间中心最近的那个刷怪点**（`spawnPoints[0]`），再往上让 40px：
@@ -1184,7 +1211,8 @@ export class BattleScene extends Phaser.Scene {
    * 种子取的是**开局就抽好的那一串**（`floorSeedList`），不是现抽一个 ——
    * 这样 `runSeed` 能复现整局，而不只是「回到某一层再生成一次」。
    *
-   * ★ 改了（2026-10-22）：平面图是**按层取的**（`plans[n - 1]`）—— 第 1 层是逸夫楼 3F。
+   * ★ 改了（2026-10-22）：平面图是**按层取的**（`plans[n - 1]`）—— 第 1 层是逸夫楼 1F、
+   * 第 2 层是 3F、第 3 层是 6F。
    * 越界由 `floorPlansForRun()` 那层校验挡在前面（条数 = `arena.maxStages` = `floors`），
    * 所以这里的 `!` 是在断言一件**已经被验过**的事。
    */
@@ -1202,11 +1230,11 @@ export class BattleScene extends Phaser.Scene {
    * `TerrainMap` 的宽高、物理世界的边界、寻路网格的行列数读的也是这一对。
    *
    * ⚠️ **换层时它必须是不变的**，尽管 ★ 2026-10-22 起**几何本身是逐层不同的**
-   * （第 1 层逸夫楼 3F、第 2/3 层 6F）：`TerrainMap.width`（readonly）和物理世界边界
-   * 都在 `CombatSession` 构造时定死了，改不了 —— 所以两层的**包围盒必须一样**，
-   * 换层只换内容、不换尺寸。YF3 与 6F 的差别只在西头那块（两间并一间），
-   * 整层 0..263 × 0..73 格一模一样，所以今天成立；不成立时这里**当场抛**，
-   * 而不是让它以「第二层的墙全在错位」的形式出现。
+   * （三层三张图：逸夫楼 1F / 3F / 6F）：`TerrainMap.width`（readonly）和物理世界边界
+   * 都在 `CombatSession` 构造时定死了，改不了 —— 所以三层的**包围盒必须一样**，
+   * 换层只换内容、不换尺寸。三张图逐格量出来的差别都不小（1F 是两块分开的、
+   * 3F 把西头两间并成了商店），但整层 **0..263 × 0..73 格**一模一样，
+   * 所以今天成立；不成立时这里**当场抛**，而不是让它以「第二层的墙全在错位」的形式出现。
    */
   private applyArena(): void {
     const arena = arenaOf(this.dungeon.map)
@@ -1224,23 +1252,31 @@ export class BattleScene extends Phaser.Scene {
     this.cfg.arena.width = arena.width
     this.cfg.arena.height = arena.height
   }
-  /** 下到下一层。**只在入口亮着、且玩家站在上面时调用**（见 `update()` 里那一段）。 */
-  private descend(): void {
+  /**
+   * **上一层**（`floor++`）—— 前进方向。**只在 `exitUp` 亮着、且玩家站在上面时调用**
+   * （见 `update()` 里那一段）。
+   *
+   * ★ 改名（2026-10-22 晚）：原叫 `descend()`，因为那时前进 = 往下走（地牢层数）。
+   * 上下颠倒之后 `floor++` 就是**上楼**，名字跟着走 —— 留着旧名字的话，
+   * `exitUp` 里调 `descend()` 会让每个人都在这一行上停一下。
+   */
+  private goUp(): void {
     if (this.floor >= this.floors) return
     this.leaveFloor()
     this.floor++
     this.loadFloor()
   }
   /**
-   * 回上一层。**只在「上一层」那个入口亮着、而玩家站在上面时调用**（见 `update()`）。
+   * **下一层**（`floor--`）—— 回去的路。**只在 `exitDown` 亮着、而玩家站在上面时调用**
+   * （见 `update()`）；★ 原名 `ascend()`，与 `goUp()` 一起改名，理由同它。
    *
-   * 与 `descend()` 只差一个方向，但**两件事都要做对**：
+   * 与 `goUp()` 只差一个方向，但**两件事都要做对**：
    * ① 走之前把这一层的进度**存下来**（`leaveFloor()`）；
-   * ② 落地之后 `loadFloor()` 会把上一层那份**取回来**（`progress.restore()`）。
-   * 少了①，上一层会以「没打过」的样子长回来（怪重刷、宝箱重生、首领复活 ——
+   * ② 落地之后 `loadFloor()` 会把那一层那份**取回来**（`progress.restore()`）。
+   * 少了①，回去的那层会以「没打过」的样子长回来（怪重刷、宝箱重生、首领复活 ——
    * 而首领复活意味着**那一层的出口没了**，卡死）。少了②同理，方向相反。
    */
-  private ascend(): void {
+  private goDown(): void {
     if (this.floor <= 1) return
     this.leaveFloor()
     this.floor--
@@ -1274,9 +1310,19 @@ export class BattleScene extends Phaser.Scene {
    * 表现是「刚下楼就有一间进不去」；不清 `lootedRooms` 的话，新层同号码那间
    * 的宝箱会莫名其妙地不出现。
    *
-   * ⚠️ ★ 2026-10-22：第 1 层（逸夫楼 3F）的房号是 `YF3xx`，与第 2/3 层不撞；
-   * 但**第 2、3 层是同一张图**，房号一模一样 —— 所以这一整段「按房号的记账要清」
-   * 照旧是必须的，别看到「第 1 层对不上」就把它当成过时的防御。
+   * ⚠️ ★ 2026-10-22 晚：**三层的房号现在互不重复了**（第 1 层是 `YF1xx`、
+   * 第 2 层是 `YF3xx` + `SHOP`、第 3 层是 `YF6xx`），**但这不表示这一整段可以删** ——
+   * 房号只是这套记账里的两个 key 之一，另一个是 `order`：
+   *
+   * - `visited` / `cleared` / `combatRooms` 记的是 **`order`**，而 `order` 是
+   *   「楼梯间 + 其余按 id 升序」的**每层重排的序号**（见 `model/types.ts` 的
+   *   `Room.order`）—— 每一层都是 0、1、2、…，三层**逐层撞号**。
+   *   不在这里换成新集合的话，第 2 层的第 1 间会顶着第 1 层第 1 间的记性上场：
+   *   一进门就门大开、一只怪不刷、房号还写着「已清」。
+   * - `lootedRooms` 与 `RewardRun` 记的是 **`Room.id`**，那时才轮到房号不撞这件事。
+   *   房号不撞**只是**去掉了「同名」那一半风险（上一版第 2、3 层是同一张图，
+   *   房号一模一样，`forgetFloor()` 是**唯一**挡着卡死的东西），
+   *   `order` 那一半照旧，所以两处都留着。
    */
   private loadFloor(): void {
     this.dungeon = this.buildFloor(this.floor)
@@ -1301,21 +1347,25 @@ export class BattleScene extends Phaser.Scene {
     this.clearEmitted = false
     this.clearRequested = false
     this.loot.reset()
-    // ⚠️ **强化账本也要按层清。** 它记的是 `Room.id`，而 ★ 2026-10-22 起
-    //    第 2、3 层**还是同一张图**（房号一模一样；第 1 层是 YF3xx，与它们不撞）
-    //    —— 不清的话第 3 层清完 `YF604` 时 `offer()` 返回 `null`，
-    //    于是：三选一不弹、**整层拿不到强化**、而「亮出下一层入口」正挂在
-    //    `reward_finished` 上 ⇒ **下楼口不亮，那一局卡死在第 3 层**。
-    //    实测见 `RewardRun.forgetFloor()` 的注释（`downLit=false`）。
+    // ⚠️ **强化账本也要按层清。** 它记的是 `Room.id`。★ 2026-10-22 晚三层换成
+    //    三张不同的图之后，房号不再撞了 —— 但这条**照旧要清**，理由从「同名」
+    //    换成了「同一间房在上一层给过强化」这件事本身：
+    //    不清的话再上一层时 `offer()` 对那一间返回 `null`，
+    //    于是：三选一不弹、**那一间拿不到强化**、而「亮出下一层入口」正挂在
+    //    `reward_finished` 上 ⇒ **下楼口不亮，卡在那一层**。
+    //    上一版（第 2、3 层同一张图）实测过一次，见 `RewardRun.forgetFloor()`
+    //    的注释（`downLit=false`）—— 那次的症状与今天的形状一样，只是触发条件
+    //    从「房号相同」变成「上楼又下楼回到同一间」。
     this.session.rewards.forgetFloor()
     this.session.loadFloor(this.stageConfig)
     this.syncRoomState()
-    // 楼梯间里那两个入口：**每层都要重算**（第 1 层上面没楼、没打完首领的层
-    // 下面去不了、走回来的层则是「首领早就打完了」）。它自己会先 `hide()`。
+    // 楼梯间里那两个入口：**每层都要重算**（第 1 层下面没楼、没打完首领的层
+    // 上不去、走回来的层则是「首领早就打完了」，而第 1 层根本没有首领）。
+    // 它自己会先 `hide()`。
     this.refreshStairPads()
     // ⚠️ **通知栏必须在这里重写。** 它是「我现在在哪、该往哪走」的唯一说明，
-    // 而换层之后它还留着**上一层**的话 —— 实测下到第 2 层时屏幕上写的是
-    // 「第 1 层通关 · 蘑菇首领已击败 · 回楼梯间，走到青绿方框上按 F 下到第 2 层」，
+    // 而换层之后它还留着**上一层**的话 —— 实测上到第 2 层时屏幕上写的是
+    // 「第 1 层通关 · …已击败 · 回楼梯间，走到方框上按 F 到第 2 层」，
     // 而那个方框已经隐藏了（新层的首领还没打），玩家会站在出生点找它。
     this.notice.setText(this.floorBrief())
   }
@@ -1337,25 +1387,52 @@ export class BattleScene extends Phaser.Scene {
     )
   }
   /**
-   * 楼梯间那一间（`kind === 'start'`）。**一局几层共用同一张平面图**，
-   * 所以它每层都是同一间房 —— 但它的**内容**（要不要摆入口、摆几个）逐层不同。
+   * 楼梯间那一间（`kind === 'start'`）。三层三张平面图（`floors.json`），
+   * 但那三张把楼梯间画在**逐格相同**的位置上（`x38 y25 11×18`，见各份的
+   * `_source.stairwell`）—— 所以它每层都是同一间房。**这是刻意的**：
+   * 换层之后玩家落在楼梯间的同一处，方位感不用重建。
+   * 但它的**内容**（要不要摆入口、摆几个）逐层不同。
    */
   private stairwellUnit(): DungeonRoom | null {
     return this.dungeon?.rooms.find((r) => r.room.kind === 'start') ?? null
   }
-  /** 本层首领倒下了没有。**它就是「下一层能不能去」**（打完首领才有出口）。 */
+  /**
+   * 本层首领倒下了没有。**它就是「前进方向能不能走」**（打完首领那个入口才亮）。
+   * 前进是**上楼**（`exitUp`，暖黄）—— 见 `refreshStairPads()`。
+   *
+   * ★ 改了（2026-10-22 晚，D2 提的需求）：**这一层没有首领房 = 没有门槛**，
+   * 返回 `true`。用户给第 1 层（逸夫楼 1F）的要求是「所有房间都是空房间，
+   * 不生成任何东西」—— 那一层因此一间 `kind === 'boss'` 都没有，而它排在一局的
+   * **第 1 层**（`floors.json`：1F → 3F → 6F），玩家进来就得能从楼梯间上第 2 层（3F）。
+   *
+   * 上一版是 `unit !== undefined && cleared.has(unit.order)` —— 找不到首领房就
+   * 返回 `false`，于是那一层**永远**没有前进的入口：屏幕上什么都不缺、
+   * 没有任何报错，只是楼梯间里少一个青绿的箭头，而玩家会把整层翻遍找一间
+   * 根本不存在的首领房。**「没有首领」与「首领还活着」是两件事，
+   * 上一版把它们写成了同一件。**
+   *
+   * ⚠️ 上界那一侧没变：一个平面图**至多**一间首领房（`validate/contract.ts`），
+   * 「最后一层必须有首领房」由 `floors.test.ts` 盯着 —— 那是**一局**的性质
+   * （最后一层打不出首领就永远通不了关），不是单张图的性质。
+   */
   private bossDown(): boolean {
     const unit = this.dungeon?.rooms.find((r) => r.room.kind === 'boss')
-    return unit !== undefined && this.cleared.has(unit.order)
+    if (unit === undefined) return true
+    return this.cleared.has(unit.order)
   }
   /**
    * 重算楼梯间里那两个入口的可见性与位置。**`loadFloor()` / `create()` /
    * 打完首领 / 走进楼梯间**都走它 —— 一处算，别处只读结果。
    *
-   * | | 什么时候亮 |
-   * |---|---|
-   * | **下一层**（青绿） | 本层首领已倒下，**且**不是最后一层（最后一层是通关，走 `finishRun()`） |
-   * | **上一层**（暖黄） | `floor > 1`。**不看首领** —— 回楼上不该有任何门槛，那是玩家自己的楼 |
+   * | | 什么时候亮 | 位置 |
+   * |---|---|---|
+   * | **上一层**（暖黄，`exitUp`）= **前进** | 本层首领已倒下，**且**不是最后一层（最后一层是通关，走 `finishRun()`） | 楼梯间**北半**（`spots.up`） |
+   * | **下一层**（青绿，`exitDown`）= **回去** | `floor > 1`。**不看首领** —— 回去不该有任何门槛，那是玩家自己走过的楼 | 楼梯间**南半**（`spots.down`） |
+   *
+   * ★ 改了（2026-10-22 晚）：两行的**含义**对调了（前进从「下一层」变成「上一层」），
+   * 位置也跟着对调 —— 北半 = 上楼、南半 = 下楼，与 `FloorExit` 画的箭头一个方向。
+   * 一局的层号现在与楼的层号同向（1F → 3F → 6F），所以「上」既是屏幕上的上方、
+   * 也是关卡前进的方向、也是楼的层数，三个意思第一次对上了。
    *
    * ⚠️ 位置**不是** `dungeon.spawn`（楼梯间门外的走廊），是**楼梯间里面**
    * （用户 2026-10-21：「去下一层的路应该出现在楼梯间里，而不是楼梯间门口」）。
@@ -1364,8 +1441,8 @@ export class BattleScene extends Phaser.Scene {
    * 直接返回空），所以这一步今天必然落在原地；留着他管的是**将来**。
    */
   private refreshStairPads(): void {
-    this.exit.hide()
-    this.upExit.hide()
+    this.exitUp.hide()
+    this.exitDown.hide()
     const stair = this.stairwellUnit()
     if (stair === null) return
     const spots = stairPadSpots(stair.room.rect, FloorExit.SIZE)
@@ -1374,24 +1451,25 @@ export class BattleScene extends Phaser.Scene {
     const place = (p: { x: number; y: number }) =>
       this.session.terrain.safeSpawn(p.x, p.y, FloorExit.SIZE / 2, player)
     if (this.bossDown() && this.floor < this.floors) {
-      const at = place(spots.down)
-      this.exit.show(at.x, at.y)
+      const at = place(spots.up)
+      this.exitUp.show(at.x, at.y)
     }
     if (this.floor > 1) {
-      const at = place(spots.up)
-      this.upExit.show(at.x, at.y)
+      const at = place(spots.down)
+      this.exitDown.show(at.x, at.y)
     }
   }
   /**
    * 通知栏里「楼梯间现在能做什么」那一截。**`floorBrief()` 与走进楼梯间那一下共用** ——
    * 两处各写一遍的话，改了一处就会出现「走廊里说的和进门前台说的不一样」。
    *
-   * 没有可说的（第 1 层、首领还没打完）时给**空串**，让调用方自己决定怎么拼。
+   * 没有可说的时给**空串**（第 1 层、这一层又有首领而且还没打完 —— 两个方向都去不了），
+   * 让调用方自己决定怎么拼。
    */
   private stairHint(): string {
     const parts: string[] = []
-    if (this.upExit.visible) parts.push(`楼梯间里有回第 ${this.floor - 1} 层的入口`)
-    if (this.exit.visible) parts.push(`楼梯间里已有下第 ${this.floor + 1} 层的入口`)
+    if (this.exitDown.visible) parts.push(`楼梯间里有下第 ${this.floor - 1} 层的入口`)
+    if (this.exitUp.visible) parts.push(`楼梯间里已有上第 ${this.floor + 1} 层的入口`)
     return parts.join(' · ')
   }
   /**
@@ -1405,8 +1483,8 @@ export class BattleScene extends Phaser.Scene {
     const parts = [`${unit.room.id} ${this.kindLabel(unit)}`, '每层之间的中转站']
     const here = this.stairHint()
     parts.push(here === '' ? '门一直开着' : here)
-    if (!this.exit.visible && this.floor < this.floors && !this.bossDown())
-      parts.push(`打倒这层的首领，下第 ${this.floor + 1} 层的入口才亮在这儿`)
+    if (!this.exitUp.visible && this.floor < this.floors && !this.bossDown())
+      parts.push(`打倒这层的首领，上第 ${this.floor + 1} 层的入口才亮在这儿`)
     return parts.join(' · ')
   }
   /**
@@ -1417,13 +1495,16 @@ export class BattleScene extends Phaser.Scene {
    */
   private stairHintWhenMissed(): string {
     const where = '（都在楼梯间里）'
-    if (this.exit.visible && this.upExit.visible)
-      return `要走到方框上才能换层：暖黄 = 回第 ${this.floor - 1} 层、青绿 = 下第 ${this.floor + 1} 层${where}`
-    if (this.exit.visible) return `要走到青绿方框上才能下楼（第 ${this.floor + 1} 层）${where}`
-    return `要走到暖黄方框上才能上楼（第 ${this.floor - 1} 层）${where}`
+    if (this.exitUp.visible && this.exitDown.visible)
+      return `要走到方框上才能换层：暖黄 = 上第 ${this.floor + 1} 层、青绿 = 下第 ${this.floor - 1} 层${where}`
+    if (this.exitUp.visible) return `要走到暖黄方框上才能上楼（第 ${this.floor + 1} 层）${where}`
+    return `要走到青绿方框上才能下楼（第 ${this.floor - 1} 层）${where}`
   }
   /**
-   * 在**楼梯间里**亮出「下一层」入口，并把话说清楚。
+   * 在**楼梯间里**亮出「上一层」入口（前进那一个），并把话说清楚。
+   *
+   * ★ 改了（2026-10-22 晚）：方位一词从上到下翻了个个儿（前进 = 上楼），
+   * 方框颜色跟着从青绿改成暖黄 —— 换的是**哪一个入口**，不是那一句话的写法。
    *
    * ★ 改了（2026-10-21，用户报的）：位置从 `dungeon.spawn`（楼梯间**门外**的走廊）
    * 换成 `dungeon.stairwell`（那一间房本身）。楼梯间是这一层楼唯一的上下楼口 ——
@@ -1435,7 +1516,7 @@ export class BattleScene extends Phaser.Scene {
     this.notice.setText(
       (bonus ? '获得随机武器：' + bonus.name + ' · ' : '') +
         `第 ${this.floor} 层通关 · ${this.bossName(this.floor)}已击败 · ` +
-        `回楼梯间，走到青绿方框上按 F 下到第 ${this.floor + 1} 层`,
+        `回楼梯间，走到暖黄方框上按 F 上到第 ${this.floor + 1} 层`,
     )
   }
   private finishRun(): void {
@@ -1711,8 +1792,8 @@ export class BattleScene extends Phaser.Scene {
       this.pauseMenu?.destroy()
       this.rewardPanel?.destroy()
       // 两个换层入口（`FloorExit` 自己画 Graphics、自己挂 Text，得显式收）。
-      this.exit?.destroy()
-      this.upExit?.destroy()
+      this.exitUp?.destroy()
+      this.exitDown?.destroy()
       this.cursor?.destroy()
       this.skillHud?.destroy()
       this.loot?.destroy()

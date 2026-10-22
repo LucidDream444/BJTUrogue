@@ -1,14 +1,24 @@
 /**
- * **逸夫楼 3F**（`public/config/floor-plan-yf3.json`）—— 一局的**第 1 层**。
+ * **逸夫楼 3F**（`public/config/floor-plan-yf3.json`）—— 一局的**第 2 层**。
  *
- * 用户 2026-10-22：「YF3 地图加入到游戏里，进入游戏先是 YF3，下一层是 YF6」。
+ * 用户 2026-10-22：「YF3 地图加入到游戏里，进入游戏先是 YF3，下一层是 YF6」——
+ * ★ 晚一点又改成「进去后先是 YF1，然后可以从楼梯间上一层，进入 YF3」，
+ * 所以它现在是**第 2 层**（第 1 层是 1F，见 `floor-plan-yf1.test.ts`）。
+ * **这一份的几何一格没动**，变的只是它在 `floors.json` 里排第几。
+ *
  * 这一层的几何不是照着 3F 照片重新量的，而是**6F 那份 + 三处编辑**：
  *
  * | # | 编辑 | 为什么 |
  * |---|---|---|
- * | ① | `SHOP` = `YF601` ∪ `YF615` 的外接矩形，东边再让掉顶住楼梯间的那一列 | 用户：「楼梯间左侧两个房间合并成一个特殊的大房间，暂定为商店」 |
+ * | ① | `SHOP` = `YF601` ∪ `YF615` 的外接矩形，东边再让掉一列 | 用户：「楼梯间左侧两个房间合并成一个特殊的大房间，暂定为商店」 |
  * | ② | `C_W` 的左端从 x0 挪到 x28（隔着 SHOP 那 1 格墙），右端不动 | 合并之后 SHOP 铺满 y25..72，第 27 列非让不可 |
  * | ③ | 删掉 `C_W`↔`YF601` / `C_W`↔`YF615` 两扇门，在 SHOP 与 C_W 的共享墙上开一扇标准宽的门 | 门跟着房间走 |
+ *
+ * ⚠️ ★ 2026-10-22 晚另有一处**两份一起改**的（所以不算「两份的差别」）：
+ * 楼梯间从下排（x28 y51 11×22）挪到北排（x38 y25 11×18），门跟着从 y50 挪到 y43，
+ * 用户「应该保留的是 YF101/301/601 左边那个楼梯间（地图上面），三层的楼梯间都改」。
+ * 三份平面图逐格同改 —— 所以下面那份「6F + 三处编辑」的推导把楼梯间**原样继承**
+ * （它照抄的就是改过之后的 6F），而 ① 的让位锚点因此跟着换了，见 `deriveYf3`。
  *
  * ## 这个文件守的就是那三个字：「只差这三处」
  *
@@ -131,17 +141,34 @@ function deriveYf3(sixRaw: unknown): PlanShape {
   // ① 两间并成一间
   const upper = take(plan.rooms, UPPER)
   const lower = take(plan.rooms, LOWER)
-  const stair = plan.stairwell
   const x0 = Math.min(upper.x, lower.x)
   const y0 = Math.min(upper.y, lower.y)
-  let x1 = Math.max(upper.x + upper.width, lower.x + lower.width)
+  const xEnd = Math.max(upper.x + upper.width, lower.x + lower.width)
   const y1 = Math.max(upper.y + upper.height, lower.y + lower.height)
-  // 合并出来的矩形正好顶到楼梯间时让掉那一列 —— 相邻空间之间必须空出整整 1 格
-  // （那一格才是墙，见 floor-plan.json 的 `_gap_comment`）。
-  const yOverlap = y0 < stair.y + stair.height && stair.y < y1
-  if (yOverlap && x1 > stair.x) throw new Error('合并出来的房间压到楼梯间上了')
-  if (yOverlap && x1 === stair.x) x1 -= 1
+
+  // ★ 改了（2026-10-22 晚）：**让位这一步的锚点换了。**
+  //
+  // 上一版写成「合并出来的矩形正好顶到楼梯间就让掉那一列」——那时楼梯间在
+  // x28（下排），而合并矩形的自然东界（`xEnd` = 28）正好等于楼梯间的西边缘，
+  // 两件事**碰巧是同一个数**，所以那句读起来也对。
+  //
+  // 现在楼梯间搬到了北排 x38，那个巧合没了：合并矩形的东界还是 28，楼梯间却在
+  // 38。让位这一步**与楼梯间无关** —— 它让的是 **C_W 那一列墙**：
+  // C_W 在 6F 从 x0 起，3F 要让它从 `xEnd` 起（合并块把它西边那一截占了），
+  // 于是 `xEnd - 1` 那一列必须空出来当墙。SHOP 的东界因此是 `xEnd - 1`，
+  // 与楼梯间隔着多少格是**另一件事**（下一段断言它）。
+  if (xEnd <= x0) throw new Error('合并出来的矩形是空的 —— 两间房没重叠')
+  const x1 = xEnd - 1 // SHOP 的**东界（不含）**，比自然东界少 1 格：那一格是墙
   plan.rooms.push({ id: SHOP, x: x0, y: y0, width: x1 - x0, height: y1 - y0, fixed: 'shop' })
+
+  // ⚠️ 新加的前提断言（上一版靠上面那句巧合顺带挡着）：楼梯间**不许**压到
+  //    合并出来的这块上，也不许贴着 —— 相邻空间之间必须空出整整 1 格
+  //    （见 floor-plan.json 的 `_gap_comment`）。搬楼梯间时这里会当场报，
+  //    而不是等到 `parseFloorPlan` 抛一句「贴死了没有墙」。
+  const stair = plan.stairwell
+  const gapX = Math.max(x0 - (stair.x + stair.width), stair.x - x1)
+  const gapY = Math.max(y0 - (stair.y + stair.height), stair.y - y1)
+  if (Math.max(gapX, gapY) < 1) throw new Error('合并出来的房间与楼梯间贴上了（要空出 1 格）')
 
   // ② C_W 让位
   const west = plan.corridors.find((c) => c.id === WEST)
@@ -204,7 +231,7 @@ describe('真的那份 floor-plan-yf3.json', () => {
     expect(shapeOf(yf3Raw)).toEqual(deriveYf3(readJson(FLOOR_PLAN_NAME)))
   })
 
-  it('房号全是 YF3xx（外加一间 SHOP）—— 第 1 层不出现 YF6xx', () => {
+  it('房号全是 YF3xx（外加一间 SHOP）—— 这一层不出现 YF6xx', () => {
     const ids = [yf3.stairwell, ...yf3.rooms].map((r) => r.id)
     expect(ids.filter((id) => id.startsWith('YF6'))).toEqual([])
     expect(ids.filter((id) => id.startsWith('YF3')).sort()).toEqual(
@@ -227,17 +254,36 @@ describe('真的那份 floor-plan-yf3.json', () => {
     ])
   })
 
-  it('商店是楼梯间左边那一整块，**与楼梯间隔着 1 格墙**', () => {
+  it('商店是西头那一整块，**与 C_W 隔着 1 格墙**（那格墙才是它东界的由来）', () => {
     const shop = yf3.rooms.find((r) => r.id === SHOP)!
     expect(shop.cells).toEqual({ x: 0, y: 25, width: 27, height: 48 })
     expect(shop.fixed).toBe('shop')
-    // 第 27 列是墙：SHOP 的右边（x + width = 27）与楼梯间的左边（x = 28）差 1 格。
+    // 第 27 列是墙：SHOP 的右边（x + width = 27）与 C_W 的西端（x = 28）差 1 格。
     // 紧贴着写的话墙心会落在格边界上，一格中心都盖不住 —— 寻路认为两侧都通，
     // 物理体照样挡着（`_gap_comment` 描述的那个坑）。
-    expect(yf3.stairwell.cells.x - (shop.cells.x + shop.cells.width)).toBe(1)
+    const west = yf3.corridors.find((c) => c.id === WEST)!
+    expect(west.cells.x - (shop.cells.x + shop.cells.width)).toBe(1)
     // 商店里没有桌椅、没有刷怪点：`fixed: 'shop'` 不在 `combatKinds` 里，
     // 「非战斗房三空」是契约校验那条（这里钉的是**它的前提**：关别写对了）。
     expect(shop.fixed).not.toBe('main')
+  })
+
+  it('★ 商店**不再**紧挨着楼梯间 —— 中间隔着电梯间那一块（11 格墙）', () => {
+    // ⚠️ ★ 改了（2026-10-22 晚）：上一版这条断言写的是「SHOP 与楼梯间差 1 格」，
+    //    因为那时楼梯间在 x28（下排西端），正好紧挨着 SHOP 的东墙。楼梯间搬到
+    //    北排 x38 之后，两者之间是照片上那个**电梯间**（按 `simplified` ③ 省略
+    //    成墙）—— 所以差 11 格（x27..37：SHOP 东边那格墙 + 电梯间那 10 格），
+    //    而**那句「差 1 格」今天会红**。
+    //    这不是「随便找个数让它绿」：那 11 格就是「SHOP 的东墙 + 省略掉的电梯间」，
+    //    写死它等于把「这儿本来有一块设施」记下来，将来谁想把 SHOP 拓宽到
+    //    顶住楼梯间，会在这里看到原因。
+    const shop = yf3.rooms.find((r) => r.id === SHOP)!
+    const stair = yf3.stairwell.cells
+    expect(stair.x - (shop.cells.x + shop.cells.width)).toBe(11)
+    // 同一排（都在北带 y25..42），所以这个差就是横着那一整段的宽度。
+    expect(stair.y).toBe(shop.cells.y)
+    // 对照：1F / 6F 同一处楼梯间、同一个间距 —— 三层这一块是照抄的。
+    expect(yf3.stairwell.cells).toEqual(six.stairwell.cells)
   })
 
   it('那扇新门开在 SHOP 与 C_W 的共享墙上，且是标准宽（120px = 3 格）', () => {
@@ -259,6 +305,9 @@ describe('真的那份 floor-plan-yf3.json', () => {
     // 构造时定死，之后改不了。两层的包围盒不同的话换层会当场抛（那边**当场抛**
     // 是对的：另一种表现是「第二层的墙全在错位」）。守护在
     // `floors.test.ts`，这里钉的是「今天确实一样」。
+    // ★ 补一句（2026-10-22 晚）：这个包围盒现在是平面图**声明**的 `footprint`
+    // 字段（原先由房间的并集推出来）。3F 这一份自己就铺满整层（SHOP 从 y25 到
+    // y72、C_E 到 x263），所以声明值与推导值在这份上仍然相等 —— 不相等的是 1F。
     expect(yf3.bounds).toEqual(six.bounds)
     expect(yf3.cols).toBe(six.cols)
     expect(yf3.rows).toBe(six.rows)
