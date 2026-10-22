@@ -31,8 +31,33 @@ import { buildRegistry, type ArenaEntry } from './arenaCatalog'
  * —— 它本来就不进目录，所以这个改动不会当场暴露；
  * 一直到有人往顶层直接丢了个场子，而菜单里没有它。
  * **静默漏掉一个场子，比报错难查一个量级。**
+ *
+ * ## ⚠️ 第二个模式（负模式）：场子文件夹里的单测**不许**被打进浏览器
+ *
+ * ★ 加了这一条（2026-10-22，D2 的 `D2/_yfPlan.test.ts` 撞上的）：
+ * `eager: true` 会把匹配到的文件**全部求值**，而 `arenaCatalog` 只在**之后**
+ * 按 `_` 前缀把它们从目录里筛掉 —— 筛掉的是「菜单里的那一项」，不是「加载」。
+ * 于是场子文件夹里放一个单测，浏览器会真的去 import 它，而它 import 的是
+ * **vitest**：页面当场抛
+ * `Vitest failed to access its internal state`，**整个测试场页面起不来**
+ * （连菜单都没有，所以「是哪个场子坏了」都看不出来）。
+ *
+ * 这个坑的形状值得记一笔：`_` 前缀那条规则看上去像是「下划线的东西不会被打进去」，
+ * 而它管的是**目录**，不是**打包**。两件事在只有 `_shared.ts` 的时候恰好重合
+ * （那个文件本来就不 import vitest），所以一直没暴露。
+ *
+ * 用负模式而不是让单测别放那儿：场子的纯逻辑（不许碰 Phaser 的那部分）就该
+ * 和它被测的代码放在一起，而「测试别放这个文件夹」是一条要靠人记住的规矩。
+ *
+ * ⚠️ 写这一段的时候踩了一个自己的坑：**那个模式里有星号紧跟斜杠**，
+ * 直接写进这块注释等于把注释**提前结束**，剩下的半行变成代码 ——
+ * esbuild 报的是「Unexpected `*`」，指向的却是注释行号（很容易当成括号写错了）。
+ * 所以这里只能口述「负模式」，具体那个模式在下面代码里。
  */
-const modules = import.meta.glob('./arenas/**/*.ts', { eager: true }) as Record<string, unknown>
+// 第二个模式是负模式：`!` 开头 + 那个通配 + `.test.ts`，把单测排掉。
+const modules = import.meta.glob(['./arenas/**/*.ts', '!**/*.test.ts'], {
+  eager: true,
+}) as Record<string, unknown>
 
 /** 全部场子，按 id 排序（`buildRegistry` 里排的，所以菜单顺序稳定） */
 export const ARENAS: readonly ArenaEntry[] = buildRegistry(modules)
