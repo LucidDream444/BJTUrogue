@@ -19,6 +19,7 @@
 | `domains/meta/ui/overlayFrame.ts` | 弹层外框（压暗层 / 面板 / 标题 / 关闭按钮 / 提示行） | 所有弹层 —— **叠放顺序的坑只在这里讲一次** |
 | `domains/meta/ui/overlayLayer.ts` | 弹层的**相机反变换**层：弹层内部按"屏幕坐标"画，宿主相机怎么缩放平移都不受影响 | 暂停菜单、结算界面（**宿主相机不是 1:1 时必须走它**） |
 | `domains/meta/ui/panels.ts` | 操作说明与设置两块内容 | 主菜单 **与** 暂停菜单（需求要求"是同一个界面"） |
+| `domains/meta/ui/SaveStatusBanner.ts` | 存档写入失败提示与“重试保存”入口 | 主菜单、暂停菜单、结算界面 |
 | `domains/meta/pause/PauseOverlay.ts` | 暂停菜单组件（不是场景！） | 宿主是 D1 的战斗场景 |
 
 **它们都是产品代码，不是测试设施**，放在 `domains/meta/` 下（那是 D4 的域）。
@@ -79,6 +80,6 @@
 
 | 事项 | 状态 |
 |---|---|
-| 角色目录（4 个角色的定位与差异化） | 占位中，见 `domains/meta/catalog.ts` |
+| 角色目录（当前固定为 3 个角色的定位与差异化） | 已接入，见 `domains/meta/catalog.ts` |
 | 分辨率设置 | **不做**：已决定保留 `Scale.RESIZE`，设置菜单不放这一项 |
 | UI 适配（窄窗口 / 手机） | 迭代 3 的活；现在主菜单只做了等比收缩 |

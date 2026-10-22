@@ -59,6 +59,7 @@ export const DEFAULT_DIFFICULTY = 'normal'
 export function createDefaultProfile(): ProfileData {
   return {
     schemaVersion: PROFILE_SCHEMA_VERSION,
+    revision: 0,
     settings: {
       bgmVolume: 0.6,
       sfxVolume: 0.8,

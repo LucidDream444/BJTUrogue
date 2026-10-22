@@ -17,6 +17,13 @@
  *
  * 它把"改动写错了"从一个**要等下次启动才炸的坏档**，变成一次当场被夹回合法范围的
  * 赋值。代价是每次改动多一次对象构造，量级上可以忽略（这个档只有几十个字段）。
+ *
+ * ## 云同步的接入位置
+ *
+ * 云同步是 Store 的**订阅者**，不是 `ProfileStorage` 的另一个实现：
+ * 订阅 `'updated'` → 确认 `lastError === null` → 异步上传 `snapshot()`。
+ * 这样本地写盘永远是同步的，网络慢或断线都不会阻塞战斗；`revision` 用于
+ * 去重与冲突判断。不要把网络请求塞进 `ProfileStorage.write()`。
  */
 
 import { createDefaultProfile } from './defaults'
@@ -38,7 +45,14 @@ import {
 } from './types'
 
 /** 档发生变化时通知谁。**设置界面与暂停菜单同步靠的就是它**（需求 §4.5）。 */
-export type ProfileStoreEvent = 'loaded' | 'updated' | 'reset'
+export type ProfileStoreEvent =
+  | 'loaded'
+  | 'updated'
+  | 'reset'
+  /** `save()` 成功。云同步层可以在收到它之后再决定何时上传。 */
+  | 'saved'
+  /** `save()` 仍失败。界面靠 `lastError` 显示原因并保留重试入口。 */
+  | 'save-failed'
 
 export type ProfileListener = (profile: ProfileData, event: ProfileStoreEvent) => void
 
@@ -111,7 +125,7 @@ export class ProfileStore {
 
     this.current = result.profile
     this.error = null
-    if (result.outcome.status === 'migrated') this.save()
+    if (result.outcome.status === 'migrated') this.writeCurrent()
     return this.finish(result.outcome)
   }
 
@@ -128,6 +142,11 @@ export class ProfileStore {
   /** 上一次存储操作的错误。`null` = 一切正常。 */
   get lastError(): string | null {
     return this.error
+  }
+
+  /** 可被云同步层安全读取的一份副本；修改它不会影响当前内存档。 */
+  snapshot(): ProfileData {
+    return cloneProfile(this.current)
   }
 
   // ------------------------------------------------------------------ 写
@@ -147,17 +166,33 @@ export class ProfileStore {
       // mutator 自己炸了：**内存档一点不动**。改到一半的档比不改更糟，
       // 它会以一个"看起来正常"的样子落盘。
       this.error = `改档失败：${messageOf(err)}`
+      this.emit('save-failed')
       return false
     }
 
+    // revision 由 Store 统一维护，mutator 改不了它。即使这次落盘失败也要递增：
+    // 内存中的进度已经变了，稍后的“重试保存”必须上传这个新版本。
+    draft.revision = this.current.revision + 1
     this.current = normalizeProfile(draft)
-    const ok = this.save()
+    const ok = this.writeCurrent()
     this.emit('updated')
     return ok
   }
 
-  /** 落盘。存储不可用 / 配额满 → 返回 `false`，不抛。 */
+  /**
+   * 主动重试落盘。存储不可用 / 配额满 → 返回 `false`，不抛。
+   *
+   * 这是界面的“重试保存”按钮调用的唯一入口。成功后它会发 `'saved'`，
+   * 失败则发 `'save-failed'`；两个事件都不影响当前内存档。
+   */
   save(): boolean {
+    const ok = this.writeCurrent()
+    this.emit(ok ? 'saved' : 'save-failed')
+    return ok
+  }
+
+  /** 存储层内部写盘。**不通知订阅者**，由调用方决定发哪个语义事件。 */
+  private writeCurrent(): boolean {
     try {
       this.storage.write(this.key, JSON.stringify(this.current))
       this.error = null
@@ -172,7 +207,11 @@ export class ProfileStore {
 
   /** 清档并写回默认。**只该由玩家主动触发。** */
   reset(): boolean {
-    this.current = createDefaultProfile()
+    // Reset 也是一次修改；revision 不能从 42 回到 0，否则云端会把旧档误判成新档。
+    this.current = {
+      ...createDefaultProfile(),
+      revision: this.current.revision + 1,
+    }
     let removed = true
     try {
       this.storage.remove(this.key)
@@ -180,7 +219,7 @@ export class ProfileStore {
       this.error = `清档失败：${messageOf(err)}`
       removed = false
     }
-    const saved = this.save()
+    const saved = this.writeCurrent()
     this.emit('reset')
     return removed && saved
   }

@@ -30,6 +30,8 @@ export const THEME = {
     border: 0x756144,
     /** 焦点 / 选中的描边 */
     accent: 0xd5b274,
+    /** 错误与阻断状态 */
+    danger: 0xb85b4b,
     /** 焦点的填充（比 accent 暗，免得白字压不上去） */
     accentFill: 0x3c5139,
     /** 禁用态：几乎与背景同色，只在描边上留一点存在感 */
