@@ -259,6 +259,29 @@ export class MainMenuScene extends Phaser.Scene {
     this.scale.on(Phaser.Scale.Events.RESIZE, onResize)
     this.disposers.push(() => this.scale.off(Phaser.Scale.Events.RESIZE, onResize))
 
+    // 显示模式以浏览器实际状态为准。进入 / 退出全屏、以及玩家按 Esc 退出，
+    // Phaser 都会发事件；在这些事件之后写档，才能避免“按钮显示全屏、
+    // 实际却已经回到窗口”的假状态。
+    const syncDisplayMode = (): void => {
+      this.store.syncDisplayMode(this.scale.isFullscreen)
+      this.refresh()
+    }
+    const fullscreenFailed = (): void => {
+      this.state = withNotice(this.state, '全屏切换失败，浏览器未进入全屏')
+      this.refresh()
+    }
+    this.scale.on(Phaser.Scale.Events.ENTER_FULLSCREEN, syncDisplayMode)
+    this.scale.on(Phaser.Scale.Events.LEAVE_FULLSCREEN, syncDisplayMode)
+    this.scale.on(Phaser.Scale.Events.FULLSCREEN_FAILED, fullscreenFailed)
+    this.scale.on(Phaser.Scale.Events.FULLSCREEN_UNSUPPORTED, fullscreenFailed)
+    this.disposers.push(() => {
+      this.scale.off(Phaser.Scale.Events.ENTER_FULLSCREEN, syncDisplayMode)
+      this.scale.off(Phaser.Scale.Events.LEAVE_FULLSCREEN, syncDisplayMode)
+      this.scale.off(Phaser.Scale.Events.FULLSCREEN_FAILED, fullscreenFailed)
+      this.scale.off(Phaser.Scale.Events.FULLSCREEN_UNSUPPORTED, fullscreenFailed)
+    })
+    syncDisplayMode()
+
     // 档变了就刷新外观（设置弹层的滑杆改了音量、别处改了选择）。
     // **这条只调 refresh()，不调 rebuild()** —— 理由见文件头。
     this.disposers.push(this.store.subscribe(() => this.refresh()))
@@ -632,7 +655,6 @@ export class MainMenuScene extends Phaser.Scene {
         `全屏切换失败：${err instanceof Error ? err.message : err}`,
       )
     }
-    this.store.setSettings({ displayMode: mode })
     this.refresh()
   }
 

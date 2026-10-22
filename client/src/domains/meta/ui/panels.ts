@@ -143,7 +143,7 @@ export function buildSettingsPanel(
     frame.contentTop + 134,
     '全屏',
     () => onDisplayMode('fullscreen'),
-    { width: 88, height: 34, fontSize: THEME.font.small },
+    { width: 88, height: 34, fontSize: THEME.font.small, activateOn: 'up' },
   )
   const windowed = new Button(
     scene,
@@ -151,7 +151,7 @@ export function buildSettingsPanel(
     frame.contentTop + 134,
     '窗口',
     () => onDisplayMode('windowed'),
-    { width: 88, height: 34, fontSize: THEME.font.small },
+    { width: 88, height: 34, fontSize: THEME.font.small, activateOn: 'up' },
   )
   sink.button(fullscreen)
   sink.button(windowed)
