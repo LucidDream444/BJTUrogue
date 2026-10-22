@@ -218,7 +218,7 @@ class D4ProfileArena extends ArenaBase {
         `上次操作   ${this.lastAction}`,
         `load 结论  ${describe(this.store.lastOutcome)}`,
         '',
-        `档          版本 ${p.schemaVersion}（本版 ${PROFILE_SCHEMA_VERSION}）`,
+        `档          版本 ${p.schemaVersion}（本版 ${PROFILE_SCHEMA_VERSION}） · revision ${p.revision}`,
         `            金币 ${p.currency.coins}   角色 ${p.selected.characterId}   难度 ${p.selected.difficulty}`,
         `            解锁 ${p.unlocks.characters.join(', ') || '（空）'}`,
         `            升级 ${this.upgradeText(p.upgrades)}`,

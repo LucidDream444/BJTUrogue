@@ -45,11 +45,11 @@ export interface CharacterSkillLevelDef {
   durationMs: number
   attackSpeedPct: number
   distance: number
+  dashMs: number
+  dashDamage: number
   iframeMs: number
   attackSpeedPerEnemyPct: number
   maxMechanicEnemies: number
-  shieldPerEnemy: number
-  maxShieldRestore: number
   pageDamage: number
   fireIntervalMs: number
   range: number
@@ -155,6 +155,8 @@ function parseCharacterSkill(raw: unknown, where: string): CharacterSkillDef {
       durationMs: optionalNumber(level.durationMs, `${p}.durationMs`),
       attackSpeedPct: optionalNumber(level.attackSpeedPct, `${p}.attackSpeedPct`),
       distance: optionalNumber(level.distance, `${p}.distance`),
+      dashMs: optionalNumber(level.dashMs, `${p}.dashMs`),
+      dashDamage: optionalNumber(level.dashDamage, `${p}.dashDamage`),
       iframeMs: optionalNumber(level.iframeMs, `${p}.iframeMs`),
       attackSpeedPerEnemyPct: optionalNumber(
         level.attackSpeedPerEnemyPct,
@@ -164,8 +166,6 @@ function parseCharacterSkill(raw: unknown, where: string): CharacterSkillDef {
         level.maxMechanicEnemies,
         `${p}.maxMechanicEnemies`,
       ),
-      shieldPerEnemy: optionalNumber(level.shieldPerEnemy, `${p}.shieldPerEnemy`),
-      maxShieldRestore: optionalNumber(level.maxShieldRestore, `${p}.maxShieldRestore`),
       pageDamage: optionalNumber(level.pageDamage, `${p}.pageDamage`),
       fireIntervalMs: optionalNumber(level.fireIntervalMs, `${p}.fireIntervalMs`),
       range: optionalNumber(level.range, `${p}.range`),
@@ -174,8 +174,11 @@ function parseCharacterSkill(raw: unknown, where: string): CharacterSkillDef {
     if (kind === 'haste' && (def.durationMs <= 0 || def.attackSpeedPct <= 0)) {
       throw new MetaConfigError(`${p} 是攻速技能，必须有 durationMs 与 attackSpeedPct`)
     }
-    if (kind === 'dash' && (def.distance <= 0 || def.iframeMs < 0)) {
-      throw new MetaConfigError(`${p} 是突进技能，必须有 distance 与 iframeMs`)
+    if (
+      kind === 'dash' &&
+      (def.distance <= 0 || def.dashMs <= 0 || def.dashDamage <= 0 || def.iframeMs < 0)
+    ) {
+      throw new MetaConfigError(`${p} 是突进技能，必须有 distance / dashMs / dashDamage / iframeMs`)
     }
     if (
       kind === 'summon' &&
@@ -191,9 +194,7 @@ function parseCharacterSkill(raw: unknown, where: string): CharacterSkillDef {
       i === 3 &&
       kind === 'dash' &&
       (def.attackSpeedPerEnemyPct <= 0 ||
-        def.maxMechanicEnemies <= 0 ||
-        def.shieldPerEnemy <= 0 ||
-        def.maxShieldRestore <= 0)
+        def.maxMechanicEnemies <= 0)
     ) {
       throw new MetaConfigError(`${p} 的第三阶突进机制数值不完整`)
     }
