@@ -87,6 +87,33 @@ function runSteps(
 }
 
 describe('DamageLedger — 不变式 ①：每 (源,目标) 每 tick 最多结算一次', () => {
+  it('可选首次即时跳仍只在物理步结算，同帧去重且后续等待完整节拍', () => {
+    const ledger = new DamageLedger(CFG)
+    const target = new FakeTarget()
+    const opts = { sourceKind: 'contact' as const, amountPerTick: 24, immediateFirstTick: true }
+
+    ledger.touch(1, target, opts, 0)
+    expect(target.hits).toHaveLength(0)
+    ledger.step(0, 0)
+    expect(target.hits).toHaveLength(1)
+
+    for (const now of [0, 50, 100]) {
+      ledger.touch(1, target, opts, now)
+      ledger.step(now, 0)
+    }
+    expect(target.hits).toHaveLength(1)
+    ledger.touch(1, target, opts, 100)
+    ledger.step(100, 1)
+    expect(target.hits).toHaveLength(2)
+    ledger.touch(1, target, opts, 199)
+    ledger.step(199, 2)
+    expect(target.hits).toHaveLength(2)
+    ledger.touch(1, target, opts, 200)
+    ledger.step(200, 3)
+    expect(target.hits).toHaveLength(3)
+    expect(target.hits.map((hit) => hit.amount)).toEqual([24, 24, 24])
+  })
+
   it('首次接触不立刻结算，等一个 tickMs 才第一次结算', () => {
     const ledger = new DamageLedger(CFG)
     const target = new FakeTarget()
