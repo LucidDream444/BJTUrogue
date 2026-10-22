@@ -1193,13 +1193,15 @@ export class EnemySystem implements ActorEventSink {
   }
 
   private registerPlayerContact(model: EnemyModel, target: PlayerView, nowMs: number): void {
-    if (!model.alive || model.state === 'spawning') return
+    if (!model.alive) return
     this.liquid.touchContact(target.model.id, model, nowMs)
     if (this.liquid.active) {
       // 穿怪时保留重叠帧伤，移除敌人旧接触伤害配对，不让穿梭被受击硬直打断。
       this.ledger.releaseSource(model.id)
       return
     }
+    // 出生宽限只限制敌人伤害玩家，不应让新分裂的纸团免疫沾液攻击。
+    if (model.state === 'spawning') return
     const amountPerTick = this.contactDamagePerTick(model)
     if (amountPerTick <= 0) return
     this.ledger.touch(

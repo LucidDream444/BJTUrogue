@@ -113,6 +113,8 @@ export interface TickOptions {
   sourceKind: DamageSourceKind
   /** 每 tick 造成的伤害 */
   amountPerTick: number
+  /** 首次接触当步即可结算第一跳；默认等待一个 tickMs。仍只由 step() 扣血。 */
+  immediateFirstTick?: boolean
   /** 同一接触源最多结算几次；默认取 `LedgerConfig.maxTicksPerSourceDefault` */
   maxTicks?: number
   /** 脱接触多久后条目过期，默认取 `LedgerConfig.pairTtlMs` */
@@ -196,7 +198,7 @@ export class DamageLedger {
   /**
    * 登记/刷新一次接触。**物理回调里调它，不要在回调里做别的。**
    *
-   * - 首次接触：建条目，`nextTickAtMs = nowMs + tickMs`
+   * - 首次接触：建条目，默认 `nextTickAtMs = nowMs + tickMs`；即时首跳可选为 `nowMs`
    * - 后续接触：只刷新 `lastTouchMs`，**不动 `nextTickAtMs`**
    *   （否则持续接触会被无限推迟，永远不结算）
    */
@@ -217,7 +219,7 @@ export class DamageLedger {
         amountPerTick: opts.amountPerTick,
         maxTicks: opts.maxTicks ?? this.cfg.maxTicksPerSourceDefault,
         ttlMs: opts.ttlMs ?? this.cfg.pairTtlMs,
-        nextTickAtMs: nowMs + this.cfg.tickMs,
+        nextTickAtMs: opts.immediateFirstTick ? nowMs : nowMs + this.cfg.tickMs,
         lastTouchMs: nowMs,
         touchedThisStep: true,
         ticksDone: 0,

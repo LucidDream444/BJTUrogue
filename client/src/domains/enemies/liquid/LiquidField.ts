@@ -124,7 +124,7 @@ export class LiquidField {
     return drain
   }
 
-  /** 只登记本物理步的接触；不附带首次撞击伤害。 */
+  /** 登记本步接触，首跳在当步末结算，之后按节拍持续帧伤；快速穿过小怪也能命中。 */
   touchContact(playerId: number, target: TickTarget, nowMs: number): void {
     if (!this.active || !target.alive) return
     this.contactLedger.touch(
@@ -133,6 +133,7 @@ export class LiquidField {
       {
         sourceKind: 'contact',
         amountPerTick: this.cfg.coating.contactDamagePerTick,
+        immediateFirstTick: true,
       },
       nowMs,
     )

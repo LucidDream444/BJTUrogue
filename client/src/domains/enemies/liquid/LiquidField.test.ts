@@ -1,11 +1,30 @@
 import { readFileSync } from 'node:fs'
 import { describe, expect, it } from 'vitest'
-import { deriveSprayer, parseConfigBundle, validateEnemies } from '@/core/config'
+import {
+  deriveGrabber,
+  deriveSplitterGeneration,
+  deriveSprayer,
+  deriveTank,
+  parseConfigBundle,
+  validateEnemies,
+} from '@/core/config'
 import { ActorModel } from '@/core/actor/ActorModel'
+import {
+  EnemyModel,
+  specFromGrabber,
+  specFromSplitter,
+  specFromSprayer,
+  specFromTank,
+} from '../model/EnemyModel'
 import { LiquidField } from './LiquidField'
 
 const raw = () => JSON.parse(readFileSync('public/config/enemies.json', 'utf8'))
-const cfg = validateEnemies(raw()).enemies.sprayer
+const bundle = parseConfigBundle({
+  enemies: raw(),
+  balance: JSON.parse(readFileSync('public/config/balance.json', 'utf8')),
+  difficulty: JSON.parse(readFileSync('public/config/difficulty.json', 'utf8')),
+})
+const cfg = bundle.enemies.enemies.sprayer
 
 function setup() {
   const field = new LiquidField(cfg)
@@ -170,8 +189,40 @@ function enemy() {
   return target
 }
 
-describe('沾液接触帧伤：仅按持续接触结算', () => {
-  it('首次触碰只登记，每个节拍持续掉血，没有额外的 80 点撞击', () => {
+describe('沾液接触帧伤：当步首跳，持续接触按节拍结算', () => {
+  const defs = bundle.enemies.enemies
+  const mods = bundle.difficulty.difficulties.normal
+  const tankSpec = specFromTank(deriveTank(defs.tank, mods, bundle.balance), defs.tank)
+  const specs = [
+    ...defs.splitter.generations.map((g) =>
+      specFromSplitter(deriveSplitterGeneration(g, mods, bundle.balance), defs.splitter),
+    ),
+    specFromGrabber(deriveGrabber(defs.grabber, mods, bundle.balance), defs.grabber),
+    tankSpec,
+    specFromSprayer(defs.sprayer, mods, bundle.balance),
+    { ...tankSpec, pierceImmune: true },
+  ].map((spec) => ({
+    name: `${spec.kind} 第 ${spec.gen + 1} 代${spec.pierceImmune ? '首领' : ''}`,
+    spec,
+  }))
+
+  it.each(specs)('$name 快速接触当步受伤，包含纸团出生宽限期', ({ spec }) => {
+    const { field } = setup()
+    const target = new EnemyModel(spec.kind)
+    target.respawn(spec, 0)
+    if (spec.graceMs > 0) expect(target.state).toBe('spawning')
+
+    field.touchContact(1, target, 0)
+    expect(target.hp).toBe(target.maxHp)
+    field.stepContact(0, 0)
+    const hpAfterContact = Math.max(0, target.maxHp - cfg.coating.contactDamagePerTick)
+    expect(target.hp).toBe(hpAfterContact)
+    expect(target.hitCount).toBe(1)
+    field.stepContact(cfg.coating.contactTickMs, 1)
+    expect(target.hp).toBe(hpAfterContact)
+  })
+
+  it('首次触碰当步一跳，后续每个节拍持续掉血，每跳伤害相同', () => {
     const { field } = setup(),
       target = enemy()
     const hits: number[] = []
@@ -180,9 +231,9 @@ describe('沾液接触帧伤：仅按持续接触结算', () => {
       const now = i * cfg.coating.contactTickMs
       field.touchContact(1, target, now)
       field.stepContact(now, i)
-      expect(target.hp).toBe(target.maxHp - i * cfg.coating.contactDamagePerTick)
+      expect(target.hp).toBe(target.maxHp - (i + 1) * cfg.coating.contactDamagePerTick)
     }
-    expect(hits).toEqual(Array(4).fill(cfg.coating.contactDamagePerTick))
+    expect(hits).toEqual(Array(5).fill(cfg.coating.contactDamagePerTick))
   })
 
   it('重复接触和同渲染帧补步不重复结算，低帧率不追赶补伤', () => {
@@ -194,10 +245,10 @@ describe('沾液接触帧伤：仅按持续接触结算', () => {
       field.touchContact(1, target, 1000)
       field.stepContact(1000, 1)
     }
-    expect(target.hp).toBe(target.maxHp - cfg.coating.contactDamagePerTick)
+    expect(target.hp).toBe(target.maxHp - 2 * cfg.coating.contactDamagePerTick)
     field.touchContact(1, target, 1001)
     field.stepContact(1001, 2)
-    expect(target.hp).toBe(target.maxHp - cfg.coating.contactDamagePerTick)
+    expect(target.hp).toBe(target.maxHp - 2 * cfg.coating.contactDamagePerTick)
   })
 
   it('一帧同时贴住多个敌人各自掉血，伤害节拍与采样频率无关', () => {
@@ -210,27 +261,27 @@ describe('沾液接触帧伤：仅按持续接触结算', () => {
         field.touchContact(1, b, now)
         field.stepContact(now, now / dt)
       }
-      expect(a.maxHp - a.hp).toBe(cfg.coating.contactDamagePerTick * 10)
+      expect(a.maxHp - a.hp).toBe(cfg.coating.contactDamagePerTick * 11)
       expect(b.hp).toBe(a.hp)
     }
   })
 
-  it('离开立即停伤；短暂接触不足一跳不受伤，不残留毒伤', () => {
+  it('短暂接触也有首跳，离开立即停伤，重新接触可再次攻击', () => {
     const { field } = setup(),
       target = enemy()
     field.touchContact(1, target, 0)
     field.stepContact(0, 0)
     field.stepContact(cfg.coating.contactTickMs, 1)
-    expect(target.hp).toBe(target.maxHp)
+    expect(target.hp).toBe(target.maxHp - cfg.coating.contactDamagePerTick)
     field.stepContact(1000, 2)
     field.touchContact(1, target, 1001)
     field.stepContact(1001, 3)
-    expect(target.hp).toBe(target.maxHp)
+    expect(target.hp).toBe(target.maxHp - 2 * cfg.coating.contactDamagePerTick)
     field.touchContact(1, target, 1001 + cfg.coating.contactTickMs)
     field.stepContact(1001 + cfg.coating.contactTickMs, 4)
-    expect(target.hp).toBe(target.maxHp - cfg.coating.contactDamagePerTick)
+    expect(target.hp).toBe(target.maxHp - 3 * cfg.coating.contactDamagePerTick)
     field.stepContact(1500, 5)
-    expect(target.hp).toBe(target.maxHp - cfg.coating.contactDamagePerTick)
+    expect(target.hp).toBe(target.maxHp - 3 * cfg.coating.contactDamagePerTick)
   })
 
   it('清除沾液立即销毁配对，重新沾液不继承之前的伤害节拍', () => {
@@ -241,11 +292,11 @@ describe('沾液接触帧伤：仅按持续接触结算', () => {
     field.resetCoating()
     field.stepContact(100, 1)
     field.touchContact(1, target, 100)
-    expect(target.hp).toBe(target.maxHp)
+    expect(target.hp).toBe(target.maxHp - cfg.coating.contactDamagePerTick)
     field.active = true
     field.touchContact(1, target, 100)
     field.stepContact(100, 2)
-    expect(target.hp).toBe(target.maxHp)
+    expect(target.hp).toBe(target.maxHp - 2 * cfg.coating.contactDamagePerTick)
   })
 
   it('敌人死亡、回收和重生不继承旧接触记录', () => {
@@ -256,13 +307,13 @@ describe('沾液接触帧伤：仅按持续接触结算', () => {
     field.releaseEnemy(target)
     field.touchContact(1, target, 100)
     field.stepContact(100, 1)
-    expect(target.hp).toBe(target.maxHp)
+    expect(target.hp).toBe(target.maxHp - 2 * cfg.coating.contactDamagePerTick)
     target.despawn()
     field.stepContact(200, 2)
     target.spawn(target.stats, 'alive')
     field.touchContact(1, target, 300)
     field.stepContact(300, 3)
-    expect(target.hp).toBe(target.maxHp)
+    expect(target.hp).toBe(target.maxHp - cfg.coating.contactDamagePerTick)
   })
 })
 
@@ -299,11 +350,6 @@ describe('喷洒怪配置契约', () => {
     }
   })
   it('血量随基线武器和难度派生，帧伤收益及移动代价保持相同', () => {
-    const bundle = parseConfigBundle({
-      enemies: raw(),
-      balance: JSON.parse(readFileSync('public/config/balance.json', 'utf8')),
-      difficulty: JSON.parse(readFileSync('public/config/difficulty.json', 'utf8')),
-    })
     for (const mods of Object.values(bundle.difficulty.difficulties)) {
       const derived = deriveSprayer(cfg, mods, bundle.balance)
       expect(derived.maxHp).toBe(
