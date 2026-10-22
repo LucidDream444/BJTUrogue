@@ -18,7 +18,7 @@ import { fileURLToPath } from 'node:url'
 import { describe, expect, it } from 'vitest'
 
 import { ConfigError } from '@/core/config'
-import { FLOOR_ROOM_TOTAL, checkRoomCount, parseFloorPlan } from './floorPlan'
+import { checkRoomCount, parseFloorPlan } from './floorPlan'
 import type { FloorPlanMetrics } from './floorPlan'
 
 const CONFIG_DIR = fileURLToPath(new URL('../../../../public/config/', import.meta.url))
@@ -76,15 +76,16 @@ describe('真的那份 floor-plan.json', () => {
     expect(plan.rooms.some((r) => r.id === 'STAIR')).toBe(false)
   })
 
-  it('这一层是 16 间房：15 间编号教室 + 1 间楼梯间', () => {
-    // ⚠️ 这两个数**不同**，且各自都对：rooms.json 的 classroomCount 是 15（教室数），
-    //    整层是 16（多一间楼梯间）。同一个量有两个名字，是这一节最容易读错的地方。
-    //    ★ v5：那个字段从 totalRooms 改名成 classroomCount，因为叫 totalRooms 时
-    //    读的人会照着它去生成「15 间房」，而出生点就没有一间属于它的房。
-    expect(plan.rooms.length).toBe(METRICS.classroomCount)
+  it('这一层声明 16 间房：15 间编号教室 + 1 间楼梯间', () => {
+    // ★ 改了（2026-10-22）：原先这里对着两个数（`rooms.json` 的 classroomCount 是
+    //    15、代码里的 FLOOR_ROOM_TOTAL 是 16），因为「同一个量有两个名字」是这一节
+    //    最容易读错的地方。现在**只有一个数**：平面图自己声明的 `roomTotal`，
+    //    而它必须等于「rooms 的条数 + 楼梯间」—— 少加那 1 就是出生点没有一间
+    //    属于它的房，多减那 1 就是漏了楼梯间。两层楼的间数不同（这里是 6F 的 16），
+    //    所以这个数跟着文件走，不再是全局常量。
     expect(plan.rooms.length).toBe(15)
-    expect(plan.rooms.length + 1).toBe(FLOOR_ROOM_TOTAL)
-    expect(FLOOR_ROOM_TOTAL).toBe(16)
+    expect(plan.roomTotal).toBe(16)
+    expect(plan.rooms.length + 1).toBe(plan.roomTotal)
   })
 
   it('楼梯间是一间房，不是「不是房间」的空间 —— 出生点必须落在某间房里（下同）', () => {
@@ -249,7 +250,7 @@ describe('校验器：每一类各一条「改坏 → 报对」', () => {
     expect(err.message).toMatch(/YF60[5689]/)
   })
 
-  it('总房数与 rooms.json 对不上 → **两个数字都报出来**', () => {
+  it('声明了 16 间而几何只有 15 间（删了一间教室）→ **两个数字都报出来**', () => {
     const plan = brokenPlan()
     // ⚠️ 删房必须**连它的门一起删**。只删房的话，那扇门就成了悬空引用，
     //    而 `checkDoors` 排在 `checkRoomCount` 前面 —— 报出来的是「门引用了不存在
@@ -260,19 +261,26 @@ describe('校验器：每一类各一条「改坏 → 报对」', () => {
     plan.rooms = roomsOf(plan).filter((r) => r !== yf607)
     plan.doors = doorsOf(plan).filter((d) => d.a !== 'YF607' && d.b !== 'YF607')
     const err = expectConfigError(plan)
-    expect(err.message).toContain('14')
-    expect(err.message).toContain('15')
-    // 报错里要提醒「totalRooms 数的是教室，不是整层」—— 不然读的人会把两者改成同一个数
+    expect(err.message).toContain('16') // 声明的
+    expect(err.message).toContain('14') // 几何里还有几间
+    expect(err.message).toContain('15') // 14 + 楼梯间
+    // 报错要说清楼梯间**算在总数里** —— 不然读的人会把它当成「多出来的那一间」
     expect(err.message).toContain('楼梯间')
   })
 
-  it('把 rooms 与 totalRooms **一起**改成 16（看着像「统一了一下」）→ 照样拦得住', () => {
-    // 这是 `checkRoomCount` 第二条判据存在的全部理由：
-    // 两个文件改成同一个数之后，第一条（对账）会静默通过 —— 而整层就变成了 17 间。
+  it('房间数没变、只把 roomTotal 写错 → 照样拦得住（两种错法各报各的）', () => {
+    // ★ 改了（2026-10-22）：这一条原先试的是「把 rooms.json 与平面图改成同一个数」
+    //    （两个文件同时改，对账那条就静默通过了）。现在两个数**在同一份平面图里**，
+    //    所以它守的是同一件事的另一个形态：几何是对的、只有声明被改坏。
+    //    这也是删掉「教室数 vs classroomCount」那条判据后剩下的**唯一**一条 ——
+    //    没有第二个文件会替它响，所以两种错法都要钉住。
     const plan = parseFloorPlan(readJson('floor-plan.json'), METRICS)
-    const sixteenRooms = [...plan.rooms, plan.rooms[0]!]
-    expect(() => checkRoomCount(sixteenRooms, 16)).toThrow(/17/)
-    expect(() => checkRoomCount(sixteenRooms, 16)).toThrow(ConfigError)
+    expect(plan.rooms.length + 1).toBe(plan.roomTotal) // 正的那一侧先钉住
+    // 写小了 = 漏了楼梯间（看着像「我数了一遍房间」）
+    expect(() => checkRoomCount(plan.rooms, plan.roomTotal - 1)).toThrow(/漏了楼梯间/)
+    // 写大了 = 多数了一间
+    expect(() => checkRoomCount(plan.rooms, plan.roomTotal + 1)).toThrow(/多数了一间/)
+    expect(() => checkRoomCount(plan.rooms, plan.roomTotal + 1)).toThrow(ConfigError)
   })
 
   it('坐标不是整数格 → 报出来（半格会把墙心从格中心挤出去）', () => {

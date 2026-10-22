@@ -1,5 +1,5 @@
 /**
- * **换种子。** 生成器的正确性不是「一张图看起来对」——而是「一千张图都对」。
+ * **看一层楼。** 生成器的正确性不是「一张图看起来对」——而是「一千张图都对」。
  * 单测已经把一千个种子扫过了（`gen/generate.test.ts`），这一场解决的是另一件事：
  *
  * **把那个结论从终端搬到屏幕上，并且让人能亲手换。**
@@ -11,6 +11,39 @@
  * - 手感、审美这一类的判断（「这一层是不是太空」「走廊是不是太挤」
  *   「教休室怎么跑东边去了」）**写不进断言**。批量扫一遍然后用眼睛看，
  *   是唯一能做这件事的方式。
+ *
+ * ---
+ *
+ * ## ★ 2026-10-22：`yf` 那一场并进来了（菜单里的第 2 项与第 3 项合成一项）
+ *
+ * 用户原话：「合并测试场 2 和 3（因为基本功能差不多）」。
+ * 那两场（`d2_seeds` = 换种子、`yf` = 逸夫楼 3F）确实只差一个轴：
+ * **`d2_seeds` 换的是种子（内容变、几何不变），`yf` 换的是层（几何变、种子不变）**。
+ * 两场都建在同一套东西上（`generateForArena` → `drawFloorplan` → 同一组读数），
+ * 版面也一模一样 —— 分成两个文件之后，**改一处读数要改两遍**，
+ * 而那正是两份实现开始分岔的地方。
+ *
+ * **所以这一场现在有两个正交的开关：**
+ *
+ * | 键 | 换什么 | 变的 | 不变的 |
+ * |---|---|---|---|
+ * | `N` / `P` / `S` | 种子 | 关别 / 桌椅 / 刷怪点 | 几何（平面图是画死的） |
+ * | `C` | 层（3F ⇄ 6F） | 几何（房间在哪、几间、门开在哪儿） | 种子、关别权重、桌椅规则 |
+ *
+ * ⚠️ **保留了 `yf` 那场的默认值：进来先是 3F**（逸夫楼，玩家进游戏的第 1 层），
+ * 按 `C` 切到 6F。理由不是习惯：**默认那一屏要与玩家真的走进去的那一层一致**，
+ * 不然「屏幕上看着没问题」这句话就没有指向。
+ *
+ * ⚠️ **文件名（= 场子 id）仍然是 `d2_seeds`**，没有跟着改。
+ * 改 id 要让 `floorplan.ts` / `framing.ts` / `threeRooms.test.ts` / `test/README.md`
+ * 里十来处**注释里提到它的地方**一起改，而那些地方说的都是「这件事当初为什么这么写」——
+ * 改完只会让历史读起来对不上。**菜单上那一行（`displayName`）才是给人看的名**，
+ * 它跟着这一场现在做的事走。
+ *
+ * ⚠️ **换层时「盯着哪一间」按层各记一份**（`zoomRoomByPlan`）。不记的话，
+ * `C` 会把观测对象整个丢掉（3F 的 `YF302` 在 6F 上根本不存在）——
+ * 而这一场为换种子已经立过同一条规矩：**换观测对象必须是人主动做的**
+ * （见下面 `switchTo()` 里那段）。按层记一份之后，`C` 两下就回到原处。
  *
  * ---
  *
@@ -85,6 +118,7 @@ import Phaser from 'phaser'
 import type { ArenaConfig, ArenaContext, ArenaDefinition } from '../../ArenaBase'
 import { ArenaBase, WORLD_WIDTH } from '../../ArenaBase'
 import type { RoomsConfig } from '@/domains/procgen/config'
+import { FLOOR_PLAN_NAME, FLOOR_PLAN_YF3_NAME } from '@/domains/procgen/gen/floorPlan'
 import type { FloorPlan } from '@/domains/procgen/gen/floorPlan'
 import { drawFloorplan } from '@/domains/procgen/presentation/floorplan'
 import { roomWithCell } from '@/domains/procgen/presentation/framing'
@@ -103,18 +137,24 @@ import {
 /**
  * 缩略图占的高度，下面留给读数。
  *
- * 430 是**量出来的**：底座的按键说明钉在左下角（`Hud.update()` 里
- * `y = 720 − 15*3.4 = 669`，四行），这一场的读数有 **13 行** 12px（行距 3 → 195px），
- * 所以读数从 444 起到 **639** 收 —— 和说明之间留 30px，谁也不压谁。
+ * 400 是**算出来的**：底座的按键说明钉在左下角（`Hud.update()` 里
+ * `y = 720 − 15*3.4 = 669`，四行），这一场的读数有 **15 行** 12px（行距 3 → 225px），
+ * 所以读数从 414 起到 **639** 收 —— 和说明之间留 30px，谁也不压谁。
  *
- * ⚠️ **行数改过一次（2026-10-21）**，改的是它、不是这个 430：
- * 原来写的是「11 行…约 165px…到 609 收…留 60px」，而当时实际就是 **12 行**
- * （多算了那个空行）—— 那个 165 是错的。这次加了两条（视图名并进第一行 + 桌椅一行），
- * 变成 13 行，余量从「以为的 60」缩到**真的 30**。再加行之前先回来算这一行：
- * 每加一行吃掉 15px，从 639 到 669 只剩两行的余量。
+ * ⚠️ **这个数跟着行数走过两步，两次都是「先数行、再倒推」**：
  *
- * 缩到 430 **不损失任何信息**。缩略图永远是被**宽度**卡住的
- * （`scale = 1280/楼层宽`），而楼层高缩完远不到 430：
+ * | 什么时候 | 行数 | PLAN_HEIGHT | 读数起 | 读数收 |
+ * |---|---|---|---|---|
+ * | 原来 | 12（当时被误写成 11） | 430 | 444 | 624 |
+ * | 2026-10-21（加了桌椅一行） | 13 | 430 | 444 | **639** |
+ * | ★ 2026-10-22（`yf` 并进来，加了平面图 + 商店两行） | **15** | **400** | 414 | **639** |
+ *
+ * 两次都把**收在 639** 钉住（离 669 留 30px）——**动的是上面那个数，不是底下这段**。
+ * 再加行之前先回来算这一行：每加一行吃掉 15px，从 639 到 669 只剩两行的余量。
+ *
+ * ⚠️ **从 430 降到 400 不损失任何信息 —— 这不是「缩了一点」，是「多出来的空白」。**
+ * 缩略图永远是被**宽度**卡住的（`scale = min(1260/楼层宽, (高−20)/楼层高)`），
+ * 而楼层高缩完远不到 400：
  *
  * | 地图 | 宽×高 | scale | 缩完的高 |
  * |---|---|---|---|
@@ -123,18 +163,35 @@ import {
  *
  * ⚠️ **上面两行的位置 2026-10-21 对调过。**原表把「现在的生成器」写在第一行，
  * 那说的是 **v4**：几何按种子算，六张牌的实测宽度在 5600—7520 之间。v5 起
- * `generateDungeon` 只读 `floor-plan.json`，**整层楼换多少个种子都是这 10520×2920**
+ * `generateDungeon` 只读平面图，**整层楼换多少个种子都是这 10520×2920**
  * —— 所以「现在的生成器」今天就是平面图那一行，v4 那行留作对照（不再是「现在的」）。
+ *
+ * ★ 2026-10-22 补一句：**两张平面图的包围盒逐像素一样**（3F 与 6F 都铺满
+ * 0..263 × 0..73 格），所以上表那一行对**两层楼都成立** —— 这一场按 `C` 换层时
+ * 缩略图的缩放、位置一个像素都不动，差别只在西头那块画的是 SHOP 还是两间教室。
+ * 这不是巧合，是产品那条硬要求（`floors.test.ts` 钉着）：物理世界边界在
+ * `CombatSession` 构造时定死，两层楼不一样大的话换层会当场抛。
  *
  * 平面图这一行是 2026-10-19 按配置表算的，**不是估计**：S 形把楼层的宽高比
  * 从 8:1 拉到 3.6:1，高度从「空一大截」变成「占掉八成三」—— 但仍然装得下。
- * 再往 430 上面加东西之前先回来算这一行，别凭感觉。
+ * 再往上加东西之前先回来算这一行，别凭感觉。
  *
  * ⚠️ 这一行**改过一次**：重测平面图之前写的是 241×50 格 / 9640×2000 / 266px，
  * 那是照第一张较模糊的照片量的，`YF612` 的位置与 `YF604` 的宽度都是错的。
- * 差的那点余量（430 − 355 = 75px）就是**别再加读数行**的意思。
+ * 差的那点余量（400 − 355 = 45px）就是**别再加读数行**的意思。
  */
-const PLAN_HEIGHT = 430
+const PLAN_HEIGHT = 400
+
+/**
+ * 3F 那间合并出来的商店。**在那一层里是唯一的非编号空间** ——
+ * 6F 的对位是 `YF601` + `YF615` 两间教室。
+ *
+ * ⚠️ 这一行**是有前提的**：`SHOP` 这个 id 只存在于 3F 那份平面图里。
+ * 所以下面读数里那句「商店 …」要**按 `plan` 查**、查不到就说「这一屏没有商店」，
+ * 不能照着「3F 一定有商店」写死 —— 那正是 `yf.ts` 当初修过的那个 bug
+ * （切到 6F 之后读数还在报 3F 的商店，而屏幕上西头明明是两间教室）。
+ */
+const SHOP_ID = 'SHOP'
 /**
  * `A` 键批量扫的种子个数。
  *
@@ -176,15 +233,55 @@ let switchNote: string | null = null
  * 修的时候补了两件事，一件是「把桌椅画出来」，另一件就是这个**放大视图**：
  * 同一间房按「本体 + 一格」框住画，缩放 **0.43—0.51**，桌椅 34—41px，看得清摆放。
  *
- * ⚠️ **存 `id` 而不是下标**：几何与种子无关（`floor-plan.json` 画死的），
+ * ⚠️ **存 `id` 而不是下标**：几何与种子无关（平面图是画死的），
  * 所以换种子时同一间房还在老地方 —— 这正是这一场要的读法：
  * **盯住一间，按 `N`，看它的桌椅怎么重抽**。存下标的话，
  * 哪天 `map.rooms` 的顺序一变（`order` 那条约定的松动），
  * 「盯住的那间」会**静默换成隔壁**，而画面上只是桌椅不一样了。
  *
- * ⚠️ 与 `customSeed` 一样是**模块级**的：`scene.restart()` 会把场子实例销毁重建。
+ * ★ 改了（2026-10-22）：**按层各记一份**（`zoomRoomByPlan`，见下面那个函数）。
+ * 原来是一个裸变量 —— 换种子没问题（同一层楼里房号不变），
+ * **换层就成了一个必定失效的值**：3F 的 `YF302` 在 6F 上根本不存在，
+ * 于是 `zoomRoom()` 退回「桌椅最多的那间」，`C` 按两下回不到原处。
+ * 「换层时观测对象必须是人主动换的」和换种子是同一条规矩（见 `switchTo()`）。
  */
-let zoomRoomId: string | null = null
+const zoomRoomByPlan: Record<string, string | null> = {}
+
+/** 这一场现在盯着哪一间。**`planName()` 是那把钥匙** —— 两层楼各记各的。 */
+function zoomRoomId(): string | null {
+  return zoomRoomByPlan[planName()] ?? null
+}
+
+/** 改「盯着哪一间」。**唯一一处**写它 —— 换种子那条路**不调这个函数**（见 `switchTo()`）。 */
+function setZoomRoomId(id: string | null): void {
+  zoomRoomByPlan[planName()] = id
+}
+
+/**
+ * 看的是哪一层。`false` = **逸夫楼 3F**（产品的第 1 层）。
+ *
+ * ⚠️ **默认 3F 不是随手选的**：`yf` 那一场并进来时保留了它的默认值 ——
+ * 进来第一屏要与**玩家真的走进去的那一层**一致（一局的第 1 层就是 3F），
+ * 不然「屏幕上看着没问题」这句话没有指向。
+ *
+ * ⚠️ 与别的一样是**模块级**的（`scene.restart()` 会把实例销毁重建）——
+ * 而且这一条比别的更要紧：`C` 的实现就是「改它 + `restart()`」，
+ * 放实例字段上的话按一下 `C` 切过去、再按一下切不回来（每次都从头开始）。
+ */
+let show6f = false
+
+/** 这一屏画的是哪一份平面图（也是 `generateForArena` 要的那把钥匙）。 */
+function planName(): string {
+  return show6f ? FLOOR_PLAN_NAME : FLOOR_PLAN_YF3_NAME
+}
+
+/**
+ * 这一层叫什么（给人看的）。**图右上角那行大字与读数第一行都读它** ——
+ * 两处不许各写一遍：「62 层」与「6F」对不上时，没有人能判断哪个是真的。
+ */
+function floorText(): string {
+  return show6f ? '6F（第 2/3 层）' : '逸夫楼 3F（第 1 层）'
+}
 
 /** 这一场现在看的是哪个种子。**唯一一处**决定它 —— 按钮 / 按键 / 读数全都读它。 */
 function currentSeed(): number {
@@ -208,7 +305,7 @@ function seedText(): string {
  * 并列时按 `map.rooms` 的顺序取第一个 —— 定死的，同一个种子永远挑到同一间。
  */
 function zoomRoom(map: DungeonMap): Room | null {
-  const known = map.rooms.find((r) => r.id === zoomRoomId)
+  const known = map.rooms.find((r) => r.id === zoomRoomId())
   if (known) return known
   let best: Room | null = null
   for (const r of map.rooms) if (best === null || r.obstacles.length > best.obstacles.length) best = r
@@ -217,21 +314,51 @@ function zoomRoom(map: DungeonMap): Room | null {
 
 /** 视图名。**整层 / 放大谁** —— 读数和 notice 都读它，两处不许各写一遍。 */
 function viewText(room: Room | null): string {
-  return zoomRoomId === null || room === null ? '整层' : `放大 ${room.id}`
+  return zoomRoomId() === null || room === null ? '整层' : `放大 ${room.id}`
 }
 
 /** 换种子之后那句统一的话。**把「什么变了、什么没变」写出来** —— 见下面按钮那段。 */
 function switchMessage(room: Room | null): string {
   return (
     `已换到 ${seedText()} · 关别 / 桌椅 / 刷怪点已重抽 · ` +
-    '地图形状不会变（floor-plan.json 是画死的，与种子无关）' +
-    (zoomRoomId === null ? ' · 按 V 放大看一间' : ` · 正盯着 ${room?.id ?? '?'}，桌椅会跟着重抽`)
+    // ⚠️ 原来这里写的是「地图形状不会变（floor-plan.json 是画死的）」——
+    //    今天有**两张**平面图了，而这句话在换种子那条路上仍然成立
+    //    （换种子不改 `planName()`），所以只说「平面图」，不点名哪一个文件。
+    '地图形状不会变（平面图是画死的，与种子无关）' +
+    (zoomRoomId() === null ? ' · 按 V 放大看一间' : ` · 正盯着 ${room?.id ?? '?'}，桌椅会跟着重抽`)
   )
+}
+
+/**
+ * 换层之后那句统一的话。`prevRoomId` = **换之前**那一层盯着的那一间（没放大就是 `null`）。
+ *
+ * ⚠️ 这一句必须**同时**说清三件事，少一件都会让人以为切坏了：
+ *
+ * 1. **换到哪一层了**（3F 与 6F 缩到 0.12 之后绝大部分像素一样，只差西头那块）；
+ * 2. **什么跟着变了**（几何、房间数，以及**这一层的首领房号**）；
+ * 3. **什么没变**（种子、关别权重、桌椅规则）—— 这正是这一场存在的理由：
+ *    同一颗种子、同一个视图，**只有几何不同**，就是用户那句
+ *    「其他的几乎 YF6 相同」在屏幕上该有的样子。
+ *
+ * ⚠️ 还有第四件，是**这一场特有的**：**视图掉回整层要说出来**。
+ * 盯哪一间是**按层各记一份**的，所以从「放大 YF302」按 `C` 过去，
+ * 另一层要是还没放大过，画面会**从放大变成整层** —— 那是一个**看得见的**变化，
+ * 但不说清它就会被读成「按 C 把视图弄丢了」。宁可写一句长话。
+ */
+function floorMessage(prevRoomId: string | null): string {
+  const where = show6f ? '6F（第 2/3 层）' : '逸夫楼 3F（第 1 层）'
+  const head = `已换到 ${where} · 几何整个换掉了（房间数、门、首领房号都跟着变）· 种子不变`
+  const mine = zoomRoomId()
+  if (mine !== null) return `${head} · 这一层盯着 ${mine}（盯哪一间按层各记一份）`
+  if (prevRoomId !== null) {
+    return `${head} · 上一层盯着 ${prevRoomId}，这一层还没放大过 —— 现在回到整层（按 V 放大）`
+  }
+  return `${head} · 按 V 放大看一间`
 }
 
 /** 切视图 / 换一间之后那句统一的话。**说清现在在看什么、怎么再看下一间**。 */
 function viewMessage(room: Room | null): string {
-  if (zoomRoomId === null || room === null)
+  if (zoomRoomId() === null || room === null)
     return '视图：整层（V 放大看一间 —— 桌椅在缩略图上只有十来个像素，放大才看得清摆放）'
   return (
     `视图：放大 ${room.id}（${room.kind}） · 桌椅 ${room.obstacles.length} 件 · ` +
@@ -275,15 +402,24 @@ const BUTTON_ROW_MARGIN = 16
 /**
  * 把一行按钮按**实测宽度**摆开、**贴着画布右边**对齐。
  *
- * ⚠️ **两个坑都是量出来的**（`D:\homework\_d2probe\layout.mjs` 量的）：
+ * ⚠️ **两个坑都是量出来的**（`D:\homework\_d2probe\layout.mjs`、
+ * 合并后重量的 `_d2probe\merge_shot.mjs`）：
  *
  * 1. **写死 x 会跑到画布外。** 原来五个按钮写的是 `620/770/920/1075/1225`，
  *    前四个看着挺好，第五个（后加的「下一间（B）」）右边缘落到了 **1335px**，
  *    而画布只有 1280 —— 它**半截在画布外**，看截图才发现。所以按 `Text.width` 排。
- * 2. **右对齐，不是居中。** 读数在左边是一整块（实测 x 0—464、y 444—636），
- *    而按钮行无论怎么摆都在 y 470—491，**竖直方向躲不开**，只能靠水平方向让开。
- *    居中摆（实测 x 326 起）会让头两个按钮**压在读数块上** —— 现在压到的那两行长
- *    刚好都不超过 326px 所以看不出，下一句读数一长就盖住。
+ * 2. **右对齐，不是居中。** 读数在左边是一整块，而按钮行**竖直方向躲不开**
+ *    （2026-10-22 重量：读数 y 414—636，按钮 y 440—461），只能靠水平方向让开。
+ *    居中摆会让头两个按钮**压在读数块上**。
+ *
+ * ⚠️⚠️ **判据是「逐行」，不是「整块的外框」** —— 2026-10-22 合并两个场子时
+ * 在这里差点误判一次。读数是一个多行 Text，`Text.width` 是**最长那一行**
+ * （实测 600px，是 `★ 商店 SHOP …` 那句，在 y 562），而**按钮带 y 440—461 里
+ * 只有第 1—3 行**（`seed 837` / `房间 …` / `楼层 …`，最宽 198px，右缘 206）。
+ * 拿外框 608 去比按钮行左缘 473，会报出一个**今天根本没发生**的碰撞，
+ * 然后诱导人去删一条好端端的读数（或反过来，放宽判据把真碰撞放过去）。
+ * **会盖住字的只有落在按钮带里的那几行**，所以 `merge_shot.mjs` 现在借一个
+ * 临时 Text 逐行量宽度，断言的是「按钮带里的行都没伸到按钮行底下（206 < 473）」。
  */
 function layoutButtonRow(row: Phaser.GameObjects.Text[]): void {
   const GAP = 22
@@ -321,7 +457,10 @@ class D2SeedsArena extends ArenaBase {
 
   protected override onArenaCreate(ctx: ArenaContext): void {
     const seed = currentSeed()
-    const { map, cfg, plan, elapsedMs } = generateForArena(ctx.scene, seed)
+    // ⚠️ 第三个参数是**这一屏画的是哪一层**（`C` 换它）。不传的话这一场永远画 6F，
+    //    而右上角那行大字照样写着「逸夫楼 3F」——**读数和画面各说各的**，
+    //    两句话看着都对。
+    const { map, cfg, plan, elapsedMs } = generateForArena(ctx.scene, seed, planName())
     this.floorMap = map
     const reach = checkReachability(map, cfg)
 
@@ -348,7 +487,7 @@ class D2SeedsArena extends ArenaBase {
     // 用显式 `false` 而不是靠默认值：默认值改了，这里会跟着变，而这一场
     // 多出十几条字看起来只会像「缩略图更挤了」，不会像「有东西变了」。
     const room = zoomRoom(map)
-    const zooming = zoomRoomId !== null && room !== null
+    const zooming = zoomRoomId() !== null && room !== null
     const view = drawFloorplan(ctx.scene, map, cfg, {
       x: 0,
       y: 0,
@@ -370,8 +509,29 @@ class D2SeedsArena extends ArenaBase {
     const lo = clear.length === 0 ? 0 : Math.min(...clear)
     const hi = clear.length === 0 ? 0 : Math.max(...clear)
     const clearText = clear.length === 0 ? '—' : lo === hi ? `${lo}px` : `${lo}..${hi}px`
+    // ★ 新增（2026-10-22，`yf` 并进来时补的那一行）：**这一屏画的是哪一份平面图**。
+    //   用户那句「YF3 地图加入到游戏里」落地之后，3F 与 6F 是**两份真文件**
+    //   （`floor-plan-yf3.json` / `floor-plan.json`），而缩略图上两层楼
+    //   绝大部分像素是一样的 —— 只写「逸夫楼 3F」是**给人看的名字**，
+    //   这个名字与那一份文件名对不上的时候（加错文件、写错默认值），
+    //   屏幕上没有任何东西会红。所以文件名要单独印一行出来。
+    //   ⚠️ 说的是「与产品同一份 —— 玩家走进的就是它」：这一场与 `BattleScene`
+    //   走的是**同一条取数路径**（`floorPlanFromCache`），不是「长得像」。
+    const planLine = `这一层的平面图：${planName()}（与产品同一份 —— 玩家走进的就是它）`
+    // ⚠️ 查的是**这一屏画的那一份**（`plan` 是 `generateForArena` 交回来的那一张），
+    //   不是某个写死的名字。第一版查的是「3F 那一份」，于是切到 6F 那一屏时
+    //   这一行照样在说「商店 SHOP x0 y25 …」，而屏幕上（6F）西头明明是
+    //   YF601 / YF615 两间房。**读数与画面各说各的**，这正是这一场最不该出现的
+    //   那种坏法：两句话看着都对。
+    const shop = plan.rooms.find((r) => r.id === SHOP_ID)
+    const shopLine =
+      shop === undefined
+        ? '★ 这一屏没有商店：6F 的西头是 YF601 / YF615 两间教室 —— 按 C 看 3F'
+        : `★ 商店 ${SHOP_ID} x${shop.cells.x} y${shop.cells.y} ${shop.cells.width}×${shop.cells.height} 格` +
+          ` = ${Math.round(shop.rect.width)}×${Math.round(shop.rect.height)}px` +
+          ' · 空房（非战斗关：不摆桌椅、不刷怪）· 3F 特有的那一间'
     const lines = [
-      `D2 · ${seedText()} · 视图 ${viewText(zooming ? room : null)}`,
+      `D2 · ${floorText()} · 视图 ${viewText(zooming ? room : null)}`,
       ...summarise({ map, cfg, plan, elapsedMs }),
       '',
       `层 1 可达 ${mark(reach.layer1Ok)}（走过 ${reach.visitedRooms}/${reach.roomCount} 间）` +
@@ -382,6 +542,8 @@ class D2SeedsArena extends ArenaBase {
       //   而缩略图上桌椅只有十来个像素 —— 看得见形状，说不出数目、更比不了两个种子。
       //   （一行里的三个数各说什么，见 `furnitureText()` 的注释。）
       furnitureText(map),
+      planLine,
+      shopLine,
       // ⚠️ **这一行原先是 `view.labelsDropped === 0 ? '标注全画下了' : …`，那是个谎。**
       //
       // `FloorplanView.labelsDropped` 只数**门标注**，而且只在门标注开着时才赋值
@@ -415,41 +577,56 @@ class D2SeedsArena extends ArenaBase {
       })
       .setDepth(1000)
 
-    // ---- 种子本身要**一眼看见**，而且**点得到** ----
+    // ---- 「现在看的是哪一层、哪个种子」要**一眼看见**，而且**点得到** ----
     //
-    // ⚠️ 这一块是 2026-10-21 补的。起因是用户报「换种子测试场并不能切换种子」，
-    // 而在真浏览器里用 CDP 派真按键验过：**按键那条路是通的**（seed 837 → 13，
-    // 关别整片重抽）。所以这里补的是**另外两件事** —— 它们才是「看着像坏了」的来源：
+    // ⚠️ 这一块是 2026-10-21 补的（那一版只有种子）。起因是用户报
+    // 「换种子测试场并不能切换种子」，而在真浏览器里用 CDP 派真按键验过：
+    // **按键那条路是通的**（seed 837 → 13，关别整片重抽）。所以这里补的是
+    // **另外两件事** —— 它们才是「看着像坏了」的来源：
     //
-    // 1. **看不出来换了。** v5 的几何与种子无关（`floor-plan.json` 是画死的），
+    // 1. **看不出来换了。** v5 的几何与种子无关（平面图是画死的），
     //    换种子只换关别 / 桌椅 / 刷怪点，地图形状、房间数、配色**一模一样**。
     //    连按几次 `N`，画面像「什么也没发生」。对策：种子号放大摆在图上，
     //    换的那一下用 `notice` 把「什么变了、什么没变」直接写出来。
     // 2. **只能翻那六张牌。** 单测报「种子 12345 红了」时看不到那一个。
     //    对策：`S` 键 / 「跳到种子…」按钮给一个任意种子。
     //
+    // ★ 2026-10-22（`yf` 并进来）**同一件事轮到「层」了，而且更难**：
+    //   两张平面图的包围盒逐像素一样，缩到 0.12 之后**绝大部分像素是一样的**，
+    //   只有西头那一块不同（SHOP 一间 还是 YF601/YF615 两间）。
+    //   所以层名与种子**并排摆在右上角**、字号一样大 —— 按 `C` 换层时
+    //   那一行字必须跟着变，否则「切了没反应」和「按键坏了」在现场长得一样。
+    //
     // 按钮而不是只留按键，是因为「按了没反应」和「这个键坏了」在现场长得一样 ——
     // 有得点，就不用先怀疑页面有没有键盘焦点。
     ctx.scene.add
-      .text(WORLD_WIDTH - 12, 10, seedText(), {
+      .text(WORLD_WIDTH - 12, 10, `${floorText()}\n${seedText()}`, {
         fontFamily: 'monospace',
         fontSize: '20px',
         color: '#ffd7a0',
         backgroundColor: '#0d1526ee',
         padding: { x: 10, y: 5 },
+        align: 'right',
       })
       .setOrigin(1, 0)
       .setDepth(1001)
 
-    // 视图那两个按钮：**「看不到桌椅」这件事在屏幕上要有一条出路**。
+    // 视图那几个按钮：**「看不到桌椅」这件事在屏幕上要有一条出路**。
     // 只留按键的话，人得先知道有 `V` / `B` 这两个键才会去按 ——
     // 而报这个 bug 的人的原话是「看不到」，不是「按键没反应」。
+    //
+    // ⚠️ **这一行从 5 个变成 6 个**（2026-10-22 加了「切换 3F ⇄ 6F」）。
+    //    它会与左边的读数块**在竖直方向重叠**（读数从 `PLAN_HEIGHT + 14` 起，
+    //    按钮在 `PLAN_HEIGHT + 40`）—— 躲不开，只能靠**水平方向让开**，
+    //    见 `layoutButtonRow()` 的注释。所以这一行里**再加一个按钮之前**，
+    //    先量一遍它在屏幕上从 x 几开始（`_d2probe/merge_shot.mjs` 量过这一版）。
     layoutButtonRow([
       button(ctx.scene, 0, PLAN_HEIGHT + 40, '◀ 上一张（P）', () => this.switchTo({ delta: -1 })),
       button(ctx.scene, 0, PLAN_HEIGHT + 40, '下一张（N）▶', () => this.switchTo({ delta: 1 })),
       button(ctx.scene, 0, PLAN_HEIGHT + 40, '跳到种子…（S）', () => this.askSeed()),
       button(ctx.scene, 0, PLAN_HEIGHT + 40, '放大一间（V）', () => this.switchView(null)),
       button(ctx.scene, 0, PLAN_HEIGHT + 40, '下一间（B）', () => this.switchView(1)),
+      button(ctx.scene, 0, PLAN_HEIGHT + 40, '切换 3F ⇄ 6F（C）', () => this.toggleFloor()),
     ])
 
     // ⚠️ `ev.repeat` 必须挡掉。浏览器按住不放会按系统重复率**不停地**发 keydown，
@@ -494,11 +671,19 @@ class D2SeedsArena extends ArenaBase {
       if (ev.repeat) return
       this.switchView(1)
     })
+    // `C` = 换层（3F ⇄ 6F）。**底座没占这个键**（`ArenaBase` 只绑了
+    // 空格 / 0 / R / I / E / Esc，移动是 WASD + 方向键）。
+    ctx.scene.input.keyboard?.on('keydown-C', (ev: KeyboardEvent) => {
+      if (ev.repeat) return
+      this.toggleFloor()
+    })
 
-    // 换过种子的那一下，`notice` 报的是**这一次换了什么**；平时才报按键说明。
+    // 换过种子 / 换过层的那一下，`notice` 报的是**这一次换了什么**；平时才报按键说明。
+    // ⚠️ 这一行**长度是量过的**：notice 是**一行居中、不折行**的 20px 字，
+    //    超过约 1200px 就会顶到画布边上。加一项之前先按「CJK 20px / ASCII 12px」估一遍。
     ctx.hud.setNotice(
       switchNote ??
-        'N / P = 前后翻种子　S = 跳到指定种子　V = 放大一间　B = 换下一间　A = 批量扫 100 个',
+        'N / P 翻种子　S 指定种子　C 换层　V 放大一间　B 换下一间　A 批量扫 100 个',
     )
     switchNote = null
   }
@@ -517,13 +702,41 @@ class D2SeedsArena extends ArenaBase {
       customSeed = null
       seedIndex = (seedIndex + next.delta + D2_SEEDS.length) % D2_SEEDS.length
     }
-    // ⚠️ `zoomRoomId` **一个字节都不动**：换种子时「盯住的是哪一间」必须保持 ——
+    // ⚠️ **盯着哪一间，一个字节都不动**：换种子时「盯住的是哪一间」必须保持 ——
     //    用户要看的是**同一间房的桌椅在两个种子之间怎么变**，
     //    换完种子自动跳回桌椅最多的那间，等于每换一次都换了个观测对象，
     //    两幅画面对不上，看的人只会以为「桌椅根本没规律」。
     //    （它认不出来时会由 `zoomRoom()` 退回默认那间，见那个函数。）
+    //    ★ 2026-10-22 起这句话有了第二层意思：`setZoomRoomId` 在换种子这条路上
+    //    **一次都不调**，而「按层各记一份」也保证换层时另一层那个值不被写坏。
     switchNote = switchMessage(this.viewRoom())
     // 重建场景 = 用新种子重跑一遍生成，顺带把上一次的 `sweepReport` 画面清掉。
+    this.scene.restart()
+  }
+
+  /**
+   * 换层（3F ⇄ 6F）。**这是唯一一处改 `show6f` 的地方**。
+   *
+   * ⚠️ **不碰 `zoomRoomByPlan`** —— 两层楼各记各的（见 `zoomRoomId()`）：
+   * 3F 的 `YF302` 在 6F 上不存在，共用一个值的话按一下 `C` 观测对象就没了，
+   * 而「换观测对象」必须是**人主动做的**（和换种子同一条规矩）。
+   * 按层记一份之后，`C` 按两下回到原处 —— 那正是「同一颗种子看两层楼差在哪儿」
+   * 这个用法要的：**盯住的那间如果两层都有对位，两次 `C` 之后还在原处**。
+   *
+   * ⚠️ `sweepReport` 也**不清**：`A` 扫的是**当前这一层的平面图**，
+   * 换层之后那一行报的是上一层的结论 —— 所以它自带层名吗？不。所以换层时
+   * 清掉它更诚实（见下）。留着的话屏幕上会出现「扫完了：全绿」而那一层
+   * 其实没扫过，且**看不出来**。
+   *
+   * ⚠️ `zoomRoomId()` **必须在翻 `show6f` 之前读** —— 它按 `planName()` 取钥匙，
+   * 翻完之后读到的已经是**新那一层**的值了。这里读它是为了给 `floorMessage`
+   * 一句「上一层盯着 X」，好解释「怎么按一下 C 就从放大掉回整层了」。
+   */
+  private toggleFloor(): void {
+    const prevRoomId = zoomRoomId()
+    show6f = !show6f
+    sweepReport = null
+    switchNote = floorMessage(prevRoomId)
     this.scene.restart()
   }
 
@@ -540,23 +753,23 @@ class D2SeedsArena extends ArenaBase {
     if (map === null) return
     if (delta === null) {
       // 整层 → 放大：落在 `zoomRoom()` 挑的那一间（桌椅最多的那间）。
-      zoomRoomId = zoomRoomId === null ? (zoomRoom(map)?.id ?? null) : null
+      setZoomRoomId(zoomRoomId() === null ? (zoomRoom(map)?.id ?? null) : null)
     } else {
       const n = map.rooms.length
       // 认不出来时 `at` 取 -1 → 下一步落在第 0 间（楼梯间），而不是**跳回**第 1 间：
       // 从「没在放大」按 `B` 应该是「从第一间开始看」，不是「从第二间开始」。
-      const at = zoomRoomId === null ? -1 : map.rooms.findIndex((r) => r.id === zoomRoomId)
+      const at = zoomRoomId() === null ? -1 : map.rooms.findIndex((r) => r.id === zoomRoomId())
       const next = (((at + delta) % n) + n) % n
-      zoomRoomId = map.rooms[next]?.id ?? null
+      setZoomRoomId(map.rooms[next]?.id ?? null)
     }
-    switchNote = viewMessage(zoomRoomId === null ? null : zoomRoom(map))
+    switchNote = viewMessage(zoomRoomId() === null ? null : zoomRoom(map))
     this.scene.restart()
   }
 
   /** 这一场当前盯着哪一间。整层视图（或场景还没建）给 `null`。 */
   private viewRoom(): Room | null {
     const map = this.floorMap
-    return map === null || zoomRoomId === null ? null : zoomRoom(map)
+    return map === null || zoomRoomId() === null ? null : zoomRoom(map)
   }
 
   /** 问一个任意种子。**取消 / 填了不是数的东西都不重建场景** —— 见下。 */
@@ -589,6 +802,14 @@ class D2SeedsArena extends ArenaBase {
  *
  * ⚠️ `plan` 是**从外面传进来的**，不是在这里解析 —— 整层几何与种子无关，
  * 100 个种子用的是同一份。放进循环里就是白解析 100 遍同一份表。
+ *
+ * ★ 2026-10-22（`yf` 并进来）：传进来的是**当前这一层**的平面图，
+ * 所以扫的是**这一屏看的那一层**。⚠️ 于是 `toggleFloor()` 里**必须清掉
+ * `sweepReport`** —— 不清的话换层之后屏幕上还挂着上一层的「全绿」，
+ * 而那一层这一趟根本没扫过，且**看不出来**。
+ *
+ * ⚠️ 报的句子里**不带层名**（「扫完了：…全绿」）—— 这是上面那条清空规则存在的理由。
+ * 哪天想让结论跨层保留，就得把它连层名一起印出来，不能只留着不改。
  */
 function runSweep(cfg: RoomsConfig, plan: FloorPlan): string {
   const t0 = performance.now()
@@ -619,11 +840,13 @@ function runSweep(cfg: RoomsConfig, plan: FloorPlan): string {
 }
 
 export const arena: ArenaDefinition = {
-  displayName: 'D2 · 换种子',
+  // ★ 改了（2026-10-22）：原来是「D2 · 换种子」。**id（文件名）没跟着改**，
+  //   理由见文件头 —— 菜单上这一行才是给人看的名，它跟着这一场现在做的事走。
+  displayName: 'D2 · 换种子 / 换层',
   // ⚠️ 这句是**一行画到底、不折行**的（`Hud.setTitle` 只把 name 和 description
   // 用 \n 拼起来），所以**超过约 110 个字就会被画布右边缘切掉**。
   // 写得下的细节放这个文件的头部注释里，这里只留"一眼要看到的"。
   description:
-    'N / P 翻种子 · S 跳到任意种子 · V 放大看一间 · B 换下一间 · A 批量扫 100 个种子。换种子时盯住同一间房，好直接比它怎么重抽。图上按钮同样能点。',
+    'N / P 翻种子 · S 跳到任意种子 · C 换层（3F ⇄ 6F）· V 放大看一间 · B 换下一间 · A 批量扫 100 个。换种子时盯住同一间房，好直接比它怎么重抽；换层时种子不变，只换几何。图上按钮同样能点。',
   scene: D2SeedsArena,
 }

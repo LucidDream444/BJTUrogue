@@ -55,7 +55,7 @@ import { describe, expect, it } from 'vitest'
 
 import { bottom, containsPoint, left, right, top } from '@/domains/procgen/model/rect'
 import { parseRoomsConfig, type RoomsConfig } from '@/domains/procgen/config'
-import { FLOOR_ROOM_TOTAL, parseFloorPlan, type FloorPlan } from '@/domains/procgen/gen/floorPlan'
+import { parseFloorPlan, type FloorPlan } from '@/domains/procgen/gen/floorPlan'
 import { assertReachable } from '@/domains/procgen/validate/reachability'
 import { validateBalance } from '@/core/config'
 import { parseCombatConfig } from './config'
@@ -91,6 +91,11 @@ const cfg: RoomsConfig = parseRoomsConfig(readJson('rooms.json'))
  *
  * ⚠️ v5 新增：它是 `buildDungeonStages()` 的**第三个参数**（几何与内容分了家）。
  * 解析一次、下面所有种子共用一份。
+ *
+ * ⚠️ 2026-10-22：这个文件通篇钉的是 **6F 那一层**（首领恒为 `YF604`、恒 16 间房）。
+ * 产品里第 1 层是逸夫楼 3F（`floor-plan-yf3.json`，首领 `YF304`、15 间房），
+ * 期望值不一样 —— 跨层那几条在 `procgen/gen/floors.test.ts` 与
+ * `floorPlanYf3.test.ts`，别照着这里改产品。
  */
 const plan: FloorPlan = parseFloorPlan(readJson('floor-plan.json'), cfg)
 
@@ -147,8 +152,12 @@ describe('DungeonStages — 一局多层：层种子与「一层一个首领」'
 
   it('每一层都是完整的一层楼：16 间房，但**只有 1 张几何表**（整层）', () => {
     // ★ 改了（v5）：原来对的是 `arena.roomsPerFloor`（那时它说一层有几间）。
-    // v5 一层几间由 `floor-plan.json` 画死：15 间编号教室 + 1 间楼梯间 =
-    // `FLOOR_ROOM_TOTAL`（16）；`arena.roomsPerFloor` 只剩「拿不到地图时的兜底读数」。
+    // v5 一层几间由平面图画死：15 间编号教室 + 1 间楼梯间 = 16；`arena.roomsPerFloor`
+    // 只剩「拿不到地图时的兜底读数」。
+    //
+    // ★ 又改了（2026-10-22）：这个 16 从代码常量 `FLOOR_ROOM_TOTAL` 变成
+    // **平面图自己声明的 `plan.roomTotal`** —— 一局两层楼间数不同（6F 16 / YF3 15），
+    // 一个全局常量配不了两张图。
     //
     // ★ 又改了（2026-10-21，整层连续）：老版这里断言的是
     // `d.stages.stages` **也是 16 张**（一间房一张几何表）。那个拆法就是这次要拆掉的
@@ -160,7 +169,7 @@ describe('DungeonStages — 一局多层：层种子与「一层一个首领」'
     // 而实际后果是**同层之内几何会随 `enterStage()` 换掉**，玩家走过去墙就变）。
     for (const seed of floorSeeds(20261012, d1.arena.maxStages)) {
       const d = build(seed)
-      expect(d.rooms).toHaveLength(FLOOR_ROOM_TOTAL)
+      expect(d.rooms).toHaveLength(plan.roomTotal)
       expect(d.stages.stages).toHaveLength(1)
       expect(d.stages.stages[0]!.stage).toBe(FLOOR_STAGE)
     }

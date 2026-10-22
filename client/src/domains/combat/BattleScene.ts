@@ -33,14 +33,15 @@ import {
 } from './DungeonStages'
 import { doorShouldBeClosed } from '@/domains/procgen/roomFlow'
 import {
+  FLOORS_CONFIG_NAME,
   ROOMS_CONFIG_NAME,
   roomHasChest,
   roomsConfigFromCache,
   type RoomsConfig,
 } from '@/domains/procgen/config'
 import {
-  FLOOR_PLAN_NAME,
-  floorPlanFromCache,
+  FLOOR_PLAN_FILES,
+  floorPlansForRun,
   type FloorPlan,
 } from '@/domains/procgen/gen/floorPlan'
 import { ROOM_KIND_LABELS } from '@/domains/procgen/model/types'
@@ -181,17 +182,28 @@ export class BattleScene extends Phaser.Scene {
    */
   private rooms!: RoomsConfig
   /**
-   * 已解析的 `floor-plan.json`。★ 新增（v5）：一层楼的**几何**，
-   * 与种子无关 —— 整局一份，换层也不变（换的是内容，不是楼）。
+   * **每一层**的平面图（已解析），按层号排 —— `plans[n - 1]` 是第 `n` 层。
+   * 与种子无关：同一层每次生成长得一样，变的是内容。
+   *
+   * ★ 改了（2026-10-22）：原先是**一个** `plan` —— 「几何整局一份，换层只换内容」。
+   * 用户要的是「进入游戏先是 YF3，下一层是 YF6」，于是换层**整层换掉几何**。
+   * 哪一层走哪张图不在这里决定（那是配置：`floors.json`），这里只拿那一串。
+   *
+   * ⚠️ 第 2、3 层今天**是同一张图**（手头只有两份）—— 所以「房号在两层之间
+   * 会重复」这件事仍然成立，`loadFloor()` 里那些按房号的记账照旧要清。
    */
-  private plan!: FloorPlan
+  private plans!: readonly FloorPlan[]
   /**
    * 现在在第几层（1 起）。**这一局打的是「第几层」**。
    *
    * ★ 改了（2026-10-21，整层连续）：原来是「每层自己有一张随机地图、自己的一串房间，
-   * 最后一间是本层的首领」—— 三件都不成立了：**楼整局一份**（就是上面 `plan` 那张
-   * 平面图，换层不换楼），**首领恒在 YF604**（16 间里排第 5，离末位很远），
+   * 最后一间是本层的首领」—— 三件都不成立了：**一层就是一层楼**，
+   * **首领写死在平面图里**（6F 是 `YF604`，16 间里排第 5、离末位很远），
    * 每层变的只是**内容**（关别、障碍物、刷怪点）。
+   *
+   * ★ 又改了（2026-10-22）：上一句里「楼整局一份」也没了 —— 第 1 层是逸夫楼 3F
+   * （`floor-plan-yf3.json`）、第 2/3 层是 6F，换层连**几何**一起换（`plans`）。
+   * 首领房因此**逐层不同**（3F 是 `YF304`），别再当成一个全局常量。
    */
   private floor = 1
   /**
@@ -375,11 +387,16 @@ export class BattleScene extends Phaser.Scene {
       'enemies.json',
       'combat.json',
       'rewards.json',
-      // D2 的地牢生成配置：**两张表**（数值 + 几何）。
+      // D2 的地牢生成配置：**数值 + 几何 + 楼层表**。
       // **必须走 Phaser 的 loader，不能 fetch** ——
       // 场景生命周期保证 `create()` 一定在所有加载完成之后才跑。
       ROOMS_CONFIG_NAME,
-      FLOOR_PLAN_NAME,
+      // ★ 改了（2026-10-22）：平面图从**一张**变成 `FLOOR_PLAN_FILES` 那**一串**
+      //   （今天两张：6F + 逸夫楼 3F）。**一局用哪几张，这里看不出来** ——
+      //   加载清单必须是常量（`floors.json` 自己也是被加载进来的，先有鸡才有蛋），
+      //   哪一层走哪张由下面那份 `FLOORS_CONFIG_NAME` 说。
+      ...FLOOR_PLAN_FILES,
+      FLOORS_CONFIG_NAME,
     ])
       this.load.json(n, `config/${n}`)
     // 文件名与路径走 D4 的常量，别在这里再写一遍字面量（`metaConfig.ts` 是唯一真值）
@@ -401,16 +418,22 @@ export class BattleScene extends Phaser.Scene {
       // ⚠️ **v5 起房间数不由这里决定了。** 原来走 `roomsConfigWithRoomCount()` 把
       //    `totalRooms` / `mainRoomMin` / `mainRoomMax` 三个数一起改，是因为几何
       //    **算**出来的、房间数是个自由参数。现在几何是**画**出来的
-      //    （`public/config/floor-plan.json`，照 6F 平面图照片量的），
-      //    一层恒为 16 间（15 间编号教室 + 楼梯间），改房间数 = 改那张图。
+      //    （`public/config/floor-plan-*.json`，照平面图照片量的），
+      //    一间房几间、在哪儿 = 改那张图；而「这一层有几间」由平面图自己声明
+      //    （`roomTotal`，★ 2026-10-22 从 `rooms.json` 搬过去的 —— 两层楼间数不同）。
       // ⚠️ **种子必须每局换**。`combat.json` 里那个 `arena.seed` 是**固定值**
       //    （它本来是给测试场复现用的），拿它当每局的种子 = 每局都生成一模一样的楼，
       //    「随机生成」四个字就没了。下面把 `runSeed` 留在场上，方便复现整局。
       this.rooms = roomsConfigFromCache(this.cache.json)
-      // ⚠️ **顺序**：`parseFloorPlan` 第二个参数要一份 `FloorPlanMetrics`，
-      //    而 `RoomsConfig` 结构上满足它（`floorPlanFromCache` 的签名就是这么写的）。
-      //    所以两个 `this.xxx` 之间是**有依赖的**，别为了「看着对称」把两行换个位。
-      this.plan = floorPlanFromCache(this.cache.json, this.rooms)
+      // **整局的每一层平面图一次取好**（★ 2026-10-22）：第 1 层是逸夫楼 3F、
+      // 第 2/3 层是 6F，走的是 `floors.json` 那张表。
+      // ⚠️ **顺序**：`floorPlansForRun` 第二个参数要一份 `FloorPlanMetrics`，
+      //    而 `RoomsConfig` 结构上满足它（签名就是这么写的）。
+      //    所以三个 `this.xxx` 之间是**有依赖的**，别为了「看着对称」把行换个位。
+      // ⚠️ 三层校验（条数 = `arena.maxStages` / 文件都加载过 / 每份都解析得过）
+      //    都在那个函数里，**取不到就当场抛** —— 不降级、不兜底（2.8）：
+      //    「少一层就用上一层凑」会让这一局的几何与配置表说的不是一回事。
+      this.plans = floorPlansForRun(this.cache.json, this.rooms, this.floors)
       this.runSeed = (Math.random() * 0x7fffffff) | 0
       // **整局的每一层种子先抽好**（不是每下一层现抽一个）：这样报出 `runSeed`
       // 就能把整局的每一层都复原出来，而不只是「当前这一层」。
@@ -1155,15 +1178,19 @@ export class BattleScene extends Phaser.Scene {
   /* ------------------------------------------------------------ 换层 */
 
   /**
-   * 生成第 `n` 层（1 起）。**整层一份几何**：`buildFloor()` 交出来的
+   * 生成第 `n` 层（1 起）。**一层楼一份几何**：`buildFloor()` 交出来的
    * `DungeonStages.stages` 里只有一关（整层），内容（关别 / 桌椅 / 刷怪点）随种子变。
    *
    * 种子取的是**开局就抽好的那一串**（`floorSeedList`），不是现抽一个 ——
    * 这样 `runSeed` 能复现整局，而不只是「回到某一层再生成一次」。
+   *
+   * ★ 改了（2026-10-22）：平面图是**按层取的**（`plans[n - 1]`）—— 第 1 层是逸夫楼 3F。
+   * 越界由 `floorPlansForRun()` 那层校验挡在前面（条数 = `arena.maxStages` = `floors`），
+   * 所以这里的 `!` 是在断言一件**已经被验过**的事。
    */
   private buildFloor(n: number): DungeonStages {
     const seed = this.floorSeedList[n - 1] ?? this.runSeed
-    return buildDungeonStages(seed, this.rooms, this.plan, this.cfg)
+    return buildDungeonStages(seed, this.rooms, this.plans[n - 1]!, this.cfg)
   }
   /**
    * 把**整层的包围盒**写回 `cfg.arena`。
@@ -1174,9 +1201,11 @@ export class BattleScene extends Phaser.Scene {
    * 整层会被缩到七分之一并居中，而且**什么都不报**（看起来像「地图没加载」）。
    * `TerrainMap` 的宽高、物理世界的边界、寻路网格的行列数读的也是这一对。
    *
-   * ⚠️ **换层时它必须是不变的**：一局几层共用同一张平面图（`floor-plan.json` 画死了
-   * 这一层楼），换层换的是内容不是楼。真要分层不同几何，`TerrainMap.width`（readonly）
-   * 和物理世界边界都在 `CombatSession` 构造时定了，得先改那边 —— 所以这里**当场抛**，
+   * ⚠️ **换层时它必须是不变的**，尽管 ★ 2026-10-22 起**几何本身是逐层不同的**
+   * （第 1 层逸夫楼 3F、第 2/3 层 6F）：`TerrainMap.width`（readonly）和物理世界边界
+   * 都在 `CombatSession` 构造时定死了，改不了 —— 所以两层的**包围盒必须一样**，
+   * 换层只换内容、不换尺寸。YF3 与 6F 的差别只在西头那块（两间并一间），
+   * 整层 0..263 × 0..73 格一模一样，所以今天成立；不成立时这里**当场抛**，
    * 而不是让它以「第二层的墙全在错位」的形式出现。
    */
   private applyArena(): void {
@@ -1188,7 +1217,9 @@ export class BattleScene extends Phaser.Scene {
       throw new Error(
         `第 ${this.floor} 层的包围盒（${arena.width}×${arena.height}）与上一层` +
           `（${this.cfg.arena.width}×${this.cfg.arena.height}）不一样 —— 换层换的应该是内容，` +
-          `不是楼。见 BattleScene.applyArena()。`,
+          `不是尺寸（物理世界边界在 CombatSession 构造时就定死了）。` +
+          `若这两层是**故意**不同大小，那要动的是那边，不是这里。` +
+          `见 BattleScene.applyArena() 与 floors.json 的 _box_comment。`,
       )
     this.cfg.arena.width = arena.width
     this.cfg.arena.height = arena.height
@@ -1241,7 +1272,11 @@ export class BattleScene extends Phaser.Scene {
    * 新层的第 3 间会被当成「回走」—— 一进门就门大开、一只怪不刷、房号还写着「已清」；
    * 不清 `combatRooms` 的话，上一层那扇封着的门会指到新层**同一个房号**上去，
    * 表现是「刚下楼就有一间进不去」；不清 `lootedRooms` 的话，新层同号码那间
-   * （**几何是同一张图**，房号一一对应）的宝箱会莫名其妙地不出现。
+   * 的宝箱会莫名其妙地不出现。
+   *
+   * ⚠️ ★ 2026-10-22：第 1 层（逸夫楼 3F）的房号是 `YF3xx`，与第 2/3 层不撞；
+   * 但**第 2、3 层是同一张图**，房号一模一样 —— 所以这一整段「按房号的记账要清」
+   * 照旧是必须的，别看到「第 1 层对不上」就把它当成过时的防御。
    */
   private loadFloor(): void {
     this.dungeon = this.buildFloor(this.floor)
@@ -1266,10 +1301,11 @@ export class BattleScene extends Phaser.Scene {
     this.clearEmitted = false
     this.clearRequested = false
     this.loot.reset()
-    // ⚠️ **强化账本也要按层清。** 它记的是 `Room.id`，而一局几层**共用同一张平面图**
-    //    （房号一模一样）—— 不清的话第 2 层清完 `YF604` 时 `offer()` 返回 `null`，
+    // ⚠️ **强化账本也要按层清。** 它记的是 `Room.id`，而 ★ 2026-10-22 起
+    //    第 2、3 层**还是同一张图**（房号一模一样；第 1 层是 YF3xx，与它们不撞）
+    //    —— 不清的话第 3 层清完 `YF604` 时 `offer()` 返回 `null`，
     //    于是：三选一不弹、**整层拿不到强化**、而「亮出下一层入口」正挂在
-    //    `reward_finished` 上 ⇒ **下楼口不亮，那一局卡死在第 2 层**。
+    //    `reward_finished` 上 ⇒ **下楼口不亮，那一局卡死在第 3 层**。
     //    实测见 `RewardRun.forgetFloor()` 的注释（`downLit=false`）。
     this.session.rewards.forgetFloor()
     this.session.loadFloor(this.stageConfig)

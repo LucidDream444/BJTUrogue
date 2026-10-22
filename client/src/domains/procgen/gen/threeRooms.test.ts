@@ -46,7 +46,7 @@ import { describe, expect, it } from 'vitest'
 
 import { generateDungeon } from './generate'
 import { kindBag } from './layout'
-import { FLOOR_ROOM_TOTAL, parseFloorPlan, type FloorPlan } from './floorPlan'
+import { parseFloorPlan, type FloorPlan } from './floorPlan'
 import { isCombatKind, parseRoomsConfig, type RoomsConfig } from '../config'
 import { roomNeedsFight } from '../roomFlow'
 import { ROOM_KIND_LABELS, roomById, type RoomKind } from '../model/types'
@@ -91,7 +91,7 @@ describe('D2 整层 16 间房 — 几何是画的，与种子无关', () => {
     // 50 个种子就够：这一条查的是**结构**，不是概率性质。
     for (const seed of SEEDS.slice(0, 50)) {
       const map = generateDungeon(seed, cfg, plan)
-      expect(map.rooms.length, `种子 ${seed}`).toBe(FLOOR_ROOM_TOTAL)
+      expect(map.rooms.length, `种子 ${seed}`).toBe(plan.roomTotal)
       expect(map.rooms[0]!.id, `种子 ${seed}：rooms[0] 恒为楼梯间`).toBe(plan.stairwell.id)
       expect(
         map.rooms.map((r) => r.id),
@@ -176,7 +176,7 @@ describe('D2 整层 16 间房 — 内容是种子挑的（关别 / 刷怪点 / �
     // 这里会露馅 —— 50 个种子里至少该出现两种不同的分配。
     expect(shapes.size, '50 个种子里至少该有两种关别分配（种子是不是没被用上？）').toBeGreaterThan(1)
     console.log(
-      `[读] 一副牌：${expected}（待发 ${drawable.length} 间 + 写死 ${FLOOR_ROOM_TOTAL - drawable.length} 间）；50 个种子里 ${shapes.size} 种分配`,
+      `[读] 一副牌：${expected}（待发 ${drawable.length} 间 + 写死 ${plan.rooms.length - drawable.length} 间，楼梯间另算）；50 个种子里 ${shapes.size} 种分配`,
     )
   })
 
@@ -202,7 +202,7 @@ describe('D2 整层 16 间房 — 内容是种子挑的（关别 / 刷怪点 / �
     // 一条都不能有：空房 = 这一间进门就放行，看起来像门判定坏了。
     expect(empty.slice(0, 10)).toEqual([])
     // 反向证据：扫过的房间数对得上（不是空转），且这一层真的有要打的房。
-    expect(rooms).toBe(SEEDS.length * FLOOR_ROOM_TOTAL)
+    expect(rooms).toBe(SEEDS.length * plan.roomTotal)
     expect(combat).toBeGreaterThan(0)
   }, 30_000)
 
@@ -247,7 +247,7 @@ describe('D2 整层 16 间房 — 内容是种子挑的（关别 / 刷怪点 / �
     }
     expect(combat).toBeGreaterThan(0) // 战斗房一间都没有时百分比是 0/0
     console.log(
-      `[读] 200 个种子 × ${FLOOR_ROOM_TOTAL} 间：战斗房 ${combat} 间，有桌椅 ${withDesk} 间（${((withDesk / combat) * 100).toFixed(1)}%），没桌椅的样例 ${bare.slice(0, 5).join(' / ') || '（一间都没有）'}`,
+      `[读] 200 个种子 × ${plan.roomTotal} 间：战斗房 ${combat} 间，有桌椅 ${withDesk} 间（${((withDesk / combat) * 100).toFixed(1)}%），没桌椅的样例 ${bare.slice(0, 5).join(' / ') || '（一间都没有）'}`,
     )
     expect(bare.slice(0, 10)).toEqual([])
   }, 30_000)
@@ -259,7 +259,7 @@ describe('D2 整层 16 间房 — 内容是种子挑的（关别 / 刷怪点 / �
     // 这三样都在 `validate/` 里，跑一遍整层的成本低到值得每个种子都过。
     for (const seed of SEEDS.slice(0, 100)) {
       const map = generateDungeon(seed, cfg, plan)
-      expect(() => validateContract(map, cfg), `种子 ${seed}`).not.toThrow()
+      expect(() => validateContract(map, cfg, plan.roomTotal), `种子 ${seed}`).not.toThrow()
       expect(() => assertReachable(map, cfg), `种子 ${seed}`).not.toThrow()
     }
   }, 30_000)
