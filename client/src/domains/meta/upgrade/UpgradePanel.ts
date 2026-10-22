@@ -1,26 +1,22 @@
 /**
- * 角色升级页（需求 §4.4 的 MVP 简化版）。**它是一块内容，不是场景** ——
- * 由主菜单的弹层壳子装起来（`buildOverlayFrame`），和说明 / 设置并列。
+ * 角色升级页：每个角色只有一个固定被动和一个四阶技能。
  *
- * ## 与原需求草图的差异（刻意简化，已记进缺口清单）
- *
- * 草图上是"独立页面 + 立绘 + 技能四选一 + 武器面板"。MVP 版做了三件事：
- * 拿掉了立绘与武器面板（没有美术、武器表归 D1 且未起草）、
- * 拿掉了技能选择（只有一个技能）、把"升级"从一个大按钮改成了**每条成长线
- * 一个按钮**（这样成本与效果能并排显示，不用点进去才知道要多少钱）。
+ * 四个角色的流程完全共用：
+ * - 解锁角色时技能自动 1 级；
+ * - 花币依次升到 2 / 3 / 4 级；
+ * - 页面永远只出现一个技能卡和一个“升级”按钮。
  */
 
 import type Phaser from 'phaser'
 import { CHARACTERS, characterById } from '../catalog'
-import type { MetaConfig, UpgradeTrackDef } from '../metaConfig'
-import { costOfNextLevel } from '../metaConfig'
+import type { MetaConfig } from '../metaConfig'
 import type { ProfileStore } from '../profile/ProfileStore'
 import {
-  buyUpgrade,
-  formatPerLevel,
-  formatTotal,
+  SKILL_MAX_LEVEL,
+  buySkillUpgrade,
   isUnlocked,
-  levelOf,
+  skillLevelOf,
+  skillUpgradeCost,
   unlock,
 } from '../progress/progress'
 import { Button } from '../ui/Button'
@@ -33,198 +29,189 @@ export function buildUpgradePanel(
   frame: OverlayFrame,
   store: ProfileStore,
   meta: MetaConfig | null,
-  /** 买完（或没买成）之后怎么办。**由主菜单重建整屏并显示一句提示** ——
-   *  这里不能自己往 `frame.notice` 上写：重建会把那个对象销毁掉。 */
   onChanged: (notice: string) => void,
 ): void {
   if (!meta) {
-    // 配置没加载上时**说出来**。不说的话界面上是空的，看起来像"还没有成长项"。
-    sink.track(
-      scene.add.text(frame.contentLeft, frame.contentTop, '配置表 meta.json 没加载上，升级不可用', {
-        fontFamily: THEME.font.family,
-        fontSize: fontPx(THEME.font.body),
-        color: THEME.text.danger,
-      }),
-    )
+    text(scene, sink, frame.contentLeft, frame.contentTop, '配置表 meta.json 没加载上，升级不可用', {
+      size: THEME.font.body,
+      color: THEME.text.danger,
+    })
     return
   }
 
   const profile = store.profile
   const characterId = profile.selected.characterId
   const character = meta.characters[characterId]
+  const display = characterById(characterId)
 
-  sink.track(
-    scene.add.text(frame.contentLeft, frame.contentTop, `金币  ${profile.currency.coins}`, {
-      fontFamily: THEME.font.family,
-      fontSize: fontPx(THEME.font.heading),
-      color: THEME.text.accent,
-    }),
-  )
-
-  // ⚠️ 这里的每一段都**接着上一段的返回值往下排**，最后那句提示也接在 y 后面 ——
-  // 曾经底部那句提示用的是写死的 `面板底 - 58`，而内容是从上往下顺的：
-  // 可解锁项一多，两者就撞在一起（实测 3 个占位角色时正好压在第 2 行上）。
-  // 写死的锚点和"顺下来的内容"必然会对不上，**这个面板里不许再有第二个真值来源**。
-  let y = frame.contentTop + 36
-  y = drawSection(
+  text(scene, sink, frame.contentLeft, frame.contentTop, `金币  ${profile.currency.coins}`, {
+    size: THEME.font.heading,
+    color: THEME.text.accent,
+  })
+  text(
     scene,
     sink,
-    frame,
-    store,
-    onChanged,
-    y,
-    `角色：${characterById(characterId)?.name ?? characterId} · ${character?.passive.name ?? '基础能力'}`,
-    character?.tracks ?? [],
-    characterId,
+    frame.contentLeft,
+    frame.contentTop + 32,
+    `角色：${display?.name ?? characterId} · ${character?.passive.name ?? '被动未配置'}`,
+    { size: THEME.font.body, color: THEME.text.body },
+  )
+  text(
+    scene,
+    sink,
+    frame.contentLeft,
+    frame.contentTop + 55,
+    character?.passive.description ?? '',
+    { size: THEME.font.small, color: THEME.text.dim },
   )
 
-  y += 8
-  for (const [skillId, skill] of Object.entries(meta.skills)) {
-    // MVP 里技能默认就是解锁的（见 progress.ts 的简化说明），所以这里只管升级。
-    y = drawSection(
+  if (!character) {
+    text(scene, sink, frame.contentLeft, frame.contentTop + 92, '这个角色没有成长配置', {
+      size: THEME.font.body,
+      color: THEME.text.danger,
+    })
+    return
+  }
+
+  const level = skillLevelOf(profile, meta, characterId)
+  const current = character.skill.levels[level - 1]
+  const nextCost = skillUpgradeCost(profile, meta, characterId)
+  const cardTop = frame.contentTop + 90
+  const cardLeft = frame.contentLeft
+  const cardWidth = frame.panelWidth - THEME.space.lg * 2
+  const cardHeight = 288
+  const card = scene.add
+    .rectangle(cardLeft, cardTop, cardWidth, cardHeight, THEME.color.panel)
+    .setOrigin(0)
+    .setStrokeStyle(1, THEME.color.border)
+  sink.track(card)
+
+  text(scene, sink, cardLeft + THEME.space.md, cardTop + THEME.space.md, `技能：${character.skill.name}`, {
+    size: THEME.font.heading,
+    color: THEME.text.accent,
+  })
+  text(
+    scene,
+    sink,
+    cardLeft + THEME.space.md,
+    cardTop + 42,
+    `${character.skill.description}    ${level} / ${SKILL_MAX_LEVEL} 级 · ${current?.name ?? ''}`,
+    { size: THEME.font.small, color: THEME.text.dim },
+  )
+
+  character.skill.levels.forEach((skillLevel, index) => {
+    const y = cardTop + 76 + index * 42
+    const active = index + 1 <= level
+    const row = scene.add
+      .rectangle(cardLeft + THEME.space.md, y, cardWidth - THEME.space.xl, 34, active ? THEME.color.accentFill : THEME.color.disabled)
+      .setOrigin(0)
+      .setStrokeStyle(1, active ? THEME.color.accent : THEME.color.border, active ? 0.75 : 0.35)
+    sink.track(row)
+    text(scene, sink, cardLeft + THEME.space.lg, y + 8, `${index + 1}阶 ${skillLevel.name}`, {
+      size: THEME.font.small,
+      color: active ? THEME.text.accent : THEME.text.disabled,
+    })
+    text(
       scene,
       sink,
-      frame,
-      store,
-      onChanged,
-      y,
-      `技能：${skill.name} · ${skill.description}`,
-      skill.tracks,
-      skillId,
+      cardLeft + THEME.space.lg + 104,
+      y + 8,
+      skillLevel.description,
+      { size: THEME.font.small, color: active ? THEME.text.body : THEME.text.disabled },
+    )
+  })
+
+  const buttonY = cardTop + cardHeight - THEME.space.lg
+  const upgradeButton = new Button(
+    scene,
+    frame.cx + frame.panelWidth / 2 - THEME.space.lg - 70,
+    buttonY,
+    nextCost === null ? '已满级' : `升级  ${nextCost} 币`,
+    () => {
+      let result = { ok: false, notice: '' }
+      store.update((draft) => {
+        const bought = buySkillUpgrade(draft, meta, characterId)
+        result = { ok: bought.ok, notice: bought.notice }
+      })
+      onChanged(result.notice)
+    },
+    { width: 130, height: 36, fontSize: THEME.font.small },
+  )
+  upgradeButton.setDisabled(nextCost === null || profile.currency.coins < nextCost)
+  sink.button(upgradeButton)
+
+  if (nextCost !== null) {
+    text(
+      scene,
+      sink,
+      cardLeft + THEME.space.md,
+      buttonY - 7,
+      level === 1
+        ? '第 1 阶随角色解锁获得'
+        : '每次升级后按钮会刷新；技能机制只随配置生效。',
+      { size: THEME.font.small, color: THEME.text.dim },
     )
   }
 
-  y = drawUnlockSection(scene, sink, frame, store, meta, onChanged, y + 8)
-
-  sink.track(
-    scene.add.text(frame.contentLeft, y + 6, '币只在对局中获得；死亡不丢币。', {
-      fontFamily: THEME.font.family,
-      fontSize: fontPx(THEME.font.small),
-      color: THEME.text.dim,
-    }),
-  )
-}
-
-/**
- * 「可解锁」一段：列出还没解锁的角色（价格来自 meta.json 的 `unlockCost`）。
- *
- * 只列**目录里认识、且 meta.json 里有定价**的项 —— 目录里有而表里没有的，
- * 说明那个角色还没做（只有占位名字），不该摆在界面上收钱。
- */
-function drawUnlockSection(
-  scene: Phaser.Scene,
-  sink: OverlaySink,
-  frame: OverlayFrame,
-  store: ProfileStore,
-  meta: MetaConfig,
-  onChanged: (notice: string) => void,
-  y: number,
-): number {
   const locked = CHARACTERS.filter(
-    (c) => meta.characters[c.id] !== undefined && !isUnlocked(store.profile, c.id),
+    (candidate) => meta.characters[candidate.id] && !isUnlocked(profile, candidate.id),
   )
-  if (locked.length === 0) return y
-
-  sink.track(
-    scene.add.text(frame.contentLeft, y, '可解锁', {
-      fontFamily: THEME.font.family,
-      fontSize: fontPx(THEME.font.body),
+  let unlockY = cardTop + cardHeight + THEME.space.lg
+  if (locked.length > 0) {
+    text(scene, sink, frame.contentLeft, unlockY, '可解锁角色', {
+      size: THEME.font.body,
       color: THEME.text.body,
-    }),
-  )
-  let rowY = y + 22
-  for (const c of locked) {
-    const cost = meta.characters[c.id]?.unlockCost ?? 0
-    const affordable = store.profile.currency.coins >= cost
-    sink.track(
-      scene.add.text(frame.contentLeft, rowY + 8, `${c.name}    ${cost} 币`, {
-        fontFamily: THEME.font.family,
-        fontSize: fontPx(THEME.font.small),
+    })
+    unlockY += 26
+    for (const candidate of locked) {
+      const cost = meta.characters[candidate.id]!.unlockCost
+      text(scene, sink, frame.contentLeft, unlockY + 7, `${candidate.name}    ${cost} 币`, {
+        size: THEME.font.small,
         color: THEME.text.dim,
-      }),
-    )
-    const button = new Button(
-      scene,
-      frame.cx + frame.panelWidth / 2 - THEME.space.lg - 45,
-      rowY + 14,
-      '解锁',
-      () => {
-        let ok = false
-        store.update((draft) => {
-          ok = unlock(draft, meta, c.id).ok
-        })
-        onChanged(ok ? `已解锁：${characterById(c.id)?.name ?? c.id}` : `没解锁成：需要 ${cost} 币`)
-      },
-      { width: 90, height: 32, fontSize: THEME.font.small },
-    )
-    button.setDisabled(!affordable)
-    sink.button(button)
-    rowY += 34
+      })
+      const unlockButton = new Button(
+        scene,
+        frame.cx + frame.panelWidth / 2 - THEME.space.lg - 45,
+        unlockY + 14,
+        '解锁',
+        () => {
+          let ok = false
+          store.update((draft) => {
+            ok = unlock(draft, meta, candidate.id).ok
+          })
+          onChanged(ok ? `已解锁：${candidate.name}` : `没解锁成：需要 ${cost} 币`)
+        },
+        { width: 90, height: 30, fontSize: THEME.font.small },
+      )
+      unlockButton.setDisabled(profile.currency.coins < cost)
+      sink.button(unlockButton)
+      unlockY += 34
+    }
   }
-  return rowY
+
+  text(
+    scene,
+    sink,
+    frame.contentLeft,
+    frame.cy + frame.panelHeight / 2 - 66,
+    '币只在对局中获得；死亡不丢币。角色被动固定，不单独升级。',
+    { size: THEME.font.small, color: THEME.text.dim },
+  )
 }
 
-/** 画一组成长线（一个角色或一个技能），返回下一个可用 y */
-function drawSection(
+function text(
   scene: Phaser.Scene,
   sink: OverlaySink,
-  frame: OverlayFrame,
-  store: ProfileStore,
-  onChanged: (notice: string) => void,
+  x: number,
   y: number,
-  title: string,
-  tracks: readonly UpgradeTrackDef[],
-  ownerId: string,
-): number {
-  sink.track(
-    scene.add.text(frame.contentLeft, y, title, {
-      fontFamily: THEME.font.family,
-      fontSize: fontPx(THEME.font.body),
-      color: THEME.text.body,
-    }),
-  )
-  let rowY = y + 22
-
-  for (const track of tracks) {
-    const level = levelOf(store.profile, ownerId, track.id)
-    const cost = costOfNextLevel(track, level)
-    const maxed = cost === null
-    const affordable = !maxed && store.profile.currency.coins >= cost
-
-    const detail = [
-      `${track.name}  ${formatPerLevel(track)}/级`,
-      `当前 ${formatTotal(track, level)}（${level} / ${track.maxLevel} 级）`,
-      maxed ? '已满级' : `下一级 ${cost} 币`,
-    ].join('    ')
-    sink.track(
-      scene.add.text(frame.contentLeft, rowY + 8, detail, {
-        fontFamily: THEME.font.family,
-        fontSize: fontPx(THEME.font.small),
-        color: THEME.text.dim,
-      }),
-    )
-
-    const button = new Button(
-      scene,
-      frame.cx + frame.panelWidth / 2 - THEME.space.lg - 45,
-      rowY + 14,
-      maxed ? '满级' : '升级',
-      () => {
-        // `buyUpgrade` 返回结果而不是抛异常，所以这里接得住 ——
-        // 失败时**必须给一句提示**，否则按钮看起来就是"点了没反应"。
-        let bought = false
-        store.update((draft) => {
-          bought = buyUpgrade(draft, ownerId, track).ok
-        })
-        onChanged(
-          bought ? `${track.name} 升到 ${level + 1} 级` : `没买成：${track.name} 需要 ${cost} 币`,
-        )
-      },
-      { width: 90, height: 32, fontSize: THEME.font.small },
-    )
-    button.setDisabled(maxed || !affordable)
-    sink.button(button)
-    rowY += 34
-  }
-  return rowY
+  value: string,
+  options: { size: number; color: string },
+): Phaser.GameObjects.Text {
+  const obj = scene.add.text(x, y, value, {
+    fontFamily: THEME.font.family,
+    fontSize: fontPx(options.size),
+    color: options.color,
+  })
+  sink.track(obj)
+  return obj
 }

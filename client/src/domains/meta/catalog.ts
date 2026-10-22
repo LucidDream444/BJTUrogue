@@ -58,10 +58,3 @@ export const DIFFICULTY_ORDER: readonly Difficulty[] = DIFFICULTIES
 export function characterById(id: string): CharacterDef | undefined {
   return CHARACTERS.find((c) => c.id === id)
 }
-
-/**
- * MVP 唯一的技能 id。技能目录归 D4，但**只有这一个**是按演示需要定下来的：
- * 加攻速。真正的技能设计（一个角色可选多个技能、技能效果由谁结算）等下一版。
- * 数值在 `public/config/meta.json`。
- */
-export const STARTER_SKILL_ID = 'rapid_fire'
