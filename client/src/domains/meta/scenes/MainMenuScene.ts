@@ -128,7 +128,7 @@ export class MainMenuScene extends Phaser.Scene {
   } as const
   /** 每屏的面板高度。写在一起，改一处就够 —— 分开写在两个地方必然漂。 */
   private static readonly OVERLAY_HEIGHTS = {
-    help: 320,
+    help: 440,
     settings: 360,
     // 内容有四段（金币 / 三条角色成长线 / 技能 / 可解锁三项）+ 底部一行说明，
     // 470 会让最后一条解锁行溢出面板底 —— 实测过，所以留足余量。
@@ -511,7 +511,7 @@ export class MainMenuScene extends Phaser.Scene {
       H - 34,
       compact
         ? '方向键选择  /  Enter 确认'
-        : 'WASD 移动    鼠标瞄准    Q 技能    1/2 换武器    E 交互',
+        : 'WASD 移动    鼠标瞄准    Space 技能    1/2 换武器    E 交互',
       11,
       '#8fa18c',
     )

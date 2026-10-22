@@ -81,39 +81,45 @@
         "levels": [
           {
             "name": "扑翅",
-            "description": "短距离突进并获得短暂无敌",
-            "cooldownMs": 8000,
+            "description": "180px 突进，对沿途敌人造成 8 点伤害",
+            "cooldownMs": 5000,
             "durationMs": 0,
             "distance": 180,
-            "iframeMs": 150
+            "dashMs": 250,
+            "iframeMs": 150,
+            "dashDamage": 8
           },
           {
             "name": "助跑",
-            "description": "突进距离、无敌时间和冷却改善",
-            "cooldownMs": 6800,
+            "description": "沿途伤害提高到 16，无敌时间和冷却改善",
+            "cooldownMs": 4000,
             "durationMs": 0,
-            "distance": 210,
-            "iframeMs": 180
+            "distance": 180,
+            "dashMs": 250,
+            "iframeMs": 180,
+            "dashDamage": 16
           },
           {
             "name": "振翅",
-            "description": "突进距离、无敌时间和冷却再次改善",
-            "cooldownMs": 5800,
+            "description": "沿途伤害提高到 28，无敌时间和冷却再次改善",
+            "cooldownMs": 3000,
             "durationMs": 0,
-            "distance": 240,
-            "iframeMs": 220
+            "distance": 180,
+            "dashMs": 250,
+            "iframeMs": 220,
+            "dashDamage": 28
           },
           {
             "name": "穿身振翅",
-            "description": "穿过敌人会在 5 秒内提高攻速并恢复护盾",
-            "cooldownMs": 5000,
-            "durationMs": 5000,
-            "distance": 270,
-            "iframeMs": 250,
+            "description": "沿途伤害提高到 50，穿敌后获得 3 秒攻速",
+            "cooldownMs": 2000,
+            "durationMs": 3000,
+            "distance": 180,
+            "dashMs": 250,
+            "iframeMs": 300,
+            "dashDamage": 50,
             "attackSpeedPerEnemyPct": 10,
-            "maxMechanicEnemies": 5,
-            "shieldPerEnemy": 2,
-            "maxShieldRestore": 10
+            "maxMechanicEnemies": 5
           }
         ]
       }

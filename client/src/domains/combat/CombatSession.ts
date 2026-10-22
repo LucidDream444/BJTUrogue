@@ -339,7 +339,7 @@ export class CombatSession {
     this.scene.physics.world.resume()
     const pointer = this.scene.input.activePointer
     this.scene.cameras.main.getWorldPoint(pointer.x, pointer.y, this.aim)
-    this.player.move(this.clock.nowMs - before, true)
+    if (!this.skill?.isDashing()) this.player.move(this.clock.nowMs - before, true)
     this.player.aim(this.aim.x, this.aim.y, this.weapons.firing)
     this.player.advanceStamina(this.clock.nowMs - before, this.weapons.firing)
     this.weapons.update(this.stats, this.weapon)
