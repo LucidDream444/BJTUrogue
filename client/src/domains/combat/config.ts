@@ -309,11 +309,11 @@ export interface CharacterSkillConfig {
   durationMs: number
   attackSpeedPct: number
   distance: number
+  dashMs: number
+  dashDamage: number
   iframeMs: number
   attackSpeedPerEnemyPct: number
   maxMechanicEnemies: number
-  shieldPerEnemy: number
-  maxShieldRestore: number
   pageDamage: number
   fireIntervalMs: number
   range: number

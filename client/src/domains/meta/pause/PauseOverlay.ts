@@ -47,6 +47,7 @@ import {
   type PanelSink,
   type SettingsPanelParts,
 } from '../ui/panels'
+import { SaveStatusBanner } from '../ui/SaveStatusBanner'
 import { Slider } from '../ui/Slider'
 import { THEME, fontPx } from '../ui/theme'
 import type { RunSnapshot } from './runSnapshot'
@@ -103,8 +104,12 @@ export class PauseOverlay {
   private parts: Phaser.GameObjects.GameObject[] = []
   private layer: OverlayLayer | null = null
   private settingsParts: SettingsPanelParts | null = null
+  private saveBanner: SaveStatusBanner | null = null
   private noticeText: Phaser.GameObjects.Text | null = null
   private readonly onResize: () => void
+  private readonly onFullscreenChanged: () => void
+  private readonly onFullscreenFailed: () => void
+  private readonly unsubscribeStore: () => void
 
   constructor(options: PauseOverlayOptions) {
     this.scene = options.scene
@@ -117,6 +122,24 @@ export class PauseOverlay {
       if (this.opened) this.rebuild()
     }
     this.scene.scale.on(Phaser.Scale.Events.RESIZE, this.onResize)
+    this.onFullscreenChanged = () =>
+      this.store.syncDisplayMode(this.scene.scale.isFullscreen)
+    this.onFullscreenFailed = () => {
+      this.noticeText?.setText('全屏切换失败，浏览器未进入全屏')
+    }
+    this.scene.scale.on(Phaser.Scale.Events.ENTER_FULLSCREEN, this.onFullscreenChanged)
+    this.scene.scale.on(Phaser.Scale.Events.LEAVE_FULLSCREEN, this.onFullscreenChanged)
+    this.scene.scale.on(Phaser.Scale.Events.FULLSCREEN_FAILED, this.onFullscreenFailed)
+    this.scene.scale.on(Phaser.Scale.Events.FULLSCREEN_UNSUPPORTED, this.onFullscreenFailed)
+    this.unsubscribeStore = this.store.subscribe(() => {
+      this.saveBanner?.refresh()
+      if (this.settingsParts) {
+        applyDisplayModeSelection(
+          this.settingsParts,
+          this.store.profile.settings.displayMode,
+        )
+      }
+    })
   }
 
   get isOpen(): boolean {
@@ -156,6 +179,7 @@ export class PauseOverlay {
     this.opened = true
     this.screen = 'paused'
     this.focusIndex = 0
+    this.store.syncDisplayMode(this.scene.scale.isFullscreen)
     // 快照只在打开时取一次：暂停期间这些值不会变，每帧问一次纯属浪费。
     this.snapshot = this.host.snapshot()
     // ⚠️ 顺序：**先暂停再画**。反过来的话，画的过程中世界还在跑，
@@ -181,6 +205,11 @@ export class PauseOverlay {
    */
   destroy(): void {
     this.scene.scale.off(Phaser.Scale.Events.RESIZE, this.onResize)
+    this.scene.scale.off(Phaser.Scale.Events.ENTER_FULLSCREEN, this.onFullscreenChanged)
+    this.scene.scale.off(Phaser.Scale.Events.LEAVE_FULLSCREEN, this.onFullscreenChanged)
+    this.scene.scale.off(Phaser.Scale.Events.FULLSCREEN_FAILED, this.onFullscreenFailed)
+    this.scene.scale.off(Phaser.Scale.Events.FULLSCREEN_UNSUPPORTED, this.onFullscreenFailed)
+    this.unsubscribeStore()
     this.clear()
     this.opened = false
     this.layer?.destroy()
@@ -223,10 +252,6 @@ export class PauseOverlay {
       else this.scene.scale.stopFullscreen()
     } catch (err) {
       this.noticeText?.setText(`全屏切换失败：${err instanceof Error ? err.message : String(err)}`)
-    }
-    this.store.setSettings({ displayMode: mode })
-    if (this.settingsParts) {
-      applyDisplayModeSelection(this.settingsParts, this.store.profile.settings.displayMode)
     }
   }
 
@@ -279,6 +304,14 @@ export class PauseOverlay {
     }
     if (this.screen === 'confirm-quit') this.buildQuitConfirm(frame.cx, frame.cy, sink)
 
+    this.saveBanner = new SaveStatusBanner(
+      this.scene,
+      this.store,
+      this.scene.scale.width / 2,
+      44,
+      this.scene.scale.width,
+    )
+    this.parts.push(this.saveBanner.root)
     this.layer?.attach(this.parts)
   }
 
@@ -423,6 +456,8 @@ export class PauseOverlay {
   }
 
   private clear(): void {
+    this.saveBanner?.destroy()
+    this.saveBanner = null
     for (const b of this.buttons) b.destroy()
     for (const s of this.sliders) s.destroy()
     for (const bar of this.bars) bar.destroy()
