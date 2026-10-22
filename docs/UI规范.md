@@ -59,8 +59,9 @@
 
 ## 四、输入
 
-- **全屏 / 指针锁定必须写在点击事件处理函数里**，不能在加载时自动触发
-  （`AGENTS.md` §九 第 3 条）。设置里的"全屏"按钮就该这么写。
+- **全屏 / 指针锁定必须写在用户手势处理函数里**，不能在加载时自动触发
+  （`AGENTS.md` §九 第 3 条）。全屏按钮在 `pointerup` 触发；设置状态只跟随
+  `Scale.Events.ENTER_FULLSCREEN` / `LEAVE_FULLSCREEN` 更新，不能点击后先写死。
 - **多个场景同时活着时，各自抢键盘。** 上层场景要
   `this.input.keyboard.enabled = false` 让位，否则按一下 Esc 会同时触发两边
   （Phaser `KeyboardPlugin` 类注释里给的正是这个办法）。

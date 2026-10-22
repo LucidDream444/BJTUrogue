@@ -412,3 +412,20 @@ describe('订阅', () => {
     quiet.mockRestore()
   })
 })
+
+describe('显示模式', () => {
+  it('只跟随浏览器实际状态写盘，重复同步不改 revision', () => {
+    const store = storeWith(new MemoryProfileStorage())
+    store.load()
+
+    expect(store.syncDisplayMode(false)).toBe(true)
+    expect(store.profile.revision).toBe(0)
+
+    expect(store.syncDisplayMode(true)).toBe(true)
+    expect(store.profile.settings.displayMode).toBe('fullscreen')
+    expect(store.profile.revision).toBe(1)
+
+    expect(store.syncDisplayMode(true)).toBe(true)
+    expect(store.profile.revision).toBe(1)
+  })
+})

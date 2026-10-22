@@ -236,6 +236,18 @@ export class ProfileStore {
     })
   }
 
+  /**
+   * 把档里的显示模式同步到浏览器的**实际**状态。
+   *
+   * 只在状态真的变了时写盘。全屏请求成功、玩家按 Esc 退出全屏，以及窗口状态
+   * 首次校正都调用这里；不能相信“刚才点的是全屏”就等于浏览器已经进入了全屏。
+   */
+  syncDisplayMode(isFullscreen: boolean): boolean {
+    const displayMode = isFullscreen ? 'fullscreen' : 'windowed'
+    if (this.current.settings.displayMode === displayMode) return true
+    return this.setSettings({ displayMode })
+  }
+
   /** 记住主菜单上的角色 / 难度选择（需求 §4.4：从升级页返回后要保留）。 */
   setSelection(patch: Partial<ProfileSelection>): boolean {
     return this.update((draft) => {
