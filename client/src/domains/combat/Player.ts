@@ -95,7 +95,7 @@ export class Player {
     this.model.iframeMs = balance.baseline.player.iframeMs
     this.liquidUnsubs.push(
       bus.on('player_liquid_changed', (e) => {
-        if (e.playerId === this.model.id) this.model.liquidSpeedMultiplier = e.speedMultiplier
+        if (e.playerId === this.model.id) this.model.applyLiquidCoating(e.active, e.speedMultiplier)
       }),
       bus.on('player_liquid_drain', (e) => {
         if (e.playerId === this.model.id)

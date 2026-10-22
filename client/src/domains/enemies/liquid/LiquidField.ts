@@ -1,4 +1,5 @@
 import type { SprayerDef } from '@/core/config'
+import { DamageLedger, type TickTarget } from '@/core/actor/damage'
 
 export interface Puddle {
   active: boolean
@@ -23,15 +24,21 @@ export class LiquidField {
   active = false
   moving = false
   stillMs = 0
+  movingMs = 0
   sourceId = 0
   private playerId = 0
   private previous: { x: number; y: number } | null = null
   private lastMs: number | null = null
   private lastFrame = -1
-  private movingMs = 0
-  private readonly ramReady = new Map<number, number>()
+  private drainMs = 0
+  private readonly contactLedger: DamageLedger
 
   constructor(readonly cfg: SprayerDef) {
+    this.contactLedger = new DamageLedger({
+      tickMs: cfg.coating.contactTickMs,
+      pairTtlMs: cfg.coating.contactTickMs,
+      maxTicksPerSourceDefault: Number.MAX_SAFE_INTEGER,
+    })
     this.puddles = Array.from({ length: cfg.spray.maxPuddles }, () => ({
       active: false,
       x: 0,
@@ -108,20 +115,36 @@ export class LiquidField {
       if (this.stillMs >= this.cfg.coating.cleanseStillMs) this.resetCoating()
       return 0
     }
-    this.movingMs += dt
-    if (this.movingMs < this.cfg.coating.drainIntervalMs) return 0
-    this.movingMs %= this.cfg.coating.drainIntervalMs
-    return this.cfg.coating.drainDamage
+    this.movingMs = Math.min(this.cfg.coating.cleanseMovingMs, this.movingMs + dt)
+    this.drainMs += dt
+    const drain =
+      this.drainMs >= this.cfg.coating.drainIntervalMs ? this.cfg.coating.drainDamage : 0
+    if (drain) this.drainMs %= this.cfg.coating.drainIntervalMs
+    if (this.movingMs >= this.cfg.coating.cleanseMovingMs) this.resetCoating()
+    return drain
   }
 
-  ram(enemyId: number, nowMs: number): number {
-    if (!this.active || nowMs < (this.ramReady.get(enemyId) ?? -Infinity)) return 0
-    this.ramReady.set(enemyId, nowMs + this.cfg.coating.ramCooldownMs)
-    return this.cfg.coating.ramDamage
+  /** 只登记本物理步的接触；不附带首次撞击伤害。 */
+  touchContact(playerId: number, target: TickTarget, nowMs: number): void {
+    if (!this.active || !target.alive) return
+    this.contactLedger.touch(
+      playerId,
+      target,
+      {
+        sourceKind: 'contact',
+        amountPerTick: this.cfg.coating.contactDamagePerTick,
+      },
+      nowMs,
+    )
   }
 
-  releaseEnemy(id: number): void {
-    this.ramReady.delete(id)
+  /** WORLD_STEP 每步调用；账本守住每配对每渲染帧至多一次、断开即停伤。 */
+  stepContact(nowMs: number, frameId: number): void {
+    if (this.active) this.contactLedger.step(nowMs, frameId)
+  }
+
+  releaseEnemy(target: TickTarget): void {
+    this.contactLedger.releaseTarget(target)
   }
 
   resetCoating(): void {
@@ -129,8 +152,9 @@ export class LiquidField {
     this.moving = false
     this.stillMs = 0
     this.movingMs = 0
+    this.drainMs = 0
     this.sourceId = 0
-    this.ramReady.clear()
+    this.contactLedger.clear()
   }
 
   clear(): void {

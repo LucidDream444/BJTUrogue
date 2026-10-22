@@ -149,7 +149,7 @@ export function buildCodexEntries(
     category: '普通敌人',
     name: sprayer.displayName,
     variant: '喷洒型',
-    role: `喷洒催化液 · 沾液加速撞怪，移动耗血；静止累计 ${formatSeconds(sprayer.coating.cleanseStillMs)} 清除`,
+    role: `草坪喷灌器 · 沾液加速穿怪与接触帧伤；累计移动 ${formatSeconds(sprayer.coating.cleanseMovingMs)} 或静止 ${formatSeconds(sprayer.coating.cleanseStillMs)} 清除`,
     threatLevel: sprayer.threatLevel,
     textureKey: sprayer.textureKey,
     visualScale: sprayer.visualScale,
@@ -158,7 +158,7 @@ export function buildCodexEntries(
       { label: '生命值', value: `${sprayerStats.maxHp}` },
       { label: '移动速度', value: `${sprayerStats.speed} px/s` },
       { label: '沾液加速', value: `×${sprayer.coating.speedMultiplier}` },
-      { label: '冲撞伤害', value: `${sprayer.coating.ramDamage}` },
+      { label: '接触帧伤', value: `${sprayer.coating.contactDamagePerTick} / ${formatSeconds(sprayer.coating.contactTickMs)}` },
       {
         label: '移动耗血',
         value: `${sprayer.coating.drainDamage} / ${formatSeconds(sprayer.coating.drainIntervalMs)}`,
