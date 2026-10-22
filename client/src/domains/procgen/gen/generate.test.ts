@@ -59,7 +59,7 @@ import { left, right, top, bottom } from '../model/rect'
 import { chairBelongsTo, countObstacles, furnitureUnits } from '../model/furniture'
 import { placeObstacles } from './obstacles'
 import type { Room } from '../model/types'
-import { FLOOR_ROOM_TOTAL, parseFloorPlan, type FloorPlan } from './floorPlan'
+import { parseFloorPlan, type FloorPlan } from './floorPlan'
 import { kindBag } from './layout'
 import { progressT, threatBudgetAt } from './budget'
 
@@ -79,6 +79,10 @@ const cfg = readRooms()
  *
  * 解析一次、1000 个种子共用一份：放进循环里就是同一份表读 1000 遍，
  * 而它一次都不会变（见文件头）。
+ *
+ * ⚠️ 产品里**第 1 层不是这一张**（逸夫楼 3F，见 `floor-plan-yf3.json`）。
+ * 这里固定用 6F 是因为这一批用例的期望值（`YF604` 是首领、16 间房）都是照着
+ * 它写的；两层各有一组用例，跨层的那些在 `floors.test.ts`。
  */
 const plan: FloorPlan = parseFloorPlan(readJson('floor-plan.json'), cfg)
 
@@ -131,18 +135,15 @@ describe('D2 生成器 — 确定性与可复现', () => {
 })
 
 describe('D2 生成器 — 房间构成', () => {
-  it('任何种子的房间总数都是 16（15 间编号教室 + 1 间楼梯间）', () => {
+  it('任何种子的房间总数都等于平面图声明的 16（15 间编号教室 + 1 间楼梯间）', () => {
     for (const seed of SEEDS.slice(0, 200)) {
       const map = generateDungeon(seed, cfg, plan)
-      // ⚠️ **不许写成 `cfg.classroomCount`**（那是 15）。那个数数的是**编号教室**，
-      // 楼梯间不在里面；而 `map.rooms` 里楼梯间是一间房（出生点在里面，
-      // 打完首领下楼的入口也在里面）。照 15 查的话：正确的是 16、报出来的是
-      // 「实际 16 ≠ 应为 15」—— 一条看着合理的假警，修法是把楼梯间删掉，
-      // 而那会让出生点没有一间属于它的房。见 `gen/floorPlan.ts` 的 `FLOOR_ROOM_TOTAL`。
-      expect(map.rooms.length, `种子 ${seed}`).toBe(FLOOR_ROOM_TOTAL)
-      expect(cfg.classroomCount, '真表里教室数应是 15 —— 这条用例的对照项').toBe(
-        FLOOR_ROOM_TOTAL - 1,
-      )
+      // ⚠️ **对照项是 `plan.roomTotal`，不是某个全局常量**（★ 改了 2026-10-22）：
+      // 「这一层几间房」随层走（6F 十六、YF3 十五），它写在平面图里。
+      // 楼梯间**算在里面** —— `map.rooms` 里它是一间房（出生点在里面，
+      // 打完首领下楼的入口也在里面）；照「编号教室数」去查会得出
+      // 「实际 16 ≠ 应为 15」这种看着合理的假警，而修法是把楼梯间删掉。
+      expect(map.rooms.length, `种子 ${seed}`).toBe(plan.roomTotal)
     }
   })
 
@@ -233,7 +234,7 @@ describe('D2 生成器 — 威胁预算', () => {
     let combat = 0
     for (const seed of SEEDS.slice(0, 200)) {
       const map = generateDungeon(seed, cfg, plan)
-      const hops = validateContract(map, cfg).hopOf
+      const hops = validateContract(map, cfg, plan.roomTotal).hopOf
       let maxHop = 0
       for (const r of map.rooms) {
         if (!isCombatKind(cfg, r.kind)) continue
@@ -254,7 +255,7 @@ describe('D2 生成器 — 威胁预算', () => {
     // `validate/contract.ts` 用的是同一条判据，这里在生成侧再验一遍。
     for (const seed of SEEDS.slice(0, 200)) {
       const map = generateDungeon(seed, cfg, plan)
-      const hops = validateContract(map, cfg).hopOf
+      const hops = validateContract(map, cfg, plan.roomTotal).hopOf
       const byHop = new Map<number, number>()
       for (const r of map.rooms) {
         if (!isCombatKind(cfg, r.kind)) continue
@@ -287,7 +288,7 @@ describe('D2 生成器 — 几何契约', () => {
   it('每种种子都通过契约校验', () => {
     for (const seed of SEEDS) {
       const map = generateDungeon(seed, cfg, plan)
-      expect(() => validateContract(map, cfg), `种子 ${seed}`).not.toThrow()
+      expect(() => validateContract(map, cfg, plan.roomTotal), `种子 ${seed}`).not.toThrow()
     }
   })
 
@@ -553,7 +554,7 @@ describe('D2 校验器 — 负样本（证明它不是永远通过）', () => {
   ): void => {
     let caught: Error | null = null
     try {
-      validateContract(map, withCfg)
+      validateContract(map, withCfg, plan.roomTotal)
     } catch (e) {
       caught = e as Error
     }
@@ -571,11 +572,11 @@ describe('D2 校验器 — 负样本（证明它不是永远通过）', () => {
     expectFails(m, 'rooms[3].kind', '合法取值')
   })
 
-  it('房间总数不对被拒 —— 报的是 16，不是 classroomCount(15)', () => {
+  it('房间总数不对被拒 —— 报的是这一层的 16（楼梯间算在里面）', () => {
     const m = broken(SEED, (x) => {
       x.rooms.pop()
     })
-    expectFails(m, 'rooms', `房间总数应为 ${FLOOR_ROOM_TOTAL}`)
+    expectFails(m, 'rooms', `应有 ${plan.roomTotal} 间房（含楼梯间）`)
   })
 
   it('**两间 start** 被拒 —— 玩家从哪一间开始就没有答案了', () => {

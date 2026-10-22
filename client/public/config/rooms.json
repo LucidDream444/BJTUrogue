@@ -1,17 +1,16 @@
 {
-  "schemaVersion": 5,
+  "schemaVersion": 6,
 
   "_comment": "D2（关卡与地牢生成）的旋钮。红线 2：改这里不需要重新构建，也不需要改任何 TypeScript。",
   "_owner": "D2。字段定义归 D2（C2 契约），消费方是 D1（战斗场景）与 D3（敌人寻路）。",
 
-  "_layout_comment": "★ 改了（schemaVersion 4 → 5）：**这一份里已经没有几何了。** 房间在哪、多大、几个空间、门开在哪儿全部搬去了 client/public/config/floor-plan.json —— 那边是照 6F 平面图照片量出来的格坐标（16 间房 + 6 段走廊 + 16 扇门）。这一份留下的全是**与种子有关**的东西：关别权重、桌椅、刷怪点、预算曲线。跟着删掉的字段：mainRoomMin / mainRoomMax / mainWidthTiers / mainRoomHeight / sideRoomTiers / roomGap，以及 sideKindWeights（改叫 roomKindWeights）。跟着变的：totalRooms 改名 classroomCount（它数的一直是**编号教室**，不是「这一层有几间房」—— 整层是 16 间，多一间楼梯间）。⚠️ 判断一个数该放哪边只要问一句：**改它会不会让房间挪位置？** 会的话它属于 floor-plan.json。",
+  "_layout_comment": "★ 改了（schemaVersion 4 → 5）：**这一份里已经没有几何了。** 房间在哪、多大、几个空间、门开在哪儿全部搬去了 client/public/config/floor-plan.json —— 那边是照 6F 平面图照片量出来的格坐标（16 间房 + 6 段走廊 + 16 扇门）。这一份留下的全是**与种子有关**的东西：关别权重、桌椅、刷怪点、预算曲线。跟着删掉的字段：mainRoomMin / mainRoomMax / mainWidthTiers / mainRoomHeight / sideRoomTiers / roomGap，以及 sideKindWeights（改叫 roomKindWeights）。★ 又改了（2026-10-22，schemaVersion 5 → 6）：**跟着 classroomCount 一起搬走的还有「这一层几间房」这件事** —— 见 _count_comment_removed。⚠️ 判断一个数该放哪边只要问一句：**改它会不会让房间挪位置？** 会的话它属于 floor-plan.json。",
 
   "_derivation": "威胁预算 = round_half_up(budgetBase × budgetGrowth ^ t)，其中 t = 这间房到楼梯间的**跳数** ÷ 本层战斗关里最远的跳数，t ∈ [0, 1]。分子是跳数不是房间序号：v5 里玩家随意挑房间进，order 退化成「楼梯间 + 其余按 id 升序」的下标，跟难度再没关系。非战斗关别的预算恒为 0（不进这条曲线）。",
 
-  "_count_comment": "★ 改名了：totalRooms → classroomCount。⚠️ **两个数都对，问的不是同一件事。** 这个数是**编号教室**（15 间 YF601—YF615），而整层是 **16** 间（多一间楼梯间 —— 出生点在里面，`dungeon-pacing` 要求的就是 16）。楼梯间不按种子抽关别（kind 恒为 start），所以它不在这个数里。旧名字 totalRooms 会让人照着 15 去生成「一层 15 间房」，那样出生点就没有一间属于它的房，而校验器也照着 15 查、**全绿**。守护在 gen/floorPlan.ts 的 FLOOR_ROOM_TOTAL（16）与 checkRoomCount 的两条判据（第二条专拦「两个文件一起改成 16」这种看着像统一的改法）。",
-  "classroomCount": 15,
+  "_count_comment_removed": "★ **这一层有几间房不再是这里的字段**（2026-10-22 删掉了 `classroomCount`）。它原本是「编号教室数」（15），与平面图对账用；一局有两层楼之后（6F 16 间、YF3 15 间）一个全局的数配不了两张图，于是它搬进了平面图自己：`floor-plan.json` / `floor-plan-yf3.json` 的 `roomTotal`（**含楼梯间**）。守护跟着搬去 gen/floorPlan.ts 的 checkRoomCount。⚠️ 别在这里把它加回来 —— 加回来就会有两个真值，而错的那一个只会在第 1 层加载时响。",
 
-  "_kinds_comment": "★ 改了（schemaVersion 4 → 5）：sideKindWeights → roomKindWeights，而且**它现在是「发牌」的依据，不是 12 次独立抽签**。生成器（gen/layout.ts 的 kindBag）先按最大余数法把这张表折成一副**正好 12 张**的牌，再洗牌发给那 12 间不带 fixed 的教室。独立抽的问题不是概率算错，而是某些种子会抽出一层 10 间道具房 —— 那一局没有仗可打，且不报错、不抛异常，看上去只是「运气不好」。权重不必凑成 1（内部归一化）。键 MUST NOT 出现 start / boss（那两间由位置决定：出生点恒在楼梯间、首领恒在 YF604，都写在 floor-plan.json 里），也 MUST NOT 出现本期不产出的 shop / hidden —— 配置加载时就会拒绝。",
+  "_kinds_comment": "★ 改了（schemaVersion 5 → 6）：**这张表现在是「发牌」的依据，不是 N 次独立抽签**（v4 → v5 就改了这点），而 ★ 又改了（2026-10-22）：**牌数不再由 `classroomCount` 算，按平面图里不带 fixed 的间数自适应**（gen/layout.ts 的 kindBag 折成正好那么多张）。6F 是 12 张（15 − 3 间固定），YF3 是 10 张（13 − 3）—— 少一间房只是少一间房，不是少一副牌。独立抽的问题不是概率算错，而是某些种子会抽出一层 10 间道具房 —— 那一局没有仗可打，且不报错、不抛异常，看上去只是「运气不好」。权重不必凑成 1（内部归一化）。键 MUST NOT 出现 start / boss（那两间由位置决定：出生点恒在楼梯间、首领恒在这一层的 boss 房 —— 6F 是 YF604、YF3 是 YF304，都写在各自的平面图里），也 MUST NOT 出现本期不产出的 hidden —— 配置加载时就会拒绝。（`shop` 同样不许出现在**这张表**里：YF3 那层的商店是平面图里 `fixed: 'shop'` 的一间房，由**位置**决定，不是抽出来的 —— 与 start / boss 同理。）",
   "roomKindWeights": { "main": 4, "elite": 2, "reward": 2, "chest": 2 },
 
   "_combat_comment": "要打的关别。**这是唯一判据**：不在集合里 = 不摆桌椅、不刷怪、威胁预算为 0，三件事读同一个集合，免得出现「摆了桌椅但不刷怪」这种合法但错的数据。★ 改了（schemaVersion 4 → 5）：**start 被移出去了。** v4 里 start 在集合里是对的（那时「起点房」是一间真的教室，主干第一间）；v5 里 start 是**楼梯间**，也就是玩家的出生点 —— 留在里面意味着出生点摆满课桌、还刷一屋子怪，怪直接围在玩家脸上，而那是这一层的第一帧。配置加载时会当场拒绝含 start 的表（config.ts 的 needCombatKinds）。main 与 boss 是**必须**在里面：前者是整层的默认量，后者不打怪那一局就没有出口。",

@@ -44,20 +44,6 @@ export interface RoomsConfig {
   schemaVersion: number
 
   /**
-   * 这一层有几间**编号教室**（今天 15）。
-   *
-   * ⚠️ **不是「这一层有几间房」** —— 那个数是 `FLOOR_ROOM_TOTAL`（16，多一间楼梯间）。
-   * 楼梯间不按种子抽关别（`kind` 恒为 `start`），所以它不在这个数里。
-   * 名字从 `totalRooms` 改过来就是因为这一点：叫 `totalRooms` 时，
-   * 读的人会照着它去生成「15 间房」，而出生点就没有一间属于它的房 ——
-   * 且校验器也照着 15 查、全绿。
-   *
-   * 它的作用只剩**与平面图对账**：`floorPlan.ts` 的 `checkRoomCount` 拿
-   * 平面图上的条数核这个数，对不上就当场炸。
-   */
-  classroomCount: number
-
-  /**
    * **按种子抽关别的那 12 间教室，各是普通 / 精英 / 道具 / 宝箱里的哪一类。**
    *
    * 内部按总和归一化（不必配成和为 1）。**这一张表是发牌的依据，不是 12 次独立抽签**
@@ -205,6 +191,31 @@ export interface RoomsConfig {
 export const ROOMS_CONFIG_NAME = 'rooms.json'
 export const ROOMS_CONFIG_URL = `config/${ROOMS_CONFIG_NAME}`
 
+/**
+ * `floors.json` —— **一局里每一层用哪张平面图**（按顺序，第 1 项是第 1 层）。
+ *
+ * ★ 新增（2026-10-22）：用户要求「进入游戏先是 YF3，下一层是 YF6」。
+ * 在这之前一局几层共用**同一张**平面图（几何写死在一份 `floor-plan.json` 里），
+ * 于是「第几层」只是个计数；现在它决定**走的是哪一层楼**。
+ */
+export const FLOORS_CONFIG_NAME = 'floors.json'
+export const FLOORS_CONFIG_URL = `config/${FLOORS_CONFIG_NAME}`
+
+/**
+ * `floors.json` 的落地形状。
+ *
+ * ⚠️ **`floors` 里的文件名必须都在 `FLOOR_PLAN_FILES` 里** —— 那一串是
+ * **preload 时真的要加载的文件**（`BattleScene.preload()`），而这张表只是「用哪一张、第几个用」。
+ * 两处分开是没办法的事：加载清单必须在读配置**之前**就存在（先有鸡才有蛋），
+ * 所以它是代码里的常量；表里写了一个没加载的文件时，`floorPlansForRun()` 当场报出来
+ * （那句报错会指回 `FLOOR_PLAN_FILES`），不会变成「第 2 层是空的」。
+ */
+export interface FloorsConfig {
+  schemaVersion: number
+  /** 每一层的平面图文件名，顺序 = 层的顺序。 */
+  floors: readonly string[]
+}
+
 // ---------------------------------------------------------------- 取值
 //
 // 这四个**导出**给 `gen/floorPlan.ts` 用（`floor-plan.json` 的解析）。
@@ -273,14 +284,12 @@ export function parseRoomsConfig(raw: unknown): RoomsConfig {
   }
   const schemaVersion = needNumber(root.schemaVersion, 'rooms.schemaVersion', { integer: true })
 
-  const classroomCount = needNumber(
-    need(root.classroomCount, 'rooms.classroomCount'),
-    'rooms.classroomCount',
-    { integer: true, min: 2 },
-  )
+  // ⚠️ **这里原来还有一个 `classroomCount`（与平面图对账用的教室数），2026-10-22 删了。**
+  //    「这一层有几间房」现在是**平面图自己的事**（`floor-plan.json` 的 `roomTotal`）——
+  //    一局有两层楼之后，一个全局的数根本对不上两张图（6F 十六间、YF3 十五间）。
+  //    见 `gen/floorPlan.ts` 的 `FloorPlanMetrics`。
 
-  // 格的边长。**全部几何换算的分母** —— 平面图里的格坐标靠它换成 px，
-  // 而 `floor-plan.json` 与这一份的对账（`checkRoomCount`）也要它。
+  // 格的边长。**全部几何换算的分母** —— 平面图里的格坐标靠它换成 px。
   const navCellSizeRaw = need(root.navCellSize, 'rooms.navCellSize')
   const navCellSize = needNumber(navCellSizeRaw, 'rooms.navCellSize', {
     integer: true,
@@ -515,7 +524,6 @@ export function parseRoomsConfig(raw: unknown): RoomsConfig {
 
   return {
     schemaVersion,
-    classroomCount,
     roomKindWeights,
     combatKinds,
     settleMs,
@@ -690,6 +698,72 @@ export async function loadRoomsConfig(base: string): Promise<RoomsConfig> {
 /** 从 Phaser 的缓存里取一份已经用 `load.json` 载入的 `rooms.json`。 */
 export function roomsConfigFromCache(cache: { get(key: string): unknown }): RoomsConfig {
   return parseRoomsConfig(cache.get(ROOMS_CONFIG_NAME))
+}
+
+/**
+ * `floors.json` 的解析。
+ *
+ * `expectedFloors` 是**调用方那一侧的层数**（`combat.json` 的 `arena.maxStages` ——
+ * 「一局几层」是玩法侧的旋钮，归 D1）。两个数对不上时**当场炸**：少了会让第 N 层
+ * 没有图可走，多了会让这张表里有一条永远用不上。两种都不报错地跑下去，
+ * 症状是「第 3 层怎么又长这样」，而那时没人会想到去数两个文件里的条数。
+ */
+export function parseFloorsConfig(raw: unknown, expectedFloors: number): FloorsConfig {
+  const root = needObject(raw, 'floors')
+
+  if (root.schemaVersion === undefined) {
+    throw new ConfigError('floors.schemaVersion', '缺这个字段（红线 3：数据要带 schemaVersion）')
+  }
+  const schemaVersion = needNumber(root.schemaVersion, 'floors.schemaVersion', { integer: true })
+
+  const list = needArray(need(root.floors, 'floors.floors'), 'floors.floors')
+  const floors = list.map((name, i) => {
+    if (typeof name !== 'string' || name.length === 0) {
+      throw new ConfigError(
+        `floors.floors[${i}]`,
+        `要一个平面图文件名（例如 "floor-plan.json"），拿到 ${JSON.stringify(name)}`,
+      )
+    }
+    return name
+  })
+
+  if (floors.length !== expectedFloors) {
+    throw new ConfigError(
+      'floors.floors',
+      `floors.json 给了 ${floors.length} 层（${floors.join(' / ')}），` +
+        `而 combat.json 的 arena.maxStages 是 ${expectedFloors} 层。` +
+        `两个数都是真值、管的不是同一件事 —— 一张说「第几层走哪张图」，一个说「一局几层」——` +
+        `所以加一层/删一层要两处一起改（缺的那一层没有图可走，多的那一条永远用不上，两种都不报错）`,
+    )
+  }
+
+  return { schemaVersion, floors }
+}
+
+/**
+ * 从 Phaser 的缓存里取一份已经用 `load.json` 载入的 `floors.json`。
+ *
+ * ⚠️ 取到 `undefined` 时**先说清是「没加载上」**（与 `floorPlanFromCache` 里
+ * 那道 `needLoadedPlanName` 同一个理由）：直接交给解析器的话，报出来的是
+ * 「floors：要一个对象，拿到 undefined」，而那句话把人指向**配置表写错了** ——
+ * 真正的病因（`BattleScene.preload()` 里那一串漏了它）一个字都没提。
+ * 一张表加进产品时要动两个地方（加载清单 + 读它的那行），这中间隔着一次运行。
+ */
+export function floorsConfigFromCache(
+  cache: { get(key: string): unknown },
+  expectedFloors: number,
+): FloorsConfig {
+  const raw = cache.get(FLOORS_CONFIG_NAME)
+  if (raw === undefined) {
+    throw new ConfigError(
+      FLOORS_CONFIG_NAME,
+      `没在缓存里 —— 它在 preload 的加载清单里吗？` +
+        `（\`BattleScene.preload()\` 那串 \`load.json\`；文件名是 ${FLOORS_CONFIG_NAME}）。` +
+        `⚠️ preload 里漏了一张表的症状是「配置表明明在磁盘上，却说是 undefined」，` +
+        `比「忘了加载」难查得多`,
+    )
+  }
+  return parseFloorsConfig(raw, expectedFloors)
 }
 
 /**

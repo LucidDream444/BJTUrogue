@@ -118,15 +118,29 @@ const STATE_COLOR = {
 const NO_VISITED: ReadonlySet<string> = new Set<string>()
 
 /**
- * 画成一间房的那个编号。`YF604` → `604`，`STAIR` → `梯`。
+ * 画成一间房的那个标号。`YF604` → `604`，`STAIR` → `梯`，`SHOP` → `商`。
  *
  * ⚠️ **不是「取后三位数字」**：`STAIR` 没有数字，直接切尾巴会切出空串，
  * 而空串的标号画出来是**一片什么也没有** —— 看起来像「楼梯间没画」，
  * 不像「标号提取写歪了」。所以取不到数字时给一个**看得见的**字。
+ *
+ * ★ 改了（2026-10-22）：那个「看得见的字」原先**恒为「梯」**，因为当时全层
+ * 只有楼梯间一个非编号空间。逸夫楼 3F（一局的第 1 层）多了一间商店 `SHOP` ——
+ * 兜底一写下去，商店在缩略图上就顶着「梯」字，而**那两块在缩略图上长得一样**，
+ * 玩家会进商店里找下楼的方框。所以改成一张**表**：认得的写认得的样子，
+ * 认不出的写 `?` —— 一个看得见的「这里出问题了」，而不是一个看着合理的错标号。
+ *
+ * ⚠️ 一个字，不是原样印 `SHOP`：最小的房间（`YF612` 教休室，360px 宽）缩完只有
+ * 10px，而 `SHOP` 四个字母在 18px 字号下约 40px —— 会盖住隔壁两间房，
+ * 而「标号让位」那一段判的是**字宽 vs 房间宽**，它会**正确地**把自己藏起来，
+ * 于是症状变成「商店在缩略图上根本没有标号」。一个字两个房间都放得下。
  */
+const SHORT_LABELS: Readonly<Record<string, string>> = { STAIR: '梯', SHOP: '商' }
+
 function shortId(id: string): string {
   const digits = /(\d+)\s*$/.exec(id)
-  return digits === null ? '梯' : digits[1]!
+  if (digits !== null) return digits[1]!
+  return SHORT_LABELS[id] ?? '?'
 }
 
 export class Minimap {
