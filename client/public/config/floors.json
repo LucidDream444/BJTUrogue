@@ -1,0 +1,13 @@
+{
+  "schemaVersion": 1,
+
+  "_comment": "★ 新增（2026-10-22）：**一局里每一层走哪一张平面图**，按顺序 —— 第 1 项是第 1 层。在这之前一局几层共用同一张图（几何写死在一份 floor-plan.json 里），「第几层」只是个计数；现在它决定走的是哪一层楼。红线 2：加一层楼 = 在这里加一行 + 丢一份平面图进去，不改代码。",
+  "_owner": "D2。字段定义归 D2（C2 契约），消费方是 D1（BattleScene 按这张表取几何：换层时整层换掉）。",
+
+  "_length_comment": "⚠️ **条数 MUST 等于 combat.json 的 arena.maxStages（一局几层）。** 两个数分开是因为它们管的不是同一件事：这一张说「哪一层走哪张图」，那一个说「一局几层」（D1 的玩法旋钮，首领数、楼梯间里的下楼口都按它算）。对不上时 `parseFloorsConfig` 当场炸，不报错地跑下去的症状是「第 3 层怎么又长这样」。",
+  "_files_comment": "⚠️ 这里写的每个文件名**还必须出现在代码的 `FLOOR_PLAN_FILES` 里**（`client/src/domains/procgen/gen/floorPlan.ts`）—— 那一串是 preload 时真的去加载的文件，而加载必须在读这张表**之前**发生（先有鸡才有蛋），所以它是常量。写了没加载的文件时 `floorPlansForRun()` 会当场报出来并指回那一串。",
+  "_box_comment": "⚠️ **每一层的包围盒（bounds）必须一样。** 今天一层的几何在进关卡时就定死了（TerrainMap 的行列数、物理世界边界都在 `CombatSession` 构造时读走，之后改不了），换层只换内容不换尺寸 —— 两层的包围盒不同的话 `BattleScene.applyArena()` 会当场抛。YF3 与 6F 的西翼只差「两间并一间」，整层 0..263 × 0..73 格一模一样，所以今天成立。守护在 `floors.test.ts`。",
+  "_today_comment": "今天有**两张**图：`floor-plan-yf3.json`（逸夫楼 3F，楼梯间左侧并成一间商店）与 `floor-plan.json`（6F，现行）。用户要的是「进入游戏先是 YF3，下一层是 YF6」—— 第 2、3 层都排 6F 是因为**手头只有这两张图**；以后有 4F/5F 的图，把中间那一行的文件名换掉即可（层的**内容**本来就随种子变，所以第 2、3 层长得不一样）。",
+
+  "floors": ["floor-plan-yf3.json", "floor-plan.json", "floor-plan.json"]
+}

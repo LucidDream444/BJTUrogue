@@ -53,8 +53,8 @@ import {
   type RoomsConfig,
 } from '@/domains/procgen/config'
 import {
+  FLOOR_PLAN_FILES,
   FLOOR_PLAN_NAME,
-  FLOOR_PLAN_URL,
   floorPlanFromCache,
   type FloorPlan,
 } from '@/domains/procgen/gen/floorPlan'
@@ -120,28 +120,64 @@ export interface ArenaMap {
 }
 
 /**
- * 从 Phaser 缓存里取 `rooms.json` + `floor-plan.json`，按种子生成一层楼，并量出耗时。
+ * 从 Phaser 缓存里取 `rooms.json` + 一份平面图，按种子生成一层楼，并量出耗时。
  *
  * ★ **`roomCount` 参数没了（v5）**，连它一起删掉的是 `roomsConfigWithRoomCount` ——
  * 那两个功能是给 `joint/d1d2_rooms` 造「三间的短层」用的，而**短层在平面图下不成立**：
- * 几何是写死的一份（15 间编号教室 + 楼梯间），把 `classroomCount` 改成 3
- * 只会让 `parseFloorPlan` 的 `checkRoomCount` 当场抛「房数与 rooms.json 对不上」。
+ * 几何是写死的一份（15 间编号教室 + 楼梯间），把教室数改成 3
+ * 只会让 `parseFloorPlan` 的 `checkRoomCount` 当场抛「房数与房间表对不上」。
  * 「整层只有三间」这件事从「改配置」降级成「做不到」—— 而那是对的，
  * 因为房间数不再由配置决定，而是由那张画好的平面图决定。
  *
  * 配置取不到时 `roomsConfigFromCache` / `floorPlanFromCache` 会抛 `ConfigError`，
  * 那个错误会被 `ArenaBase.create()` 接住画在屏幕上（见 `showFatal`）——
  * 场景建不起来的时候，空白的画布和「配置写错了」在现场长得一模一样。
+ *
+ * ## ★ 改了两次，都是同一个方向：**几何从哪儿来**
+ *
+ * 1. （2026-10-22 上午）多了 `planOverride`：`D2/yf` 那一层当时是**从 6F 算出来的**
+ *    （楼梯间左侧两间并成一间商店，见已删的 `_yfPlan.ts`），它自己解析好一份交进来。
+ * 2. ★ （2026-10-22 下午）**`planOverride` 换成 `planName`**：那一层已经进了产品
+ *    （`floor-plan-yf3.json`，一局的第 1 层），于是它不再需要「算」——
+ *    与产品**同一份表、同一条取数路径**（`floorPlanFromCache` 从缓存里读）。
+ *    这正是这一场想要的：**屏幕上画的就是玩家会走进的那一层**，
+ *    而不是一个长得像它的东西。算出来的那份要是与产品那份分了岔，
+ *    这一场会照样绿 —— 而那正是「测试场演的是另一层楼」这种坏法。
+ * 3. ★ （2026-10-22 傍晚）**吃 `planName` 的那个场子从两个变成一个**：
+ *    用户说「合并测试场 2 和 3」，于是 `D2/yf` 并进了 `D2/d2_seeds`
+ *    （那场现在按 `C` 换层，默认就是 3F）。这个函数一个字节没改 ——
+ *    **它本来就是把「哪一层」当参数收的**，两个场子合一只是少了一个调用方。
  */
-export function generateForArena(scene: Phaser.Scene, seed: number): ArenaMap {
+export function generateForArena(
+  scene: Phaser.Scene,
+  seed: number,
+  planName: string = FLOOR_PLAN_NAME,
+): ArenaMap {
+  assertConfigsLoaded(scene)
+  const cfg = roomsConfigFromCache(scene.cache.json)
+  const plan = floorPlanFromCache(scene.cache.json, cfg, planName)
+  const t0 = performance.now()
+  const map = generateDungeon(seed, cfg, plan, () => performance.now())
+  return { map, cfg, plan, elapsedMs: performance.now() - t0 }
+}
+
+/**
+ * 配置表都得在缓存里。**缺一张就当场抛**，报出来的是「没加载上」而不是
+ * 「配置表写错了」—— 两者在屏幕上长得一模一样，而在代码里差得很远。
+ *
+ * 查的是 `FLOOR_PLAN_FILES` **整串**（不是只查 6F 那份）：今天有两张平面图，
+ * 而场子切层时读的是另一张 —— 漏加载的那一张本该在切过去的那一下才炸，
+ * 那时屏幕上已经是另一层楼了。这里一次全查，症状回到「开屏就说没加载上」。
+ */
+function assertConfigsLoaded(scene: Phaser.Scene): void {
   // ⚠️ `scene.cache.json`，不是 `scene.cache` —— `CacheManager` 上没有 `get()`。
   // 读之前先 `exists()`：直接 `get()` 拿到 `undefined` 的话，
   // 报出来的是配置校验器那句「要一个对象，拿到 undefined」，
   // 而它把人指向**配置表写错了**，真正的病因（根本没加载上）一个字都没提。
   //
-  // 两张表**一起**查：`floor-plan.json` 漏了的话症状是「rooms.json 明明在，
+  // 几张表**一起**查：`floor-plan.json` 漏了的话症状是「rooms.json 明明在，
   // 生成器却在抱怨拿到 undefined」，比只说一句「没加载上」难查得多。
-  for (const name of [ROOMS_CONFIG_NAME, FLOOR_PLAN_NAME]) {
+  for (const name of [ROOMS_CONFIG_NAME, ...FLOOR_PLAN_FILES]) {
     if (scene.cache.json.exists(name)) continue
     throw new Error(
       `配置表 ${name} 没加载上（preload 里 load.json 失败了）。\n` +
@@ -149,11 +185,6 @@ export function generateForArena(scene: Phaser.Scene, seed: number): ArenaMap {
         `请走 npm run dev 或任意静态服务器。`,
     )
   }
-  const cfg = roomsConfigFromCache(scene.cache.json)
-  const plan = floorPlanFromCache(scene.cache.json, cfg)
-  const t0 = performance.now()
-  const map = generateDungeon(seed, cfg, plan, () => performance.now())
-  return { map, cfg, plan, elapsedMs: performance.now() - t0 }
 }
 
 /**
@@ -264,14 +295,20 @@ export function nearestSpawn(room: Room): Point | null {
 }
 
 /**
- * 把生成器要的**两张**配置表挂进预加载。场子的 `preload()` 里调它。
+ * 把生成器要的配置表挂进预加载。场子的 `preload()` 里调它。
  *
  * ★ 改了（v5）：原名 `loadRoomsConfig`，只挂 `rooms.json`。
- * 平面图落地之后生成器要两张表（`rooms.json` 给数值、`floor-plan.json` 给几何），
+ * 平面图落地之后生成器要两张表（`rooms.json` 给数值、平面图给几何），
  * **只挂一张的症状是一条看不懂的报错** —— 见 `generateForArena` 里那段一起查的注释。
- * 名字跟着改，是因为「调用方只需要记得调一次、且这一次必须把两张都挂上」
+ * 名字跟着改，是因为「调用方只需要记得调一次、且这一次必须把几张都挂上」
  * 这件事**没法靠名字提醒**：叫 `loadRoomsConfig` 而偷偷多挂一张，
  * 下一个人加第三张表时照样会漏。
+ *
+ * ★ 又改了（2026-10-22）：平面图那一头挂的是 `FLOOR_PLAN_FILES` **整串**
+ * （今天两张：6F + 逸夫楼 3F）。**不在场子里手写文件名** ——
+ * 一局里第几层走哪张图归 `floors.json`（产品）与那一串（加载清单）管，
+ * 场子跟着走就永远是同一份；写死的话，产品加了第 3 张图时这一场看不见，
+ * 而它看着一切正常。
  *
  * ⚠️ 必须走 **Phaser 的 loader**，不能 `fetch` —— 场景生命周期保证
  * `create()` 一定在所有加载完成之后才跑，所以 `create()` 里读 `cache.json`
@@ -280,7 +317,7 @@ export function nearestSpawn(room: Room): Point | null {
  */
 export function loadProcgenConfigs(scene: Phaser.Scene): void {
   scene.load.json(ROOMS_CONFIG_NAME, ROOMS_CONFIG_URL)
-  scene.load.json(FLOOR_PLAN_NAME, FLOOR_PLAN_URL)
+  for (const name of FLOOR_PLAN_FILES) scene.load.json(name, `config/${name}`)
 }
 
 /**

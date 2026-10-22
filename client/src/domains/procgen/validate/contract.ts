@@ -74,7 +74,6 @@ import { isCombatKind } from '../config'
 import { doorRect, left, rectContains, rectsIntersect, right, top, bottom } from '../model/rect'
 import { chairBelongsTo } from '../model/furniture'
 import { overlapsWithArea } from '../colliders'
-import { FLOOR_ROOM_TOTAL } from '../gen/floorPlan'
 import { MapValidationError, type MapErrorContext } from './errors'
 
 export interface ContractReport {
@@ -159,7 +158,15 @@ function hopsFromStairwell(map: DungeonMap): Map<string, number> {
   return dist
 }
 
-export function validateContract(map: DungeonMap, cfg: RoomsConfig): ContractReport {
+/**
+ * @param roomTotal 这一层**应当有几间房（含楼梯间）**。★ 新增 2026-10-22，
+ *   从 `plan.roomTotal` 取 —— 详见下面「1. 数量」那一段。
+ */
+export function validateContract(
+  map: DungeonMap,
+  cfg: RoomsConfig,
+  roomTotal: number,
+): ContractReport {
   const cell = cfg.navCellSize
   const wt = cfg.wallThickness
   const ox = map.navOrigin.x
@@ -205,19 +212,22 @@ export function validateContract(map: DungeonMap, cfg: RoomsConfig): ContractRep
 
   // ------------------------------------------------------------ 1. 数量
 
-  // ⚠️ **不许拿 `cfg.classroomCount`（15）来核这里。** 那个数数的是**编号教室**，
-  // 楼梯间不在里面；而 `map.rooms` 里**楼梯间是一间房**（出生点在里面，
-  // 打完首领下楼的入口也在里面）。照 15 查的话：正确的是 16，而报出来的是
-  // 「实际 16 ≠ 应为 15」—— 一条**看着合理**的假警，下一个人的修法就是
-  // 把楼梯间从 rooms 里删掉，而那会让出生点没有一间属于它的房。
+  // ⚠️ **这个数必须由调用方给，这个文件推不出来**（★ 改了 2026-10-22）：
+  // 「这一层该有几间」随层走（6F 十六间、YF3 十五间），而它写在**平面图**里，
+  // 正是这个文件看不见的那份。这里收的是一个**数**（调用方从 `plan.roomTotal`
+  // 取），不是平面图本身 —— 收平面图等于把这个文件变成 `parseFloorPlan` 的
+  // 复读机，而它存在的理由恰恰是「手里这份 map 可能不是生成器交出来的」。
   //
-  // 两个数各自的作用见 `gen/floorPlan.ts` 的 `FLOOR_ROOM_TOTAL` 与
-  // `checkRoomCount`（那边管「两个文件一不一致」，这里管「这份 map 是不是这一层」）。
-  if (n !== FLOOR_ROOM_TOTAL) {
-    fail(
-      'rooms',
-      `房间总数应为 ${FLOOR_ROOM_TOTAL}（15 间编号教室 + 1 间楼梯间），实际 ${n}`,
-    )
+  // 楼梯间**算在里面**：`map.rooms` 里楼梯间是一间房（出生点在里面，
+  // 打完首领下楼的入口也在里面）。曾经的教训是照着「编号教室数」去查 ——
+  // 正确的是 16，报出来的却是「实际 16 ≠ 应为 15」这种**看着合理**的假警，
+  // 而下一个人的修法就是把楼梯间从 rooms 里删掉。
+  //
+  // 两个数各管一头：`checkRoomCount`（`gen/floorPlan.ts`）管「平面图自己声明
+  // 的间数 vs 它的几何」，这里管「手里这份 map vs 这一层的声明」——
+  // 存档、迁移、手写夹具都要过后面这一关。
+  if (n !== roomTotal) {
+    fail('rooms', `这一层应有 ${roomTotal} 间房（含楼梯间），实际 ${n}`)
   }
   if (n === 0) fail('rooms', '一间房都没有')
 
