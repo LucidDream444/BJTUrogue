@@ -86,6 +86,7 @@ export type RoomKind =
   | 'hidden'
   | 'chest'
   | 'empty'
+  | 'elevator'
 
 /** 合法的 `RoomKind` 全集。校验器与测试场都读它，不要在别处再抄一份。 */
 export const ROOM_KINDS: readonly RoomKind[] = [
@@ -98,6 +99,13 @@ export const ROOM_KINDS: readonly RoomKind[] = [
   'hidden',
   'chest',
   'empty',
+  /**
+   * ★ 新增（2026-10-22 晚·七，用户：「每层添加三个电梯间，可以在电梯间选择层数前往」）。
+   * 与 `shop` / `empty` 同一类：**只能由平面图钉死**，永不由发牌池抽。
+   * 它不是「一间房」而是**设施**（照片上的蓝色电梯间），只是在这个模型里
+   * 与楼梯间一样用 `Room` 表达 —— 它是可走的、有门的、不刷怪的一格空间。
+   */
+  'elevator',
 ]
 
 /**
@@ -157,6 +165,8 @@ export const ROOM_KIND_LABELS: Record<RoomKind, string> = {
    * 名字要与 `'hidden'` 的「隐藏房」区分得开：一个是不该有东西，一个是有东西但不该看见。
    */
   empty: '空房',
+  /** ★ 新增（2026-10-22 晚·七）：电梯间。与「楼梯间」同一类：**设施**，不是关卡。 */
+  elevator: '电梯间',
 }
 
 // ---------------------------------------------------------------- 几何

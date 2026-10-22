@@ -159,7 +159,10 @@ function deriveYf3(sixRaw: unknown): PlanShape {
   // 与楼梯间隔着多少格是**另一件事**（下一段断言它）。
   if (xEnd <= x0) throw new Error('合并出来的矩形是空的 —— 两间房没重叠')
   const x1 = xEnd - 1 // SHOP 的**东界（不含）**，比自然东界少 1 格：那一格是墙
-  plan.rooms.push({ id: SHOP, x: x0, y: y0, width: x1 - x0, height: y1 - y0, fixed: 'shop' })
+  // ★ 改了（2026-10-22 晚·七）：商店**只要上半**（用户：「商店调成原来的一半并偏上」）。
+  // 合并块 y25..72 一共 48 格高，取上面那 24 格 = y25..48。
+  const halfH = Math.floor((y1 - y0) / 2)
+  plan.rooms.push({ id: SHOP, x: x0, y: y0, width: x1 - x0, height: halfH, fixed: 'shop' })
 
   // ⚠️ 新加的前提断言（上一版靠上面那句巧合顺带挡着）：楼梯间**不许**压到
   //    合并出来的这块上，也不许贴着 —— 相邻空间之间必须空出整整 1 格
@@ -198,8 +201,12 @@ function deriveYf3(sixRaw: unknown): PlanShape {
     height: doorCells,
   })
 
-  // ④ 房号：YF6xx → YF3xx（房号与门两端一起换）
-  const ren = (id: string): string => (id.startsWith('YF6') ? `YF3${id.slice(3)}` : id)
+  // ④ 房号：YF6xx → YF3(**xx − 1**)（房号与门两端一起换）
+  // ★ 改了（2026-10-22 晚·七，用户：「标号有误所有号码前移一个（如 302 变成 301，
+  // 303 变成 302，首领关 304 变成 303）」）。上一版是 6F 的号码原样照抄（只换前缀），
+  // 所以 3F 少了 301、多了 314 —— 照片上那层是 301—313，老板号整体多了一位。
+  const ren = (id: string): string =>
+    id.startsWith('YF6') ? `YF3${String(Number(id.slice(3)) - 1).padStart(2, '0')}` : id
   for (const r of plan.rooms) r.id = ren(r.id)
   for (const d of plan.doors) {
     d.a = ren(d.a)
@@ -216,12 +223,14 @@ describe('真的那份 floor-plan-yf3.json', () => {
   const yf3Raw = readJson(FLOOR_PLAN_YF3_NAME)
 
   it('过得了全部校验 —— 几何、门、连通性都在 parseFloorPlan 里（它没抛就是过了）', () => {
-    expect(yf3.rooms).toHaveLength(14)
+    // ★ 改了（2026-10-22 晚·七）：+3 —— 三个电梯间（`E_A` / `E_B` / `E_C`）。
+    expect(yf3.rooms).toHaveLength(17)
     expect(yf3.corridors).toHaveLength(6)
-    expect(yf3.doors).toHaveLength(15)
+    expect(yf3.doors).toHaveLength(18)
     expect(yf3.stairwell.id).toBe('STAIR')
-    // 少一间：15 间编号教室并成了 13 间 + 1 间商店（6F 是 15 + 1 = 16）
-    expect(yf3.roomTotal).toBe(15)
+    // 比 6F 少两间编号教室（并成了 1 间商店），但一样有 3 间电梯间：
+    // 13 间编号 + 1 商店 + 3 电梯 + 楼梯间 = 18
+    expect(yf3.roomTotal).toBe(18)
     expect(yf3.rooms.length + 1).toBe(yf3.roomTotal)
   })
 
@@ -234,29 +243,48 @@ describe('真的那份 floor-plan-yf3.json', () => {
   it('房号全是 YF3xx（外加一间 SHOP）—— 这一层不出现 YF6xx', () => {
     const ids = [yf3.stairwell, ...yf3.rooms].map((r) => r.id)
     expect(ids.filter((id) => id.startsWith('YF6'))).toEqual([])
+    // ★ 改了（2026-10-22 晚·七）：**301—313**（上一版是 302—314，整体多了一位）。
     expect(ids.filter((id) => id.startsWith('YF3')).sort()).toEqual(
-      Array.from({ length: 13 }, (_, i) => `YF3${String(i + 2).padStart(2, '0')}`),
+      Array.from({ length: 13 }, (_, i) => `YF3${String(i + 1).padStart(2, '0')}`),
     )
     expect(ids).toContain(SHOP)
+    // 三个电梯间三层同名，与楼梯间同一类（设施）
+    expect(ids.filter((id) => id.startsWith('E_')).sort()).toEqual(['E_A', 'E_B', 'E_C'])
   })
 
-  it('写死的关别跟着房号走：YF304 是首领，YF307 / YF312 是教休室，SHOP 是商店', () => {
+  it('写死的关别跟着房号走：YF303 是首领，YF306 / YF311 是教休室，SHOP 是商店，三个电梯间是设施', () => {
     const fixed = yf3.rooms.filter((r) => r.fixed !== null).map((r) => `${r.id}=${r.fixed}`)
     // ⚠️ 6F 那份是 YF604 / YF607 / YF612（没有第四间）—— 房号一一对应，
     //    **除了 601 与 615**（它们属于 SHOP 了）。这两句一起看才拦得住
     //    「改了房号忘了改关别」。
-    expect(fixed.sort()).toEqual(['SHOP=shop', 'YF304=boss', 'YF307=reward', 'YF312=reward'])
-    expect(yf3.rooms.some((r) => r.id === 'YF604')).toBe(false)
+    // ★ 改了（2026-10-22 晚·七）：号码整体前移一位之后，首领是 **YF303**（原 304），
+    // 两间教休室是 **YF306 / YF311**（原 307 / 312）；另有三间电梯间。
+    expect(fixed.sort()).toEqual([
+      'E_A=elevator',
+      'E_B=elevator',
+      'E_C=elevator',
+      'SHOP=shop',
+      'YF303=boss',
+      'YF306=reward',
+      'YF311=reward',
+    ])
+    // ⚠️ 不能写成「3F 里没有 YF304」—— 号码整体前移之后，**YF304 是旧 305**，
+    //    它在照片上好好地存在。要钉的是「首领不是 304 而是 303」。
+    expect(yf3.rooms.filter((r) => r.fixed === 'boss').map((r) => r.id)).toEqual(['YF303'])
     expect(six.rooms.filter((r) => r.fixed !== null).map((r) => r.id).sort()).toEqual([
+      'E_A',
+      'E_B',
+      'E_C',
       'YF604',
       'YF607',
       'YF612',
     ])
   })
 
-  it('商店是西头那一整块，**与 C_W 隔着 1 格墙**（那格墙才是它东界的由来）', () => {
+  it('商店是西头那块**上半**（用户「调成原来的一半并偏上」），**与 C_W 隔着 1 格墙**', () => {
     const shop = yf3.rooms.find((r) => r.id === SHOP)!
-    expect(shop.cells).toEqual({ x: 0, y: 25, width: 27, height: 48 })
+    // ★ 改了（2026-10-22 晚·七）：27×48 → **27×24**，y 仍是 25（偏上）。
+    expect(shop.cells).toEqual({ x: 0, y: 25, width: 27, height: 24 })
     expect(shop.fixed).toBe('shop')
     // 第 27 列是墙：SHOP 的右边（x + width = 27）与 C_W 的西端（x = 28）差 1 格。
     // 紧贴着写的话墙心会落在格边界上，一格中心都盖不住 —— 寻路认为两侧都通，
@@ -324,7 +352,7 @@ describe('真的那份 floor-plan-yf3.json', () => {
   })
 
   it('把 `roomTotal` 改坏 → 当场抛（它是这一层自己的字段，别处没有第二份可对）', () => {
-    const broken = { ...(yf3Raw as Record<string, unknown>), roomTotal: 14 }
+    const broken = { ...(yf3Raw as Record<string, unknown>), roomTotal: 17 }
     expect(() => parseFloorPlan(broken, cfg)).toThrow(ConfigError)
     expect(() => parseFloorPlan(broken, cfg)).toThrow(/楼梯间/)
   })

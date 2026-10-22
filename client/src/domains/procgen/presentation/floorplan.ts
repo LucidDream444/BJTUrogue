@@ -83,6 +83,25 @@ export const COLORS = {
   /** 首领关（`YF604`）的强调描边。打完它才能下楼 */
   bossEdge: 0xb54a4a,
   /**
+   * ★ 新增（2026-10-23）：**电梯间**的强调描边。取一个青色 —— 与「起点黄」「首领红」
+   * 同一档亮度的第三色，和 `roomEdge`（浅板岩蓝）也分得开。
+   *
+   * 为什么要单独给一个色：电梯间只有 **8×8 格**，缩到小地图上约 **9px**，
+   * 而一个汉字（「电」）要 10px 宽 —— `Minimap.drawLabels()` 的规矩是
+   * 「放不下就整条不显示」，于是它**注定没有标号**。没有标号又和普通空房同色的话，
+   * 玩家在小地图上根本找不到电梯。**靠颜色认**，和楼梯间 / 首领同一个思路。
+   */
+  elevatorEdge: 0x4ab5c8,
+  /**
+   * ★ 新增（2026-10-23，用户：「楼梯间和电梯也不好与普通房间区分，小地图换个显眼的颜色」）：
+   * **楼梯间 / 电梯间的填色**。原来它们吃的是 `nonCombatRoom`（和空房、道具房同色），
+   * 只靠一条 1px 的描边区分 —— 而电梯间只有 8×8 格（小地图上 9px），
+   * 那一条描边就是它全部的可见面积。填色换掉之后，**一眼就能看见**。
+   * 这两色比 `nonCombatRoom`（0x1e4f3a）亮一档，又刻意避开 `combatRoom` 的蓝。
+   */
+  startFill: 0x6b5a1e,
+  elevatorFill: 0x1f6b78,
+  /**
    * 其余所有房间的描边。取一个**浅板岩蓝**。
    *
    * 要同时满足两件事：比 `wallEdge`（`0x6a6a80`，1:1 场子里描墙用的）
@@ -361,6 +380,10 @@ function roomOutline(room: Room): { color: number; width: number } {
  * 「哪几类关别打架」本来就是配置说的，不是小地图能自己决定的。
  */
 export function roomFillColor(cfg: RoomsConfig, room: Room): number {
+  // ★ 2026-10-23：两个**设施**单独上色（小地图和 1:1 整层图共用这一份，见文件头的 ⚠️）。
+  // 它们不是「关卡」，画成和空房一个色的话玩家找不到 —— 电梯间小到只有一条描边的面积。
+  if (room.kind === 'start') return COLORS.startFill
+  if (room.kind === 'elevator') return COLORS.elevatorFill
   return isCombatKind(cfg, room.kind) ? COLORS.combatRoom : COLORS.nonCombatRoom
 }
 
