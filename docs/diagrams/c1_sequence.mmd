@@ -1,0 +1,15 @@
+sequenceDiagram
+    participant M as 维护人员
+    participant A as Django Admin
+    participant P as Permission检查
+    participant L as LogEntry
+    M->>A: 登录并操作(提交候选/回退/标记验证)
+    A->>P: has_perm(对应 codename)
+    alt 无权限
+        P-->>A: 拒绝
+        A-->>M: 403 / 入口不可见
+    else 有权限
+        P-->>A: 允许
+        A->>L: 记录(user, action_flag, object)
+        A-->>M: 执行成功
+    end

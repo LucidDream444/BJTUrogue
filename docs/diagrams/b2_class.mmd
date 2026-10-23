@@ -1,0 +1,25 @@
+classDiagram
+    class User {
+        +String username
+        +String password
+        +Groups groups
+    }
+    class RegisterSerializer {
+        +validate()
+        +create()
+    }
+    class RegisterView {
+        +post()
+    }
+    class TokenObtainPairView {
+        +post()
+    }
+    class SimpleJWT {
+        +authenticate()
+        +issue_access()
+        +issue_refresh()
+    }
+    RegisterView ..> RegisterSerializer : 使用
+    RegisterSerializer --> User : 创建
+    TokenObtainPairView --> User : authenticate
+    TokenObtainPairView ..> SimpleJWT : 签发/刷新
