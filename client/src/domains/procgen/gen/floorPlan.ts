@@ -46,11 +46,12 @@ import { rectFromTopLeft } from '../model/rect'
  *
  * ★ 改了（2026-10-22）：**「这一层有几间房」不再是这里的一个字段**，
  * 改由**平面图自己声明**（`roomTotal`，见 `checkRoomCount`）。原因是产品有了
- * 两层楼（YF3 十五间、6F 十六间），而 `rooms.json` 只有一份 —— 一个全局的数
- * 对不上两张图，那种对不上会在第 1 层加载时抛，看着像「平面图写错了」。
+ * 不止一层楼（三层三张图：1F 十四间、3F 十五间、6F 十六间），而 `rooms.json`
+ * 只有一份 —— 一个全局的数对不上三张图里的任何两张，那种对不上会在加载那一层时
+ * 抛，看着像「平面图写错了」。
  *
  * 留下来的四条度量的共性是：**它们是单位换算，与「第几层」无关** ——
- * 一层楼有多宽、多少格、门多宽，两层楼是同一套。
+ * 一层楼有多宽、多少格、门多宽，三层楼是同一套。
  */
 export interface FloorPlanMetrics {
   /** 1 格多少 px。配置表里的格坐标靠它换成运行期的 px */
@@ -111,7 +112,8 @@ export interface FloorPlan {
    * 这一层一共**几间房（含楼梯间）**，平面图自己声明。
    *
    * ★ 新增（2026-10-22）：这个数原先是代码里的常量 `FLOOR_ROOM_TOTAL`（16），
-   * 而它其实是「这一层」的属性：6F 十六间、YF3 十五间。一份全局的数配两张图，
+   * 而它其实是「这一层」的属性：6F 十六间、YF3 十五间、YF1 十四间。
+   * 一份全局的数配三张图，
    * 必然错一边，而错的那一边会在**第 1 层加载时**抛，看着像平面图写错了。
    * 现在它跟着平面图走，`checkRoomCount` 拿它与 `rooms.length + 1` 对账。
    */
@@ -131,27 +133,57 @@ export const FLOOR_PLAN_NAME = 'floor-plan.json'
 export const FLOOR_PLAN_URL = `config/${FLOOR_PLAN_NAME}`
 
 /**
- * 逸夫楼 3F —— 一局的**第 1 层**（用户 2026-10-22：「进入游戏先是 YF3，下一层是 YF6」）。
+ * 逸夫楼 3F —— 一局的**第 2 层**。
  *
- * 单独给个名字是因为它有两个身份：对 `floors.json` 它是第一项，对测试场
+ * 单独给个名字是因为它有两个身份：对 `floors.json` 它是第二项，对测试场
  * `?arena=d2_seeds` 它是 `C` 键切过去的那一层（那场 2026-10-22 由 `yf` 并进来，
  * 默认就是它）。写死字符串的地方只有这里一处。
+ *
+ * ⚠️ ★ 改了（2026-10-22 晚）：它原先是**第 1 层**（用户当时说「进入游戏先是 YF3」），
+ * 用户第二次看图之后改成「进去后先是 YF1，然后可以从楼梯间上一层，进入 YF3
+ * （YF2 还没做，先这样上 3 过渡）」—— 3F 因此退到第 2 层，第 1 层是
+ * `FLOOR_PLAN_YF1_NAME`。**平面图本身一格没动**，变的只是它排在第几层。
  */
 export const FLOOR_PLAN_YF3_NAME = 'floor-plan-yf3.json'
 
 /**
- * **全部**平面图文件。`BattleScene.preload()` 加载的就是这一串，
+ * 逸夫楼 1F —— 用户 2026-10-22 给的两张 1F 照片做的那张图，一局的**第 1 层**。
+ *
+ * ★ 改了（2026-10-22 晚）：**它进一局了**（用户：「进去后先是 YF1，然后可以从
+ * 楼梯间上一层，进入 YF3」）。上一版它只是测试场里看的一张图，不在 `floors.json`
+ * 里、也不在 `FLOOR_PLAN_FILES` 里 —— 那时这两件事是同一条规矩的两个面
+ * （加载清单里不许有谁都不用的图）。现在它排进了第 1 层，于是两处一起改。
+ *
+ * ⚠️ 上一版写着「要真的排进一局，还要在那一份里钉一间 `fixed: 'boss'`
+ * （没有首领房的那一层没有出口）」—— **这条不再成立**：这一层照用户的
+ * 「YF1 所有房间都是空房间，不生成任何东西」钉成 13 间 `fixed: 'empty'`，
+ * 一间首领房都没有，而「没有首领房」现在等于「没有门槛」（见 `BattleScene.bossDown()`），
+ * 进来就能从楼梯间直接上第 2 层。**规则改在门槛那一边，不是在这一份平面图里
+ * 补一间假首领。**
+ */
+export const FLOOR_PLAN_YF1_NAME = 'floor-plan-yf1.json'
+
+/**
+ * **产品用的**平面图文件。`BattleScene.preload()` 加载的就是这一串，
  * 而「第几层用哪一张」在 `floors.json` 里。
  *
- * ★ 新增（2026-10-22）：一局有两层楼之后，**加载清单必须在读配置之前就存在**
+ * ★ 新增（2026-10-22）：一局不止一层楼之后，**加载清单必须在读配置之前就存在**
  * （先有鸡才有蛋：`floors.json` 自己也是被加载进来的），所以它是代码里的常量，
  * 而顺序/用哪张是配置。加一张新图 = 丢一份 JSON + 在这里加一个文件名 + 在
  * `floors.json` 里排上号；漏了这一步的报错由 `floorPlansForRun()` 给出。
  *
+ * ⚠️ **这一串与 `floors.json` 里出现过的文件名必须互为子集**，两个方向都由
+ * `floors.test.ts` 盯着：少了 → `floorPlansForRun()` 当场报并指回这里；
+ * 多了 → 那个测试红（「加载清单里不许有谁都不用的图」）。
+ *
  * ⚠️ 名字以 `.json` 结尾（和 `ROOMS_CONFIG_NAME` 一样）：Phaser 的 `cache.json`
  * 用的就是文件名当 key，`load.json(name, 'config/' + name)` 两处是同一个字符串。
  */
-export const FLOOR_PLAN_FILES: readonly string[] = [FLOOR_PLAN_NAME, FLOOR_PLAN_YF3_NAME]
+export const FLOOR_PLAN_FILES: readonly string[] = [
+  FLOOR_PLAN_YF1_NAME,
+  FLOOR_PLAN_YF3_NAME,
+  FLOOR_PLAN_NAME,
+]
 
 // ---------------------------------------------------------------- 取值
 
@@ -373,8 +405,8 @@ export function checkReachable(
  *
  * ★ 改了（2026-10-22）：原先是**两条判据**（平面图的教室数 vs `rooms.json` 的
  * `classroomCount`；再加一条「加一间楼梯间」）。现在只剩一条，因为两个数里的
- * 「应当是几间」移进了平面图自己（`roomTotal`）—— 一局两层楼，`rooms.json`
- * 只有一份，那个全局的数对不上两张图。判据没变松：**声明与几何对账**照旧，
+ * 「应当是几间」移进了平面图自己（`roomTotal`）—— 一局三层楼，`rooms.json`
+ * 只有一份，那个全局的数对不上三张图。判据没变松：**声明与几何对账**照旧，
  * 楼梯间照旧计入，写小了 / 写大了都当场抛。
  *
  * 一并删掉的是「教室数 vs classroomCount」那一条：它守的是「几何与玩法侧
@@ -411,6 +443,17 @@ export function parseFloorPlan(raw: unknown, metrics: FloorPlanMetrics): FloorPl
   // 这一层有几间房由平面图自己声明。**这里不读 `rooms.json`** —— 两份平面图的
   // 间数不同（6F 十六、YF3 十五），全局只有一个教室数时必然错一边。
   const roomTotal = needNumber(root.roomTotal, 'floorPlan.roomTotal', { integer: true, min: 2 })
+
+  // ★ 新增（2026-10-22 晚）：**这一层的外框，由平面图自己声明**（格）。
+  //
+  // 原先它是**推出来的**：所有空间的最小外接矩形（`boundsOf`）。在「一局两层、
+  // 两层共用一张图」的年代那是对的（恒等于整层），三层三张图之后它不再等价 ——
+  // 一楼（逸夫楼 1F）的**房间可以不在 (0,0) 上起**：它的北排是 6F 西翼北排那一条带
+  // （y25..42），楼的最北一条带（y0..24）在 1F 是实心墙（那一条带上，6F 放的是
+  // 中段的首领房与东翼北排，1F 没有这两块）。推出来的话 1F 的外框会矮 25 格，
+  // 于是换层时 `BattleScene.applyArena()` 当场抛 —— 而外框**三层必须一样**
+  // （`TerrainMap` 的行列数、物理世界边界在 `CombatSession` 构造时就定死了）。
+  const footprint = needRect(need(root.footprint, 'floorPlan.footprint'), 'floorPlan.footprint')
 
   const cellSize = metrics.navCellSize
   if (!Number.isFinite(cellSize) || cellSize <= 0) {
@@ -518,9 +561,13 @@ export function parseFloorPlan(raw: unknown, metrics: FloorPlanMetrics): FloorPl
     }
   }
 
-  const bounds = boundsOf(allSpaces, cellSize)
-  const cols = Math.max(...allSpaces.map((s) => s.cells.x + s.cells.width))
-  const rows = Math.max(...allSpaces.map((s) => s.cells.y + s.cells.height))
+  // ★ 改了（2026-10-22 晚）：外框**不再由房间推**（`boundsOf` 已删），直接取声明的那个。
+  //    `cols` / `rows` 也跟着从外框来 —— 它们是**楼**的两个数（`TerrainMap` 的行列数），
+  //    不是「最靠东那间房铺到哪儿」。两者今天恰好一样，但这个巧合不该再被依赖：
+  //    1F 的房间已经不在楼的边缘上了。
+  const bounds = toRect(footprint, cellSize)
+  const cols = footprint.width
+  const rows = footprint.height
 
   const plan: FloorPlan = {
     schemaVersion,
@@ -537,6 +584,7 @@ export function parseFloorPlan(raw: unknown, metrics: FloorPlanMetrics): FloorPl
   }
 
   // 局部 → 全局
+  checkFootprint(footprint, allSpaces)
   checkSpacesSeparated(allSpaces, corridors)
   checkDoors(doors, allSpaces, metrics)
   checkRoomCount(rooms, roomTotal)
@@ -554,12 +602,47 @@ function corridorAdjacent(a: FloorPlanSpace, b: FloorPlanSpace): boolean {
   return (xOverlap && yOverlap) || (xOverlap && yAdjacent) || (yOverlap && xAdjacent)
 }
 
-function boundsOf(spaces: readonly FloorPlanSpace[], cellSize: number): Rect {
-  const x0 = Math.min(...spaces.map((s) => s.cells.x)) * cellSize
-  const y0 = Math.min(...spaces.map((s) => s.cells.y)) * cellSize
-  const x1 = Math.max(...spaces.map((s) => s.cells.x + s.cells.width)) * cellSize
-  const y1 = Math.max(...spaces.map((s) => s.cells.y + s.cells.height)) * cellSize
-  return rectFromTopLeft(x0, y0, x1 - x0, y1 - y0)
+/**
+ * 声明的外框要**装得下**这一层的每个空间，且左上角在 (0,0)。
+ *
+ * 两件事各自对应一种「不报错的错」：
+ *
+ * - **装不下**：外框说整层只有 40 格高，而某间房在 y=45 —— 那间房一半在楼外。
+ *   世界坐标就是从外框左上角起算的，多出来的那半间房会落在世界之外，
+ *   表现是「这间房走进去就出界」（D1 的 `validRect` 倒是会拦，但它拦的是实体，
+ *   而墙与寻路网格是按外框切的，两边说的不是一件事）。
+ * - **左上角不在 (0,0)**：世界坐标 = 地图坐标 = 从外框左上角起算，所以外框一偏，
+ *   **整层的世界坐标跟着平移**，而平面图里的坐标一个都没动 —— 屏幕上只是
+ *   「怪、墙、门全都错位半个身位」。今天三张图都是 0..263 × 0..73，
+ *   这一条因此是**恒等**的；写成校验是因为它一旦不恒等，就没人看得出来。
+ *
+ * 形参用的是 `FloorPlanSpace['cells']` 而不是裸 `Rect`：两者字段名一样，
+ * 但 `Rect` 在这个代码库里默认指 **px 中心点**（见 `model/rect.ts` 的文件头），
+ * 而这里比的是**整数格、左上角**。类型上换个名字，读的人就不用回去数一遍。
+ */
+function checkFootprint(footprint: FloorPlanSpace['cells'], spaces: readonly FloorPlanSpace[]): void {
+  if (footprint.x !== 0 || footprint.y !== 0) {
+    throw new ConfigError(
+      'floorPlan.footprint',
+      `外框的左上角要落在 (0,0)，拿到 (${footprint.x},${footprint.y}) —— ` +
+        `世界坐标就是从外框左上角起算的（\`DungeonStages\` 的 \`arenaOf\` 把 \`map.bounds\` ` +
+        `整个当成竞技场），外框一偏，整层的世界坐标跟着平移而平面图里的坐标没动，` +
+        `表现是「怪和墙全都错位」，两边都不报错。`,
+    )
+  }
+  const fp = { x0: footprint.x, y0: footprint.y, x1: footprint.x + footprint.width, y1: footprint.y + footprint.height }
+  for (const s of spaces) {
+    const sp = spanOf(s)
+    if (sp.x0 >= fp.x0 && sp.y0 >= fp.y0 && sp.x1 <= fp.x1 && sp.y1 <= fp.y1) continue
+    throw new ConfigError(
+      `floorPlan.${s.id}`,
+      `「${s.id}」在 [${sp.x0},${sp.y0}..${sp.x1},${sp.y1}] 格，超出了这一层声明的外框 ` +
+        `[${fp.x0},${fp.y0}..${fp.x1},${fp.y1}]（${footprint.width}×${footprint.height} 格）。` +
+        `⚠️ **别顺手把外框改大** —— 外框是**整栋楼**的范围，三层必须逐格一样` +
+        `（\`BattleScene.applyArena()\` 在换层时对账，不一样就当场抛），` +
+        `要改的是这间房的坐标。`,
+    )
+  }
 }
 
 /**
@@ -597,24 +680,44 @@ export async function loadFloorPlan(base: string, metrics: FloorPlanMetrics): Pr
 }
 
 /**
- * 一个平面图文件名**必须先在 `FLOOR_PLAN_FILES` 里**，否则它根本没被 preload，
- * `cache.get()` 只会给一个 `undefined`。
+ * 取一份平面图的**原始 JSON**。缓存里没有就当场抛，并且**把两种病因分开说**。
  *
- * 那句 `undefined` 一路走到底报出来的是 `floorPlan.schemaVersion 要一个整数，
- * 拿到 undefined` —— 看不出「这个文件压根没加载」。所以在这里先拦一道，
- * 把该往哪儿加说清楚。
+ * 为什么不直接把 `cache.get()` 的结果交出去：那份 `undefined` 一路走到底报出来的是
+ * `floorPlan.schemaVersion 要一个整数，拿到 undefined` —— 看不出「这个文件压根没加载」。
+ *
+ * ★ 改了（2026-10-22 晚）：判据从「**在不在 `FLOOR_PLAN_FILES` 里**」换成
+ * 「**缓存里有没有**」。清单不再是判据，只用来**解释**病因 —— 因为加载者不止产品一个：
+ * 测试场自己也会把它要切的图 load 进缓存（`test/arenas/D2/_shared.ts` 的
+ * `ARENA_EXTRA_PLAN_NAMES`，逸夫楼 1F 就是这么进来的）。
+ *
+ * 拿清单当判据的代价实测过：那张图**明明在缓存里**，切过去却当场 `ConfigError`，
+ * 而报错写着「preload 时根本没加载」—— **那句话是假的**（`load.json` 那一行好端端的），
+ * 于是人转头去翻 preload 代码，翻到一个字都没错的地方。
+ * 「检查清单」与「检查缓存」在产品那条路上今天恰好等价，**在加上第二个加载者的那天就不等价了**。
+ *
+ * 两种病因分开说，因为**要改的地方不同**：
+ *
+ * | 缓存里没有 | 病因 | 该动哪儿 |
+ * |---|---|---|
+ * | 在清单里 | 加载那一步失败了 | 文件在不在 `public/config/`、名字拼对没有、是不是从 `file://` 打开的 |
+ * | 不在清单里 | 产品根本没打算加载它 | 排进一局 → 清单 + `floors.json`；只在场子里看 → `ARENA_EXTRA_PLAN_NAMES` |
  */
-function needLoadedPlanName(name: string): string {
-  if (!FLOOR_PLAN_FILES.includes(name)) {
-    throw new ConfigError(
-      `floorPlan.${name}`,
-      `这一层要用「${name}」，但它不在 FLOOR_PLAN_FILES 里，所以 preload 时根本没加载。` +
-        `加一张平面图 = 丢一份 JSON 进 public/config/ + 把文件名加进 \`FLOOR_PLAN_FILES\`` +
-        `（${FLOOR_PLAN_FILES.join(' / ')}）+ 在 floors.json 里排上号。` +
-        `⚠️ floors.json 自己也是被加载进来的，所以加载清单没法从它推出来，只能是常量`,
-    )
-  }
-  return name
+function needLoadedPlan(cache: { get(key: string): unknown }, name: string): unknown {
+  const raw = cache.get(name)
+  if (raw !== undefined) return raw
+  const list = FLOOR_PLAN_FILES.join(' / ')
+  throw new ConfigError(
+    `floorPlan.${name}`,
+    `缓存里没有「${name}」—— preload 没有把它加载进来。` +
+      (FLOOR_PLAN_FILES.includes(name)
+        ? `它在 \`FLOOR_PLAN_FILES\`（${list}）里，所以是**加载那一步**失败了：` +
+          `public/config/ 下没有这个文件、名字拼错，或者页面是从 file:// 直接双击打开的（取不到 public/）。`
+        : `它**不在 \`FLOOR_PLAN_FILES\`**（${list}）里 —— 产品的 preload 只加载那一串。` +
+          `**排进一局** = 丢一份 JSON 进 public/config/ + 把文件名加进 \`FLOOR_PLAN_FILES\` + ` +
+          `在 floors.json 里排上号；**只在测试场里看** = 加进 \`D2/_shared.ts\` 的 ` +
+          `\`ARENA_EXTRA_PLAN_NAMES\`（场子会连它一起 load 进缓存，所以上面这条检查照样过）。` +
+          `⚠️ floors.json 自己也是被加载进来的，所以加载清单没法从它推出来，只能是常量`),
+  )
 }
 
 /**
@@ -629,24 +732,25 @@ export function floorPlanFromCache(
   metrics: FloorPlanMetrics,
   name: string = FLOOR_PLAN_NAME,
 ): FloorPlan {
-  return parseFloorPlan(cache.get(needLoadedPlanName(name)), metrics)
+  return parseFloorPlan(needLoadedPlan(cache, name), metrics)
 }
 
 /**
  * **整局**每一层的平面图，按层号排（第 1 项 = 第 1 层）。开屏 / 建关卡时取一次。
  *
  * ★ 新增（2026-10-22）：在这之前「几何整局一份」，`BattleScene` 只留一个
- * `this.plan`，换层只换内容。现在第 1 层是逸夫楼 3F、第 2 层是 6F，
- * 换层要**整层换掉几何**，所以取回来的是一串。
+ * `this.plan`，换层只换内容。现在一局三层三张图（`floors.json`：第 1 层逸夫楼 1F、
+ * 第 2 层 3F、第 3 层 6F），换层要**整层换掉几何**，所以取回来的是一串。
  *
  * 三层校验叠在一起，缺一层就会变成别的症状：
  * 1. `floors.json` 的条数 == `combat.json` 的 `arena.maxStages`（`parseFloorsConfig`）
- * 2. 每个文件名都在 `FLOOR_PLAN_FILES` 里（`needLoadedPlanName`，也就是真的加载过）
+ * 2. 每个文件名**缓存里真的有**（`needLoadedPlan`，报错会指回 `FLOOR_PLAN_FILES`）
  * 3. 每份都解析得出来（`parseFloorPlan` 那一整套几何校验）
  *
  * ⚠️ **不在这查「几层的包围盒一不一样」**：那是 `BattleScene.applyArena()` 的
  * 活（TerrainMap 的行列数与物理世界边界在 `CombatSession` 构造时就定了，
- * 两层包围盒不同的话换层时它会当场抛）。`floors.test.ts` 里另有一条提前守。
+ * 哪两层的包围盒不同，在那两层之间换层时它会当场抛）。
+ * `floors.test.ts` 里另有一条提前守。
  */
 export function floorPlansForRun(
   cache: { get(key: string): unknown },

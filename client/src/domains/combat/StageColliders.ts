@@ -42,6 +42,18 @@ export class StageColliders {
 
   rebuild(terrain: TerrainMap, barriers: readonly StageBarrier[] = []): void {
     this.clear()
+    // ⚠️ ★ 修（2026-10-23，用户报「进入怪物房后关上的门还可以通过」）：
+    // **组的容量要按「这一次要装多少」现算，不能按构造时那一层定死。**
+    //
+    // 容量是 `CombatSession` 构造时按**第 1 层**的几何算的（`max(solids) + max(barriers) + 64`），
+    // 而 `loadFloor()` 之后每一层的墙数并不一样（1F 的实心块合并得少、3F/6F 多得多）。
+    // 组满了之后 `Group.add()` 是**静默**丢的 —— 而且丢的永远是**最后加的那批**，
+    // 也就是**挡板**：于是那一层的门一个体都没有，`setSealed()` 遍历一圈什么都不做，
+    // 表现正是「门画着是关的，人却能直接走出去」。
+    // 实测：第 1 层 73 块（56 墙 + 17 挡板），上到第 2 层要 137 块，而构造时定的
+    // `maxSize` 就是 137 —— 墙刚好占满，18 块挡板**一块都没赶上**。
+    const needed = terrain.solids.length + barriers.length
+    if (this.group.maxSize >= 0 && this.group.maxSize < needed) this.group.maxSize = needed
     for (const r of terrain.solids) {
       const zone = this.scene.add
         .zone(r.x + r.width / 2, r.y + r.height / 2, r.width, r.height)
@@ -57,6 +69,14 @@ export class StageColliders {
         .zone(b.x + b.width / 2, b.y + b.height / 2, b.width, b.height)
         .setName(`barrier-${b.ownerOrder}`)
       this.group.add(zone)
+      // 加进去之后**当场确认它有体** —— 上面那条容量修好之后这里恒真；
+      // 再留一道是因为「静默少一块体」的失败模式太贵：门看着关着、人却能过。
+      if (!zone.body) {
+        throw new Error(
+          `门挡板 barrier-${b.ownerOrder} 加进碰撞组之后没有物理体（组上限 ${this.group.maxSize}，` +
+            `这一层要 ${needed} 块）—— 门会封不上，而且画面上看不出来`,
+        )
+      }
       this.doorZones.push(zone)
       this.barrierRects.push(b)
     }
