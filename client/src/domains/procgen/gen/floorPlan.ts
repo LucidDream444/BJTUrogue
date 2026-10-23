@@ -144,6 +144,15 @@ export const FLOOR_PLAN_URL = `config/${FLOOR_PLAN_NAME}`
  * （YF2 还没做，先这样上 3 过渡）」—— 3F 因此退到第 2 层，第 1 层是
  * `FLOOR_PLAN_YF1_NAME`。**平面图本身一格没动**，变的只是它排在第几层。
  */
+/**
+ * 逸夫楼 2F —— 一局的**第 2 层**（1F → **2F** → 3F → 6F，★ 2026-10-23 加进来）。
+ *
+ * 用户：「按照照片做 YF2 的地图」「YF1 上去是 YF2」。
+ * ⚠️ 它排进来之后**一局从三层变成四层**：`floors.json` 多一项、
+ * `combat.json` 的 `arena.maxStages` 3 → 4（一局几层是 D1 的旋钮，见那份文件）。
+ */
+export const FLOOR_PLAN_YF2_NAME = 'floor-plan-yf2.json'
+
 export const FLOOR_PLAN_YF3_NAME = 'floor-plan-yf3.json'
 
 /**
@@ -181,6 +190,7 @@ export const FLOOR_PLAN_YF1_NAME = 'floor-plan-yf1.json'
  */
 export const FLOOR_PLAN_FILES: readonly string[] = [
   FLOOR_PLAN_YF1_NAME,
+  FLOOR_PLAN_YF2_NAME,
   FLOOR_PLAN_YF3_NAME,
   FLOOR_PLAN_NAME,
 ]
