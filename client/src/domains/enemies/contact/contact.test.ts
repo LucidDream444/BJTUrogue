@@ -53,6 +53,8 @@ const TANK_SPEC: EnemySpec = {
   kind: 'tank',
   gen: 0,
   stats: { maxHp: 520, speed: 52, radius: 40 },
+  pierceImmune: false,
+  windupMoveMult: 0,
   graceMs: 0,
   graceMoveMult: 1,
   flinchMs: 0,
@@ -344,5 +346,45 @@ describe('ContactResolver —— 与真实配置对齐', () => {
     }
     expect(total, '冲击只算一次 —— 没有这道闸门的话这里是 10 × 10 帧 = 100').toBe(10)
     expect(tank.hp).toBe(derived.maxHp - 10 - 3)
+  })
+
+  /**
+   * ⚠️ 这一条盯的是**特殊弹的射线路径**（`EnemySystem.bulletRayContact`）——
+   * 它和手枪的物理重叠路径**共用下面这套结算**，所以断言和上一条同形。
+   *
+   * 为什么值得单独钉一遍：特殊弹走的是扫掠射线（高速弹不能靠物理重叠，会穿过去），
+   * 而射线**每帧都会重新命中同一只怪**（可穿透的目标不进 `hitIds`，见 `Weapons.ts`）。
+   * 一旦有人把这条路径改回「一次性固定伤害」的 `weaponHit()`，
+   * 冲击就会按帧重复 —— 一发 54 点的爆裂炮在 ~190ms 的停留里打出 648 点，
+   * 520 血的肉盾**一发就没**，玩家既看不到子弹穿过去、也看不到帧伤跳字。
+   */
+  it('射线路径：一发 54 点的大威力弹也只是「1 次冲击 + 帧伤」，不是 54 × 每帧', () => {
+    const cfg = realConfig()
+    const h = harness(cfg.balance.frameDamage.tickMs)
+    const def = cfg.enemies.enemies.tank
+    const derived = deriveTank(def, cfg.difficulty.difficulties.normal, cfg.balance)
+    const tank = h.spawn(specFromTank(derived, def))
+
+    const impact = 54 // 爆裂炮：damageScale 5.4 × 基线 10
+    const tick = Math.floor(impact * def.frameDamage.bullet.tickDamageRatio + 0.5)
+    const maxTicks = def.frameDamage.bullet.maxTicksPerSource
+    let total = 0
+    // 爆裂炮慢（speedScale 0.8 → 416px/s），在肉盾体内停留 ~190ms ≈ 12 个渲染帧
+    for (let frame = 0; frame < 12; frame++) {
+      total += h.resolver
+        .contact(1, tank, 'bullet', impact, tick, maxTicks)
+        .applied
+      h.ledger.step(h.clock.nowMs, h.clock.frameId)
+      h.clock.advance(12)
+    }
+    // `contact()` 只管冲击；帧伤是账本在 `ledger.step()` 里结算的，所以分开断言
+    // （和上一条同一套口径：`total` 是「跨帧重复接触一共兑现了多少冲击」）。
+    expect(total, '没有跨帧去重的话这里是 54 × 12 帧 = 648 —— 一发就把 520 血的肉盾秒了').toBe(
+      impact,
+    )
+    expect(tank.hp, '血线上体现的才是「冲击 + 穿透期间 1 次 tick」').toBe(
+      derived.maxHp - impact - tick,
+    )
+    expect(tank.hp, '一发打不死，肉盾这个身份才立得住').toBeGreaterThan(0)
   })
 })

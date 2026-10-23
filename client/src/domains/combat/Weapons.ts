@@ -31,6 +31,8 @@ interface Projectile {
   origin: { x: number; y: number }
   angle: number
   nextTrailMs: number
+  /** 上一次为「穿透命中的目标」触发特殊效果的时刻。**按帧伤节拍限频**，见 `update()` */
+  nextPierceSpecialMs: number
 }
 
 export class Weapons {
@@ -78,6 +80,7 @@ export class Weapons {
         damage: 0,
         pending: false,
         hitIds: new Set(),
+        nextPierceSpecialMs: 0,
         previous: { x: 0, y: 0 },
         origin: { x: 0, y: 0 },
         angle: 0,
@@ -198,11 +201,45 @@ export class Weapons {
         for (const hit of hits) {
           const target = this.port.target(hit.target.id)
           if (!target) continue
-          b.hitIds.add(target.id)
           const x = from.x + (to.x - from.x) * hit.t,
             y = from.y + (to.y - from.y) * hit.t
-          const result = this.port.hit(target.id, b.slot.id, b.damage, null)
+          // ⚠️ **射线命中走 `bulletRayContact()`，不要改回 `hit()`。**
+          //
+          //    `hit()` 是「一次性的固定伤害」：`hitKey` 里带 `frameId`，
+          //    于是基类的去重跨不了帧。而**可穿透的目标压根不记账**（见下一段），
+          //    所以同一发子弹**每一帧都会再来一次全额冲击** ——
+          //    肉盾半径 40，子弹在它体内停留 = 直径 ÷ 弹速（基线 520 → ≈9 帧，
+          //    爆裂炮 416 → ≈12 帧）：一发 54 点的爆裂炮实际打出 600 点以上，
+          //    520 血的肉盾**一发就没了** ——「子弹穿过去」和「帧伤一路跳字」
+          //    两个特性一个都看不见。
+          //    （这和 `contact.test.ts` 里那条「13 点，不是 90 点」是同一个坑，
+          //      只不过那条走的是手枪的物理重叠路径。）
+          //
+          //    `bulletRayContact()` 与手枪**共用 `ContactResolver`**：
+          //    冲击每个源只算一次，帧伤按 `tickMs` 进账本 ——
+          //    于是「一发子弹 = 全额冲击 + 穿透期间 1 次 tick」这条契约对**所有**武器成立。
+          const result = this.port.bulletRayContact(b.slot.id, target.id, b.damage)
+          // ⚠️ **只有「被吃掉的」命中的才占穿透额度。**
+          //
+          //    肉盾对任何源都返回 `consumed: false` —— 它**不该吃子弹**，
+          //    子弹要穿过去、靠接触结算护甲 tick。可早先这里无条件
+          //    `hitIds.add()`，于是肉盾也占掉一个名额：`hitIds.size >= pierceTargets`
+          //    当场成立 → **子弹停在肉盾身上**，帧伤与穿透反馈一次都没发生。
+          //    表现就是「只有手枪打得动肉盾」—— 因为手枪走的是另一条路
+          //    （物理重叠，见本文件上面那行注释）。
+          //
+          //    不记账的副作用是**下一帧射线会再打到它一次** —— 那正是我们要的：
+          //    冲击由 `ContactResolver` 挡在第一次，而 `specialImpact` 按帧伤节拍响，
+          //    于是「穿透期间持续触发特殊效果」（链枪的连锁、爆裂炮的爆炸）自然成立。
+          if (result.consumed) b.hitIds.add(target.id)
           if (result.applied > 0) {
+            this.fx.impact(b.weapon, x, y, b.angle)
+            this.specialImpact(b, target, targets, x, y)
+          } else if (!result.consumed && now >= b.nextPierceSpecialMs) {
+            // 穿透命中的目标（肉盾）：**按帧伤节拍触发**，不是每帧。
+            // 每帧触发 = 60 倍特效量，而节拍是 `enemies.json` 的 `tickMs`（100ms）——
+            // 和它自己掉血的节奏是同一个（伤害那半边由 `bulletRayContact` 管）。
+            b.nextPierceSpecialMs = now + this.port.pierceTickMs
             this.fx.impact(b.weapon, x, y, b.angle)
             this.specialImpact(b, target, targets, x, y)
           }

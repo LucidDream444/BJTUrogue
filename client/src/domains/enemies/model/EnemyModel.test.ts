@@ -41,6 +41,8 @@ const SPLITTER: EnemySpec = {
   kind: 'splitter',
   gen: 0,
   stats: { maxHp: 7, speed: 62, radius: 18 },
+  pierceImmune: false,
+  windupMoveMult: 0,
   graceMs: 220,
   graceMoveMult: 0.5,
   flinchMs: 90,
@@ -56,6 +58,8 @@ const TANK: EnemySpec = {
   kind: 'tank',
   gen: 0,
   stats: { maxHp: 520, speed: 52, radius: 40 },
+  pierceImmune: false,
+  windupMoveMult: 0,
   graceMs: 0,
   graceMoveMult: 1,
   flinchMs: 0,
@@ -124,6 +128,117 @@ describe('肉盾怪 —— 子弹穿透', () => {
     const r = t.takeHit(req({ frameId: 1, nowMs: 0 }))
     expect(r.consumed).toBe(false)
     expect(r.applied).toBe(0)
+  })
+})
+
+describe('抓取怪 —— spec 与身份', () => {
+  const GRABBER: EnemySpec = {
+    kind: 'grabber',
+    gen: 0,
+    stats: { maxHp: 100, speed: 58, radius: 16 },
+    pierceImmune: false,
+    windupMoveMult: 0,
+    graceMs: 0,
+    graceMoveMult: 1,
+    flinchMs: 0,
+    slowPerHit: 0,
+    slowMaxStacks: 0,
+    slowDurationMs: 0,
+    slowMultPerStack: 1,
+    minSpeedMult: 1,
+    vulnerableMult: 1,
+  }
+
+  it('`specFromGrabber()` 出来的怪：不叠减速、没有易伤窗口', () => {
+    const g = new EnemyModel('grabber')
+    g.respawn(GRABBER, 0)
+    // 打它几下：不该叠减速（它不是「越打越慢」的肉盾）
+    for (let i = 1; i <= 3; i++) g.takeHit(req({ frameId: i, nowMs: i * 20, amount: 5 }))
+    expect(g.slowStacks).toBe(0)
+    expect(g.speedMult(100)).toBe(1)
+  })
+
+  it('它吃子弹（`consumed: true`）—— 穿透是蘑菇怪的身份，不是它的', () => {
+    const g = new EnemyModel('grabber')
+    g.respawn(GRABBER, 0)
+    expect(g.blocksSourceForResult('bullet')).toBe(true)
+  })
+
+  it('它是**不可打断**的：硬直固定 0（擦伤不能打断预警）', () => {
+    const g = new EnemyModel('grabber')
+    g.respawn(GRABBER, 0)
+    g.setState('windup', 0)
+    g.takeHit(req({ frameId: 1, nowMs: 10, amount: 5 }))
+    expect(g.flinchUntilMs, '被打也不该进硬直 —— 「!」不能是说谎的信号').toBe(0)
+  })
+
+  it('**被甩飞的路上免疫伤害**（它只剩 1 血，玩家顺手一枪会把「落地才死」整条链打没）', () => {
+    const g = new EnemyModel('grabber')
+    g.respawn(GRABBER, 0)
+    g.hp = 1
+    g.setState('flung', 0)
+    const r = g.takeHit(req({ frameId: 1, nowMs: 10, amount: 999, sourceKind: 'bullet' }))
+    expect(r.applied, '飞行的 400ms 是过场：不能被补枪打断，否则落地爆炸静默消失').toBe(0)
+    expect(g.alive).toBe(true)
+  })
+
+  it('**落地一定死**（`dieOnLanding` 绕开飞行免伤）—— 否则它会带着 1 血永远飞下去', () => {
+    const g = new EnemyModel('grabber')
+    g.respawn(GRABBER, 0)
+    g.hp = 1
+    g.setState('flung', 0)
+    g.dieOnLanding(500)
+    expect(g.alive, '落地这一下不能被自己的免伤挡掉').toBe(false)
+    expect(g.hp).toBe(0)
+  })
+
+  it('回池复用会把飞行速度一并清掉（不然下一只怪会带着上一只的余速出生）', () => {
+    const g = new EnemyModel('grabber')
+    g.respawn(GRABBER, 0)
+    g.flingVx = 700
+    g.flingVy = -120
+    g.respawn(GRABBER, 100)
+    expect(g.flingVx).toBe(0)
+    expect(g.flingVy).toBe(0)
+  })
+})
+
+describe('首领 —— 不吃穿透（同一个 tank 模板，两种身份）', () => {
+  const BOSS: EnemySpec = { ...TANK, pierceImmune: true, stats: { maxHp: 520, speed: 48, radius: 34 } }
+
+  it('首领挡下子弹与近战（consumed=true），不接受 100ms 一帧的帧伤', () => {
+    const b = new EnemyModel('tank')
+    b.respawn(BOSS, 0)
+    // 同一只怪、换帧再打：如果这里返回 false，D1 就不会回收子弹，
+    // 射线/重叠回调会一直响 —— 520 血的首领几秒被融掉。
+    expect(b.takeHit(req({ frameId: 1, nowMs: 0, amount: 10, sourceKind: 'bullet' })).consumed).toBe(true)
+    expect(b.takeHit(req({ frameId: 2, nowMs: 16, amount: 10, sourceKind: 'melee' })).consumed).toBe(true)
+    expect(b.takeHit(req({ frameId: 3, nowMs: 32, amount: 10, sourceKind: 'aoe' })).consumed).toBe(true)
+  })
+
+  it('**池化复用不串味**：首领用过的那只，重生成普通蘑菇怪之后又会穿透', () => {
+    // 这是把身份放进 `spec` 而不是「出生时推一下」的全部理由：
+    // 模型是池化复用的，漏推一次就是「这只蘑菇免疫穿透」—— 不报错、也不崩，
+    // 只是玩家怎么打都打不动它。
+    const m = new EnemyModel('tank')
+    m.respawn(BOSS, 0)
+    expect(m.pierceImmune).toBe(true)
+
+    m.respawn(TANK, 100)
+    expect(m.pierceImmune).toBe(false)
+    expect(
+      m.takeHit(req({ frameId: 1, nowMs: 100, amount: 10, sourceKind: 'bullet' })).consumed,
+      '又变回会穿透的普通蘑菇怪了',
+    ).toBe(false)
+  })
+
+  it('`specFromTank()` 出来的是普通蘑菇怪（首领身份只在 `requestBoss()` 里加）', () => {
+    const def = realConfig().enemies.enemies.tank
+    const spec = specFromTank(
+      deriveTank(def, realConfig().difficulty.difficulties.normal, realConfig().balance),
+      def,
+    )
+    expect(spec.pierceImmune).toBe(false)
   })
 })
 

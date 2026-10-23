@@ -67,7 +67,8 @@ npm run dev
 - **测试场：<http://localhost:5173/test.html>**
 - 直接进某个场子：<http://localhost:5173/test.html?arena=tank_grind>
 
-现在是哪几个场子（都在 `arenas/D3/` 里）：
+**现在有哪些场子，以 `test.html` 的菜单为准** —— 菜单是 `arenaCatalog.ts` 运行时扫出来的，
+加一个场子这里一行都不用改。下面这张表是 **D3 最早那四张**的说明（留作范例，**不是索引**）：
 
 | id | 名字 | 看什么 |
 |---|---|---|
@@ -76,7 +77,11 @@ npm run dev
 | `tank_grind` | 肉盾磨血 | 肉盾 + 带 160px 缺口的墙。帧伤 tick、音效限频、音高、减速、绕路 |
 | `swarm_stress` | 压力场 | 150+ 只怪铺满场。`queue` 排空、`moving` 不掉、`ai near/far` 比例、`frame` 不停。**默认那批是第三代 —— 不打爆了也不分裂，设计如此**；按 `G` 换成第一代就能看分裂链 |
 
-### 场子按域分文件夹：`arenas/D1/` `arenas/D2/` `arenas/D3/` `arenas/D4/`
+⚠️ **别拿这张表当「现在有哪几个场子」**（2026-10-21 更正：它原来写的是
+「现在是哪几个场子（都在 `arenas/D3/` 里）」，两处都不对了 —— 四个域后来都建了文件夹，
+D3 自己也多了 `grabber_grind`、`d3_campus_art`）。
+
+### 场子按域分文件夹：`arenas/D1/` `arenas/D2/` `arenas/D3/` `arenas/D4/`（+ 跨域的 `joint/`）
 
 **一人一个文件夹，放自己的场子。** 底座和模板是共用的，在 `arenas/` 顶层和 `test/` 顶层；
 场子本身各自归各自。
@@ -87,10 +92,19 @@ src/test/
 ├── registry.ts  arenaCatalog.ts          ← 自动收场子，加场子不用改这里
 └── arenas/
     ├── _ArenaTemplate.ts                 ← 共用模板（下划线开头，不进菜单）
-    └── D3/                               ← D3 的场子
-        ├── basic_hit.ts  splitter_chain.ts  tank_grind.ts  swarm_stress.ts
-        └── （D1 / D2 / D4 各建自己的）
+    ├── D1/   d1_battle.ts  `_AssetGallery.ts`  tools/
+    ├── D2/   d2_seeds.ts   `_shared.ts`  `_classroomLook.ts`
+    ├── D3/   basic_hit.ts  splitter_chain.ts  tank_grind.ts  swarm_stress.ts
+    │         grabber_grind.ts  d3_campus_art.ts  tools/
+    ├── D4/   d4_main_menu.ts  d4_pause.ts  d4_profile.ts  d4_reward.ts  d4_settlement.ts
+    └── joint/                            ← 跨域联调（见下）
+        └── _d1Scenes.ts                  ← D1×D2 联调的共用件（下划线开头，不进菜单）
+            （联调的**场子本身**今天一个都没有：2026-10-19 按用户要求删了
+              菜单 2/3/4/5/17 那几场，见各场子的文件头）
 ```
+
+⚠️ 这张树是 **2026-10-21 照磁盘抄的**（`ls src/test/arenas/*/`），一样会旧 ——
+它给的是「文件放在哪儿」，不是「菜单里有哪些」；后者看 `test.html`。
 
 文件夹**只影响谁的东西在哪儿，不影响 URL**：id 取的是文件名，
 所以 `arenas/D3/tank_grind.ts` 还是 `?arena=tank_grind`，
@@ -98,6 +112,13 @@ src/test/
 
 ⚠️ 代价是**文件名要全局唯一**，跨文件夹也算 —— 撞了会当场抛，
 并且把两个文件的路径都印出来（见 `arenaCatalog.test.ts` 里那条用例）。
+
+**`joint/` 是唯一的例外，且只为联调存在。** 场子的货就是「两个域接在一起」时，
+它按定义要同时 import 两个域 —— 放进任何一边的文件夹都会当场红
+（`architecture.test.ts` 按文件夹对账「这个域的场子只许 import 自己那个域」）。
+`joint/` 每一行在 `ARENA_FOLDER_DOMAINS` 里写清它碰哪几个域（`joint: ['combat', 'procgen']`）。
+**这一行是例外、不是先例**：新场子照旧按自己的域放；要来加行的人先问一句
+「这个场子是不是只为联调存在」，不是的话它就不该在这里。
 
 ## 二、操作
 
@@ -112,6 +133,8 @@ src/test/
 | `R` | 复位（重启场景） |
 | `Esc` | 回菜单 |
 | 菜单里数字键 / 点名字 | 进场子 |
+
+> `?arena=d1_battle` 额外提供技能调试台：`[` / `]` 切换角色，`-` / `=` 调整当前技能等级 1—4，`R` 重开会保留角色和等级。它使用内存测试档，不会修改正式本地存档。
 
 > 音效要等你**先点一下**才会响 —— 浏览器不许页面自动出声，所有浏览器通用。
 > 「音效没响」最常见的原因是这一条，不是音效坏了。
@@ -133,8 +156,9 @@ cp src/test/arenas/_ArenaTemplate.ts src/test/arenas/D1/我的场子.ts   #    �
 
 **文件夹名就是域（`D1`/`D2`/`D3`/`D4`）**，架构测试按它对账：`arenas/D1/` 里的场子
 只许 import `domains/combat`，`arenas/D3/` 的只许 import `domains/enemies`，以此类推。
-**新建一个域文件夹就必须在 `architecture.test.ts` 的 `ARENA_FOLDER_DOMAINS` 表里加一行**
-—— 否则那条测试会红，而且会告诉你缺的是哪个文件夹。
+`joint/` 是例外：它按定义要碰两个域，允许哪几个写在表里（见 §一 末尾）。
+**新建一个域文件夹（含 `joint/`）就必须在 `architecture.test.ts` 的 `ARENA_FOLDER_DOMAINS`
+表里加一行** —— 否则那条测试会红，而且会告诉你缺的是哪个文件夹。
 
 **文件名以 `_` 开头的不进菜单** —— 所以模板自己不会出现在里面，
 你自己的 `_helpers.ts` 也不会。
@@ -195,7 +219,7 @@ cp src/test/arenas/_ArenaTemplate.ts src/test/arenas/D1/我的场子.ts   #    �
 
 `ctx.tune` 是几个常用配置读数（子弹伤害、玩家速度……），省得每次都 `bundle.balance.bullet.damage`。
 
-### ⚠️ 三条会咬人的
+### ⚠️ 四条会咬人的
 
 1. **`configure()` 里刷怪的 `x`/`y` 要么都给、要么都不给。** 只给一个是场子写错了，
    底座会当场抛 —— 因为「默默随机撒点」会让「我明明设了坐标」看起来只是「运气不好撒歪了」。
@@ -205,6 +229,18 @@ cp src/test/arenas/_ArenaTemplate.ts src/test/arenas/D1/我的场子.ts   #    �
 3. **撒点用 `this.randomPoint()`，别自己按格子算坐标。**
    它会避开墙。自己算的话迟早会把一批怪生在柱子里，而「卡在柱子里的怪」
    看起来和「寻路坏了」一模一样。
+4. **场子自己持有 `CombatSession` 时（`arenas/D1/`、`joint/` 那种），`R` / `N` / `ESC`
+   要「先还东西，再关场景」。** 把 `session.destroy()` 放进 `SHUTDOWN` 监听器里**不行**：
+   Phaser 的 `UpdateList.shutdown` 排在场景自己的监听器**前面**，它会 `destroy(true)` 掉
+   场景里每个注册过 `preUpdate` 的对象（`StageColliders` 那个 `StaticGroup` 就在其中）；
+   组一销毁 `children` 就成了 `undefined`，随后 `StageColliders.clear()` 里的 `group.remove()`
+   当场抛，异常从 `Systems.shutdown()` 冲出 `Game.step()` —— **rAF 不再排帧，整页只剩一张
+   静止的图**，只有刷新能救（症状看起来像「游戏崩了」，其实是一条顺序问题）。
+   顺序反过来（趁场景还活着先 `destroy()`，`SHUTDOWN` 里那一步自然成了空操作）就没事 ——
+   D1 的 `BattleScene.restartDifficulty()` 就是这么写的（`joint/d1d2_rooms` 的 `R` / `N` / `ESC` 也一样 —— 那个场子已于 2026-10-19 按用户要求删除）。
+   继承 `ArenaBase` 的场子不受影响（它们没有 `CombatSession`）。
+   （这就是 `docs/Phaser3性能与引擎事实.md` §7 那条「`SHUTDOWN` 里做清理时引擎已经先拆过一遍了」
+   的又一个实例 —— 那条读一遍，比在这里重学一遍便宜。）
 
 ## 七、测试场里那个「玩家」不是玩家角色
 

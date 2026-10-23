@@ -98,6 +98,10 @@ npm run lint         # ESLint
    文件夹只决定「谁的东西在哪儿」，**不影响 URL**：id 取的是文件名，
    所以 `arenas/D3/tank_grind.ts` 还是 `?arena=tank_grind`。
    ⚠️ 代价是**文件名要全局唯一**（跨文件夹也算）—— 撞了会当场抛，并印出两个文件的路径。
+   **跨域联调例外：`arenas/joint/`** —— 场子的货就是「两个域接在一起」时（例如 D1 的战斗
+   跑在 D2 生成的地图上），它按定义要同时 import 两个域，放哪一边的文件夹都会当场红。
+   允许碰哪几个域写在 `ARENA_FOLDER_DOMAINS` 里。**这一格只为联调存在，不是先例**：
+   新场子照旧按自己的域放，别拿它绕开「只许 import 自己那个域」。
 2. **每个测试场自带启动代码**，新增一个测试场**不需要修改任何其他域的文件**（包括 `main.ts`）。
    新建一个域文件夹时，要在 `client/src/test/architecture.test.ts` 的 `ARENA_FOLDER_DOMAINS`
    表里加一行（它按文件夹对账「这个域的场子只许 import 自己那个域」），测试会告诉你缺哪行。
@@ -122,7 +126,7 @@ npm run lint         # ESLint
 
 - 资源放在 `client/public/assets/`，**代码里不许出现硬编码路径字符串、也不许出现硬编码 texture key**，
   一切经 `client/src/core/assetManifest.ts` 的清单引用。
-- **当前没有任何美术资源。** 清单里 `placeholder: true` 的条目，启动时用 Phaser 的
+- **真美术与占位资源并存，以资源清单为准。** 清单里 `placeholder: true` 的条目，启动时用 Phaser 的
   `Graphics.generateTexture()` **在运行时生成白色方块**。
 - **占位纹理用独立 key `${真实key}__placeholder`，由 `resolveTextureKey()` 解析。**
   美术把真图片丢进目录后，把该条的 `placeholder` 改成 `false` 即可，**其余代码一行都不用改**。
@@ -136,6 +140,14 @@ npm run lint         # ESLint
   目录分层与音效双格式（ogg+mp3）见 `client/public/assets/README.md`（owner 是 D4，那是唯一真值）。
 - 清单支持 `kind: 'image' | 'spritesheet' | 'audio'`。**动画集单独一张 `ANIMS` 表**，
   占位期不加载也不注册——美术交付序列帧/图集时只改清单，不用改加载代码。
+- **后续武器统一使用独立单图，由代码拼接。** 每种武器只交付一张透明 PNG，原始朝右；
+  同一张图供所有角色和持武器敌人复用，不再为角度、角色、敌人或动作另画武器版本。
+- **角色、敌人的动作图不画入武器。** 身体、手臂、头颈等按需要分层；代码将武器挂在手部、
+  嘴部等插槽，处理旋转、必要翻转、前后遮挡及后坐力。枪口坐标和子弹出生点使用同一套变换。
+  插槽可随角色朝向与动作帧变化，这不要求增加武器贴图。
+- **现有“整帧持枪 / 按武器生成角色图集”属于历史兼容，不是新增内容模板。**
+  AI 新增武器时必须遵循上述分层规则；资源交付、锚点与接入要求见
+  [`client/public/assets/README.md`](client/public/assets/README.md#角色敌人与武器分层后续新增内容必须遵守)。
 
 ---
 

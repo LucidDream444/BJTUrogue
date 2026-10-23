@@ -20,33 +20,50 @@ export const META_CONFIG_NAME = 'meta.json'
 /** 加载路径。`public/` 下的文件必须走 loader，不能 `import`（见 `ArenaBase.preload` 的注释）。 */
 export const META_CONFIG_URL = 'config/meta.json'
 
-/** 成长项的计量单位：整数点数 / 百分比 */
-export type TrackUnit = 'point' | 'percent'
-
-export interface UpgradeTrackDef {
-  id: string
-  name: string
-  unit: TrackUnit
-  /** 每一级加多少 */
-  perLevel: number
-  /** 第一级的成本 */
-  baseCost: number
-  /** 成本倍率：第 L+1 级 = round(baseCost × costGrowth ^ L) */
-  costGrowth: number
-  maxLevel: number
-}
-
 export interface CharacterDef2 {
   unlockCost: number
-  base: { maxHp: number; magic: number; armor: number }
-  tracks: UpgradeTrackDef[]
+  passive: {
+    name: string
+    description: string
+  }
+  combat: CharacterCombatModifiers
+  skill: CharacterSkillDef
 }
 
-export interface SkillDef {
+export interface CharacterCombatModifiers {
+  maxHpPct: number
+  moveSpeedPct: number
+  energyRegenPct: number
+}
+
+export type CharacterSkillKind = 'haste' | 'dash' | 'summon'
+
+export interface CharacterSkillLevelDef {
   name: string
   description: string
-  unlockCost: number
-  tracks: UpgradeTrackDef[]
+  cooldownMs: number
+  durationMs: number
+  attackSpeedPct: number
+  distance: number
+  dashMs: number
+  dashDamage: number
+  iframeMs: number
+  attackSpeedPerEnemyPct: number
+  maxMechanicEnemies: number
+  pageDamage: number
+  fireIntervalMs: number
+  range: number
+  maxCharges: number
+}
+
+export interface CharacterSkillDef {
+  id: string
+  name: string
+  description: string
+  kind: CharacterSkillKind
+  /** 升到 2/3/4 级的三笔费用。 */
+  upgradeCosts: readonly number[]
+  levels: readonly CharacterSkillLevelDef[]
 }
 
 export interface MetaConfig {
@@ -57,7 +74,6 @@ export interface MetaConfig {
     coinsPerDepth: number
   }
   characters: Readonly<Record<string, CharacterDef2>>
-  skills: Readonly<Record<string, SkillDef>>
 }
 
 export class MetaConfigError extends Error {}
@@ -65,36 +81,42 @@ export class MetaConfigError extends Error {}
 export function parseMetaConfig(raw: unknown): MetaConfig {
   const root = needRecord(raw, 'meta')
   const version = root.schemaVersion
-  if (version !== 1) {
-    throw new MetaConfigError(`meta.schemaVersion 只认 1，拿到 ${JSON.stringify(version)}`)
+  if (version !== 2) {
+    throw new MetaConfigError(`meta.schemaVersion 只认 2，拿到 ${JSON.stringify(version)}`)
   }
   const economy = needRecord(root.economy, 'meta.economy')
   const characters: Record<string, CharacterDef2> = {}
   for (const [id, value] of Object.entries(needRecord(root.characters, 'meta.characters'))) {
     const def = needRecord(value, `meta.characters.${id}`)
-    const base = needRecord(def.base, `meta.characters.${id}.base`)
+    const passive = needRecord(def.passive, `meta.characters.${id}.passive`)
+    const combat = needRecord(def.combat, `meta.characters.${id}.combat`)
     characters[id] = {
       unlockCost: needNumber(def.unlockCost, `meta.characters.${id}.unlockCost`, 0),
-      base: {
-        maxHp: needNumber(base.maxHp, `meta.characters.${id}.base.maxHp`, 1),
-        magic: needNumber(base.magic, `meta.characters.${id}.base.magic`, 0),
-        armor: needNumber(base.armor, `meta.characters.${id}.base.armor`, 0),
+      passive: {
+        name: needString(passive.name, `meta.characters.${id}.passive.name`),
+        description: needString(
+          passive.description,
+          `meta.characters.${id}.passive.description`,
+        ),
       },
-      tracks: parseTracks(def.tracks, `meta.characters.${id}.tracks`),
-    }
-  }
-  const skills: Record<string, SkillDef> = {}
-  for (const [id, value] of Object.entries(needRecord(root.skills, 'meta.skills'))) {
-    const def = needRecord(value, `meta.skills.${id}`)
-    skills[id] = {
-      name: needString(def.name, `meta.skills.${id}.name`),
-      description: needString(def.description, `meta.skills.${id}.description`),
-      unlockCost: needNumber(def.unlockCost, `meta.skills.${id}.unlockCost`, 0),
-      tracks: parseTracks(def.tracks, `meta.skills.${id}.tracks`),
+      combat: {
+        maxHpPct: needNumber(combat.maxHpPct, `meta.characters.${id}.combat.maxHpPct`, 0),
+        moveSpeedPct: needNumber(
+          combat.moveSpeedPct,
+          `meta.characters.${id}.combat.moveSpeedPct`,
+          0,
+        ),
+        energyRegenPct: needNumber(
+          combat.energyRegenPct,
+          `meta.characters.${id}.combat.energyRegenPct`,
+          0,
+        ),
+      },
+      skill: parseCharacterSkill(def.skill, `meta.characters.${id}.skill`),
     }
   }
   return {
-    schemaVersion: 1,
+    schemaVersion: 2,
     economy: {
       coinsPerKill: needNumber(economy.coinsPerKill, 'meta.economy.coinsPerKill', 0),
       coinsPerClearedRoom: needNumber(
@@ -105,38 +127,95 @@ export function parseMetaConfig(raw: unknown): MetaConfig {
       coinsPerDepth: needNumber(economy.coinsPerDepth, 'meta.economy.coinsPerDepth', 0),
     },
     characters,
-    skills,
   }
 }
 
-/**
- * 第 L+1 级的成本（L 是当前等级）。满级返回 `null`。
- *
- * `costGrowth` 取 1 时成本恒定 —— 那是"线性"档，不做特例。
- */
-export function costOfNextLevel(track: UpgradeTrackDef, level: number): number | null {
-  if (level >= track.maxLevel) return null
-  return Math.round(track.baseCost * Math.pow(track.costGrowth, level))
+function parseCharacterSkill(raw: unknown, where: string): CharacterSkillDef {
+  const skill = needRecord(raw, where)
+  const kind = skill.kind
+  if (kind !== 'haste' && kind !== 'dash' && kind !== 'summon') {
+    throw new MetaConfigError(`${where}.kind 只认 haste / dash / summon，拿到 ${String(kind)}`)
+  }
+  if (!Array.isArray(skill.levels) || skill.levels.length !== 4) {
+    throw new MetaConfigError(`${where}.levels 必须恰好有 4 级`)
+  }
+  if (!Array.isArray(skill.upgradeCosts) || skill.upgradeCosts.length !== 3) {
+    throw new MetaConfigError(`${where}.upgradeCosts 必须恰好有 3 笔费用`)
+  }
+  const upgradeCosts = skill.upgradeCosts.map((cost, i) =>
+    needNumber(cost, `${where}.upgradeCosts[${i}]`, 0),
+  )
+  const levels = skill.levels.map((rawLevel, i): CharacterSkillLevelDef => {
+    const p = `${where}.levels[${i}]`
+    const level = needRecord(rawLevel, p)
+    const def: CharacterSkillLevelDef = {
+      name: needString(level.name, `${p}.name`),
+      description: needString(level.description, `${p}.description`),
+      cooldownMs: needNumber(level.cooldownMs, `${p}.cooldownMs`, 1),
+      durationMs: optionalNumber(level.durationMs, `${p}.durationMs`),
+      attackSpeedPct: optionalNumber(level.attackSpeedPct, `${p}.attackSpeedPct`),
+      distance: optionalNumber(level.distance, `${p}.distance`),
+      dashMs: optionalNumber(level.dashMs, `${p}.dashMs`),
+      dashDamage: optionalNumber(level.dashDamage, `${p}.dashDamage`),
+      iframeMs: optionalNumber(level.iframeMs, `${p}.iframeMs`),
+      attackSpeedPerEnemyPct: optionalNumber(
+        level.attackSpeedPerEnemyPct,
+        `${p}.attackSpeedPerEnemyPct`,
+      ),
+      maxMechanicEnemies: optionalNumber(
+        level.maxMechanicEnemies,
+        `${p}.maxMechanicEnemies`,
+      ),
+      pageDamage: optionalNumber(level.pageDamage, `${p}.pageDamage`),
+      fireIntervalMs: optionalNumber(level.fireIntervalMs, `${p}.fireIntervalMs`),
+      range: optionalNumber(level.range, `${p}.range`),
+      maxCharges: optionalNumber(level.maxCharges, `${p}.maxCharges`),
+    }
+    if (kind === 'haste' && (def.durationMs <= 0 || def.attackSpeedPct <= 0)) {
+      throw new MetaConfigError(`${p} 是攻速技能，必须有 durationMs 与 attackSpeedPct`)
+    }
+    if (
+      kind === 'dash' &&
+      (def.distance <= 0 || def.dashMs <= 0 || def.dashDamage <= 0 || def.iframeMs < 0)
+    ) {
+      throw new MetaConfigError(`${p} 是突进技能，必须有 distance / dashMs / dashDamage / iframeMs`)
+    }
+    if (
+      kind === 'summon' &&
+      (def.durationMs <= 0 ||
+        def.pageDamage <= 0 ||
+        def.fireIntervalMs <= 0 ||
+        def.range <= 0 ||
+        def.maxCharges < 1)
+    ) {
+      throw new MetaConfigError(`${p} 是召唤技能，参考书数值不完整`)
+    }
+    if (
+      i === 3 &&
+      kind === 'dash' &&
+      (def.attackSpeedPerEnemyPct <= 0 ||
+        def.maxMechanicEnemies <= 0)
+    ) {
+      throw new MetaConfigError(`${p} 的第三阶突进机制数值不完整`)
+    }
+    if (i === 3 && kind === 'summon' && def.maxCharges !== 2) {
+      throw new MetaConfigError(`${p} 的第三阶必须开放两层充能`)
+    }
+    return def
+  })
+  return {
+    id: needString(skill.id, `${where}.id`),
+    name: needString(skill.name, `${where}.name`),
+    description: needString(skill.description, `${where}.description`),
+    kind,
+    upgradeCosts,
+    levels,
+  }
 }
 
-function parseTracks(raw: unknown, where: string): UpgradeTrackDef[] {
-  if (!Array.isArray(raw)) throw new MetaConfigError(`${where} 要一个数组`)
-  return raw.map((item, i) => {
-    const t = needRecord(item, `${where}[${i}]`)
-    const unit = t.unit
-    if (unit !== 'point' && unit !== 'percent') {
-      throw new MetaConfigError(`${where}[${i}].unit 只认 point / percent，拿到 ${String(unit)}`)
-    }
-    return {
-      id: needString(t.id, `${where}[${i}].id`),
-      name: needString(t.name, `${where}[${i}].name`),
-      unit,
-      perLevel: needNumber(t.perLevel, `${where}[${i}].perLevel`, 0),
-      baseCost: needNumber(t.baseCost, `${where}[${i}].baseCost`, 0),
-      costGrowth: needNumber(t.costGrowth, `${where}[${i}].costGrowth`, 1),
-      maxLevel: needNumber(t.maxLevel, `${where}[${i}].maxLevel`, 0),
-    }
-  })
+function optionalNumber(value: unknown, where: string): number {
+  if (value === undefined) return 0
+  return needNumber(value, where, 0)
 }
 
 function needRecord(v: unknown, where: string): Record<string, unknown> {

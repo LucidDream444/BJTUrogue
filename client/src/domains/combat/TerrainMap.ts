@@ -49,10 +49,37 @@ export class TerrainMap {
     return !this.water.some(overlaps) && !this.solids.some(overlaps)
   }
 
-  safeSpawn(x: number, y: number, radius: number): Point {
+  /**
+   * 把一个「想放在这」的点挪到能放的地方。
+   *
+   * ⚠️ **`radius` 与 `reachRadius` 是两件事，别合成一个数用。**
+   *
+   * - `radius` = **摆放净空**：这个东西自己占多大地方（怪的碰撞半径、宝箱贴图的半边长）。
+   *   决定「离墙、离桌子够不够远」。
+   * - `reachRadius` = **通行半径**：**能走到那儿的是谁**。整层连续之后地图是一整张，
+   *   房间之间靠门洞相连，门洞只有几十像素宽 —— 拿一个比门洞还粗的半径去泛洪，
+   *   **整间房都会被判成「不可达」**（泛洪过不去门洞），于是兜底把它扔到
+   *   出生点那一片走廊上。
+   *
+   * ★ 改了（2026-10-21）：早先只有一个 `radius`，两者共用。症状是**宝箱和怪都能被扔出房**，
+   *   而且看起来毫无道理（房内明明有几百格空地）：
+   *   - 宝箱：`chest.visualSize = 56` 被当成净空去泛洪 —— 那其实是个**直径**
+   *     （本该按半边长 28 算），56 > 门洞 → 泛洪进不了房 → 实测扔出房外 **200—540px**；
+   *   - 怪：门洞窄于 `2 × 26` 的房间（如种子 20261012 的 YF611），整间房不可达 →
+   *     刷怪点被挪到**隔壁房和走廊**（实测 **673px / 731px**）。
+   *
+   *   两个症状同一个根。`reachRadius` 取**要走到那个东西的人**的半径
+   *   （宝箱是玩家的 12；怪也是玩家的 12 —— 判据是「玩家能不能打到它」，
+   *   不是「它自己能不能走过去」：怪本来就该刷在自己的房间里，
+   *   而肉盾（半径 40）根本挤不过门洞）。
+   *
+   * 默认值 = `radius`，也就是老行为：手画的 `stage-collisions.json` 那几关
+   * 仍是「一关一块地」，没有门洞这回事，不必传。
+   */
+  safeSpawn(x: number, y: number, radius: number, reachRadius = radius): Point {
     const clamp = (n: number, upper: number) => Math.min(upper - radius, Math.max(radius, n))
     const desired = { x: clamp(x, this.width), y: clamp(y, this.height) }
-    const component = this.solids.length ? this.reachableCells(radius) : null
+    const component = this.solids.length ? this.reachableCells(reachRadius) : null
     const cols = Math.ceil(this.width / this.cellSize)
     const reachable = (px: number, py: number) =>
       !component ||

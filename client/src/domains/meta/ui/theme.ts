@@ -10,7 +10,7 @@
  *
  * ## 现在是什么阶段
  *
- * **占位期**：所有颜色都是深色底 + 白字，没有任何美术资源参与
+ * 校园冒险主题：墨绿底、黄铜描边、暖米色文字，与木质像素房间统一
  * （需求草图上的「虚线框占位」在这里就是 `theme` 的颜色）。
  * 真美术到位后改的是这个文件，不是各个界面。
  *
@@ -24,26 +24,28 @@
 export const THEME = {
   color: {
     /** 整块背景。与 `index.html` / `main.ts` 的底色调一致 */
-    backdrop: 0x0b0b10,
-    panel: 0x16161f,
-    panelHover: 0x22222f,
-    border: 0x3a3a4a,
+    backdrop: 0x101914,
+    panel: 0x1c2b23,
+    panelHover: 0x2b4032,
+    border: 0x756144,
     /** 焦点 / 选中的描边 */
-    accent: 0x4fa8ff,
+    accent: 0xd5b274,
+    /** 错误与阻断状态 */
+    danger: 0xb85b4b,
     /** 焦点的填充（比 accent 暗，免得白字压不上去） */
-    accentFill: 0x1b3348,
+    accentFill: 0x3c5139,
     /** 禁用态：几乎与背景同色，只在描边上留一点存在感 */
-    disabled: 0x111117,
+    disabled: 0x18211c,
     /** 滑杆的滑块 */
-    knob: 0xe6e6f0,
+    knob: 0xf4e7cc,
     dim: 0x000000,
   },
   text: {
-    body: '#e6e6f0',
-    dim: '#8f8fa8',
-    disabled: '#4a4a5c',
-    accent: '#9ad4ff',
-    danger: '#ff8888',
+    body: '#f4e7cc',
+    dim: '#b5b69c',
+    disabled: '#7f8879',
+    accent: '#efd198',
+    danger: '#eca191',
   },
   font: {
     family: "system-ui, -apple-system, 'Segoe UI', 'Microsoft YaHei', sans-serif",
