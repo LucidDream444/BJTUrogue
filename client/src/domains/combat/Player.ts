@@ -5,10 +5,13 @@ import type { GameClock } from '@/core/time'
 import type { TypedBus } from '@/core/events'
 import type { CombatEvents } from './events'
 import type { CombatConfig, WeaponDef } from './config'
-import { PlayerModel, moveVelocity } from './PlayerModel'
-import { gunMuzzlePosition } from './gunPose'
+import { PlayerModel, moveVelocity, staminaAfterRegen } from './PlayerModel'
+import { aimBand, aimFrame, equippedMuzzle, shotRecoil } from './AimPose'
 import type { PlayerPort } from './EnemyBridge'
 import type { BalanceConfig } from '@/core/config'
+import { GOOSE_ART } from '@/core/assetManifest'
+import { GooseView } from './GooseView'
+import { gooseDirection, gooseFrame, goosePose, type GooseDirection } from './GoosePose'
 type Art = (typeof D1_ART)[number]
 export const PLAYER_ART = {
   pulseRun: D1_ART.find((a) => a.group === 'pulse_run')!,
@@ -50,10 +53,15 @@ export class Player {
   private aimY = 0
   private facingLeft = false
   private moving = false
+  private goose: GooseView | null = null
+  private gooseFacing: GooseDirection = 'right'
+  private deathAtMs = 0
   private runAnimationMs = 0
+  private aimBandValue = 1
   private weaponIdValue: WeaponDef['id'] = 'pencil'
   maxStamina: number
   stamina: number
+  private energyRegenPct = 0
   private readonly shadow: Phaser.GameObjects.Ellipse
   constructor(
     scene: Phaser.Scene,
@@ -96,6 +104,9 @@ export class Player {
       textureKeyFor(scene, PLAYER_ART.shoot.key),
       cfg.player.gunIdleFrame,
     )
+    // 初始朝右，整帧姿态由鼠标所在的方向档决定。
+    this.aimX = x + 1
+    this.aimY = y
     this.keys = scene.input.keyboard!.addKeys('W,A,S,D') as Record<
       string,
       Phaser.Input.Keyboard.Key
@@ -106,6 +117,7 @@ export class Player {
         bus.emit('entity_damaged', { ...e, targetKind: 'player', batched: false, tickCount: 1 })
       },
       onKilled: (e) => {
+        this.deathAtMs = this.clock.realNowMs
         this.body.stop()
         bus.emit('entity_killed', {
           id: e.targetId,
@@ -125,6 +137,16 @@ export class Player {
     this.weaponIdValue = weapon.id
   }
 
+  /** 只换美术，存档身份和角色战斗数值继续由宿主决定。 */
+  setCharacter(characterId: string): void {
+    if (characterId === GOOSE_ART.characterId) this.goose ??= new GooseView(this.sprite)
+    else {
+      this.goose?.destroy()
+      this.goose = null
+    }
+    this.draw()
+  }
+
   get x(): number {
     return this.body.center.x
   }
@@ -137,6 +159,7 @@ export class Player {
   view(): PlayerPort {
     return {
       model: this.model,
+      bite: (amount, sourceId, nowMs) => this.model.takeGrabBite(amount, sourceId, nowMs),
       x: this.x,
       y: this.y,
       vx: this.body.velocity.x,
@@ -154,6 +177,7 @@ export class Player {
     }
     const dx = Number(this.keys.D!.isDown) - Number(this.keys.A!.isDown),
       dy = Number(this.keys.S!.isDown) - Number(this.keys.W!.isDown)
+    this.gooseFacing = gooseDirection(dx, dy, this.gooseFacing)
     // Movement sets the default facing; active mouse fire can override it afterwards.
     if (dx !== 0) this.facingLeft = dx < 0
     const v = moveVelocity(
@@ -176,6 +200,14 @@ export class Player {
     this.maxStamina = maximum
     this.stamina = Math.min(this.stamina, maximum)
   }
+  /** 开局应用局外能量成长后直接满能量；局内容量升级仍走 `applyStaminaLimit()` 不补满。 */
+  applyRunStartStaminaLimit(maximum: number): void {
+    this.maxStamina = maximum
+    this.stamina = maximum
+  }
+  applyEnergyRegenBonus(pct: number): void {
+    this.energyRegenPct = Math.max(0, pct)
+  }
   advanceStamina(deltaMs: number, firing: boolean): void {
     if (
       firing ||
@@ -185,9 +217,12 @@ export class Player {
       !Number.isFinite(deltaMs)
     )
       return
-    this.stamina = Math.min(
+    this.stamina = staminaAfterRegen(
+      this.stamina,
       this.maxStamina,
-      this.stamina + (this.cfg.player.staminaRegenPerSec * Math.max(0, deltaMs)) / 1000,
+      this.cfg.player.staminaRegenPerSec,
+      this.energyRegenPct,
+      deltaMs,
     )
   }
 
@@ -221,82 +256,108 @@ export class Player {
   aim(worldX: number, worldY: number, faceTarget = false): void {
     this.aimX = worldX
     this.aimY = worldY
-    if (faceTarget) this.facingLeft = worldX < this.x
+    // Mirror the complete equipped pose toward the cursor; a deadzone prevents vertical-aim flicker.
+    const offset = worldX - this.x
+    if (faceTarget || Math.abs(offset) > this.cfg.player.facingDeadzonePx)
+      this.facingLeft = offset < 0
+    this.aimBandValue = aimBand(
+      this.cfg.aimArt,
+      offset,
+      worldY - (this.feetY - this.cfg.aimArt.aimOriginOffsetY * this.cfg.player.visualScale),
+      this.aimBandValue,
+    )
   }
   get angle(): number {
+    // 鼠标在长脖子内侧时也保持枪管方向，不能从枪口反算后突然倒射。
+    if (this.goose) return this.goosePose().angle
     const muzzle = this.muzzle()
     return Math.atan2(this.aimY - muzzle.y, this.aimX - muzzle.x)
   }
-  private weaponArt(type: 'run' | 'shoot' | 'hurt'): Art {
-    if (this.weaponIdValue === 'pencil')
-      return type === 'run'
-        ? PLAYER_ART.runGun
-        : type === 'shoot'
-          ? PLAYER_ART.shoot
-          : PLAYER_ART.hurt
-    const group = '' + this.weaponIdValue + '_' + type
-    return (
-      D1_ART.find((a) => a.group === group) ??
-      (type === 'run'
-        ? PLAYER_ART.pulseRun
-        : type === 'shoot'
-          ? PLAYER_ART.pulseShoot
-          : PLAYER_ART.pulseHurt)
-    )
-  }
-  private muzzleKey(type: 'run' | 'shoot'): string {
-    if (this.weaponIdValue === 'pencil') return type === 'run' ? 'runGun' : 'shoot'
-    return this.weaponIdValue + (type === 'run' ? 'Run' : 'Shoot')
-  }
-  private pose(): { art: Art; frame: number; point: [number, number] } {
-    const type = this.moving ? 'run' : 'shoot',
-      art = this.weaponArt(type),
-      key = this.muzzleKey(type)
-    const attack = this.clock.nowMs < this.model.attackUntilMs
-    const frame = this.moving
-      ? Math.floor((this.runAnimationMs * this.cfg.player.gunRunFrameRate) / 1000) % art.count
-      : attack
-        ? artFrame(
-            art,
-            Math.max(
-              0,
-              this.clock.nowMs - (this.model.attackUntilMs - this.cfg.player.attackPoseMs),
-            ),
-          )
-        : this.cfg.player.gunIdleFrame
-    const points = this.cfg.gunMuzzles[key] ?? this.cfg.gunMuzzles.shoot
-    return { art, frame, point: points[Math.min(frame, points.length - 1)]! }
+  private visualPose() {
+    const art = this.cfg.aimArt
+    const elapsed =
+      this.clock.nowMs < this.model.attackUntilMs
+        ? Math.max(0, this.clock.nowMs - (this.model.attackUntilMs - this.cfg.player.attackPoseMs))
+        : null
+    const pose = aimFrame(art, this.aimBandValue, this.moving, this.runAnimationMs)
+    const recoil = shotRecoil(art, elapsed, this.cfg.player.attackPoseMs, this.facingLeft)
+    return {
+      ...pose,
+      position: { x: this.x + recoil.x, y: this.feetY + recoil.y },
+      key: 'player_' + this.weaponIdValue + '_aim_' + pose.sheet + '_' + pose.state,
+    }
   }
   muzzle(): { x: number; y: number } {
-    const { art, frame, point } = this.pose()
-    return gunMuzzlePosition(
-      { x: this.x, y: this.feetY },
-      art,
-      art.anchors[frame]!,
-      point,
+    if (this.goose) return this.goosePose().muzzle
+    const pose = this.visualPose()
+    const weaponMuzzle =
+      this.weaponIdValue === 'pencil'
+        ? undefined
+        : this.cfg.gunMuzzles[this.weaponIdValue + 'Shoot']![0]
+    return equippedMuzzle(
+      this.cfg.aimArt,
+      pose,
+      pose.position,
       this.cfg.player.visualScale,
       this.facingLeft,
+      weaponMuzzle,
     )
   }
   draw(): void {
     this.model.syncState(this.moving)
     const hurt = this.model.alive && this.clock.nowMs < this.model.hurtUntilMs
-    const art = this.weaponArt(hurt ? 'hurt' : this.moving ? 'run' : 'shoot')
-    let frame = this.pose().frame
-    if (hurt) {
-      const frames = D1_ANIMS.find((a) => a.textureKey === art.key)!.frames
-      const progress = (this.clock.nowMs - this.model.hurtAtMs) / this.cfg.player.hurtMs
-      frame = frames[Math.min(frames.length - 1, Math.floor(progress * frames.length))]!
+    if (this.goose) {
+      const attack = this.clock.nowMs < this.model.attackUntilMs
+      const action = !this.model.alive ? 'death' : hurt ? 'hurt' : attack ? 'shoot' : this.moving ? 'run' : 'idle'
+      // 死亡后玩法时钟立即暂停；倒地收尾仅使用表现时间，不推进任何战斗状态。
+      const elapsed = !this.model.alive ? this.clock.realNowMs - this.deathAtMs
+        : hurt ? this.clock.nowMs - this.model.hurtAtMs
+        : attack ? this.clock.nowMs - (this.model.attackUntilMs - this.cfg.player.attackPoseMs)
+        : this.moving ? this.runAnimationMs : this.clock.nowMs
+      const duration = hurt ? this.cfg.player.hurtMs : attack ? this.cfg.player.attackPoseMs : undefined
+      this.goose.draw({ x: this.x, y: this.feetY }, this.gooseFacing, gooseFrame(action, elapsed, duration),
+        this.cfg.player.visualScale * GOOSE_ART.visualScale, { x: this.aimX, y: this.aimY },
+        this.weaponIdValue, this.model.alive,
+        hurt && this.clock.nowMs - this.model.hurtAtMs < this.cfg.feedback.hurtFlashMs)
+      this.shadow.setPosition(this.x, this.feetY).setDepth(this.feetY - 1)
+      return
     }
-    this.sprite.setPosition(this.x, this.feetY).setDepth(this.feetY)
-    displayArt(
-      this.sprite,
-      art,
-      this.clock.nowMs,
-      this.facingLeft,
-      this.cfg.player.visualScale,
-      frame,
-    )
+    const pose = this.visualPose(),
+      art = this.cfg.aimArt
+    const anchorX = (art.anchor[0] * art.frameWidth + art.render.offset[0]) / art.render.frameWidth
+    const anchorY =
+      (art.anchor[1] * art.frameHeight + art.render.offset[1]) / art.render.frameHeight
+    this.sprite
+      .setPosition(pose.position.x, pose.position.y)
+      .setDepth(this.feetY)
+      .setTexture(textureKeyFor(this.sprite.scene, pose.key), pose.frame)
+      .setFlipX(this.facingLeft)
+      .setScale(this.cfg.player.visualScale)
+      .setOrigin(this.facingLeft ? 1 - anchorX : anchorX, anchorY)
+    if (hurt) {
+      // These whole-body hurt sheets already include the equipped weapon and both arms.
+      const hurtArt =
+        this.weaponIdValue === 'pencil'
+          ? PLAYER_ART.hurt
+          : (D1_ART.find((a) => a.group === this.weaponIdValue + '_hurt') ?? PLAYER_ART.pulseHurt)
+      const frames = D1_ANIMS.find((a) => a.textureKey === hurtArt.key)!.frames
+      const progress = Phaser.Math.Clamp(
+        (this.clock.nowMs - this.model.hurtAtMs) / this.cfg.player.hurtMs,
+        0,
+        1,
+      )
+      const frame = frames[Math.min(frames.length - 1, Math.floor(progress * frames.length))]!
+      this.sprite.setPosition(this.x, this.feetY)
+      displayArt(
+        this.sprite,
+        hurtArt,
+        this.clock.nowMs,
+        this.facingLeft,
+        this.cfg.player.visualScale,
+        frame,
+      )
+    }
+    this.sprite.texture.setFilter(Phaser.Textures.FilterMode.NEAREST)
     this.sprite
       .setRotation(this.model.alive ? 0 : -Math.PI / 2)
       .setAlpha(this.model.alive ? 1 : 0.45)
@@ -309,9 +370,14 @@ export class Player {
     for (const key of Object.values(this.keys)) key.reset()
     this.body.stop()
   }
+  private goosePose() {
+    return goosePose({ x: this.x, y: this.feetY }, this.gooseFacing,
+      this.cfg.player.visualScale * GOOSE_ART.visualScale, { x: this.aimX, y: this.aimY })
+  }
   destroy(): void {
     this.model.sink = null
     this.model.onHurt = null
+    this.goose?.destroy()
     this.sprite.destroy()
     this.shadow.destroy()
     this.anchor.destroy()

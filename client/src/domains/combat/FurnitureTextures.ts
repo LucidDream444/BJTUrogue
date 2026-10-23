@@ -7,8 +7,9 @@ export function prepareFurnitureTextures(
   key: string,
   config: StageCollisionConfig,
   furniture: MapFurniture[],
+  cacheTag = 'small_furniture_v1',
 ) {
-  const floorKey = `${key}_floor_small_furniture_v1`
+  const floorKey = `${key}_floor_${cacheTag}`
   const objectKey = (id: string) => `${floorKey}_${id}`
   if (scene.textures.exists(floorKey)) return { floorKey, objectKey }
   const { width, height } = config.sourceSize
@@ -19,6 +20,7 @@ export function prepareFurnitureTextures(
   source.getContext('2d')!.drawImage(original, 0, 0, width, height)
   const floor = scene.textures.createCanvas(floorKey, width, height)!
   const ctx = floor.context
+  ctx.imageSmoothingEnabled = false
   ctx.drawImage(source, 0, 0)
   for (const f of furniture) {
     const box = f.bounds
@@ -48,6 +50,7 @@ export function prepareFurnitureTextures(
     ctx.drawImage(patch, x0, y0)
     const object = scene.textures.createCanvas(objectKey(f.id), box.width, box.height)!
     const cut = object.context
+    cut.imageSmoothingEnabled = false
     cut.save()
     cut.beginPath()
     for (const polygon of f.polygons) {

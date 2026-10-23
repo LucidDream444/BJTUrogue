@@ -3,6 +3,7 @@ import { fileURLToPath } from 'node:url'
 import { describe, expect, it } from 'vitest'
 import {
   DIFFICULTIES,
+  deriveGrabber,
   deriveSplitterGeneration,
   deriveTank,
   oneShotHpCap,
@@ -133,13 +134,17 @@ describe('契约 — 分裂怪：每一代在任何难度下都必须一枪一�
     expect(d.maxHp).toBeGreaterThan(cap)
   })
 
-  it('派生后「速度递增、体型递减」严格成立（这两条才是一代比一代凶的地方）', () => {
+  it('派生后「速度**不下降**、体型递减」成立', () => {
+    // ⚠️ 2026-10-16：速度那条从**严格递增**放宽成**不下降**。
+    //    分裂出来的小怪比母体还快，玩家是越打越被追着跑 —— 那不是「一代比一代凶」，
+    //    是「一代比一代罚」。同速允许，**变慢不允许**（分裂的比母体慢会显得像卡住）。
+    //    体型仍然严格递减：那才是「小怪」这个身份本身。
     for (const diff of DIFFICULTIES) {
       const gens = enemies.enemies.splitter.generations.map((g) =>
         deriveSplitterGeneration(g, difficulty.difficulties[diff], balance),
       )
       for (let i = 1; i < gens.length; i++) {
-        expect(gens[i]!.speed, `speed @ ${diff} gen${i}`).toBeGreaterThan(gens[i - 1]!.speed)
+        expect(gens[i]!.speed, `speed @ ${diff} gen${i}`).toBeGreaterThanOrEqual(gens[i - 1]!.speed)
         expect(gens[i]!.radius, `radius @ ${diff} gen${i}`).toBeLessThan(gens[i - 1]!.radius)
       }
     }
@@ -335,6 +340,24 @@ describe('契约 — ConfigError 必须指出出问题的字段路径', () => {
     }
   })
 
+  it('抓取怪的 `pressDamageRatio` ≥ 1 会被拦住（一下就能脱离 = 机制不存在）', () => {
+    const raw = readJson('enemies.json') as Record<string, never>
+    const broken = structuredClone(raw)
+    const g = (
+      broken as never as {
+        enemies: { grabber: { grab: { pressDamageRatio: number } } }
+      }
+    ).enemies.grabber
+    g.grab.pressDamageRatio = 1
+    expect(() =>
+      parseConfigBundle({
+        balance: readJson('balance.json'),
+        difficulty: readJson('difficulty.json'),
+        enemies: broken,
+      }),
+    ).toThrow(/pressDamageRatio/)
+  })
+
   it('难度乘数写 0 会被拦住（enemyHp 有下界 0.1）', () => {
     const raw = readJson('difficulty.json') as Record<string, unknown>
     const broken = structuredClone(raw) as never as {
@@ -348,5 +371,143 @@ describe('契约 — ConfigError 必须指出出问题的字段路径', () => {
         enemies: readJson('enemies.json'),
       }),
     ).toThrow(/enemyHp/)
+  })
+})
+
+describe('契约 — 抓取怪：血量是双重职责的旋钮', () => {
+  const { balance, difficulty, enemies } = bundle()
+  const def = enemies.enemies.grabber
+
+  it('预警窗口内集火**打不死**它（打死了抓取就不发生，机制见不到）', () => {
+    const d = deriveGrabber(def, difficulty.difficulties.normal, balance)
+    const dps = (balance.baseline.bullet.damage / balance.baseline.bullet.fireIntervalMs) * 1000
+    const windowDamage = (dps * def.grab.telegraphMs) / 1000
+    expect(d.maxHp, '预警那段时间的集火伤害应当打不死它').toBeGreaterThan(windowDamage)
+  })
+
+  it('但也只能多活一点点（不然「打它还是跑」就不是个真选择）', () => {
+    const d = deriveGrabber(def, difficulty.difficulties.normal, balance)
+    const dps = (balance.baseline.bullet.damage / balance.baseline.bullet.fireIntervalMs) * 1000
+    const windowDamage = (dps * def.grab.telegraphMs) / 1000
+    expect(d.maxHp).toBeLessThanOrEqual(windowDamage * 1.5)
+  })
+
+  it('连点口径：满血脱离的按下次数落在「连点得动」的区间里', () => {
+    const d = deriveGrabber(def, difficulty.difficulties.normal, balance)
+    expect(d.pressDamage, '每次按下扣的是**最大血量**的百分比').toBe(
+      Math.floor(d.maxHp * def.grab.pressDamageRatio + 0.5),
+    )
+    expect(d.pressesToEscape).toBeGreaterThanOrEqual(12)
+    expect(d.pressesToEscape).toBeLessThanOrEqual(30)
+  })
+
+  it('预警期打掉的血直接缩短连点次数（80% 血被抓 = 只需按两成）', () => {
+    const d = deriveGrabber(def, difficulty.difficulties.normal, balance)
+    const remaining = d.maxHp * 0.2
+    expect(Math.ceil(remaining / d.pressDamage)).toBeLessThan(d.pressesToEscape)
+    expect(Math.ceil(remaining / d.pressDamage)).toBeGreaterThan(0)
+  })
+
+  it('咬人口径：normal 难度下正好按配置的意图咬死满血玩家，更难的难度只会更少口', () => {
+    const normal = difficulty.difficulties.normal
+    const d = deriveGrabber(def, normal, balance)
+    expect(d.bitesToKillPlayer, 'normal 必须等于配置写的口数').toBe(def.grab.bitesToKillPlayer)
+
+    for (const diff of DIFFICULTIES) {
+      const m = difficulty.difficulties[diff]
+      const dd = deriveGrabber(def, m, balance)
+      expect(dd.bitesToKillPlayer, diff).toBeGreaterThanOrEqual(1)
+      // ⚠️ 只对**不低于 normal** 的难度断言「不会更多口」。
+      //    简单难度的 `enemyDamage` 小于 1，每口更轻、自然要更多口才咬死 ——
+      //    那不是 bug，是难度在起作用（写成全难度单调就会误报）。
+      if (m.enemyDamage >= normal.enemyDamage) {
+        expect(dd.bitesToKillPlayer, diff).toBeLessThanOrEqual(def.grab.bitesToKillPlayer)
+      }
+    }
+  })
+
+  it('甩出速度 = 距离 ÷ 时长，且落点看得清（速度不荒谬）', () => {
+    const d = deriveGrabber(def, difficulty.difficulties.normal, balance)
+    expect(d.flingSpeed).toBe(
+      Math.round((def.grab.flingDistance / def.grab.flingTimeMs) * 1000),
+    )
+    expect(d.flingSpeed).toBeGreaterThan(200)
+    expect(d.flingSpeed).toBeLessThan(2000)
+  })
+
+  it('落地爆炸「范围很大」：直径至少 15 格（v4 的 mainRoomHeight），且与「盖住一间教室」的差距没变大', () => {
+    // ★ **2026-10-20，D2 的平面图落地（schemaVersion 5）把这条的尺子换掉了。**
+    //
+    // v4 这里读的是 `rooms.json` 的 `mainRoomHeight` —— 主干道那排教室的高度，
+    // 恒为 **600px = 15 格**。爆炸直径也是 600，于是那条断言是
+    // `600 >= 600`，**正好卡在等号上**：它守的其实是「D3 的爆炸 = D2 的教室高」
+    // 这个刻意的耦合，谁动一半都会红。
+    //
+    // v5 里 `mainRoomHeight` 没有了（几何搬去了 `floor-plan.json`，
+    // 而且不再有「主干教室」这个类别）。教室的**真实高度**是 17~24 格，
+    // 最小的一间（`YF605` / `YF606`，20×17 与 39×17）是 **17 格 = 680px**。
+    // 于是 `600 >= 680` —— **那条耦合断了：爆炸不再盖得住一整间教室。**
+    //
+    // ⚠️ **这是要交给 D3 决定的事，不是这里能自己修的**：`blastRadius` 是
+    // `enemies.json` 的平衡旋钮（D3 的域），D2 不改别人的数。两个读数记在这里：
+    //
+    // | | 格 | px |
+    // |---|---|---|
+    // | 爆炸直径（今天） | 15 | 600 |
+    // | 最小的一间**打得起来**的教室高 | 17 | 680 |
+    //
+    // 想恢复「盖得住整间教室」的话，`blastRadius` 要 ≥ 340（今天 300）。
+    // 这条已经写进了 `openspec/changes/real-floorplan-layout/NOTICE-D1-D3-契约变更.md`。
+    //
+    // 那么这里断言什么？**两条真话，分开说清楚**：
+    // ① 直径至少 15 格 —— 那是老尺子的长度，**它是设计目标**（"范围很大"），
+    //    爆炸被改小时要拦住；
+    // ② 上面那个差距（今天 80px = 2 格）**不许再变大** —— 教室又长高、
+    //    或者爆炸又被改小，这条会红，红了就该去找 D3。
+    const cell = (readJson('rooms.json') as { navCellSize: number }).navCellSize
+    // ⚠️ 尺子只量**打得起来**的房间。`fixed: 'reward'` 的两间教休室不刷怪，
+    // 而它们正是最小的一间（8 格 / 320px）—— 算进来的话尺子会变成 320，
+    // 于是 `600 >= 320` 恒成立，这条就成了一条**假绿**的用例：
+    // 看着在测「盖得住一间教室」，其实什么都没测。
+    const plan = readJson('floor-plan.json') as {
+      rooms: { id: string; width: number; height: number; fixed?: string }[]
+    }
+    const fightable = plan.rooms.filter((r) => r.fixed !== 'reward')
+    expect(fightable.length, '一间打得起来的教室都没有 —— 上面那句过滤写错了').toBeGreaterThan(
+      0,
+    )
+    const smallestRoomHeight = Math.min(...fightable.map((r) => r.height * cell))
+    const diameter = def.grab.blastRadius * 2
+
+    expect(
+      diameter,
+      `爆炸直径 ${diameter}px（${diameter / cell} 格）小于 15 格 ${15 * cell}px —— ` +
+        `这是 v4 的设计目标（mainRoomHeight），爆炸被改小了`,
+    ).toBeGreaterThanOrEqual(15 * cell)
+
+    expect(
+      smallestRoomHeight - diameter,
+      `爆炸直径 ${diameter}px（${diameter / cell} 格）比最小的一间战斗教室的 ` +
+        `高 ${smallestRoomHeight}px（${smallestRoomHeight / cell} 格）小这么多 —— ` +
+        `今天实测是 80px（2 格）；差距一旦变大，就该由 D3 决定要不要把 blastRadius 提到 ${smallestRoomHeight / 2}`,
+    ).toBeLessThanOrEqual(2 * cell)
+  })
+
+  it('它比杂兵慢、比肉盾快（三个模板的速度阶梯不能乱）', () => {
+    const splitters = enemies.enemies.splitter.generations
+    const tank = enemies.enemies.tank
+    expect(def.speed).toBeLessThan(splitters[0]!.speed)
+    expect(def.speed).toBeGreaterThan(tank.speed)
+  })
+
+  it('它不靠接触伤害构成威胁（威胁只有抓取）', () => {
+    expect(def.contactDamagePerTick).toBe(0)
+  })
+
+  it('它的贴图 key 在资源清单里有条目（否则占位方块生成不出来）', () => {
+    const art = findAsset(def.textureKey)
+    expect(art, `${def.textureKey} 不在 assetManifest 里`).toBeTruthy()
+    expect(art!.placeholder, '缠抱怪笔记本电脑美术已交付').toBe(false)
+    expect(art!.kind, '缠抱怪动作需要 spritesheet').toBe('spritesheet')
   })
 })

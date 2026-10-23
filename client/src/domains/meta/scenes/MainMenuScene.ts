@@ -28,6 +28,16 @@
  */
 
 import Phaser from 'phaser'
+import { ASSETS, CAMPAIGN_ART, GOOSE_ART, findAsset, imageUrl } from '@/core/assetManifest'
+import {
+  CONFIG_FILE_NAMES,
+  configUrl,
+  parseConfigBundle,
+  type ConfigBundle,
+  type Difficulty,
+} from '@/core/config'
+import { CodexPanel } from '../codex/CodexPanel'
+import { buildCodexEntries, type CodexEntry } from '../codex/codexCatalog'
 import { CHARACTERS, DIFFICULTY_LABELS, DIFFICULTY_ORDER, characterById } from '../catalog'
 import {
   MENU_ACTIONS,
@@ -46,7 +56,6 @@ import {
 import { ProfileStore } from '../profile/ProfileStore'
 import { LocalStorageProfileStorage } from '../profile/storage'
 import { META_CONFIG_NAME, META_CONFIG_URL, parseMetaConfig, type MetaConfig } from '../metaConfig'
-import type { Difficulty } from '@/core/config'
 import { buildUpgradePanel } from '../upgrade/UpgradePanel'
 import { Button } from '../ui/Button'
 import { Card } from '../ui/Card'
@@ -58,6 +67,7 @@ import {
   type PanelSink,
   type SettingsPanelParts,
 } from '../ui/panels'
+import { SaveStatusBanner } from '../ui/SaveStatusBanner'
 import { Slider } from '../ui/Slider'
 import { THEME, fontPx } from '../ui/theme'
 
@@ -75,10 +85,22 @@ export interface MainMenuData {
   onExit?: () => void
   /** 注入的档。**不传就自己建一个**（用浏览器 localStorage） */
   store?: ProfileStore
+  /** 从结算等入口直接打开升级页；关闭后仍回到主菜单本体。 */
+  initialScreen?: 'upgrade'
 }
 
 /** 竖排按钮的起点，给角色区留出上面的空间 */
-const BUTTON_TOP = 170
+const MENU_ART = [
+  GOOSE_ART.portrait,
+  CAMPAIGN_ART.title,
+  CAMPAIGN_ART.level1,
+  CAMPAIGN_ART.level2,
+  CAMPAIGN_ART.level3,
+  'player_student_idle_s',
+  'ui_campus_book',
+  'ui_campus_shield',
+  'ui_campus_star_badge',
+]
 
 export class MainMenuScene extends Phaser.Scene {
   private store!: ProfileStore
@@ -92,28 +114,35 @@ export class MainMenuScene extends Phaser.Scene {
   private sliders: Slider[] = []
   private overlayButtons: Button[] = []
   private settingsParts: SettingsPanelParts | null = null
+  private saveBanner: SaveStatusBanner | null = null
   private noticeText: Phaser.GameObjects.Text | null = null
   private unlockedText: Phaser.GameObjects.Text | null = null
+  private codexPanel: CodexPanel | null = null
+  private codexSelectionId: string | undefined
 
-  /** 弹层的标题。键就是 `MenuScreen` 里除 `main` 之外的那三个。 */
+  /** 弹层的标题。键就是 `MenuScreen` 里除 `main` 之外的全部屏。 */
   private static readonly OVERLAY_TITLES = {
     help: '操作说明',
     settings: '设置',
     upgrade: '角色升级',
+    codex: '怪物图鉴',
     'confirm-quit': '确定退出游戏？',
   } as const
   /** 每屏的面板高度。写在一起，改一处就够 —— 分开写在两个地方必然漂。 */
   private static readonly OVERLAY_HEIGHTS = {
-    help: 320,
+    help: 440,
     settings: 360,
     // 内容有四段（金币 / 三条角色成长线 / 技能 / 可解锁三项）+ 底部一行说明，
     // 470 会让最后一条解锁行溢出面板底 —— 实测过，所以留足余量。
-    upgrade: 500,
+    upgrade: 660,
+    codex: 610,
     'confirm-quit': 360,
   } as const
 
   /** 局外成长的数值表。**加载失败时是 `null`**，升级页会照实说 */
   private meta: MetaConfig | null = null
+  /** 敌人 / 难度 / 基线配置。图鉴数值全部从这里派生。 */
+  private codexConfig: ConfigBundle | null = null
 
   private readonly disposers: (() => void)[] = []
 
@@ -128,13 +157,42 @@ export class MainMenuScene extends Phaser.Scene {
     } else {
       this.store = new ProfileStore({ storage: new LocalStorageProfileStorage() })
     }
-    this.state = createMenuState()
+    this.state = createMenuState(data.initialScreen)
   }
 
   preload(): void {
     // 配置表必须走 Phaser 的 loader，**不能 import** —— `public/` 下的文件不参与
     // 打包，Vite 遇到指向它的 import 会静默换成空模块（见 `ArenaBase.preload`）。
     this.load.json(META_CONFIG_NAME, META_CONFIG_URL)
+    for (const name of CONFIG_FILE_NAMES) {
+      if (!this.cache.json.exists(name)) this.load.json(name, configUrl(name))
+    }
+    for (const key of MENU_ART) {
+      const asset = findAsset(key)
+      if (!asset || this.textures.exists(key)) continue
+      if (asset.kind === 'spritesheet')
+        this.load.spritesheet(key, imageUrl(asset), {
+          frameWidth: asset.frameWidth!,
+          frameHeight: asset.frameHeight!,
+        })
+      else this.load.image(key, imageUrl(asset))
+    }
+
+    // 图鉴要展示的种类和代数由配置决定；预加载阶段先按资源清单里的敌人 /
+    // 首领前缀收图，避免在场景代码里硬编码任何 texture key。
+    for (const asset of ASSETS) {
+      if (asset.kind === 'audio' || asset.placeholder) continue
+      if (!asset.key.startsWith('enemy_') && !asset.key.startsWith('boss_')) continue
+      if (this.textures.exists(asset.key)) continue
+      if (asset.kind === 'spritesheet') {
+        this.load.spritesheet(asset.key, imageUrl(asset), {
+          frameWidth: asset.frameWidth!,
+          frameHeight: asset.frameHeight!,
+        })
+      } else {
+        this.load.image(asset.key, imageUrl(asset))
+      }
+    }
   }
 
   create(): void {
@@ -149,6 +207,21 @@ export class MainMenuScene extends Phaser.Scene {
       this.state = withNotice(
         this.state,
         `成长配置读不出来：${err instanceof Error ? err.message : String(err)}`,
+      )
+    }
+
+    try {
+      const [balance, difficulty, enemies] = CONFIG_FILE_NAMES
+      this.codexConfig = parseConfigBundle({
+        balance: this.cache.json.get(balance),
+        difficulty: this.cache.json.get(difficulty),
+        enemies: this.cache.json.get(enemies),
+      })
+    } catch (err) {
+      this.codexConfig = null
+      this.state = withNotice(
+        this.state,
+        `怪物图鉴配置读不出来：${err instanceof Error ? err.message : String(err)}`,
       )
     }
 
@@ -169,9 +242,11 @@ export class MainMenuScene extends Phaser.Scene {
     const kb = this.input.keyboard
     if (kb) {
       // 空格默认会滚动页面；不捕获的话按一下整页就跳。
-      kb.addCapture(['SPACE', 'UP', 'DOWN', 'ENTER', 'ESC'])
-      kb.on('keydown-UP', () => this.moveFocus(-1))
-      kb.on('keydown-DOWN', () => this.moveFocus(1))
+      kb.addCapture(['SPACE', 'UP', 'DOWN', 'LEFT', 'RIGHT', 'ENTER', 'ESC'])
+      kb.on('keydown-UP', () => this.moveSelection(-1))
+      kb.on('keydown-DOWN', () => this.moveSelection(1))
+      kb.on('keydown-LEFT', () => this.moveSelection(-1))
+      kb.on('keydown-RIGHT', () => this.moveSelection(1))
       kb.on('keydown-ENTER', () => this.activateFocused())
       kb.on('keydown-SPACE', () => this.activateFocused())
       kb.on('keydown-ESC', () => this.escape())
@@ -183,6 +258,29 @@ export class MainMenuScene extends Phaser.Scene {
     const onResize = (): void => this.rebuild()
     this.scale.on(Phaser.Scale.Events.RESIZE, onResize)
     this.disposers.push(() => this.scale.off(Phaser.Scale.Events.RESIZE, onResize))
+
+    // 显示模式以浏览器实际状态为准。进入 / 退出全屏、以及玩家按 Esc 退出，
+    // Phaser 都会发事件；在这些事件之后写档，才能避免“按钮显示全屏、
+    // 实际却已经回到窗口”的假状态。
+    const syncDisplayMode = (): void => {
+      this.store.syncDisplayMode(this.scale.isFullscreen)
+      this.refresh()
+    }
+    const fullscreenFailed = (): void => {
+      this.state = withNotice(this.state, '全屏切换失败，浏览器未进入全屏')
+      this.refresh()
+    }
+    this.scale.on(Phaser.Scale.Events.ENTER_FULLSCREEN, syncDisplayMode)
+    this.scale.on(Phaser.Scale.Events.LEAVE_FULLSCREEN, syncDisplayMode)
+    this.scale.on(Phaser.Scale.Events.FULLSCREEN_FAILED, fullscreenFailed)
+    this.scale.on(Phaser.Scale.Events.FULLSCREEN_UNSUPPORTED, fullscreenFailed)
+    this.disposers.push(() => {
+      this.scale.off(Phaser.Scale.Events.ENTER_FULLSCREEN, syncDisplayMode)
+      this.scale.off(Phaser.Scale.Events.LEAVE_FULLSCREEN, syncDisplayMode)
+      this.scale.off(Phaser.Scale.Events.FULLSCREEN_FAILED, fullscreenFailed)
+      this.scale.off(Phaser.Scale.Events.FULLSCREEN_UNSUPPORTED, fullscreenFailed)
+    })
+    syncDisplayMode()
 
     // 档变了就刷新外观（设置弹层的滑杆改了音量、别处改了选择）。
     // **这条只调 refresh()，不调 rebuild()** —— 理由见文件头。
@@ -199,6 +297,14 @@ export class MainMenuScene extends Phaser.Scene {
     if (this.state.screen !== 'main') return
     this.state = moveFocus(this.state, delta)
     this.refresh()
+  }
+
+  private moveSelection(delta: number): void {
+    if (this.state.screen === 'codex') {
+      this.codexPanel?.moveSelection(delta)
+      return
+    }
+    this.moveFocus(delta)
   }
 
   private activateFocused(): void {
@@ -242,6 +348,15 @@ export class MainMenuScene extends Phaser.Scene {
         this.state = openScreen(this.state, 'help')
         this.rebuild()
         break
+      case 'codex':
+        if (!this.codexConfig || this.codexEntries().length === 0) {
+          this.state = withNotice(this.state, '怪物图鉴配置尚未加载完成')
+          this.refresh()
+          break
+        }
+        this.state = openScreen(this.state, 'codex')
+        this.rebuild()
+        break
       case 'quit':
         this.state = openScreen(this.state, 'confirm-quit')
         this.rebuild()
@@ -260,13 +375,25 @@ export class MainMenuScene extends Phaser.Scene {
     // 主菜单**始终建**：需求 §4.5 要求「设置弹窗覆盖在主菜单之上」，
     // 所以弹层是"叠上去"的，不是"换一屏"。挡住下层点击的活儿由
     // `buildOverlay` 里那层压暗矩形干（见那里的说明）。
-    this.buildMain(W, H)
+    const compact = W < 760 || H > W
+    const dw = compact ? 640 : 1120,
+      dh = compact ? 950 : 650
+    const first = this.children.list.length
+    this.buildMain(dw, dh)
+    const content = this.children.list.slice(first)
+    const scale = Math.min((W - 24) / dw, (H - 24) / dh, 1.25)
+    this.track(
+      this.add.container((W - dw * scale) / 2, (H - dh * scale) / 2, content).setScale(scale),
+    )
     if (this.state.screen !== 'main') this.buildOverlay(W, H, this.state.screen)
+    this.saveBanner = new SaveStatusBanner(this, this.store, W / 2, 44, W)
 
     this.refresh()
   }
 
   private clearObjects(): void {
+    this.saveBanner?.destroy()
+    this.saveBanner = null
     for (const b of this.buttons.values()) b.destroy()
     for (const b of this.difficultyButtons.values()) b.destroy()
     for (const b of this.overlayButtons) b.destroy()
@@ -282,6 +409,7 @@ export class MainMenuScene extends Phaser.Scene {
     this.settingsParts = null
     this.noticeText = null
     this.unlockedText = null
+    this.codexPanel = null
   }
 
   private track<T extends Phaser.GameObjects.GameObject>(obj: T): T {
@@ -291,123 +419,131 @@ export class MainMenuScene extends Phaser.Scene {
 
   private buildBackdrop(W: number, H: number): void {
     this.track(this.add.rectangle(W / 2, H / 2, W, H, THEME.color.backdrop).setDepth(-10))
+    if (this.textures.exists(CAMPAIGN_ART.title)) {
+      const art = this.track(this.add.image(W / 2, H / 2, CAMPAIGN_ART.title).setDepth(-9))
+      art.setScale(Math.max(W / art.width, H / art.height)).setAlpha(0.5)
+    }
+    const shade = this.track(this.add.graphics().setDepth(-8))
+    shade
+      .fillGradientStyle(0x0d1712, 0x111c18, 0x101810, 0x0b1511, 0.48, 0.26, 0.88, 0.84)
+      .fillRect(0, 0, W, H)
   }
 
   private buildMain(W: number, H: number): void {
-    const pad = THEME.space.xl
-
-    // LOGO / 标题位（需求 §4.1：「LOGO / 标题占位（虚线框）」）
-    this.track(
-      this.add.text(pad, pad, '课后勇者', {
-        fontFamily: THEME.font.family,
-        fontSize: fontPx(THEME.font.title),
-        color: THEME.text.body,
-      }),
-    )
-    this.track(
-      this.add.text(pad, pad + THEME.font.title + THEME.space.sm, '异次元校园 · 主菜单', {
-        fontFamily: THEME.font.family,
-        fontSize: fontPx(THEME.font.small),
-        color: THEME.text.dim,
-      }),
-    )
-
-    // 右上角：设置（需求 §4.1）
+    const compact = W < 800
+    const text = (
+      x: number,
+      y: number,
+      label: string,
+      size = 14,
+      color: string = THEME.text.body,
+    ) =>
+      this.track(
+        this.add
+          .text(x, y, label, {
+            fontFamily: THEME.font.family,
+            fontSize: fontPx(size),
+            color,
+            padding: { top: 3, bottom: 3 },
+          })
+          .setResolution(Math.min(window.devicePixelRatio || 1, 2)),
+      )
+    const g = this.track(this.add.graphics())
+    g.fillStyle(0x0b130f, 0.94).fillRoundedRect(0, 0, W, H, 12)
+    g.lineStyle(1, 0x9b8155, 0.8).strokeRoundedRect(0, 0, W, H, 12)
+    g.lineStyle(1, 0x9b8155, 0.25).strokeRoundedRect(7, 7, W - 14, H - 14, 8)
+    g.fillStyle(0x263a2d, 0.6).fillRoundedRect(22, 22, W - 44, 110, 6)
+    text(40, 31, 'AFTER SCHOOL  /  CAMPUS CHRONICLES', 10, '#cbb785').setLetterSpacing(2)
+    text(36, 53, '课后勇者', 48, '#f3dfb5')
+      .setFontFamily('KaiTi, STKaiti, SimSun, serif')
+      .setLetterSpacing(5)
+    text(42, 110, '下课铃响，冒险才刚刚开始。', 13, '#aebba8')
     this.overlayButtons.push(
-      new Button(this, W - pad - 50, pad + 18, '设置', () => this.open('settings'), {
-        width: 100,
-        height: 36,
-        fontSize: THEME.font.small,
+      new Button(this, W - 82, 66, '设置', () => this.open('settings'), {
+        width: 92,
+        height: 34,
+        fontSize: 13,
       }),
     )
-
-    // 左栏：四个按钮（需求 §4.1 的按钮顺序）
-    MENU_ACTIONS.forEach((action, i) => {
-      const y = BUTTON_TOP + i * (THEME.button.height + THEME.space.md)
-      this.buttons.set(
-        action,
-        new Button(this, pad + THEME.button.width / 2, y, MENU_ACTION_LABELS[action], () =>
-          this.run(action),
+    const ax = compact ? 36 : 394
+    const aw = compact ? W - 72 : W - ax - 36
+    const top = compact ? 170 : 164
+    this.unlockedText = text(ax, top, '', 17, '#e8d6ae')
+    text(ax, top + 30, '带上你的勇气，选择今天的冒险伙伴。', 12, '#9cae99')
+    const gap = 12,
+      cardW = (aw - gap * (CHARACTERS.length - 1)) / CHARACTERS.length,
+      cardH = compact ? 210 : 228
+    CHARACTERS.forEach((def, i) => {
+      this.cards.push(
+        new Card(
+          this,
+          ax + cardW / 2 + i * (cardW + gap),
+          top + 65 + cardH / 2,
+          def,
+          () => this.pickCharacter(def.id),
+          { width: cardW, height: cardH },
         ),
       )
     })
-
-    // 角色区
-    const areaX = pad * 2 + THEME.button.width
-    const areaW = Math.max(200, W - areaX - pad)
-    const gap = THEME.space.md
-    const cardW = Math.max(
-      104,
-      Math.min(THEME.card.width, (areaW - gap * (CHARACTERS.length - 1)) / CHARACTERS.length),
-    )
-    const cardH = Math.min(THEME.card.height, H - BUTTON_TOP - 170)
-    const firstX = areaX + cardW / 2
-
-    this.unlockedText = this.track(
-      this.add.text(areaX, BUTTON_TOP - 34, '', {
-        fontFamily: THEME.font.family,
-        fontSize: fontPx(THEME.font.heading),
-        color: THEME.text.body,
-      }),
-    )
-
-    CHARACTERS.forEach((def, i) => {
-      const x = firstX + i * (cardW + gap)
-      this.cards.push(
-        new Card(this, x, BUTTON_TOP + cardH / 2, def, () => this.pickCharacter(def.id), {
-          width: cardW,
-          height: cardH,
-        }),
-      )
-    })
-
-    // 难度（需求 §4.1：简单 / 普通 / 困难，默认普通）
-    //
-    // ⚠️ 标签与按钮之间要留**真正的空隙**：标签是 origin(0,0) 的左对齐文字（高约 18），
-    // 按钮是**以中心定位**的（高 36 → 上沿在 diffY-18）。
-    // 写成 `标签 y = diffY - 28` 时按钮上沿会盖住标签下沿（实测盖掉 7px）。
-    // 要留 8px 空隙就得 `diffY - 44`；+12 是让它整体再往下让一点。
-    const diffY = BUTTON_TOP + cardH + THEME.space.xl + 38
-    this.track(
-      this.add.text(areaX, diffY - 44, '选择难度', {
-        fontFamily: THEME.font.family,
-        fontSize: fontPx(THEME.font.body),
-        color: THEME.text.dim,
-      }),
-    )
-    const diffW = 96
-    DIFFICULTY_ORDER.forEach((d, i) => {
+    const diffY = top + cardH + 113
+    text(ax, diffY, '冒险难度', 16, '#e8d6ae')
+    text(ax, diffY + 29, '按自己的节奏，探索异次元校园。', 12, '#9cae99')
+    const diffW = (aw - 24) / 3
+    DIFFICULTY_ORDER.forEach((d, i) =>
       this.difficultyButtons.set(
         d,
         new Button(
           this,
-          areaX + diffW / 2 + i * (diffW + THEME.space.sm),
-          diffY,
+          ax + diffW / 2 + i * (diffW + 12),
+          diffY + 82,
           DIFFICULTY_LABELS[d],
           () => this.pickDifficulty(d),
-          { width: diffW, height: 36, fontSize: THEME.font.small },
+          { width: diffW, height: 43, fontSize: 15 },
         ),
+      ),
+    )
+    if (!compact) {
+      g.lineStyle(1, 0x89774e, 0.35).lineBetween(364, 167, 364, H - 50)
+      text(38, 166, '放学后的校园', 22, '#f1ddb4')
+      text(40, 206, '熟悉的教室，未知的另一面。', 13, '#aab6a2')
+      const labels = ['日光教室', '奇妙实验室', '黄昏自习室']
+      ;[CAMPAIGN_ART.level1, CAMPAIGN_ART.level2, CAMPAIGN_ART.level3].forEach((key, i) => {
+        const px = 39 + i * 102
+        g.lineStyle(1, 0x9c8355, 0.7).strokeRect(px - 1, 252, 95, 62)
+        if (this.textures.exists(key))
+          this.track(this.add.image(px + 46, 283, key).setDisplaySize(92, 59))
+        text(px + 3, 321, labels[i]!, 11, '#b7b999')
+      })
+      text(40, 365, '探索房间  ·  收集装备  ·  挑战首领', 12, '#a3b19b')
+    }
+    // 桌面左栏要放下第五个入口：保持同一比例缩小，主操作仍是最高一级，
+    // 其余四项统一压到 35px 并收紧间距，最下面仍然与底部说明留出空隙。
+    const buttonWidth = compact ? (W - 88) / 2 : 272
+    const startY = compact ? 764 : 417
+    MENU_ACTIONS.forEach((action, i) => {
+      const bx = compact ? 36 + buttonWidth / 2 + (i % 2) * (buttonWidth + 16) : 192
+      const by = compact ? startY + Math.floor(i / 2) * 58 : startY + i * 39
+      const label = action === 'start' ? '开始冒险  →' : MENU_ACTION_LABELS[action]
+      this.buttons.set(
+        action,
+        new Button(this, bx, by, label, () => this.run(action), {
+          width: buttonWidth,
+          height: i === 0 ? 36 : 30,
+          fontSize: i === 0 ? 15 : 12,
+        }),
       )
     })
-
-    // 底部提示（需求 §4.1：「选择角色与难度后，点击『开始闯关』进入游戏」）
-    this.track(
-      this.add.text(pad, H - pad - 18, '选择角色与难度后，点击「开始闯关」', {
-        fontFamily: THEME.font.family,
-        fontSize: fontPx(THEME.font.small),
-        color: THEME.text.dim,
-      }),
+    g.lineStyle(1, 0x89774e, 0.3).lineBetween(36, H - 45, W - 36, H - 45)
+    text(
+      38,
+      H - 34,
+      compact
+        ? '方向键选择  /  Enter 确认'
+        : 'WASD 移动    鼠标瞄准    Space 技能    1/2 换武器    E 交互',
+      11,
+      '#8fa18c',
     )
-
-    this.noticeText = this.track(
-      this.add
-        .text(W / 2, H - pad - 18, '', {
-          fontFamily: THEME.font.family,
-          fontSize: fontPx(THEME.font.small),
-          color: THEME.text.accent,
-        })
-        .setOrigin(0.5, 0),
-    )
+    this.noticeText = text(W - 38, H - 34, '', 11, '#d9c492').setOrigin(1, 0)
   }
 
   private buildOverlay(W: number, H: number, screen: Exclude<MenuState['screen'], 'main'>): void {
@@ -429,7 +565,11 @@ export class MainMenuScene extends Phaser.Scene {
         screenWidth: W,
         screenHeight: H,
         title: MainMenuScene.OVERLAY_TITLES[screen],
-        panelHeight: MainMenuScene.OVERLAY_HEIGHTS[screen],
+        panelWidth: screen === 'codex' ? Math.min(W - THEME.space.xl, 980) : undefined,
+        panelHeight:
+          screen === 'codex'
+            ? Math.min(H - THEME.space.xl, MainMenuScene.OVERLAY_HEIGHTS.codex)
+            : MainMenuScene.OVERLAY_HEIGHTS[screen],
       },
       () => this.escape(),
     )
@@ -451,6 +591,16 @@ export class MainMenuScene extends Phaser.Scene {
         this.rebuild()
       })
     }
+    if (screen === 'codex' && this.codexConfig) {
+      this.codexPanel = new CodexPanel(this, sink, frame, {
+        entries: this.codexEntries(),
+        selectedId: this.codexSelectionId,
+        difficultyLabel: DIFFICULTY_LABELS[this.store.profile.selected.difficulty],
+        onSelect: (entry) => {
+          this.codexSelectionId = entry.id
+        },
+      })
+    }
     if (screen === 'confirm-quit') {
       // 退出确认是个二选一：需求 §4.1「确认：关闭程序；取消：关闭弹窗回到主菜单」。
       // 「取消」就是外框带的那个「关闭」按钮；确认单独一行，免得和它挤在一起被误点。
@@ -469,6 +619,11 @@ export class MainMenuScene extends Phaser.Scene {
   private open(screen: MenuState['screen']): void {
     this.state = openScreen(this.state, screen)
     this.rebuild()
+  }
+
+  private codexEntries(): readonly CodexEntry[] {
+    if (!this.codexConfig) return []
+    return buildCodexEntries(this.codexConfig, this.store.profile.selected.difficulty)
   }
 
   private pickCharacter(id: string): void {
@@ -500,7 +655,6 @@ export class MainMenuScene extends Phaser.Scene {
         `全屏切换失败：${err instanceof Error ? err.message : err}`,
       )
     }
-    this.store.setSettings({ displayMode: mode })
     this.refresh()
   }
 
@@ -540,6 +694,7 @@ export class MainMenuScene extends Phaser.Scene {
 
     const mode = p.settings.displayMode
     if (this.settingsParts) applyDisplayModeSelection(this.settingsParts, mode)
+    this.saveBanner?.refresh()
 
     if (this.noticeText) {
       const name = characterById(p.selected.characterId)?.name ?? p.selected.characterId

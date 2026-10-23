@@ -66,8 +66,13 @@ export function rectsIntersect(a: Rect, b: Rect): boolean {
  * 而在判定上它会与「贴着它的那条边」算相交 —— 于是「裁完了」和「没裁掉」
  * 在调用方眼里长得一模一样，直到某个角上多出一根一像素的刺。
  *
- * 用途：把**整层的墙**裁成「这一间房附近的那几段」。侧室门厅的封口、
- * 走廊的封口这些都是连续的墙，不裁的话一间房会连带画出半个楼层的墙。
+ * 用途：把**整层的墙**裁成「这一间房附近的那几段」。v5 的墙是**一整张图**
+ * （`DungeonMap.walls` = 平面图上所有没被任何空间占用的格子，见 `model/types.ts`），
+ * 不裁的话一间房会连带画出半个楼层的墙。
+ *
+ * ⚠️ 这里原举的例子是「侧室门厅的封口、走廊的封口」—— 「侧室」随 v5 没了
+ * （`model/types.ts` 删了 `Room.branch` / `anchoredTo`），而 v5 的墙比那些**多得多**
+ * （电梯、卫生间、被省略的 5 处楼梯间都算墙），要裁这件事从「顺便」变成了必须。
  */
 export function clipRect(r: Rect, box: Rect): Rect | null {
   const x0 = Math.max(left(r), left(box))

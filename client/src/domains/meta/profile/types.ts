@@ -32,7 +32,7 @@
 import type { Difficulty } from '@/core/config'
 
 /** 当前 schema 版本。**改字段语义时加一**，并在 `migrate.ts` 里补一步迁移。 */
-export const PROFILE_SCHEMA_VERSION = 1
+export const PROFILE_SCHEMA_VERSION = 4
 
 /** 存储 key。**只有一个，且版本不在 key 里**（理由见文件头）。 */
 export const PROFILE_STORAGE_KEY = 'bjtu-rogue:profile'
@@ -46,9 +46,11 @@ export const PROFILE_STORAGE_KEY = 'bjtu-rogue:profile'
 export const PROFILE_BACKUP_KEY = 'bjtu-rogue:profile:backup'
 
 /**
- * 显示模式。默认 `fullscreen`（需求 §4.5），但**它只是一个偏好值，
- * 应用它必须发生在一次用户点击里** —— 浏览器不许页面在加载时自动进全屏
- * （`AGENTS.md` §九 第 3 条）。
+ * 显示模式。默认 **`windowed`** —— **不是**需求 §4.5 草图上写的 `fullscreen`，
+ * 理由见 [`defaults.ts`](./defaults.ts) 文件头那条 ⚠️（一句话：浏览器不许页面
+ * 在加载时自动进全屏，默认值写全屏 = 设置界面第一帧就在说假话）。
+ *
+ * **它只是一个偏好值**，应用它必须发生在一次用户点击里（`AGENTS.md` §九 第 3 条）。
  */
 export type DisplayMode = 'fullscreen' | 'windowed'
 
@@ -73,7 +75,7 @@ export interface ProfileCurrency {
   coins: number
 }
 
-/** 角色 id → 升级次数（需求 §4.4 角色升级页的「升级次数」） */
+/** `"<角色 id>:skill"` → 已付费购买过的技能升级次数（0..3）。 */
 export type ProfileUpgrades = Record<string, number>
 
 export interface ProfileStats {
@@ -97,6 +99,15 @@ export interface ProfileSelection {
 
 export interface ProfileData {
   schemaVersion: number
+  /**
+   * 本地档的单调递增版本号。
+   *
+   * 云存档接入后用它判断“这一份是否比服务器上的新”、去重重复上传，
+   * 以及避免旧请求晚到后覆盖新档。它只描述**这份档被修改过几次**，
+   * 不参与玩法数值；写盘失败时也会增加，因为内存里的玩家进度确实已经变了，
+   * 后续“重试保存”写出去的必须是这个新 revision。
+   */
+  revision: number
   settings: ProfileSettings
   unlocks: ProfileUnlocks
   currency: ProfileCurrency

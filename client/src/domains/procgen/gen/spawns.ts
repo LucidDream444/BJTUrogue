@@ -8,7 +8,10 @@
  * 这个顺序是整份生成器里最值钱的一个决定。
  *
  * 「出生点被封死」的后果不是"地图走不通"，而是**软锁**：怪出不来 → 玩家打不到 →
- * 房间清不掉 → 门不开 → 而「不回头」规则下**这一局直接作废**。
+ * 房间清不掉 → 门不开 → 那一间永远进不了也出不来。
+ * ⚠️ v4 时这条的代价更重（「不回头」规则下一局直接作废）；v5 里玩家可以自由
+ * 来回走、跳过打不开的房间再去别的（用户 2026-10-19），所以它退化成
+ * **一场没法完成的挑战**，而不是废掉一局。**但那仍然是个 bug** ——
  * 它可能在 1000 个种子里第 837 个才出现。
  *
  * 反过来做（先定出生点、再摆桌子、摆完检查）就必须靠「不通就整张图重来」兜底，
@@ -68,21 +71,42 @@ function floodFill(grid: NavGrid, starts: readonly { cx: number; cy: number }[])
   return seen
 }
 
-/** 房间内部的格子（中心落在四面墙内侧）。 */
-function interiorCells(room: Room, cfg: RoomsConfig, grid: NavGrid): { cx: number; cy: number }[] {
-  const wt = cfg.wallThickness
-  const x0 = left(room.rect) + wt / 2
-  const x1 = right(room.rect) - wt / 2
-  const y0 = top(room.rect) + wt / 2
-  const y1 = bottom(room.rect) - wt / 2
+/**
+ * 房间内部的格子（中心落在房间矩形里）。
+ *
+ * ★ 改了（v5）：**不再往里让半堵墙。** 房间矩形现在**就是**它的可走格跨度
+ * （v4 的矩形含墙，所以那时要 `left + wt/2`）。照旧式子让 20px 的话，
+ * 取出来的格子范围与房间实际的可走区域错开半格，而这一错**不报错**：
+ * 只是最内圈那几格被漏掉、或者墙角多出一格 —— 表现是「这间房明明还有空地，
+ * 刷怪点全挤在中间」。
+ *
+ * 右/下边界是**开区间**，所以用 `x1 - 1` 去取最后一格的下标；
+ * 直接传 `x1` 会落到隔壁那一格（那一格是墙）。
+ */
+function interiorCells(room: Room, grid: NavGrid): { cx: number; cy: number }[] {
+  const x0 = left(room.rect)
+  const x1 = right(room.rect)
+  const y0 = top(room.rect)
+  const y1 = bottom(room.rect)
 
   const a = cellOf(grid, x0, y0)
-  const b = cellOf(grid, x1, y1)
+  const b = cellOf(grid, x1 - 1, y1 - 1)
   const out: { cx: number; cy: number }[] = []
   for (let cy = a.cy; cy <= b.cy; cy++) {
     for (let cx = a.cx; cx <= b.cx; cx++) {
       const p = cellCenter(grid, cx, cy)
-      if (p.x > x0 && p.x < x1 && p.y > y0 && p.y < y1) out.push({ cx, cy })
+      // ★ 改了（2026-10-22 晚·七）：**离四面墙各让出整整一格**。
+      //
+      // 只要求「在房间里」是不够的：最外那一圈格子的中心离墙只有半格（20px），
+      // 而怪放下去要一份 `ENEMY_CLEARANCE = 26px` 的净空（D1 的 `BattleScene`）——
+      // 20 < 26，于是运行时 `safeSpawn()` 把它推开，推的方向**不看墙**：
+      // 实测 6F 的 YF614 有一颗点被推到了走廊里（种子 7919）。
+      // 房间本身仍然「有刷怪点」，所以这件事不报错、只有那条用例看得见。
+      //
+      // 让一格 = 中心离墙 60px > 26 ✓；而且这条判据**不抄 D1 的那个数**
+      // （26 是它们的旋钮，改了不该让这边红）—— 一格是这里能表达的最小裕度。
+      const m = grid.cellSize
+      if (p.x - x0 >= m && x1 - p.x >= m && p.y - y0 >= m && y1 - p.y >= m) out.push({ cx, cy })
     }
   }
   return out
@@ -103,7 +127,7 @@ export function placeSpawnPoints(
   if (!isCombatKind(cfg, room.kind)) return []
 
   const reachable = floodFill(grid, doorEntryCells(room, cfg, grid))
-  const candidates = interiorCells(room, cfg, grid).filter(
+  const candidates = interiorCells(room, grid).filter(
     (c) => reachable.has(c.cy * grid.cols + c.cx) && !isBlockedCell(grid, c.cx, c.cy),
   )
   if (candidates.length === 0) return []
@@ -135,7 +159,7 @@ export function placeSpawnPoints(
   }
 
   // 间距约束把候选全筛掉时，**宁可放宽间距也不要交出一间空房** ——
-  // 空房 = 没有怪 = 房间永远清不掉 = 不回头规则下整局作废。
+  // 空房 = 没有怪 = 房间永远清不掉 = 门永远不开（见文件头）。
   if (picked.length === 0) {
     const p = cellCenter(grid, shuffled[0]!.cx, shuffled[0]!.cy)
     picked.push(p)

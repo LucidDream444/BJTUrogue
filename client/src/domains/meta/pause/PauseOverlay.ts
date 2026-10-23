@@ -47,6 +47,7 @@ import {
   type PanelSink,
   type SettingsPanelParts,
 } from '../ui/panels'
+import { SaveStatusBanner } from '../ui/SaveStatusBanner'
 import { Slider } from '../ui/Slider'
 import { THEME, fontPx } from '../ui/theme'
 import type { RunSnapshot } from './runSnapshot'
@@ -103,8 +104,12 @@ export class PauseOverlay {
   private parts: Phaser.GameObjects.GameObject[] = []
   private layer: OverlayLayer | null = null
   private settingsParts: SettingsPanelParts | null = null
+  private saveBanner: SaveStatusBanner | null = null
   private noticeText: Phaser.GameObjects.Text | null = null
   private readonly onResize: () => void
+  private readonly onFullscreenChanged: () => void
+  private readonly onFullscreenFailed: () => void
+  private readonly unsubscribeStore: () => void
 
   constructor(options: PauseOverlayOptions) {
     this.scene = options.scene
@@ -117,6 +122,24 @@ export class PauseOverlay {
       if (this.opened) this.rebuild()
     }
     this.scene.scale.on(Phaser.Scale.Events.RESIZE, this.onResize)
+    this.onFullscreenChanged = () =>
+      this.store.syncDisplayMode(this.scene.scale.isFullscreen)
+    this.onFullscreenFailed = () => {
+      this.noticeText?.setText('全屏切换失败，浏览器未进入全屏')
+    }
+    this.scene.scale.on(Phaser.Scale.Events.ENTER_FULLSCREEN, this.onFullscreenChanged)
+    this.scene.scale.on(Phaser.Scale.Events.LEAVE_FULLSCREEN, this.onFullscreenChanged)
+    this.scene.scale.on(Phaser.Scale.Events.FULLSCREEN_FAILED, this.onFullscreenFailed)
+    this.scene.scale.on(Phaser.Scale.Events.FULLSCREEN_UNSUPPORTED, this.onFullscreenFailed)
+    this.unsubscribeStore = this.store.subscribe(() => {
+      this.saveBanner?.refresh()
+      if (this.settingsParts) {
+        applyDisplayModeSelection(
+          this.settingsParts,
+          this.store.profile.settings.displayMode,
+        )
+      }
+    })
   }
 
   get isOpen(): boolean {
@@ -156,6 +179,7 @@ export class PauseOverlay {
     this.opened = true
     this.screen = 'paused'
     this.focusIndex = 0
+    this.store.syncDisplayMode(this.scene.scale.isFullscreen)
     // 快照只在打开时取一次：暂停期间这些值不会变，每帧问一次纯属浪费。
     this.snapshot = this.host.snapshot()
     // ⚠️ 顺序：**先暂停再画**。反过来的话，画的过程中世界还在跑，
@@ -181,6 +205,11 @@ export class PauseOverlay {
    */
   destroy(): void {
     this.scene.scale.off(Phaser.Scale.Events.RESIZE, this.onResize)
+    this.scene.scale.off(Phaser.Scale.Events.ENTER_FULLSCREEN, this.onFullscreenChanged)
+    this.scene.scale.off(Phaser.Scale.Events.LEAVE_FULLSCREEN, this.onFullscreenChanged)
+    this.scene.scale.off(Phaser.Scale.Events.FULLSCREEN_FAILED, this.onFullscreenFailed)
+    this.scene.scale.off(Phaser.Scale.Events.FULLSCREEN_UNSUPPORTED, this.onFullscreenFailed)
+    this.unsubscribeStore()
     this.clear()
     this.opened = false
     this.layer?.destroy()
@@ -224,10 +253,6 @@ export class PauseOverlay {
     } catch (err) {
       this.noticeText?.setText(`全屏切换失败：${err instanceof Error ? err.message : String(err)}`)
     }
-    this.store.setSettings({ displayMode: mode })
-    if (this.settingsParts) {
-      applyDisplayModeSelection(this.settingsParts, this.store.profile.settings.displayMode)
-    }
   }
 
   // ------------------------------------------------------------------ 画面
@@ -270,7 +295,7 @@ export class PauseOverlay {
     )
     this.noticeText = frame.notice
 
-    if (this.screen === 'paused') this.buildPauseBody(frame.cx, frame.cy, frame.contentTop, sink)
+    if (this.screen === 'paused') this.buildPauseBody(frame.cx, frame.contentTop, sink)
     if (this.screen === 'help') buildHelpPanel(this.scene, sink, frame)
     if (this.screen === 'settings') {
       this.settingsParts = buildSettingsPanel(this.scene, sink, frame, this.store, (mode) =>
@@ -279,10 +304,18 @@ export class PauseOverlay {
     }
     if (this.screen === 'confirm-quit') this.buildQuitConfirm(frame.cx, frame.cy, sink)
 
+    this.saveBanner = new SaveStatusBanner(
+      this.scene,
+      this.store,
+      this.scene.scale.width / 2,
+      44,
+      this.scene.scale.width,
+    )
+    this.parts.push(this.saveBanner.root)
     this.layer?.attach(this.parts)
   }
 
-  private buildPauseBody(cx: number, cy: number, contentTop: number, sink: PanelSink): void {
+  private buildPauseBody(cx: number, contentTop: number, sink: PanelSink): void {
     // ---- 左栏：四个按钮 ----
     const buttonX = cx - PANEL_WIDTH / 2 + THEME.space.lg + 130
     MENU_LABELS.forEach((label, i) => {
@@ -295,21 +328,15 @@ export class PauseOverlay {
       )
     })
 
-    // ---- 左下：游戏音量 ----
-    // ⚠️ 这个滑杆绑的是档里的 `bgmVolume`，**不是第三份音量**。
-    // 需求 §4.5 的备注写得很明确：「BGM 音量 …… 与暂停菜单的『游戏音量』同步」。
-    // 两个界面读的是同一份档，所以"改一处两边同步"不需要任何同步代码 ——
-    // 它只有一个真值来源。
-    sink.slider(
-      new Slider(
-        this.scene,
-        cx - PANEL_WIDTH / 2 + THEME.space.lg,
-        cy + 90,
-        '游戏音量',
-        this.store.profile.settings.bgmVolume,
-        { width: 240, onChange: (v) => this.store.setSettings({ bgmVolume: v }) },
-      ),
-    )
+    // ---- 左下：**这里原来是「游戏音量」滑杆，2026-10-16 删掉了** ----
+    // 它和「设置 → BGM 音量」绑的是同一个 `bgmVolume`（需求 §4.5 的备注要求两者同步），
+    // 也就是说同一份数据在同一个弹层里有两个入口：一个是本体上的滑杆，
+    // 一个是「设置」里的那条。用户报"按钮下面单独的游戏音量"是多余的 —— 说得对，
+    // 而且它格外容易让人以为"游戏音量"是第三种音量（BGM 之外的一种）。
+    // 现在只剩设置里那一条，**真值来源仍然只有 `bgmVolume` 一个**。
+    //
+    // 删除后左下留出的空档**不补别的东西**：面板高度 440 是按"四个按钮 + 一块角色卡"
+    // 定的，塞满反而更挤。
 
     // ---- 右栏：当前角色数据 ----
     const snapshot = this.snapshot
@@ -424,12 +451,13 @@ export class PauseOverlay {
 
   private upgradesOf(characterId: string | undefined): number {
     if (!characterId) return 0
-    // 升级次数 = 这个角色名下所有成长线（含它的技能）的级数之和。
-    // **不要写 `upgrades[characterId]`** —— 键是 `"owner:track"` 的复合键。
+    // 升级次数 = 该角色唯一技能的已付费升级次数。
     return totalLevelsFor(this.store.profile, characterId)
   }
 
   private clear(): void {
+    this.saveBanner?.destroy()
+    this.saveBanner = null
     for (const b of this.buttons) b.destroy()
     for (const s of this.sliders) s.destroy()
     for (const bar of this.bars) bar.destroy()

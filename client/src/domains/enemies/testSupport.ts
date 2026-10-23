@@ -40,6 +40,8 @@ export function makeSpec(kind: EnemyKind, over: Partial<EnemySpec> = {}): EnemyS
     kind,
     gen: 0,
     stats: { maxHp: 100, speed: 60, radius: 8 },
+    pierceImmune: false,
+    windupMoveMult: 0,
     graceMs: 0,
     graceMoveMult: 1,
     flinchMs: 0,

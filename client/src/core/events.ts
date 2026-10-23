@@ -79,7 +79,7 @@ export class TypedBus<E extends EventMap> {
 export type EmptyPayload = Record<string, never>
 
 export type ActorKind = 'player' | 'enemy'
-export type EnemyKind = 'splitter' | 'tank'
+export type EnemyKind = 'splitter' | 'tank' | 'grabber'
 
 // 伤害相关的两个枚举只定义在 actor/damage.ts 一份，这里转发，避免两处漂移。
 // 依赖方向是 events → damage，反过来是禁止的（damage.ts 必须保持零依赖，见 architecture.test.ts）。

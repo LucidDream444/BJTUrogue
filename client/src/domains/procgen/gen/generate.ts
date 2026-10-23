@@ -6,7 +6,7 @@
  * ## 五步，顺序本身就是设计
  *
  * ```
- * 1. planLayout      房间在哪、多大、门开在哪儿           ← 只碰几何
+ * 1. planLayout      关别、威胁预算、墙、门挂在谁身上      ← 几何来自 floor-plan.json
  * 2. placeObstacles  每间教室的课桌椅                     ← 只碰几何
  * 3. buildGrid       把墙 + 障碍物烘成一张寻路网格         ← 唯一的"看全局"的一步
  * 4. placeSpawnPoints 从门 flood fill，**只从可达格里挑**   ← 这一步是软的还是硬的，全看上一步
@@ -15,6 +15,13 @@
  *
  * 2 在前、4 在后是**不能换的**。换了就必须靠「摆完检查、不通重来」兜底，
  * 而重试次数不确定会让耗时出现长尾 —— 见 `spawns.ts` 的文件头。
+ *
+ * ## 几何来自 `floor-plan.json`，**不由种子决定**
+ *
+ * 房间在哪、多大、门开在哪儿是**画**出来的（照 6F 平面图照片量的），
+ * 种子只决定内容：关别、课桌椅、刷怪点。所以同一层楼换一百个种子长得一模一样，
+ * 而这条性质是**可以断言的**（`gen/threeRooms.test.ts` 的「换种子不换一个像素」钉着它）——
+ * 出问题时因此能干净地二分：「每张图都不对」是几何错了，「某些种子不对」是内容错了。
  *
  * ## 网格在这里建**一次**，之后所有房间共用
  *
@@ -38,6 +45,7 @@
 import type { DungeonMap, Obstacle } from '../model/types'
 import { DUNGEON_SCHEMA_VERSION } from '../model/types'
 import type { RoomsConfig } from '../config'
+import type { FloorPlan } from './floorPlan'
 import { buildGrid, navExtentFor } from '../walkability'
 import { planLayout } from './layout'
 import { placeObstacles } from './obstacles'
@@ -46,24 +54,28 @@ import { placeSpawnPoints } from './spawns'
 /**
  * 生成一层楼。
  *
- * @param seed 种子。同一个 seed + 同一份 `cfg` → 完全相同的地图
+ * @param seed 种子。同一个 seed + 同一份 `cfg` + 同一份 `plan` → 完全相同的地图
  * @param cfg  已校验的 `rooms.json`（**先过 `parseRoomsConfig`**，这里不再校验）
+ * @param plan 已解析的 `floor-plan.json`（**先过 `parseFloorPlan`**）。
+ *             **由调用方传进来，不在这里 `fetch`**：红线 1 说核心循环永远不 `await` 网络，
+ *             而生成是每层要跑一次的东西。平面图在开屏/进层前载入一次，之后一直用同一份。
  * @param now  可选的时钟（毫秒）。不传则 `elapsedMs` 为 0，见文件头
  */
 export function generateDungeon(
   seed: number,
   cfg: RoomsConfig,
+  plan: FloorPlan,
   now?: () => number,
 ): DungeonMap {
   const t0 = now === undefined ? 0 : now()
 
-  // 1. 几何：房间、门、墙
-  const plan = planLayout(seed, cfg)
+  // 1. 关别、威胁预算、墙、门挂到谁身上
+  const layout = planLayout(seed, cfg, plan)
 
   // 2. 障碍物。`Room` 的字段全是 readonly，所以这里是**造新对象**而不是就地改 ——
   //    顺带让「哪一步产生了什么」在类型上看得见：第 2 步之前没有 obstacles，
   //    第 4 步之前没有 spawnPoints，不靠注释记。
-  const withObstacles = plan.rooms.map(
+  const withObstacles = layout.rooms.map(
     (room) => ({ ...room, obstacles: placeObstacles(seed, cfg, room) }) as const,
   )
 
@@ -71,9 +83,9 @@ export function generateDungeon(
   const obstacles: Obstacle[] = []
   for (const room of withObstacles) for (const o of room.obstacles) obstacles.push(o)
 
-  const extent = navExtentFor(plan.bounds, cfg.navCellSize)
+  const extent = navExtentFor(layout.bounds, cfg.navCellSize)
   const grid = buildGrid({
-    walls: plan.walls,
+    walls: layout.walls,
     obstacles,
     cellSize: cfg.navCellSize,
     originX: extent.originX,
@@ -91,9 +103,9 @@ export function generateDungeon(
   return {
     schemaVersion: DUNGEON_SCHEMA_VERSION,
     seed,
-    bounds: plan.bounds,
-    passages: plan.passages,
-    walls: plan.walls,
+    bounds: layout.bounds,
+    passages: layout.passages,
+    walls: layout.walls,
     rooms,
     navCellSize: cfg.navCellSize,
     // 网格的最小角。**校验器与运行时都从这里取**，不许各自算 —— 见 `walkability.ts`

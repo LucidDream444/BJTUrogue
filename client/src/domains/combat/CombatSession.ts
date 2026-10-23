@@ -22,10 +22,27 @@ import {
   type WeaponDef,
   type WeaponId,
   type EffectiveStats,
+  type PermanentRunStats,
+  type CharacterSkillConfig,
 } from './config'
 import type { CombatEvents } from './events'
+import { CharacterSkill, type SkillStatus } from './CharacterSkill'
 export type PauseReason =
-  'user' | 'hidden' | 'reward' | 'preview' | 'death' | 'intermission' | 'victory'
+  | 'user'
+  | 'hidden'
+  | 'reward'
+  | 'preview'
+  | 'death'
+  | 'intermission'
+  | 'victory'
+  /**
+   * **抓取怪抓住了玩家**：世界冻结、镜头特写、只留挣脱连点。
+   *
+   * 它和其他 reason 的关键区别是**没有自动到期** —— 解冻时机由抓取序列决定
+   * （挣脱 / 硬上限 / 玩家死亡），所以 D1 侧必须有一条无条件兜底，
+   * 否则任何一条路径漏掉就是永久卡死（见 `BattleScene` 的抓取驱动）。
+   */
+  | 'grab'
 /** Gameplay component: no imports from the arena/test harness. */
 export class CombatSession {
   readonly clock = new GameClock()
@@ -51,6 +68,9 @@ export class CombatSession {
   private readonly weaponRng = new Rng((20261014 ^ (Date.now() >>> 0)) >>> 0)
   weapon: WeaponDef
   stats: EffectiveStats
+  private permanent: PermanentRunStats
+  private temporaryAttackSpeedPct = 0
+  private skill: CharacterSkill | null = null
   kills = 0
   private dead = false
   private disposed = false
@@ -60,7 +80,7 @@ export class CombatSession {
     readonly cfg: CombatConfig,
     readonly rewardDefs: RewardDef[],
     readonly difficulty: Difficulty,
-    private readonly stageConfig: StageCollisionConfig,
+    private stageConfig: StageCollisionConfig,
   ) {
     this.terrain = new TerrainMap(cfg, stageConfig.navigationCellSize)
     const firstRoom = stageGeometry(stageConfig, 1, cfg.arena.width, cfg.arena.height)
@@ -72,7 +92,23 @@ export class CombatSession {
     )
     this.weapon = cfg.weapons[0]!
     this.rewards = new RewardRun(rewardDefs, new Rng(cfg.arena.seed))
-    this.stats = deriveStats(bundle.balance, cfg, this.weapon, rewardDefs, this.rewards.stacks)
+    this.permanent = {
+      maxHp: bundle.balance.baseline.player.maxHp,
+      maxStamina: cfg.player.maxStamina,
+      maxShield: cfg.player.maxShield,
+      attackSpeedPct: 0,
+      moveSpeedPct: 0,
+      energyRegenPct: 0,
+    }
+    this.stats = deriveStats(
+      bundle.balance,
+      cfg,
+      this.weapon,
+      rewardDefs,
+      this.rewards.stacks,
+      this.permanent,
+      0,
+    )
     scene.physics.world.resume()
     scene.physics.world.setBounds(0, 0, cfg.arena.width, cfg.arena.height)
     this.player = new Player(scene, this.clock, cfg, bundle.balance, this.bus, spawn.x, spawn.y)
@@ -98,7 +134,12 @@ export class CombatSession {
         cols: Math.ceil(cfg.arena.width / this.terrain.cellSize),
         rows: Math.ceil(cfg.arena.height / this.terrain.cellSize),
         isWalkable: (x, y) => this.terrain.isWalkable(x, y, largestEnemyRadius),
-        safeSpawn: (x, y, radius) => this.terrain.safeSpawn(x, y, radius),
+        // ⚠️ 第四个参数是**通行半径**（能走到那儿的是谁），不是摆放净空 ——
+        //    见 `TerrainMap.safeSpawn()` 上那段：只传 `radius` 的话，
+        //    比门洞粗的东西会把整间房判成「不可达」，落点被扔到走廊去。
+        //    怪刷在自己的房间里，但**要能走到它跟前的是玩家**，所以取玩家半径。
+        safeSpawn: (x, y, radius) =>
+          this.terrain.safeSpawn(x, y, radius, bundle.balance.baseline.player.radius),
         projectileBlocked: (x0, y0, x1, y1, radius) =>
           x1 < radius ||
           y1 < radius ||
@@ -125,9 +166,26 @@ export class CombatSession {
       scene,
       this.player.anchor,
       this.enemies.group,
-      Math.max(...stageConfig.stages.map((s) => s.solids.length)) + 4,
+      // ⚠️ **挡板也算在这个上限里**（`StageColliders.rebuild` 把两者加进同一个组）。
+      //    漏掉它的话，整层那一份几何（~190 块墙 + 16 扇门）会在**组满之后**把门
+      //    一扇扇地丢掉 —— 而 `Group.add()` 满了是**静默返回**的（不抛、不警告），
+      //    表现是「最后几扇门永远关不上」。`+ 64` 是给门留的余量，比今天实际用的多。
+      Math.max(...stageConfig.stages.map((s) => s.solids.length)) +
+        Math.max(...stageConfig.stages.map((s) => s.barriers?.length ?? 0)) +
+        64,
     )
-    this.stageColliders.rebuild(this.terrain)
+    // ⚠️ **挡板必须在这里一起建出来，漏了它的失败模式是「门封不上，而且不报错」。**
+    //
+    // 整层连续（2026-10-21）之后门不再是「换一张几何」而是**原地开关的挡板**
+    // （见 `StageColliders.doorZones`），而这道开关要能按，挡板就得先在物理世界里存在。
+    // 早先这一行是 `rebuild(this.terrain)` —— 少了第二个参数，`barriers` 走默认值 `[]`，
+    // 于是 16 扇门**一块挡板都没建**：`setSealed()` 遍历一个空数组（什么都不做）、
+    // `sealedOrders()` 恒返回 `[]`。表现是**玩家在战斗中可以随时走出房间**
+    // （于是能带着满屋子的怪跑到走廊里、再走回来），而控制台**一个字都没有**。
+    //
+    // `enterStage()` 那一头本来就是对的（它传了 `layout.barriers ?? []`），
+    // 所以这个错**只在「刚进场景、还没换过层」那一段存在** —— 更难被发现。
+    this.stageColliders.rebuild(this.terrain, firstRoom.barriers ?? [])
     this.playerCollider = scene.physics.add.collider(
       this.player.anchor,
       this.enemies.group,
@@ -184,17 +242,61 @@ export class CombatSession {
     window.addEventListener('blur', this.onBlur)
     document.addEventListener('visibilitychange', this.onVisibility)
   }
-  enterStage(stage: number): void {
+  /**
+   * **换一整层楼**：外层的几何整份换掉（`stageConfig` 是 D2 另一次生成的产物），
+   * 落到新层的第 1 间。
+   *
+   * 一层楼一张图，层与层之间连房间数都可能一样、但**每个坐标都不一样** ——
+   * 所以这不是 `enterStage()` 那种「同一份几何里的第 n 关」，
+   * 而是「把几何换掉再进第 1 关」。`enterStage(1)` 那三步（寻路网格、碰撞体、
+   * 玩家落脚点）本来就是按 `stageConfig` 重算的，所以换完几何再走一遍就全对了。
+   *
+   * `keepLoadout` 走默认的 `false`：枪和强化**跨层保留**（那是局内成长，`inventory`
+   * 和强化都不在这里清），清掉的只是这一层留下的**子弹与地面掉落物** ——
+   * 那些东西的坐标属于旧那一层，带下去只会散在新房间的地板上。
+   */
+  loadFloor(stageConfig: StageCollisionConfig): void {
+    this.stageConfig = stageConfig
+    this.enterStage(1)
+  }
+
+  /**
+   * 封门。`sealed` 是**应该封着的那些房号**（`Room.order`），不是开关指令 ——
+   * 重传同一个集合不会抖（见 `StageColliders.setSealed`）。
+   *
+   * 「哪些该封」是关卡的规则、归宿主（`BattleScene` 按 `roomFlow.doorShouldBeClosed`
+   * 判）；这里只把结论落到物理上。**判定与执行分开**是为了那条规则能在 node 里单测
+   * —— 它已经测过了，`roomFlow.test.ts`。
+   *
+   * ⚠️ `enterStage()` 里那次 `rebuild()` 结尾已经把所有的门**打开**了
+   * （新的一层，没有哪一间在打）。所以从上一层带下来的"封着"不会串到这一层。
+   */
+  sealDoors(sealed: ReadonlySet<number>): void {
+    this.stageColliders.setSealed(sealed)
+  }
+  /**
+   * 转接：换几何 → 重建碰撞 → 找落脚点 → 清输入 → 挪人。
+   *
+   * `keepLoadout`：**回走**到一间打过的房间时用。清装备是「进入新的一关」的语义，
+   * 而回走不是新关 —— 把玩家手里的枪洗掉只会让人不敢往回走，
+   * 而回走正是这一层想要的「地牢感」。
+   */
+  enterStage(stage: number, keepLoadout = false): void {
     const layout = stageGeometry(
       this.stageConfig,
       stage,
       this.cfg.arena.width,
       this.cfg.arena.height,
     )
-    this.weapons.clear()
-    this.drops.clear()
+    if (!keepLoadout) {
+      this.weapons.clear()
+      this.drops.clear()
+    }
     this.terrain.setStage(layout)
-    this.stageColliders.rebuild(this.terrain)
+    // ⚠️ 挡板**只给碰撞体、不给 `terrain`**：`terrain.setStage(layout)` 只吃
+    //    `solids`，而门洞必须留在寻路网格之外（进了网格整层就变成一间间孤岛，
+    //    见 `StageGeometry.StageLayout.barriers`）。
+    this.stageColliders.rebuild(this.terrain, layout.barriers ?? [])
     const spawn = this.terrain.safeSpawn(
       layout.playerSpawn.x,
       layout.playerSpawn.y,
@@ -207,8 +309,16 @@ export class CombatSession {
   }
 
   private onDown(pointer: Phaser.Input.Pointer): void {
-    if (pointer.leftButtonDown() && !this.clock.paused && this.player.model.alive)
-      this.weapons.firing = true
+    if (!pointer.leftButtonDown()) return
+    // ⚠️ **抓取期间这一条必须排在暂停守卫之前。** 世界是冻结的，下面那句
+    //    `!this.clock.paused` 会把按键整条吃掉 —— QTE 就永远收不到输入，
+    //    表现是「连点没反应」，而且不报任何错。
+    //    转的是**按下边沿**（`POINTER_DOWN` 本身就是离散事件），按住只算一次。
+    if (this.reasons.has('grab')) {
+      this.enemies.grabPress()
+      return
+    }
+    if (!this.clock.paused && this.player.model.alive) this.weapons.firing = true
   }
   private onUp(): void {
     this.weapons.stopFiring()
@@ -229,7 +339,7 @@ export class CombatSession {
     this.scene.physics.world.resume()
     const pointer = this.scene.input.activePointer
     this.scene.cameras.main.getWorldPoint(pointer.x, pointer.y, this.aim)
-    this.player.move(this.clock.nowMs - before, true)
+    if (!this.skill?.isDashing()) this.player.move(this.clock.nowMs - before, true)
     this.player.aim(this.aim.x, this.aim.y, this.weapons.firing)
     this.player.advanceStamina(this.clock.nowMs - before, this.weapons.firing)
     this.weapons.update(this.stats, this.weapon)
@@ -241,6 +351,7 @@ export class CombatSession {
       this.weapons.clear()
     }
     this.enemies.update(delta)
+    this.skill?.update(this.clock.nowMs)
     this.drops.update()
     this.player.draw()
     this.weapons.resolveTerrain()
@@ -289,6 +400,9 @@ export class CombatSession {
   }
   equip(id: WeaponId, allowDuringReward = false): boolean {
     if (
+      // 抓取期间不换枪：世界冻着，换成大威力武器就能秒脱身 ——
+      // 那正是「除了挣脱，其他都不能动」要堵掉的口子
+      this.reasons.has('grab') ||
       !this.inventory.includes(id) ||
       (!allowDuringReward && this.rewards.roomId) ||
       !this.player.model.alive
@@ -361,6 +475,67 @@ export class CombatSession {
     this.equip(id, true)
     return true
   }
+  /**
+   * 进入一局时应用 D4 永久成长。
+   *
+   * 这一步发生在第一帧之前；局内核心循环不会再次读取存档。
+   * 生命、能量和护盾都以成长后的上限“满状态”开始，随后局内奖励只提高上限，
+   * 不会顺手回满。
+   */
+  applyPermanentRunStats(permanent: PermanentRunStats): void {
+    this.permanent = {
+      maxHp: Math.max(1, Math.round(permanent.maxHp)),
+      maxStamina: Math.max(1, Math.round(permanent.maxStamina)),
+      maxShield: Math.max(0, Math.round(permanent.maxShield)),
+      attackSpeedPct: Math.max(0, permanent.attackSpeedPct),
+      moveSpeedPct: Math.max(0, permanent.moveSpeedPct),
+      energyRegenPct: Math.max(0, permanent.energyRegenPct),
+    }
+    this.stats = deriveStats(
+      this.bundle.balance,
+      this.cfg,
+      this.weapon,
+      this.rewardDefs,
+      this.rewards.stacks,
+      this.permanent,
+      this.temporaryAttackSpeedPct,
+    )
+    this.player.model.applyRunStartStats(
+      this.stats.maxHp,
+      this.stats.moveSpeed,
+      this.stats.iframeMs,
+    )
+    this.player.applyRunStartStaminaLimit(this.stats.maxStamina)
+    this.player.applyEnergyRegenBonus(this.permanent.energyRegenPct)
+    this.player.model.applyMaxShield(this.permanent.maxShield)
+  }
+  configureCharacterSkill(config: CharacterSkillConfig): void {
+    this.skill?.destroy()
+    this.temporaryAttackSpeedPct = 0
+    this.skill = new CharacterSkill(
+      {
+        scene: this.scene,
+        clock: this.clock,
+        player: this.player,
+        enemies: this.enemies,
+        terrain: this.terrain,
+        setTemporaryAttackSpeed: (pct) => {
+          this.temporaryAttackSpeedPct = pct
+          this.recompute()
+        },
+      },
+      config,
+    )
+  }
+  activateSkill(aim: { x: number; y: number }): boolean {
+    return this.skill?.activate(aim) ?? false
+  }
+  clearRoomSkillObjects(): void {
+    this.skill?.clearRoom()
+  }
+  skillStatus(): SkillStatus | null {
+    return this.skill?.status() ?? null
+  }
   private recompute(): void {
     this.stats = deriveStats(
       this.bundle.balance,
@@ -368,6 +543,8 @@ export class CombatSession {
       this.weapon,
       this.rewardDefs,
       this.rewards.stacks,
+      this.permanent,
+      this.temporaryAttackSpeedPct,
     )
     this.player.model.applyStats(this.stats.maxHp, this.stats.moveSpeed, this.stats.iframeMs)
     this.player.applyStaminaLimit(this.stats.maxStamina)
@@ -391,7 +568,15 @@ export class CombatSession {
   rewardChanges(r: RewardDef): { label: string; before: string; after: string }[] {
     const next = new Map(this.rewards.stacks)
     next.set(r.id, (next.get(r.id) ?? 0) + 1)
-    const after = deriveStats(this.bundle.balance, this.cfg, this.weapon, this.rewardDefs, next)
+    const after = deriveStats(
+      this.bundle.balance,
+      this.cfg,
+      this.weapon,
+      this.rewardDefs,
+      next,
+      this.permanent,
+      this.temporaryAttackSpeedPct,
+    )
     const display = (value: number) => Number(value.toFixed(2)).toString()
     const metrics: {
       key: keyof EffectiveStats
@@ -423,6 +608,8 @@ export class CombatSession {
   destroy(): void {
     if (this.disposed) return
     this.disposed = true
+    this.skill?.destroy()
+    this.skill = null
     this.scene.events.off(Phaser.Scenes.Events.PRE_UPDATE, this.beforePhysics, this)
     this.scene.input.off(Phaser.Input.Events.POINTER_DOWN, this.onDown, this)
     this.scene.input.off(Phaser.Input.Events.POINTER_UP, this.onUp, this)

@@ -72,7 +72,69 @@ export const STATUS_BAR_FILL_BOUNDS = { left: 31, rightInset: 32 } as const
 
 export const TANK_ART = { walk: 'enemy_tank_walk', attack: 'enemy_tank_idle' } as const
 
+/** 抓取怪的笔记本电脑动作图集。帧由 D3 的抓取状态驱动，不把玩家画进敌人图。 */
+export const GRABBER_ART = {
+  texture: 'enemy_grabber_idle',
+  frames: {
+    idle: 0,
+    walkA: 1,
+    walkB: 2,
+    windup: 3,
+    pounce: 4,
+    holding: 5,
+    hurt: 6,
+    flung: 7,
+  },
+} as const
+
 export const WEAPON_ART = { chest: 'chest', pistol: 'weapon_pistol' } as const
+
+/** D1 主动技能表现。参考书复用校园 UI 中已交付的书本图。 */
+export const SKILL_ART = { referenceBook: 'ui_campus_book' } as const
+
+/** 大鹅保留 athlete 存档身份；这里只定义美术几何，不定义角色数值。 */
+export const GOOSE_ART = {
+  characterId: 'athlete',
+  portrait: 'player_goose_portrait',
+  portraitSize: 92,
+  frameSize: 96,
+  visualScale: 0.5,
+  foot: [48, 86],
+  neck: { texture: 'player_goose_neck', pivot: [14, 48], mouth: [84, 48], axis: 0 },
+  directions: {
+    right: { body: 'player_goose_body_right', socket: [60, 60] },
+    left: { body: 'player_goose_body_left', socket: [34, 60] },
+    up: { body: 'player_goose_body_up', socket: [48, 58] },
+    down: { body: 'player_goose_body_down', socket: [48, 62] },
+  },
+  states: {
+    idle: { start: 0, count: 4, frameRate: 4, loop: true },
+    run: { start: 4, count: 8, frameRate: 10, loop: true },
+    shoot: { start: 12, count: 4, frameRate: 18, loop: false },
+    hurt: { start: 16, count: 4, frameRate: 9, loop: false },
+    death: { start: 20, count: 4, frameRate: 8, loop: false },
+  },
+  guns: {
+    pencil: 'player_goose_gun_pencil', pulse: 'player_goose_gun_pulse',
+    venom: 'player_goose_gun_venom', flare: 'player_goose_gun_flare',
+    rail: 'player_goose_gun_rail', smg: 'player_goose_gun_smg',
+  },
+  gunSize: [48, 32],
+  grip: [12, 16],
+  muzzle: [44, 16],
+} as const
+
+function gooseAssets(): AssetEntry[] {
+  return [
+    ...[...Object.values(GOOSE_ART.directions).map((d) => d.body), GOOSE_ART.neck.texture].map((key) => ({
+      key, path: `sprites/player/goose/${key}.png`, placeholder: false,
+      kind: 'spritesheet' as const, frameWidth: GOOSE_ART.frameSize, frameHeight: GOOSE_ART.frameSize,
+    })),
+    ...[GOOSE_ART.portrait, ...Object.values(GOOSE_ART.guns)].map((key) => ({
+      key, path: `sprites/player/goose/${key}.png`, placeholder: false, kind: 'image' as const,
+    })),
+  ]
+}
 
 export const GAME_CURSOR_ART = {
   arrow: { key: 'ui_cursor_arrow_game', hotspotX: 7, hotspotY: 6 },
@@ -111,7 +173,88 @@ export const CAMPAIGN_ART = {
   level3: 'level_3_classroom',
 } as const
 
+/** 校园场景美术：教室现役资源与走廊/电子屏备用资源统一从清单取用。 */
+export const CAMPUS_ART = {
+  classroom: {
+    chalkboard: 'prop_chalkboard_green',
+    desk: 'furniture_classroom_desk',
+    chairFolded: 'furniture_lecture_chair_folded',
+    chairDown: 'furniture_lecture_chair_down',
+  },
+  corridor: {
+    overview: 'corridor_hallway',
+    screenSmall: 'prop_corridor_screen_small',
+    screenFull: 'ui_corridor_screen_full',
+  },
+} as const
+
+/**
+ * 玩家持枪图集的**分层底表**。每张原图拆成两份：`_body`（不含手臂与枪的身体）
+ * 与 `_arm`（手臂+枪，整体绕肩旋转）。
+ *
+ * 为什么要有分层：持枪图只有朝右一个方向，枪管永远横着，而子弹朝鼠标飞 ——
+ * 贴脸时枪口方向和弹道能差近 90°，玩家看着别扭。分层之后手臂可以跟着鼠标转，
+ * 身体的左右两个朝向保持不变。
+ *
+ * 生成脚本见 `src/test/arenas/D1/tools/split_arm_layers.py`（切分位置是那里的常量），
+ * 报告在 `artifacts/arm-split.json`。**改切分位置要重新跑那个脚本。**
+ *
+ * 帧几何与原图**完全一致**（同尺寸、同帧数、同锚点），所以 `D1_ART` 里
+ * 对应的条目直接复制几何即可，见 `d1AssetManifest.ts`。
+ */
+export const PLAYER_LAYERS = [
+  // 步枪 5 把共用同一套身体与手臂 —— 它们的原图逐字节相同，所以只存一份。
+  { key: 'player_body_rifle_shoot', group: 'body_rifle_shoot', frameWidth: 96, frameHeight: 80 },
+  { key: 'player_body_rifle_run', group: 'body_rifle_run', frameWidth: 96, frameHeight: 80 },
+  { key: 'player_arm_rifle_shoot', group: 'arm_rifle_shoot', frameWidth: 96, frameHeight: 80 },
+  { key: 'player_arm_rifle_run', group: 'arm_rifle_run', frameWidth: 96, frameHeight: 80 },
+  // 枪每把一张；逐帧位置由 combat.json 的 gunMuzzles 推（枪是刚体）。
+  { key: 'player_gun_pulse', group: 'gun_pulse', frameWidth: 96, frameHeight: 80 },
+  { key: 'player_gun_venom', group: 'gun_venom', frameWidth: 96, frameHeight: 80 },
+  { key: 'player_gun_flare', group: 'gun_flare', frameWidth: 96, frameHeight: 80 },
+  { key: 'player_gun_rail', group: 'gun_rail', frameWidth: 96, frameHeight: 80 },
+  { key: 'player_gun_smg', group: 'gun_smg', frameWidth: 96, frameHeight: 80 },
+  // 手枪只有一把武器，没有跨武器复用可言 —— 它的枪没拆，留在手臂层里。
+  { key: 'player_body_pencil_shoot', group: 'body_pencil_shoot', frameWidth: 72, frameHeight: 72 },
+  { key: 'player_body_pencil_run', group: 'body_pencil_run', frameWidth: 71, frameHeight: 71 },
+  { key: 'player_arm_pencil_shoot', group: 'arm_pencil_shoot', frameWidth: 72, frameHeight: 72 },
+  { key: 'player_arm_pencil_run', group: 'arm_pencil_run', frameWidth: 71, frameHeight: 71 },
+] as const
+
+function playerLayerAssets(): AssetEntry[] {
+  return PLAYER_LAYERS.map((l) => ({
+    key: l.key,
+    path: `sprites/player/${l.key}.png`,
+    placeholder: false,
+    kind: 'spritesheet' as const,
+    frameWidth: l.frameWidth,
+    frameHeight: l.frameHeight,
+  }))
+}
+
 export const ASSETS: readonly AssetEntry[] = [
+  ...['pencil', 'pulse', 'venom', 'flare', 'rail', 'smg'].flatMap((weapon) =>
+    ['up', 'down'].flatMap((direction) =>
+      ['run', 'stand'].map((state): AssetEntry => ({
+        key: `player_${weapon}_aim_${direction}_${state}`,
+        path: `sprites/player/player_${weapon}_aim_${direction}_${state}.png`,
+        kind: 'spritesheet',
+        placeholder: false,
+        frameWidth: 112,
+        frameHeight: 96,
+      })),
+    ),
+  ),
+  ...['player_student_aim_up', 'player_student_aim_down'].map((key): AssetEntry => ({
+    key,
+    path: `sprites/player/${key}.png`,
+    kind: 'spritesheet',
+    placeholder: false,
+    frameWidth: 71,
+    frameHeight: 71,
+    width: 71,
+    height: 71,
+  })),
   {
     key: GAME_AUDIO.bgm,
     path: 'audio/bgm/bgm_pixel_dungeon_rush',
@@ -129,9 +272,9 @@ export const ASSETS: readonly AssetEntry[] = [
   {
     key: 'enemy_stage2_idle',
     path: 'sprites/enemies/stage2_boss/enemy_stage2_idle.png',
-    placeholder: false,
+    placeholder: true,
     kind: 'spritesheet',
-    width: 128,
+    width: 96,
     height: 128,
     frameWidth: 128,
     frameHeight: 128,
@@ -139,9 +282,9 @@ export const ASSETS: readonly AssetEntry[] = [
   {
     key: 'enemy_stage2_attack',
     path: 'sprites/enemies/stage2_boss/enemy_stage2_attack.png',
-    placeholder: false,
+    placeholder: true,
     kind: 'spritesheet',
-    width: 128,
+    width: 96,
     height: 128,
     frameWidth: 128,
     frameHeight: 128,
@@ -179,13 +322,69 @@ export const ASSETS: readonly AssetEntry[] = [
     width: 3840,
     height: 2160,
   },
+  {
+    key: 'corridor_hallway',
+    path: 'maps/corridor_hallway.png',
+    placeholder: false,
+    kind: 'image',
+    width: 512,
+    height: 288,
+  },
+  {
+    key: 'prop_chalkboard_green',
+    path: 'sprites/props/prop_chalkboard_green.png',
+    placeholder: false,
+    kind: 'image',
+    width: 256,
+    height: 96,
+  },
+  {
+    key: 'furniture_classroom_desk',
+    path: 'sprites/furniture/furniture_classroom_desk.png',
+    placeholder: false,
+    kind: 'image',
+    width: 192,
+    height: 96,
+  },
+  {
+    key: 'furniture_lecture_chair_folded',
+    path: 'sprites/furniture/furniture_lecture_chair_folded.png',
+    placeholder: false,
+    kind: 'image',
+    width: 96,
+    height: 128,
+  },
+  {
+    key: 'furniture_lecture_chair_down',
+    path: 'sprites/furniture/furniture_lecture_chair_down.png',
+    placeholder: false,
+    kind: 'image',
+    width: 96,
+    height: 128,
+  },
+  {
+    key: 'prop_corridor_screen_small',
+    path: 'sprites/props/prop_corridor_screen_small.png',
+    placeholder: false,
+    kind: 'image',
+    width: 192,
+    height: 120,
+  },
+  {
+    key: 'ui_corridor_screen_full',
+    path: 'ui/campus/ui_corridor_screen_full.png',
+    placeholder: false,
+    kind: 'image',
+    width: 960,
+    height: 540,
+  },
 
   {
     key: 'boss_final_poison',
     path: 'sprites/enemies/final_boss/boss_final_poison.png',
-    placeholder: false,
+    placeholder: true,
     kind: 'spritesheet',
-    width: 128,
+    width: 96,
     height: 128,
     frameWidth: 128,
     frameHeight: 128,
@@ -194,9 +393,9 @@ export const ASSETS: readonly AssetEntry[] = [
   {
     key: 'boss_final_walk',
     path: 'sprites/enemies/final_boss/boss_final_walk.png',
-    placeholder: false,
+    placeholder: true,
     kind: 'spritesheet',
-    width: 128,
+    width: 96,
     height: 128,
     frameWidth: 128,
     frameHeight: 128,
@@ -204,9 +403,9 @@ export const ASSETS: readonly AssetEntry[] = [
   {
     key: 'boss_final_attack',
     path: 'sprites/enemies/final_boss/boss_final_attack.png',
-    placeholder: false,
+    placeholder: true,
     kind: 'spritesheet',
-    width: 128,
+    width: 96,
     height: 128,
     frameWidth: 128,
     frameHeight: 128,
@@ -214,9 +413,9 @@ export const ASSETS: readonly AssetEntry[] = [
   {
     key: 'boss_final_idle',
     path: 'sprites/enemies/final_boss/boss_final_idle.png',
-    placeholder: false,
+    placeholder: true,
     kind: 'spritesheet',
-    width: 128,
+    width: 96,
     height: 128,
     frameWidth: 128,
     frameHeight: 128,
@@ -486,7 +685,7 @@ export const ASSETS: readonly AssetEntry[] = [
   },
   {
     key: 'enemy_tank_walk',
-    path: 'sprites/enemies/enemy_tank_walk.png',
+    path: 'sprites/enemies/enemy_tank_textbook_walk.png',
     placeholder: false,
     kind: 'spritesheet',
     width: 96,
@@ -1118,10 +1317,10 @@ export const ASSETS: readonly AssetEntry[] = [
       frameHeight: 64,
     },
   ] as const),
-  // ---- 敌人：皇冠史莱姆分裂怪三代。统一使用 64×64 四行四列动画图集，代际用 visualScale 区分 ----
+  // ---- 敌人：纸团三代。64×64，4 列 8 行；0–7 待机，8–31 展开分裂 / 淡出 ----
   {
-    key: 'enemy_slime_t1_idle',
-    path: 'sprites/enemies/enemy_slime_idle.png',
+    key: 'enemy_splitter_t1_idle',
+    path: 'sprites/enemies/enemy_splitter_paper.png',
     placeholder: false,
     kind: 'spritesheet',
     width: 64,
@@ -1130,8 +1329,8 @@ export const ASSETS: readonly AssetEntry[] = [
     frameHeight: 64,
   },
   {
-    key: 'enemy_slime_t2_idle',
-    path: 'sprites/enemies/enemy_slime_idle.png',
+    key: 'enemy_splitter_t2_idle',
+    path: 'sprites/enemies/enemy_splitter_paper.png',
     placeholder: false,
     kind: 'spritesheet',
     width: 64,
@@ -1140,8 +1339,8 @@ export const ASSETS: readonly AssetEntry[] = [
     frameHeight: 64,
   },
   {
-    key: 'enemy_slime_t3_idle',
-    path: 'sprites/enemies/enemy_slime_idle.png',
+    key: 'enemy_splitter_t3_idle',
+    path: 'sprites/enemies/enemy_splitter_paper.png',
     placeholder: false,
     kind: 'spritesheet',
     width: 64,
@@ -1150,16 +1349,31 @@ export const ASSETS: readonly AssetEntry[] = [
     frameHeight: 64,
   },
 
-  // ---- 敌人：巨型肉盾怪 ----
+  // ---- 敌人：厚课本（保留 tank 逻辑身份与 key）----
   {
     key: 'enemy_tank_idle',
-    path: 'sprites/enemies/enemy_tank_idle.png',
+    path: 'sprites/enemies/enemy_tank_textbook_attack.png',
     placeholder: false,
     kind: 'spritesheet',
     width: 96,
     height: 96,
     frameWidth: 96,
     frameHeight: 96,
+  },
+
+  // ---- 敌人：缠抱怪（抓取型）----
+  //
+  // 笔记本电脑动作图集：逻辑仍沿用 grabber key，表现层按抓取状态选择帧。
+  // 图集不画玩家，扑向 / 吸附 / QTE 受击的反馈由代码特效叠加。
+  {
+    key: 'enemy_grabber_idle',
+    path: 'sprites/enemies/enemy_grabber_laptop.png',
+    placeholder: false,
+    kind: 'spritesheet',
+    width: 512,
+    height: 64,
+    frameWidth: 64,
+    frameHeight: 64,
   },
 
   // ---- 玩家与抛射物（占位期测试场要用，正式资源归 D1 / D4）----
@@ -1199,11 +1413,20 @@ export const ASSETS: readonly AssetEntry[] = [
   audio('sfx_enemy_tank_slam', 'audio/sfx/enemies/sfx_enemy_tank_slam'),
   audio('sfx_enemy_tank_stagger', 'audio/sfx/enemies/sfx_enemy_tank_stagger'),
   audio('sfx_enemy_tank_death', 'audio/sfx/enemies/sfx_enemy_tank_death'),
+  audio('sfx_enemy_grabber_qte_hit', 'audio/sfx/enemies/sfx_enemy_grabber_qte_hit', false),
+  audio('sfx_enemy_grabber_pounce', 'audio/sfx/enemies/sfx_enemy_grabber_pounce', false),
+  audio('sfx_enemy_grabber_latch', 'audio/sfx/enemies/sfx_enemy_grabber_latch', false),
+  audio('sfx_enemy_grabber_emp', 'audio/sfx/enemies/sfx_enemy_grabber_emp', false),
+  audio('sfx_enemy_grabber_land', 'audio/sfx/enemies/sfx_enemy_grabber_land', false),
   audio('sfx_kill_flourish', 'audio/sfx/ui/sfx_kill_flourish'),
+
+  // ---- 玩家分层：身体层 / 手臂+枪层（由 PLAYER_LAYER_BASES 展开，见上）----
+  ...playerLayerAssets(),
+  ...gooseAssets(),
 ]
 
-function audio(key: string, path: string): AssetEntry {
-  return { key, path, placeholder: true, kind: 'audio', codecs: ['ogg', 'mp3'] }
+function audio(key: string, path: string, placeholder = true): AssetEntry {
+  return { key, path, placeholder, kind: 'audio', codecs: ['ogg', 'mp3'] }
 }
 
 /**
@@ -1229,7 +1452,55 @@ export interface AnimDef {
   yoyo?: boolean
 }
 
+export const GOOSE_ANIMS: readonly AnimDef[] = [
+  ...Object.values(GOOSE_ART.directions).map((d) => d.body), GOOSE_ART.neck.texture,
+].flatMap((textureKey) => Object.entries(GOOSE_ART.states).map(([state, a]) => ({
+  animKey: `${textureKey}_${state}`, textureKey,
+  frames: Array.from({ length: a.count }, (_, i) => a.start + i),
+  frameRate: a.frameRate, repeat: a.loop ? -1 : 0,
+})))
+
+export const PAPER_DEATH_ANIMS: readonly AnimDef[] = [
+  {
+    animKey: 'enemy_splitter_unfold_two',
+    textureKey: 'enemy_splitter_t1_idle',
+    frames: [8, 9, 10, 11, 12, 13, 14, 15],
+    frameRate: 24,
+    repeat: 0,
+  },
+  {
+    animKey: 'enemy_splitter_unfold_four',
+    textureKey: 'enemy_splitter_t1_idle',
+    frames: [16, 17, 18, 19, 20, 21, 22, 23],
+    frameRate: 24,
+    repeat: 0,
+  },
+  {
+    animKey: 'enemy_splitter_unfold_fade',
+    textureKey: 'enemy_splitter_t1_idle',
+    frames: [24, 25, 26, 27, 28, 29, 30, 31],
+    frameRate: 24,
+    repeat: 0,
+  },
+]
+
 export const ANIMS: readonly AnimDef[] = [
+  ...GOOSE_ANIMS,
+  ...PAPER_DEATH_ANIMS,
+  {
+    animKey: 'enemy_grabber_idle_loop',
+    textureKey: 'enemy_grabber_idle',
+    frames: [0, 1, 2],
+    frameRate: 5,
+    repeat: -1,
+  },
+  {
+    animKey: 'enemy_grabber_action_frames',
+    textureKey: 'enemy_grabber_idle',
+    frames: [3, 4, 5, 6, 7],
+    frameRate: 10,
+    repeat: 0,
+  },
   {
     animKey: 'enemy_stage2_idle_anim',
     textureKey: 'enemy_stage2_idle',
@@ -1383,7 +1654,7 @@ export const ANIMS: readonly AnimDef[] = [
     animKey: 'enemy_tank_walk_loop',
     textureKey: 'enemy_tank_walk',
     frames: [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15],
-    frameRate: 8,
+    frameRate: 16,
     repeat: -1,
   },
   {
@@ -1394,24 +1665,24 @@ export const ANIMS: readonly AnimDef[] = [
     repeat: 0,
   },
   {
-    animKey: 'enemy_slime_t1_idle_loop',
-    textureKey: 'enemy_slime_t1_idle',
-    frames: [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15],
-    frameRate: 8,
+    animKey: 'enemy_splitter_t1_idle_loop',
+    textureKey: 'enemy_splitter_t1_idle',
+    frames: [0, 1, 2, 3, 4, 5, 6, 7],
+    frameRate: 12,
     repeat: -1,
   },
   {
-    animKey: 'enemy_slime_t2_idle_loop',
-    textureKey: 'enemy_slime_t2_idle',
-    frames: [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15],
-    frameRate: 8,
+    animKey: 'enemy_splitter_t2_idle_loop',
+    textureKey: 'enemy_splitter_t2_idle',
+    frames: [0, 1, 2, 3, 4, 5, 6, 7],
+    frameRate: 12,
     repeat: -1,
   },
   {
-    animKey: 'enemy_slime_t3_idle_loop',
-    textureKey: 'enemy_slime_t3_idle',
-    frames: [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15],
-    frameRate: 8,
+    animKey: 'enemy_splitter_t3_idle_loop',
+    textureKey: 'enemy_splitter_t3_idle',
+    frames: [0, 1, 2, 3, 4, 5, 6, 7],
+    frameRate: 12,
     repeat: -1,
   },
   {

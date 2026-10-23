@@ -1,25 +1,13 @@
 /**
- * 局外成长的**规则**：算等级、算成本、算最终数值、买一级、算一局的收益。
- * **零 Phaser、零 DOM**，node 下全被测。
- *
- * ## 一条设计决定：成长线的 key 是 `"<归属者>:<成长项>"`
- *
- * 档里的 `upgrades` 本来就是 `Record<string, number>`，所以**不用改 schema**
- * （也就没有迁移）：键从"角色 id"变成 `"student:maxHp"` 这种复合键即可。
- * 好处是角色成长线与技能成长线用同一套代码、同一个字段 —— 两者的差别只有
- * "归属者是谁"，而"归属者是谁"本来就不该影响算法。
- *
- * ## MVP 的简化（都记在改动日志的缺口清单里）
- *
- * - **解锁即生效**：档里 `unlocks.skills` 里的技能全都算数，没有"装备哪几个"的概念。
- *   设计上「一个角色可以选择多个技能」—— 那需要一个选择界面，下一版做。
- * - **属性只有四项**：生命上限 / 能量上限 / 护甲 / 攻速，直接相加。
- *   没有乘区、没有阈值、没有互相影响 —— 演示够用，也不会把数值调歪。
+ * 局外成长规则：角色被动、统一技能等级、解锁、收益与结算。
+ * 零 Phaser、零 DOM，node 下可直接测试。
  */
 
-import type { MetaConfig, TrackUnit, UpgradeTrackDef } from '../metaConfig'
-import { costOfNextLevel } from '../metaConfig'
+import type { MetaConfig } from '../metaConfig'
 import type { ProfileData } from '../profile/types'
+
+export const SKILL_TRACK_ID = 'skill'
+export const SKILL_MAX_LEVEL = 4
 
 /** `"student:maxHp"`。**唯一拼 key 的地方**，别在别处手写冒号。 */
 export function trackKey(ownerId: string, trackId: string): string {
@@ -30,7 +18,7 @@ export function levelOf(profile: ProfileData, ownerId: string, trackId: string):
   return profile.upgrades[trackKey(ownerId, trackId)] ?? 0
 }
 
-/** 某个角色（含它名下的技能）一共升了几级 —— 暂停菜单的「升级次数」用它 */
+/** 某个角色已经付费买过的技能升级次数。 */
 export function totalLevelsFor(profile: ProfileData, ownerId: string): number {
   const prefix = `${ownerId}:`
   let sum = 0
@@ -41,11 +29,10 @@ export function totalLevelsFor(profile: ProfileData, ownerId: string): number {
 }
 
 export interface EffectiveStats {
-  maxHp: number
-  magic: number
-  armor: number
-  /** 攻速加成的百分比（5 表示 +5%），**不是倍率** —— 战斗侧自己决定怎么用 */
-  attackSpeedPct: number
+  /** 角色被动：生命上限百分比、移动速度百分比与能量恢复百分比。 */
+  maxHpPct: number
+  moveSpeedPct: number
+  energyRegenPct: number
 }
 
 /**
@@ -53,33 +40,93 @@ export interface EffectiveStats {
  * 别的地方自己去翻 `profile.upgrades` 的话，加一条成长线就要改好几处。
  */
 export function effectiveStats(
-  profile: ProfileData,
+  _profile: ProfileData,
   meta: MetaConfig,
   characterId: string,
 ): EffectiveStats {
   const def = meta.characters[characterId]
-  const gain = (ownerId: string, trackId: string): number => {
-    const track = def?.tracks.find((t) => t.id === trackId)
-    if (!track) return 0
-    return levelOf(profile, ownerId, trackId) * track.perLevel
-  }
 
   const stats: EffectiveStats = {
-    maxHp: (def?.base.maxHp ?? 0) + gain(characterId, 'maxHp'),
-    magic: (def?.base.magic ?? 0) + gain(characterId, 'magic'),
-    armor: (def?.base.armor ?? 0) + gain(characterId, 'armor'),
-    attackSpeedPct: 0,
+    maxHpPct: def?.combat.maxHpPct ?? 0,
+    moveSpeedPct: def?.combat.moveSpeedPct ?? 0,
+    energyRegenPct: def?.combat.energyRegenPct ?? 0,
   }
 
-  // 技能加成叠在同一个数上。MVP 里解锁即生效（见文件头的简化说明）。
-  for (const skillId of profile.unlocks.skills) {
-    const skill = meta.skills[skillId]
-    if (!skill) continue
-    const track = skill.tracks.find((t) => t.id === 'attackSpeedPct')
-    if (!track) continue
-    stats.attackSpeedPct += levelOf(profile, skillId, 'attackSpeedPct') * track.perLevel
-  }
   return stats
+}
+
+/** 角色固定技能等级。角色已解锁但还没买过升级时，默认就是 1 级。 */
+export function skillLevelOf(
+  profile: ProfileData,
+  meta: MetaConfig,
+  characterId: string,
+): number {
+  const skill = meta.characters[characterId]?.skill
+  if (!skill) return 0
+  const stored = levelOf(profile, characterId, SKILL_TRACK_ID)
+  if (stored > 0) return Math.min(SKILL_MAX_LEVEL, stored + 1)
+  return isUnlocked(profile, characterId) ? 1 : 0
+}
+
+/** 当前角色已经付费买了多少次技能升级。 */
+export function skillUpgradeCount(profile: ProfileData, meta: MetaConfig, characterId: string): number {
+  return Math.max(0, skillLevelOf(profile, meta, characterId) - 1)
+}
+
+/** 升到下一级的费用；满级返回 null。 */
+export function skillUpgradeCost(
+  profile: ProfileData,
+  meta: MetaConfig,
+  characterId: string,
+): number | null {
+  const skill = meta.characters[characterId]?.skill
+  const level = skillLevelOf(profile, meta, characterId)
+  if (!skill || level <= 0 || level >= SKILL_MAX_LEVEL) return null
+  return skill.upgradeCosts[level - 1] ?? null
+}
+
+/** 三个角色共用的唯一技能升级入口。 */
+export function buySkillUpgrade(
+  draft: ProfileData,
+  meta: MetaConfig,
+  characterId: string,
+): BuyResult {
+  const skill = meta.characters[characterId]?.skill
+  if (!skill) return { ok: false, cost: 0, notice: '没有这个角色技能' }
+  const level = skillLevelOf(draft, meta, characterId)
+  const cost = skillUpgradeCost(draft, meta, characterId)
+  if (level >= SKILL_MAX_LEVEL || cost === null) {
+    return { ok: false, cost: 0, notice: `${skill.name}已经满级` }
+  }
+  if (draft.currency.coins < cost) {
+    return { ok: false, cost, notice: `币不够：还差 ${cost - draft.currency.coins}` }
+  }
+  draft.currency.coins -= cost
+  // 存的是“已升过几次”，所以 1 级默认不写字段，暂停菜单可直接当升级次数显示。
+  draft.upgrades[trackKey(characterId, SKILL_TRACK_ID)] = level
+  return { ok: true, cost, notice: `${skill.name}升到 ${level + 1} 级` }
+}
+
+/** 战斗最终生命上限 = D1 的基础生命 + D4 的永久成长加成。 */
+export function effectiveMaxHp(
+  baseMaxHp: number,
+  stats: Pick<EffectiveStats, 'maxHpPct'>,
+): number {
+  return Math.max(1, Math.round(baseMaxHp * (1 + stats.maxHpPct / 100)))
+}
+
+/** 战斗最终护盾上限 = D1 的基础护盾 + D4 的永久成长加成。 */
+export function effectiveMaxShield(
+  baseShield: number,
+): number {
+  return Math.max(0, Math.round(baseShield))
+}
+
+/** 战斗最终能量上限 = D1 的基础能量 + D4 的永久成长加成。 */
+export function effectiveMaxEnergy(
+  baseMaxEnergy: number,
+): number {
+  return Math.max(0, Math.round(baseMaxEnergy))
 }
 
 export interface BuyResult {
@@ -89,57 +136,25 @@ export interface BuyResult {
   notice: string
 }
 
-/**
- * 买一级。**直接改传进来的 draft**（调用方负责把它交给 `ProfileStore.update`）：
- * "能不能买"和"买完变成什么"必须基于同一份数据判断。
- */
-export function buyUpgrade(draft: ProfileData, ownerId: string, track: UpgradeTrackDef): BuyResult {
-  const level = levelOf(draft, ownerId, track.id)
-  const cost = costOfNextLevel(track, level)
-  if (cost === null) return { ok: false, cost: 0, notice: `${track.name}已经满级` }
-  if (draft.currency.coins < cost) {
-    return { ok: false, cost, notice: `币不够：还差 ${cost - draft.currency.coins}` }
-  }
-  draft.currency.coins -= cost
-  draft.upgrades[trackKey(ownerId, track.id)] = level + 1
-  return { ok: true, cost, notice: `${track.name} +1` }
-}
-
-/**
- * 解锁一个角色或技能。
- *
- * ## 这一步补的是"从无到有"那条路径
- *
- * 在此之前，解锁**状态**（`profile.unlocks`）与解锁**门禁**（主菜单不让选未解锁的卡）
- * 都已经在了，但**没有任何办法把"未解锁"变成"已解锁"** ——
- * `meta.json` 里的 `unlockCost` 是个只有解析器读过的死字段。
- *
- * ## 角色与技能共用同一个入口
- *
- * 两者的差别只有"往哪个数组里加"，所以查一次 id 属于谁就够了。分成两个函数的话，
- * "币够不够"和"有没有解锁过"这两条检查会被抄两遍 —— 而抄两遍的东西迟早只剩一遍是对的。
- */
+/** 解锁角色。技能随角色一起开放，不再单独解锁。 */
 export function unlock(draft: ProfileData, meta: MetaConfig, id: string): BuyResult {
   const character = meta.characters[id]
-  const skill = meta.skills[id]
-  const kind = character ? '角色' : skill ? '技能' : null
-  const cost = character?.unlockCost ?? skill?.unlockCost ?? 0
+  const cost = character?.unlockCost ?? 0
 
-  if (kind === null) return { ok: false, cost: 0, notice: `没有这个可解锁项：${id}` }
+  if (!character) return { ok: false, cost: 0, notice: `没有这个角色：${id}` }
   if (isUnlocked(draft, id)) return { ok: false, cost: 0, notice: `${id} 已经解锁了` }
   if (draft.currency.coins < cost) {
     return { ok: false, cost, notice: `币不够：还差 ${cost - draft.currency.coins}` }
   }
 
   draft.currency.coins -= cost
-  if (kind === '角色') draft.unlocks.characters.push(id)
-  else draft.unlocks.skills.push(id)
-  return { ok: true, cost, notice: `解锁${kind}：${id}` }
+  draft.unlocks.characters.push(id)
+  return { ok: true, cost, notice: `解锁角色：${id}` }
 }
 
-/** 解锁了吗。角色与技能各存一个数组，所以两边都要看。 */
+/** 角色是否已解锁。旧 `unlocks.skills` 只为存档兼容保留，不参与门禁。 */
 export function isUnlocked(profile: ProfileData, id: string): boolean {
-  return profile.unlocks.characters.includes(id) || profile.unlocks.skills.includes(id)
+  return profile.unlocks.characters.includes(id)
 }
 
 /** 一局的原始计数。**谁统计由宿主决定**（见 `run/RunLedger.ts`）。 */
@@ -185,18 +200,4 @@ export function settleRun(draft: ProfileData, meta: MetaConfig, input: RunInput)
   if (input.outcome === 'dead') draft.stats.deaths += 1
   draft.stats.bestDepth = Math.max(draft.stats.bestDepth, Math.max(0, Math.round(input.depth)))
   return { coinsEarned, coinsTotal: draft.currency.coins }
-}
-
-/** `+20` / `+5%`：成长项每级的增量，界面直接用 */
-export function formatPerLevel(track: UpgradeTrackDef): string {
-  return `+${track.perLevel}${suffix(track.unit)}`
-}
-
-/** 当前累计值，例如升了 3 级的 `+5%` → `+15%` */
-export function formatTotal(track: UpgradeTrackDef, level: number): string {
-  return `+${track.perLevel * level}${suffix(track.unit)}`
-}
-
-function suffix(unit: TrackUnit): string {
-  return unit === 'percent' ? '%' : ''
 }

@@ -33,6 +33,7 @@ import { LocalStorageProfileStorage } from '@/domains/meta/profile/storage'
 import { RunLedger } from '@/domains/meta/run/RunLedger'
 import { SettlementOverlay } from '@/domains/meta/settlement/SettlementOverlay'
 import type { RunInput } from '@/domains/meta/progress/progress'
+import { MAIN_MENU_SCENE_KEY, MainMenuScene } from '@/domains/meta/scenes/MainMenuScene'
 
 class D4SettlementArena extends ArenaBase {
   private overlay!: SettlementOverlay
@@ -84,6 +85,7 @@ class D4SettlementArena extends ArenaBase {
         // 对演示来说软重启反而更贴：这一场要验的是"结算与发币"，不是场景生命周期。
         restart: () => this.softRestart(),
         backToMenu: () => this.scene.start(MENU_SCENE_KEY),
+        goToUpgrade: () => this.openUpgrade(),
       },
     })
 
@@ -129,11 +131,22 @@ class D4SettlementArena extends ArenaBase {
       this.enemies.spawnNow('splitter', 0, WORLD_WIDTH / 2 - 260 + i * 40, WORLD_HEIGHT / 2)
     }
   }
+
+  private openUpgrade(): void {
+    this.overlay.hide()
+    if (!this.scene.manager.keys[MAIN_MENU_SCENE_KEY]) {
+      this.scene.add(MAIN_MENU_SCENE_KEY, MainMenuScene, false)
+    }
+    this.scene.start(MAIN_MENU_SCENE_KEY, {
+      initialScreen: 'upgrade',
+      onExit: () => this.scene.start(MENU_SCENE_KEY),
+    })
+  }
 }
 
 export const arena: ArenaDefinition = {
   displayName: 'D4 结算界面',
   description:
-    '按 K 模拟通关、L 模拟阵亡。币从这一局带出去，死亡不清空 —— 连按 L 看总币只涨不跌。先打几只怪，击杀数才是真的。',
+    '按 K 模拟通关、L 模拟阵亡。币从这一局带出去，死亡不清空 —— 连按 L 看总币只涨不跌。结算里的「去升级」会直接打开主菜单升级页。先打几只怪，击杀数才是真的。',
   scene: D4SettlementArena,
 }

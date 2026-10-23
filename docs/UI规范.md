@@ -19,6 +19,7 @@
 | `domains/meta/ui/overlayFrame.ts` | 弹层外框（压暗层 / 面板 / 标题 / 关闭按钮 / 提示行） | 所有弹层 —— **叠放顺序的坑只在这里讲一次** |
 | `domains/meta/ui/overlayLayer.ts` | 弹层的**相机反变换**层：弹层内部按"屏幕坐标"画，宿主相机怎么缩放平移都不受影响 | 暂停菜单、结算界面（**宿主相机不是 1:1 时必须走它**） |
 | `domains/meta/ui/panels.ts` | 操作说明与设置两块内容 | 主菜单 **与** 暂停菜单（需求要求"是同一个界面"） |
+| `domains/meta/ui/SaveStatusBanner.ts` | 存档写入失败提示与“重试保存”入口 | 主菜单、暂停菜单、结算界面 |
 | `domains/meta/pause/PauseOverlay.ts` | 暂停菜单组件（不是场景！） | 宿主是 D1 的战斗场景 |
 
 **它们都是产品代码，不是测试设施**，放在 `domains/meta/` 下（那是 D4 的域）。
@@ -58,8 +59,9 @@
 
 ## 四、输入
 
-- **全屏 / 指针锁定必须写在点击事件处理函数里**，不能在加载时自动触发
-  （`AGENTS.md` §九 第 3 条）。设置里的"全屏"按钮就该这么写。
+- **全屏 / 指针锁定必须写在用户手势处理函数里**，不能在加载时自动触发
+  （`AGENTS.md` §九 第 3 条）。全屏按钮在 `pointerup` 触发；设置状态只跟随
+  `Scale.Events.ENTER_FULLSCREEN` / `LEAVE_FULLSCREEN` 更新，不能点击后先写死。
 - **多个场景同时活着时，各自抢键盘。** 上层场景要
   `this.input.keyboard.enabled = false` 让位，否则按一下 Esc 会同时触发两边
   （Phaser `KeyboardPlugin` 类注释里给的正是这个办法）。
@@ -79,6 +81,6 @@
 
 | 事项 | 状态 |
 |---|---|
-| 角色目录（4 个角色的定位与差异化） | 占位中，见 `domains/meta/catalog.ts` |
+| 角色目录（当前固定为 3 个角色的定位与差异化） | 已接入，见 `domains/meta/catalog.ts` |
 | 分辨率设置 | **不做**：已决定保留 `Scale.RESIZE`，设置菜单不放这一项 |
 | UI 适配（窄窗口 / 手机） | 迭代 3 的活；现在主菜单只做了等比收缩 |

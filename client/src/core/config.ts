@@ -192,6 +192,83 @@ export interface TankJuiceConfig {
   hpPitchCents: number
 }
 
+/**
+ * 抓取型敌人（grabber）的抓取机制。
+ *
+ * ⚠️ 这里的字段分成两类，**别把它们混起来**：
+ *
+ * - **设计意图**（`bitesToKillPlayer` / `pressDamageRatio`）：写的是「想让玩家感受到什么」，
+ *   `deriveGrabber()` 把它们折成实际伤害数值，契约测试盯着折算结果。
+ *   和分裂怪的 `hpValue`、肉盾的 `ttkSeconds` 是同一个套路 —— **调平衡改意图，不改派生**。
+ * - **机制参数**（距离 / 时长 / 半径）：直接用。
+ */
+export interface GrabberGrabConfig {
+  /** 起手距离（px）。进这个圈就站定、头顶冒「!」 */
+  range: number
+  /** 「!」窗口时长。这段时间里跑开、或者把它打死，两条都能取消抓取 */
+  telegraphMs: number
+  /**
+   * **蓄力期间的移动速度倍数**（乘在 `speedNow()` 上，通常是 0.5 上下）。
+   *
+   * ⚠️ 别照抄肉盾的「前摇钉在原地」——那是**肉盾**的信号（一个很慢的怪边走边蓄力，
+   * 玩家永远躲不掉）。抓取怪的定位是**一路逼过来的**：实测下来，它一蓄力就站定、
+   * 而玩家 200+ px/s 一走就没影，抓取变成不可能被触发的东西（「太简单了」）。
+   * 0 = 站定（肉盾那种），1 = 全速追。
+   */
+  windupMoveMult: number
+  /**
+   * **解除蓄力的距离倍数**：玩家跑到 `range × 这个数` 之外才算跑掉。
+   *
+   * 用大于 1 的迟滞量是必须的：贴着一个固定距离反复进出，会让蓄力一开一关地抖，
+   * 而每次进入蓄力都会写一次冷却 —— 结果是一个在边界上蹭来蹭去的玩家
+   * 能把它永久锁在冷却里（表现是「这怪怎么不动了」）。
+   */
+  releaseRangeMult: number
+  /**
+   * **扑向**的时长（ms）。
+   *
+   * 预警到点之后它**必定扑到玩家身上**，这是一段不可躲避的动画 —— 躲的窗口是那
+   * `telegraphMs` 秒本身，到点就锁死了。这段时间里世界已经冻结、镜头正在推近、
+   * 玩家已经不能动，所以它纯粹是**表现**（脚本化位移 + 吸附），没有玩法判定。
+   */
+  pounceMs: number
+  /** 自身冷却。**从进入预警那一刻起算**（照肉盾的 slam，别搞出第二套算法） */
+  cooldownMs: number
+  /** 咬人节拍：抓取期间每隔这么久咬玩家一口 */
+  biteIntervalMs: number
+  /** 咬几口能咬死满血玩家。**设计意图** —— `biteDamage` 由它折算 */
+  bitesToKillPlayer: number
+  /** 每次按下攻击键扣掉它**最大血量**的百分比。**设计意图** —— `pressesToEscape` 由它折算 */
+  pressDamageRatio: number
+  /** 甩出距离（px）与飞行时长（ms）。速度 = 距离 ÷ 时长 */
+  flingDistance: number
+  flingTimeMs: number
+  /** 落地爆炸：半径，以及对**其它敌人**的伤害（玩家不受影响） */
+  blastRadius: number
+  blastDamage: number
+  /**
+   * 同类冷却：任意一次抓取结束后，**所有** grabber 这么久之内不得进入预警。
+   *
+   * 挡的是「起手」而不是「抓取」—— 挡抓取会出现「冒了 ! 、站了两秒、然后什么都不发生」，
+   * 玩家只会以为游戏卡了。
+   */
+  sameTypeCooldownMs: number
+}
+
+export interface GrabberJuiceConfig {
+  /** 「!」与红色倒计时的闪烁频率 */
+  alertFlashHz: number
+  /** 每次按下攻击键的受击表现（白闪 / 挤压）频率 */
+  hitFlashHz: number
+  /**
+   * 挣脱音效的**声部数**。必须独立于受击音效那条限频 ——
+   * 连点可以到每秒 8 次以上，走限频的话大半按下会一声不响（规格里专门有一条）。
+   */
+  escapeSfxVoices: number
+  /** 咬人音效与上一次之间的最短间隔（ms） */
+  biteSfxMinIntervalMs: number
+}
+
 export interface SplitterDef {
   kind: 'splitter'
   displayName: string
@@ -226,7 +303,41 @@ export interface TankDef {
   juice: TankJuiceConfig
 }
 
-export type EnemyDef = SplitterDef | TankDef
+/**
+ * 抓取型敌人（grabber）。
+ *
+ * ## 它的血量是**双重职责**的旋钮
+ *
+ * 因为抓取期间「玩家每按一次攻击键扣它 5% 最大血」，**它的血条就是抓取条**。
+ * 所以 `hpValue` 同时决定两件事：
+ *
+ * 1. 预警那 `telegraphMs` 里集火能不能把它直接打死（打死了抓取就不发生）；
+ * 2. 被抓之后要连点多少下才脱离。
+ *
+ * 契约测试（`config.contract.test.ts`）盯的就是这两条：基线 DPS 在预警窗口里打的伤害
+ * 要**差一点**打死它（打不死但打掉大部分），连点次数要落在「连点得动」的区间里。
+ */
+export interface GrabberDef {
+  kind: 'grabber'
+  displayName: string
+  threatLevel: number
+  hpMode: 'shots'
+  /** 几发基线子弹的血量。**双重职责**：既是它的血条，也是抓取条（见上） */
+  hpValue: number
+  speed: number
+  radius: number
+  visualScale: number
+  textureKey: string
+  /** 它**不靠接触伤害**构成威胁（威胁只有抓取），所以是 0；字段留着是为了将来调 */
+  contactDamagePerTick: number
+  aggroRadius: number
+  loseTargetRadius: number
+  ai: AiConfig
+  grab: GrabberGrabConfig
+  juice: GrabberJuiceConfig
+}
+
+export type EnemyDef = SplitterDef | TankDef | GrabberDef
 
 export interface RadialProjectileConfig {
   count: number
@@ -260,6 +371,7 @@ export interface EnemiesConfig {
   enemies: {
     splitter: SplitterDef
     tank: TankDef
+    grabber: GrabberDef
   }
 }
 
@@ -304,6 +416,29 @@ export interface DerivedTank {
   meleeTickDamage: number
   /** 预期击杀耗时（秒），契约测试拿它断言 = ttkSeconds */
   expectedTtkSeconds: number
+}
+
+export interface DerivedGrabber {
+  maxHp: number
+  /** 已乘难度 `enemySpeed` */
+  speed: number
+  radius: number
+  visualScale: number
+  textureKey: string
+  /** 已乘难度 `enemyDamage` */
+  contactDamagePerTick: number
+  /** 每口咬玩家多少（已乘难度 `enemyDamage`） */
+  biteDamage: number
+  /** 咬几口能咬死满血玩家（**实际值**，由 `biteDamage` 反推；契约测试盯着它不超过配置意图） */
+  bitesToKillPlayer: number
+  /** 每次按下攻击键扣它多少血（按**最大血量**的百分比，不是当前血量） */
+  pressDamage: number
+  /** 从满血脱离需要按几下（契约测试盯着它落在「连点得动」的区间） */
+  pressesToEscape: number
+  /** 甩出速度（px/s）= 距离 ÷ 时长 */
+  flingSpeed: number
+  /** 落地爆炸伤害（已乘难度 `enemyDamage`，只打其它敌人） */
+  blastDamage: number
 }
 
 // ---------------------------------------------------------------- 错误
@@ -397,6 +532,52 @@ export function deriveTank(
     pierceTickDamage,
     meleeTickDamage: roundHalfUp(bulletDamage * def.frameDamage.melee.tickDamageRatio),
     expectedTtkSeconds: maxHp / dps,
+  }
+}
+
+/**
+ * 抓取型敌人的派生。
+ *
+ * 两处「意图 → 数值」的折算写在这里，**别在别处再算一遍**：
+ *
+ * - `bitesToKillPlayer` → `biteDamage`：写的是「满血玩家挨几口」，折成伤害。
+ *   用 `roundHalfUp`（全项目唯一舍入规则）折算，所以**实际口数可能比配置少**；
+ *   `bitesToKillPlayer` 回传的是实际值，契约测试断言它「不超过配置的意图」
+ *   （难度抬高时只会更少口，不会更多）。
+ * - `pressDamageRatio` → `pressDamage` / `pressesToEscape`：按**最大血量**的百分比扣。
+ *   ⚠️ **绝不能改成按当前血量扣** —— 那样是个等比数列，永远扣不到 0，抓取会变成无限连点。
+ */
+export function deriveGrabber(
+  def: GrabberDef,
+  diff: DifficultyModifiers,
+  balance: BalanceConfig,
+): DerivedGrabber {
+  const bulletDamage = balance.baseline.bullet.damage
+  const maxHp = Math.max(1, roundHalfUp(def.hpValue * bulletDamage * diff.enemyHp))
+  const playerHp = balance.baseline.player.maxHp
+
+  const biteDamage = Math.max(
+    1,
+    roundHalfUp((playerHp / def.grab.bitesToKillPlayer) * diff.enemyDamage),
+  )
+  const biteCount = (hp: number): number => Math.ceil(playerHp / hp)
+
+  const pressDamage = Math.max(1, roundHalfUp(maxHp * def.grab.pressDamageRatio))
+  const flingSpeed = Math.round((def.grab.flingDistance / def.grab.flingTimeMs) * 1000)
+
+  return {
+    maxHp,
+    speed: Math.round(def.speed * diff.enemySpeed),
+    radius: def.radius,
+    visualScale: def.visualScale,
+    textureKey: def.textureKey,
+    contactDamagePerTick: roundHalfUp(def.contactDamagePerTick * diff.enemyDamage),
+    biteDamage,
+    bitesToKillPlayer: biteCount(biteDamage),
+    pressDamage,
+    pressesToEscape: Math.ceil(maxHp / pressDamage),
+    flingSpeed,
+    blastDamage: roundHalfUp(def.grab.blastDamage * diff.enemyDamage),
   }
 }
 
@@ -579,11 +760,12 @@ export function validateEnemies(raw: unknown): EnemiesConfig {
 
   const splitter = validateSplitter(need(enemies.splitter, 'enemies.enemies.splitter'))
   const tank = validateTank(need(enemies.tank, 'enemies.enemies.tank'))
+  const grabber = validateGrabber(need(enemies.grabber, 'enemies.enemies.grabber'))
 
   return {
     schemaVersion: needNumber(r.schemaVersion, 'enemies.schemaVersion', { min: 1 }),
     stage2Boss: validateStage2Boss(r.stage2Boss),
-    enemies: { splitter, tank },
+    enemies: { splitter, tank, grabber },
   }
 }
 
@@ -700,10 +882,13 @@ function validateSplitter(raw: unknown): SplitterDef {
         `第 ${i} 代血量 ${g.hpValue} 不低于上一代 ${prev.hpValue}，违反「越分裂越脆」`,
       )
     }
-    if (g.speed <= prev.speed) {
+    // ⚠️ 2026-10-16 放宽：原来是**必须更快**（`<=` 就拒），现在**允许同速**。
+    //    设计上的理由变了 —— 分裂出来的小怪比母体还快，玩家越打越被追着跑，
+    //    那不是「爽」是「罚」。**但不许更慢**：分裂出来的比母体慢会显得像卡住了。
+    if (g.speed < prev.speed) {
       throw new ConfigError(
         `${path}.generations[${i}].speed`,
-        `第 ${i} 代速度 ${g.speed} 不高于上一代 ${prev.speed}，违反「越分裂越快」`,
+        `第 ${i} 代速度 ${g.speed} 低于上一代 ${prev.speed} —— 分裂出来的不该比母体还慢`,
       )
     }
     if (g.radius >= prev.radius) {
@@ -967,6 +1152,101 @@ function validateTank(raw: unknown): TankDef {
       jitterHz: needNumber(juice.jitterHz, `${path}.juice.jitterHz`, { min: 0 }),
       squashHz: needNumber(juice.squashHz, `${path}.juice.squashHz`, { min: 0 }),
       hpPitchCents: needNumber(juice.hpPitchCents, `${path}.juice.hpPitchCents`, { min: 0 }),
+    },
+  }
+}
+
+function validateGrabber(raw: unknown): GrabberDef {
+  const path = 'enemies.enemies.grabber'
+  const r = need(raw as Record<string, unknown>, path)
+
+  const hpMode = needString(r.hpMode, `${path}.hpMode`)
+  if (hpMode !== 'shots') {
+    throw new ConfigError(
+      `${path}.hpMode`,
+      `抓取怪必须是 'shots'（几发击杀）—— 它的血量同时是抓取条，口径要跟着基线子弹走`,
+    )
+  }
+
+  const grab = need(r.grab as Record<string, unknown>, `${path}.grab`)
+  const juice = need(r.juice as Record<string, unknown>, `${path}.juice`)
+
+  const bitesToKillPlayer = needNumber(
+    grab.bitesToKillPlayer,
+    `${path}.grab.bitesToKillPlayer`,
+    { min: 1 },
+  )
+  const pressDamageRatio = needNumber(grab.pressDamageRatio, `${path}.grab.pressDamageRatio`, {
+    min: 0,
+  })
+  // ⚠️ 一次按下就打完（≥ 100%）等于没有抓取机制：抓到的瞬间就挣脱了。
+  if (pressDamageRatio >= 1) {
+    throw new ConfigError(
+      `${path}.grab.pressDamageRatio`,
+      `每次按下扣 ${pressDamageRatio * 100}% 血 —— 一下就能脱离，抓取机制等于不存在`,
+    )
+  }
+  if (!Number.isInteger(juice.escapeSfxVoices) || (juice.escapeSfxVoices as number) < 1) {
+    throw new ConfigError(
+      `${path}.juice.escapeSfxVoices`,
+      '挣脱音效的声部数必须是 ≥ 1 的整数（连点靠它，不能是 0）',
+    )
+  }
+
+  return {
+    kind: 'grabber',
+    displayName: needString(r.displayName, `${path}.displayName`),
+    threatLevel: needNumber(r.threatLevel, `${path}.threatLevel`, { min: 1, max: 5 }),
+    hpMode: 'shots',
+    hpValue: needNumber(r.hpValue, `${path}.hpValue`, { min: 0.1 }),
+    speed: needNumber(r.speed, `${path}.speed`, { min: 1 }),
+    radius: needNumber(r.radius, `${path}.radius`, { min: 1 }),
+    visualScale: needNumber(r.visualScale, `${path}.visualScale`, { min: 0.1 }),
+    textureKey: validateTextureKey(
+      needString(r.textureKey, `${path}.textureKey`),
+      `${path}.textureKey`,
+      'image',
+    ),
+    contactDamagePerTick: needNumber(r.contactDamagePerTick, `${path}.contactDamagePerTick`, {
+      min: 0,
+    }),
+    aggroRadius: needNumber(r.aggroRadius, `${path}.aggroRadius`, { min: 1 }),
+    loseTargetRadius: needNumber(r.loseTargetRadius, `${path}.loseTargetRadius`, { min: 1 }),
+    ai: validateAi(r.ai, `${path}.ai`),
+    grab: {
+      range: needNumber(grab.range, `${path}.grab.range`, { min: 1 }),
+      telegraphMs: needNumber(grab.telegraphMs, `${path}.grab.telegraphMs`, { min: 1 }),
+      pounceMs: needNumber(grab.pounceMs, `${path}.grab.pounceMs`, { min: 1 }),
+      windupMoveMult: needNumber(grab.windupMoveMult, `${path}.grab.windupMoveMult`, {
+        min: 0,
+        max: 1,
+      }),
+      releaseRangeMult: needNumber(grab.releaseRangeMult, `${path}.grab.releaseRangeMult`, {
+        min: 1,
+      }),
+      cooldownMs: needNumber(grab.cooldownMs, `${path}.grab.cooldownMs`, { min: 0 }),
+      biteIntervalMs: needNumber(grab.biteIntervalMs, `${path}.grab.biteIntervalMs`, { min: 1 }),
+      bitesToKillPlayer,
+      pressDamageRatio,
+      flingDistance: needNumber(grab.flingDistance, `${path}.grab.flingDistance`, { min: 1 }),
+      flingTimeMs: needNumber(grab.flingTimeMs, `${path}.grab.flingTimeMs`, { min: 1 }),
+      blastRadius: needNumber(grab.blastRadius, `${path}.grab.blastRadius`, { min: 0 }),
+      blastDamage: needNumber(grab.blastDamage, `${path}.grab.blastDamage`, { min: 0 }),
+      sameTypeCooldownMs: needNumber(
+        grab.sameTypeCooldownMs,
+        `${path}.grab.sameTypeCooldownMs`,
+        { min: 0 },
+      ),
+    },
+    juice: {
+      alertFlashHz: needNumber(juice.alertFlashHz, `${path}.juice.alertFlashHz`, { min: 0 }),
+      hitFlashHz: needNumber(juice.hitFlashHz, `${path}.juice.hitFlashHz`, { min: 0 }),
+      escapeSfxVoices: juice.escapeSfxVoices as number,
+      biteSfxMinIntervalMs: needNumber(
+        juice.biteSfxMinIntervalMs,
+        `${path}.juice.biteSfxMinIntervalMs`,
+        { min: 0 },
+      ),
     },
   }
 }

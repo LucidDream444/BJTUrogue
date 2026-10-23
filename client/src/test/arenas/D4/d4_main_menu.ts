@@ -82,6 +82,6 @@ class D4MainMenuArena extends ArenaBase {
 export const arena: ArenaDefinition = {
   displayName: 'D4 主菜单',
   description:
-    '产品场景 MainMenuScene 在跑（不是白箱画的）。看：角色卡解锁门禁、难度三选一、设置弹层里的音量滑杆与档同步。Esc 关弹层，主菜单上再按 Esc 回测试场菜单。',
+    '产品场景 MainMenuScene 在跑（不是白箱画的）。看：角色卡解锁门禁、难度三选一、设置弹层里的音量滑杆与档同步，以及「怪物图鉴」的配置数值、动画预览和档案文案占位。Esc 关弹层，主菜单上再按 Esc 回测试场菜单。',
   scene: D4MainMenuArena,
 }
