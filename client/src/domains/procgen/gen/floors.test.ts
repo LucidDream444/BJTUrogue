@@ -39,6 +39,7 @@ import {
   FLOOR_PLAN_FILES,
   FLOOR_PLAN_NAME,
   FLOOR_PLAN_YF1_NAME,
+  FLOOR_PLAN_YF2_NAME,
   FLOOR_PLAN_YF3_NAME,
   floorPlansForRun,
   type FloorPlan,
@@ -83,12 +84,14 @@ describe('一局的楼层表（floors.json）', () => {
     expect(() => parseFloorsConfig(readJson(FLOORS_CONFIG_NAME), MAX_STAGES - 1)).toThrow(ConfigError)
   })
 
-  it('用户要的顺序：**第 1 层是逸夫楼 1F**，第 2 层是 3F，第 3 层是 6F', () => {
-    // 用户：「进去后先是 YF1，然后可以从楼梯间上一层，进入 YF3（YF2 还没做，
-    // 先这样上 3 过渡）」。最后一项是**最后一层** —— 首领关（YF604）在它上面，
-    // 见下面那条「最后一层必须有首领房」。
+  it('用户要的顺序：**1F → 2F → 3F → 6F**（最后一层是 6F）', () => {
+    // ★ 改了（2026-10-23）：2F 的图做出来了，一局从三层变四层 ——
+    // 用户：「按照照片做 YF2 的地图」「YF1 上去是 YF2」。上一版是 [yf1, yf3, 6f]
+    // （YF2 还没有，先拿 3F 过渡）。
+    // 最后一项是**最后一层** —— 首领关（YF604）在它上面，见下面那条「最后一层必须有首领房」。
     expect(parseFloorsConfig(readJson(FLOORS_CONFIG_NAME), MAX_STAGES).floors).toEqual([
       FLOOR_PLAN_YF1_NAME,
+      FLOOR_PLAN_YF2_NAME,
       FLOOR_PLAN_YF3_NAME,
       FLOOR_PLAN_NAME,
     ])
@@ -107,17 +110,17 @@ describe('一局的楼层表（floors.json）', () => {
     expect([...FLOOR_PLAN_FILES].filter((n) => !used.has(n))).toEqual([])
   })
 
-  it('每一项都解析得出来，且**间数写在它自己身上**（三层楼各不相同）', () => {
+  it('每一项都解析得出来，且**间数写在它自己身上**（四层楼各不相同）', () => {
     expect(plans).toHaveLength(MAX_STAGES)
-    // ★ 改了（2026-10-22 晚·七）：每层 +3 —— 三个**电梯间**（`E_A` / `E_B` / `E_C`）。
-    // 它们是房间（不是走廊），所以算进 `roomTotal`；三层各多 3 间，三个数仍互不相同。
+    // ★ 改了（2026-10-23）：**四层**了 —— 2F 这一层 9 间编号教室 + 3 电梯间 + 楼梯间 = 13。
+    // 四个数仍然**互不相同**（13 / 17 / 18 / 19）：一个全局常量配不了四层。
     expect(plans[0]!.roomTotal).toBe(17) // 逸夫楼 1F：13 间编号教室 + 3 电梯间 + 楼梯间
     expect(plans[0]!.rooms.length + 1).toBe(plans[0]!.roomTotal)
-    expect(plans[1]!.roomTotal).toBe(18) // 3F：13 间编号教室 + 商店 + 3 电梯间 + 楼梯间
-    expect(plans[2]!.roomTotal).toBe(19) // 6F：15 间编号教室 + 3 电梯间 + 楼梯间
-    // 三个数**互不相同** —— 这是「它必须跟着平面图走」那件事的反向证据：
-    // 一个全局常量配不了三层。
-    expect(new Set(plans.map((p) => p.roomTotal)).size).toBe(3)
+    expect(plans[1]!.roomTotal).toBe(13) // 2F：9 间编号教室 + 3 电梯间 + 楼梯间
+    expect(plans[1]!.rooms.length + 1).toBe(plans[1]!.roomTotal)
+    expect(plans[2]!.roomTotal).toBe(18) // 3F：13 间编号教室 + 商店 + 3 电梯间 + 楼梯间
+    expect(plans[3]!.roomTotal).toBe(19) // 6F：15 间编号教室 + 3 电梯间 + 楼梯间
+    expect(new Set(plans.map((p) => p.roomTotal)).size).toBe(4)
 
     // 反向证据①：层数对不上时先说「两个文件」，不是闷头往下取。
     expect(() => floorPlansForRun(cache, cfg, MAX_STAGES + 1)).toThrow(/maxStages/)
@@ -135,7 +138,8 @@ describe('一局的楼层表（floors.json）', () => {
     const GHOST_PLAN = 'floor-plan-4f.json'
     const ghost = {
       ...(readJson(FLOORS_CONFIG_NAME) as Record<string, unknown>),
-      floors: [FLOOR_PLAN_YF1_NAME, GHOST_PLAN, FLOOR_PLAN_NAME],
+      // 4 项（= 今天的 MAX_STAGES），其中第 2 项是个没人加载的文件名
+      floors: [FLOOR_PLAN_YF1_NAME, GHOST_PLAN, FLOOR_PLAN_YF3_NAME, FLOOR_PLAN_NAME],
     }
     const ghostCache = {
       get: (k: string): unknown =>
@@ -162,8 +166,8 @@ describe('一局的楼层表（floors.json）', () => {
       expect(p.rows).toBe(plans[0]!.rows)
     }
     expect([plans[0]!.cols, plans[0]!.rows]).toEqual([263, 73]) // 楼的尺寸（格）
-    // 反向证据①：这条判据今天**不是**恒真的 —— 三张图的房间数就不一样。
-    expect(new Set(plans.map((p) => p.rooms.length)).size).toBe(3)
+    // 反向证据①：这条判据今天**不是**恒真的 —— 四张图的房间数就不一样。
+    expect(new Set(plans.map((p) => p.rooms.length)).size).toBe(4)
     // 反向证据②（★ 新增）：外框也不再恒等于「房间的并集」—— 1F 的**房间**
     // 从 y25 起，另外两层从 y0 起。所以这条用例守的确实是那个声明值，
     // 而不是顺手又验了一遍推导。
@@ -172,7 +176,9 @@ describe('一局的楼层表（floors.json）', () => {
     // 但那走廊是**内容**，外框是**楼**。哪天大厅收回去，并集又会矮 25 格。
     const minRoomY = (p: (typeof plans)[number]): number =>
       Math.min(...[p.stairwell, ...p.rooms].map((s) => s.cells.y))
-    expect(plans.map(minRoomY)).toEqual([25, 0, 0])
+    // 2F 的 YF201 也从 y25 起（它是西头那一整块竖长的房），
+    // 所以四层的「最北一间房」是 [25, 25, 0, 0]。
+    expect(plans.map(minRoomY)).toEqual([25, 25, 0, 0])
   })
 
   it('三层都生成得出来、且过契约校验 —— 楼层表里的每一层真的能玩', () => {
