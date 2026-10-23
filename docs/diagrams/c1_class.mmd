@@ -1,0 +1,27 @@
+classDiagram
+    class Group {
+        +String name
+    }
+    class Permission {
+        +String codename
+        +String name
+    }
+    class User {
+        +Groups groups
+    }
+    class LogEntry {
+        +User user
+        +Int action_flag
+        +ContentType content_type
+        +String object_repr
+        +DateTime action_time
+    }
+    class FeedbackTicket
+    class Release
+    class Player
+    User --> Group : 属于
+    Group --> Permission : 拥有
+    LogEntry --> User : 记录操作者
+    LogEntry ..> FeedbackTicket : 审计对象
+    LogEntry ..> Release : 审计对象
+    LogEntry ..> Player : 审计对象

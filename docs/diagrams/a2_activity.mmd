@@ -1,0 +1,13 @@
+flowchart TD
+    A([新工单 submitted]) --> B[管理员在后台看板查看]
+    B --> C[补齐 category/severity<br>status=classified]
+    C --> D[指派给技术维护人员<br>status=processing]
+    D --> E[技术维护人员处理<br>修复或记录说明]
+    E --> F{处理完成?}
+    F -->|否| E
+    F -->|是| G[status=verified 待验证]
+    G --> H[测试人员验证修复]
+    H --> I{验证通过?}
+    I -->|否| D
+    I -->|是| J[status=closed<br>记录 closed_at]
+    J --> K([结束])

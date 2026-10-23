@@ -1,0 +1,15 @@
+sequenceDiagram
+    participant C as 客户端
+    participant R as RegisterView
+    participant T as TokenObtainPairView
+    participant J as SimpleJWT
+    participant DB as User表
+    C->>R: POST /api/auth/register (username, password)
+    R->>DB: create(User, password=hash)
+    R-->>C: 201
+    C->>T: POST /api/auth/token (username, password)
+    T->>J: authenticate()
+    J->>DB: 校验凭据
+    J-->>T: user
+    T-->>C: access + refresh
+    C->>C: 存储 refresh(内存/安全存储)

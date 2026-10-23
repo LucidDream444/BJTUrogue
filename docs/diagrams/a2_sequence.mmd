@@ -1,0 +1,22 @@
+sequenceDiagram
+    participant M as 维护人员
+    participant A as TicketAdmin(Django Admin)
+    participant W as TicketWorkflowService
+    participant T as FeedbackTicket
+    participant L as LogEntry(审计)
+    M->>A: 打开工单看板(status=submitted)
+    A->>T: 列表查询
+    M->>A: action「分类并定级」
+    A->>W: classify(ticket, category, severity)
+    W->>T: status=CLASSIFIED, 字段赋值, save
+    T-->>L: 记录变更(操作者/对象/动作)
+    M->>A: action「标记处理中」
+    A->>W: start_processing(ticket)
+    W->>T: status=PROCESSING, save
+    M->>A: action「标记待验证」
+    A->>W: verify(ticket)
+    W->>T: status=VERIFIED, save
+    M->>A: action「关闭工单」
+    A->>W: close(ticket)
+    W->>T: status=CLOSED, closed_at=now, save
+    T-->>L: 记录变更(审计)

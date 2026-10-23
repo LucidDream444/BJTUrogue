@@ -1,0 +1,12 @@
+flowchart TD
+    A([客户端首次启动]) --> B{本地是否存在 anon_id?}
+    B -->|否| C[生成 UUID v4]
+    C --> D[写入 localStorage<br>key=bjtu-rogue:anon_id]
+    D --> E[后续所有请求携带 anon_id]
+    B -->|是| E
+    E --> F[服务端收到请求]
+    F --> G{Player 表存在该 anon_id?}
+    G -->|否| H[创建 Player 匿名档案]
+    G -->|是| I[更新 last_seen_at / client_version]
+    H --> I
+    I --> J([完成])

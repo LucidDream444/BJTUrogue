@@ -1,3 +1,5 @@
+import { STUDENT_SKIN_SOURCES } from './studentSkinManifest'
+
 /**
  * 资源清单 —— **纯数据，零依赖**。
  *
@@ -238,7 +240,7 @@ function playerLayerAssets(): AssetEntry[] {
   }))
 }
 
-export const ASSETS: readonly AssetEntry[] = [
+const BASE_ASSETS: readonly AssetEntry[] = [
   {
     key: SPRAYER_ART.texture,
     path: 'sprites/enemies/enemy_sprayer_idle.png',
@@ -315,11 +317,11 @@ export const ASSETS: readonly AssetEntry[] = [
 
   {
     key: 'game_title',
-    path: 'maps/game_title.png',
+    path: 'maps/ui_title_bjtu_crest.png',
     placeholder: false,
     kind: 'image',
-    width: 3840,
-    height: 2160,
+    width: 1672,
+    height: 941,
   },
   {
     key: 'level_1_classroom',
@@ -1447,6 +1449,14 @@ export const ASSETS: readonly AssetEntry[] = [
   ...playerLayerAssets(),
   ...gooseAssets(),
 ]
+
+/** Apply the outfit in the asset manifest, leaving animation keys and timing untouched. */
+const studentSkinPaths = new Set(STUDENT_SKIN_SOURCES.map((name) => 'sprites/player/' + name + '.png'))
+export const ASSETS: readonly AssetEntry[] = BASE_ASSETS.map((asset) =>
+  studentSkinPaths.has(asset.path)
+    ? { ...asset, path: asset.path.replace('sprites/player/', 'sprites/player/skins/bjtu/') }
+    : asset,
+)
 
 function audio(key: string, path: string, placeholder = true): AssetEntry {
   return { key, path, placeholder, kind: 'audio', codecs: ['ogg', 'mp3'] }

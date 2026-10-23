@@ -1,0 +1,19 @@
+classDiagram
+    class Player {
+        +UUID anon_id
+        +User user
+        +DateTime created_at
+        +DateTime last_seen_at
+        +String client_version
+    }
+    class AnonymousIdService {
+        +generate() UUID
+        +normalize(value) UUID
+        +is_valid(value) bool
+    }
+    class PlayerService {
+        +get_or_create(anon_id) Player
+        +touch(player, version) 
+    }
+    AnonymousIdService ..> Player : 生成/校验 anon_id
+    PlayerService --> Player : get_or_create
