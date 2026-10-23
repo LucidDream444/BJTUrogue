@@ -1,0 +1,32 @@
+classDiagram
+    class Release {
+        +String version
+        +Channel channel
+        +Status status
+        +String artifact_path
+        +Text release_notes
+        +Release previous
+        +DateTime released_at
+        +DateTime rolled_back_at
+    }
+    class Status {
+        <<enumeration>>
+        CANDIDATE
+        VERIFIED
+        RELEASED
+        ROLLED_BACK
+    }
+    class ReleaseService {
+        +release(version)
+        +rollback()
+        +mark_verified(version)
+        +check_compatibility()
+    }
+    class CaddyFileSystem {
+        +switch_current(target)
+        +backup_current()
+    }
+    Release --> Release : previous
+    Release --> Status : status
+    ReleaseService --> Release : 读写
+    ReleaseService ..> CaddyFileSystem : 切换 current

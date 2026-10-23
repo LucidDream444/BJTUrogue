@@ -1,0 +1,13 @@
+flowchart TD
+    A([玩家点击注册或登录]) --> B{已有账号?}
+    B -->|否| C[POST /api/auth/register<br>用户名+密码]
+    C --> D{校验通过?}
+    D -->|否| E[返回 400 提示原因]
+    D -->|是| F[创建 User]
+    B -->|是| G[POST /api/auth/token<br>用户名+密码]
+    F --> G
+    G --> H{凭据正确?}
+    H -->|否| I[返回 401]
+    H -->|是| J[签发 access + refresh JWT]
+    J --> K[客户端保存 refresh]
+    K --> L([已登录])

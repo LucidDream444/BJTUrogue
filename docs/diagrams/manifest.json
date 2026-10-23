@@ -1,0 +1,132 @@
+[
+  {
+    "file": "er_overview.png",
+    "source": "er_overview.mmd",
+    "caption": "图 2-1 服务端数据模型总览（ER）"
+  },
+  {
+    "file": "a1_activity.png",
+    "source": "a1_activity.mmd",
+    "caption": "图 3-1 功能点 A1 反馈提交活动图"
+  },
+  {
+    "file": "a1_sequence.png",
+    "source": "a1_sequence.mmd",
+    "caption": "图 3-2 功能点 A1 反馈提交时序图"
+  },
+  {
+    "file": "a1_class.png",
+    "source": "a1_class.mmd",
+    "caption": "图 3-3 功能点 A1 反馈提交类图"
+  },
+  {
+    "file": "a2_state.png",
+    "source": "a2_state.mmd",
+    "caption": "图 3-4 功能点 A2 工单状态机"
+  },
+  {
+    "file": "a2_activity.png",
+    "source": "a2_activity.mmd",
+    "caption": "图 3-5 功能点 A2 工单状态流转活动图"
+  },
+  {
+    "file": "a2_sequence.png",
+    "source": "a2_sequence.mmd",
+    "caption": "图 3-6 功能点 A2 工单状态流转时序图"
+  },
+  {
+    "file": "a2_class.png",
+    "source": "a2_class.mmd",
+    "caption": "图 3-7 功能点 A2 工单状态流转类图"
+  },
+  {
+    "file": "a3_activity.png",
+    "source": "a3_activity.mmd",
+    "caption": "图 3-8 功能点 A3 遥测事件接收活动图"
+  },
+  {
+    "file": "a3_sequence.png",
+    "source": "a3_sequence.mmd",
+    "caption": "图 3-9 功能点 A3 遥测事件接收时序图"
+  },
+  {
+    "file": "a3_class.png",
+    "source": "a3_class.mmd",
+    "caption": "图 3-10 功能点 A3 遥测事件接收类图"
+  },
+  {
+    "file": "b1_activity.png",
+    "source": "b1_activity.mmd",
+    "caption": "图 4-1 功能点 B1 匿名档案创建活动图"
+  },
+  {
+    "file": "b1_sequence.png",
+    "source": "b1_sequence.mmd",
+    "caption": "图 4-2 功能点 B1 匿名档案创建时序图"
+  },
+  {
+    "file": "b1_class.png",
+    "source": "b1_class.mmd",
+    "caption": "图 4-3 功能点 B1 匿名档案创建类图"
+  },
+  {
+    "file": "b2_activity.png",
+    "source": "b2_activity.mmd",
+    "caption": "图 4-4 功能点 B2 账号注册/登录活动图"
+  },
+  {
+    "file": "b2_sequence.png",
+    "source": "b2_sequence.mmd",
+    "caption": "图 4-5 功能点 B2 账号注册/登录时序图"
+  },
+  {
+    "file": "b2_class.png",
+    "source": "b2_class.mmd",
+    "caption": "图 4-6 功能点 B2 账号注册/登录类图"
+  },
+  {
+    "file": "b3_activity.png",
+    "source": "b3_activity.mmd",
+    "caption": "图 4-7 功能点 B3 匿名档案绑定活动图"
+  },
+  {
+    "file": "b3_sequence.png",
+    "source": "b3_sequence.mmd",
+    "caption": "图 4-8 功能点 B3 匿名档案绑定时序图"
+  },
+  {
+    "file": "b3_class.png",
+    "source": "b3_class.mmd",
+    "caption": "图 4-9 功能点 B3 匿名档案绑定类图"
+  },
+  {
+    "file": "c1_activity.png",
+    "source": "c1_activity.mmd",
+    "caption": "图 5-1 功能点 C1 三角色 RBAC 活动图"
+  },
+  {
+    "file": "c1_sequence.png",
+    "source": "c1_sequence.mmd",
+    "caption": "图 5-2 功能点 C1 三角色 RBAC 时序图"
+  },
+  {
+    "file": "c1_class.png",
+    "source": "c1_class.mmd",
+    "caption": "图 5-3 功能点 C1 三角色 RBAC 类图"
+  },
+  {
+    "file": "c2_activity.png",
+    "source": "c2_activity.mmd",
+    "caption": "图 5-4 功能点 C2 版本发布与回退活动图"
+  },
+  {
+    "file": "c2_sequence.png",
+    "source": "c2_sequence.mmd",
+    "caption": "图 5-5 功能点 C2 版本发布与回退时序图"
+  },
+  {
+    "file": "c2_class.png",
+    "source": "c2_class.mmd",
+    "caption": "图 5-6 功能点 C2 版本发布与回退类图"
+  }
+]
