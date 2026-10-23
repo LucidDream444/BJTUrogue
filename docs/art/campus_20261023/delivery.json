@@ -1,0 +1,1456 @@
+{
+  "schemaVersion": 1,
+  "packId": "campus_20261023",
+  "status": "drawn_and_exported",
+  "method": "local_native_pixel_drawing",
+  "source": "client/tools/art/campus_pixel/",
+  "palette": "palette.json",
+  "noteZh": "照片参考的本地像素绘制；整景为构图参考，独立组件和材质待按正式地图几何接入。",
+  "counts": {
+    "scenes": 6,
+    "sprites": 50,
+    "tiles": 16,
+    "atlases": 4,
+    "lightingOverlays": 1
+  },
+  "assets": [
+    {
+      "id": "furniture_classroom_desk_yellow_single",
+      "path": "sprites/furniture/campus_20261023/furniture_classroom_desk_yellow_single.png",
+      "kind": "image",
+      "width": 128,
+      "height": 128,
+      "mode": "RGBA",
+      "sha256": "12cd6070bfec5d694bc3096c8bcc286f212dd8b4b6f8f9c1f2627866a52a97da",
+      "group": "furniture",
+      "name": "单人黄木课桌／开口书斗",
+      "anchor": [
+        64,
+        108
+      ],
+      "visualBounds": [
+        48,
+        63,
+        80,
+        109
+      ],
+      "alpha": "binary"
+    },
+    {
+      "id": "furniture_classroom_desk_yellow_double",
+      "path": "sprites/furniture/campus_20261023/furniture_classroom_desk_yellow_double.png",
+      "kind": "image",
+      "width": 128,
+      "height": 128,
+      "mode": "RGBA",
+      "sha256": "1e9f03232e82b1b3a66b032850ed4356c85adebe3582627093e4e773a119bf76",
+      "group": "furniture",
+      "name": "双人黄木课桌／开口书斗",
+      "anchor": [
+        64,
+        108
+      ],
+      "visualBounds": [
+        31,
+        63,
+        97,
+        109
+      ],
+      "alpha": "binary"
+    },
+    {
+      "id": "furniture_classroom_desk_yellow_triple",
+      "path": "sprites/furniture/campus_20261023/furniture_classroom_desk_yellow_triple.png",
+      "kind": "image",
+      "width": 128,
+      "height": 128,
+      "mode": "RGBA",
+      "sha256": "7ed2cb6e562c45b4b92dfd066b2975842710f0b72f61e8add97f8281629c09e9",
+      "group": "furniture",
+      "name": "三人黄木长课桌／开口书斗",
+      "anchor": [
+        64,
+        108
+      ],
+      "visualBounds": [
+        16,
+        63,
+        112,
+        109
+      ],
+      "alpha": "binary"
+    },
+    {
+      "id": "furniture_classroom_desk_yellow_double_back",
+      "path": "sprites/furniture/campus_20261023/furniture_classroom_desk_yellow_double_back.png",
+      "kind": "image",
+      "width": 128,
+      "height": 128,
+      "mode": "RGBA",
+      "sha256": "a3187cd78815e5e88fb6a626938cceb9a5ad739335f8619617225a0ffa721350",
+      "group": "furniture",
+      "name": "双人课桌背板朝向",
+      "anchor": [
+        64,
+        108
+      ],
+      "visualBounds": [
+        31,
+        63,
+        97,
+        109
+      ],
+      "alpha": "binary"
+    },
+    {
+      "id": "furniture_lecture_chair_blue_down_front",
+      "path": "sprites/furniture/campus_20261023/furniture_lecture_chair_blue_down_front.png",
+      "kind": "image",
+      "width": 128,
+      "height": 128,
+      "mode": "RGBA",
+      "sha256": "33cfc1670b6f734b6ecb69c1673dd981046aa8a9a68a7352dbf45ed548242a73",
+      "group": "furniture",
+      "name": "蓝色翻板椅／放下／正面",
+      "anchor": [
+        64,
+        108
+      ],
+      "visualBounds": [
+        48,
+        59,
+        80,
+        109
+      ],
+      "alpha": "binary"
+    },
+    {
+      "id": "furniture_lecture_chair_blue_folded_front",
+      "path": "sprites/furniture/campus_20261023/furniture_lecture_chair_blue_folded_front.png",
+      "kind": "image",
+      "width": 128,
+      "height": 128,
+      "mode": "RGBA",
+      "sha256": "133d61d0f09c6b4cc1328e1eb8c6b4d74bb3e12f21893696550d46b26f4fa33f",
+      "group": "furniture",
+      "name": "蓝色翻板椅／收起／正面",
+      "anchor": [
+        64,
+        108
+      ],
+      "visualBounds": [
+        48,
+        59,
+        80,
+        109
+      ],
+      "alpha": "binary"
+    },
+    {
+      "id": "furniture_lecture_chair_blue_down_back",
+      "path": "sprites/furniture/campus_20261023/furniture_lecture_chair_blue_down_back.png",
+      "kind": "image",
+      "width": 128,
+      "height": 128,
+      "mode": "RGBA",
+      "sha256": "2601fdc5e8fc7a3519485c281312a2caea29da36d4a6f31dff3863ece55dba04",
+      "group": "furniture",
+      "name": "蓝色翻板椅／放下／背面",
+      "anchor": [
+        64,
+        108
+      ],
+      "visualBounds": [
+        48,
+        59,
+        80,
+        109
+      ],
+      "alpha": "binary"
+    },
+    {
+      "id": "furniture_lecture_chair_blue_folded_back",
+      "path": "sprites/furniture/campus_20261023/furniture_lecture_chair_blue_folded_back.png",
+      "kind": "image",
+      "width": 128,
+      "height": 128,
+      "mode": "RGBA",
+      "sha256": "19ff007a524ce0b90c718f1afad354adcef20de807034938c741c4a7ede418f9",
+      "group": "furniture",
+      "name": "蓝色翻板椅／收起／背面",
+      "anchor": [
+        64,
+        108
+      ],
+      "visualBounds": [
+        48,
+        59,
+        80,
+        109
+      ],
+      "alpha": "binary"
+    },
+    {
+      "id": "furniture_lecture_chair_blue_down_left",
+      "path": "sprites/furniture/campus_20261023/furniture_lecture_chair_blue_down_left.png",
+      "kind": "image",
+      "width": 128,
+      "height": 128,
+      "mode": "RGBA",
+      "sha256": "136ef7d0c073edb7aa73c3c19146c2295b5ea4dc6662f0c11e9481f1481b4bb8",
+      "group": "furniture",
+      "name": "蓝色翻板椅／放下／朝左",
+      "anchor": [
+        64,
+        108
+      ],
+      "visualBounds": [
+        47,
+        59,
+        81,
+        109
+      ],
+      "alpha": "binary"
+    },
+    {
+      "id": "furniture_lecture_chair_blue_folded_left",
+      "path": "sprites/furniture/campus_20261023/furniture_lecture_chair_blue_folded_left.png",
+      "kind": "image",
+      "width": 128,
+      "height": 128,
+      "mode": "RGBA",
+      "sha256": "105649ea6674aaf402d44b5c3c0457398acc59c77e5dfc4e1bc2a2b7fbcaa1fc",
+      "group": "furniture",
+      "name": "蓝色翻板椅／收起／朝左",
+      "anchor": [
+        64,
+        108
+      ],
+      "visualBounds": [
+        52,
+        59,
+        81,
+        109
+      ],
+      "alpha": "binary"
+    },
+    {
+      "id": "furniture_lecture_chair_blue_down_right",
+      "path": "sprites/furniture/campus_20261023/furniture_lecture_chair_blue_down_right.png",
+      "kind": "image",
+      "width": 128,
+      "height": 128,
+      "mode": "RGBA",
+      "sha256": "8d43063588e7b896537ccf1f7c3915aa6acb62d7379011a7ad5a1cf48b9e2235",
+      "group": "furniture",
+      "name": "蓝色翻板椅／放下／朝右",
+      "anchor": [
+        64,
+        108
+      ],
+      "visualBounds": [
+        47,
+        59,
+        81,
+        109
+      ],
+      "alpha": "binary"
+    },
+    {
+      "id": "furniture_lecture_chair_blue_folded_right",
+      "path": "sprites/furniture/campus_20261023/furniture_lecture_chair_blue_folded_right.png",
+      "kind": "image",
+      "width": 128,
+      "height": 128,
+      "mode": "RGBA",
+      "sha256": "9f85c8588b3c9a036d50e4b5219982d7002eae3af197c8e18b7ceb2e076f18f8",
+      "group": "furniture",
+      "name": "蓝色翻板椅／收起／朝右",
+      "anchor": [
+        64,
+        108
+      ],
+      "visualBounds": [
+        47,
+        59,
+        76,
+        109
+      ],
+      "alpha": "binary"
+    },
+    {
+      "id": "furniture_classroom_lectern_multimedia",
+      "path": "sprites/furniture/campus_20261023/furniture_classroom_lectern_multimedia.png",
+      "kind": "image",
+      "width": 128,
+      "height": 128,
+      "mode": "RGBA",
+      "sha256": "bbde5ef4764368e0a295222c77d97c274db32752019bd85346b643052d15655d",
+      "group": "furniture",
+      "name": "浅色多媒体讲台组合",
+      "anchor": [
+        64,
+        108
+      ],
+      "visualBounds": [
+        33,
+        41,
+        95,
+        109
+      ],
+      "alpha": "binary"
+    },
+    {
+      "id": "furniture_classroom_lectern_wood",
+      "path": "sprites/furniture/campus_20261023/furniture_classroom_lectern_wood.png",
+      "kind": "image",
+      "width": 128,
+      "height": 128,
+      "mode": "RGBA",
+      "sha256": "a6d9c6bd3af66960a82d79c0af41e744ffd78d317b562d0575e84e9536c0e5ea",
+      "group": "furniture",
+      "name": "深木色讲台挡板",
+      "anchor": [
+        64,
+        108
+      ],
+      "visualBounds": [
+        38,
+        58,
+        90,
+        109
+      ],
+      "alpha": "binary"
+    },
+    {
+      "id": "furniture_classroom_podium_tile",
+      "path": "sprites/furniture/campus_20261023/furniture_classroom_podium_tile.png",
+      "kind": "image",
+      "width": 128,
+      "height": 128,
+      "mode": "RGBA",
+      "sha256": "ad02e257f6c0975f97438c0af13b8f20ec758c7717b61f95a39a6d28ccf37e50",
+      "group": "furniture",
+      "name": "单级浅灰瓷砖教学台",
+      "anchor": [
+        64,
+        108
+      ],
+      "visualBounds": [
+        17,
+        77,
+        111,
+        109
+      ],
+      "alpha": "binary"
+    },
+    {
+      "id": "furniture_lecture_chair_blue_row_triple",
+      "path": "sprites/furniture/campus_20261023/furniture_lecture_chair_blue_row_triple.png",
+      "kind": "image",
+      "width": 128,
+      "height": 128,
+      "mode": "RGBA",
+      "sha256": "57223343f421d3f5f83764648e8114dd91ea9cd6957087c678987b92d6b0edbb",
+      "group": "furniture",
+      "name": "三联固定蓝椅／两收一放",
+      "anchor": [
+        64,
+        108
+      ],
+      "visualBounds": [
+        18,
+        59,
+        110,
+        109
+      ],
+      "alpha": "binary"
+    },
+    {
+      "id": "prop_classroom_door_wood_closed",
+      "path": "sprites/props/campus_20261023/prop_classroom_door_wood_closed.png",
+      "kind": "image",
+      "width": 128,
+      "height": 128,
+      "mode": "RGBA",
+      "sha256": "9390926886aac719c1c1257047483820902e20c380d7b898ff53f1aba0ac7620",
+      "group": "architecture",
+      "name": "深木色小玻璃窗教室门／关闭",
+      "anchor": [
+        64,
+        108
+      ],
+      "visualBounds": [
+        41,
+        23,
+        87,
+        109
+      ],
+      "alpha": "binary"
+    },
+    {
+      "id": "prop_classroom_door_wood_open_left",
+      "path": "sprites/props/campus_20261023/prop_classroom_door_wood_open_left.png",
+      "kind": "image",
+      "width": 128,
+      "height": 128,
+      "mode": "RGBA",
+      "sha256": "41717288b50dc183b72028026218ff7f9f97ff1e38b5849b10cdedaecda08f30",
+      "group": "architecture",
+      "name": "深木色教室门／左铰链开启",
+      "anchor": [
+        64,
+        108
+      ],
+      "visualBounds": [
+        28,
+        23,
+        87,
+        109
+      ],
+      "alpha": "binary"
+    },
+    {
+      "id": "prop_classroom_door_wood_open_right",
+      "path": "sprites/props/campus_20261023/prop_classroom_door_wood_open_right.png",
+      "kind": "image",
+      "width": 128,
+      "height": 128,
+      "mode": "RGBA",
+      "sha256": "75c25726191aba17adf1cb94a4f95da5a85473aaad30f902e548520e35ed0a8a",
+      "group": "architecture",
+      "name": "深木色教室门／右铰链开启",
+      "anchor": [
+        64,
+        108
+      ],
+      "visualBounds": [
+        41,
+        23,
+        100,
+        109
+      ],
+      "alpha": "binary"
+    },
+    {
+      "id": "prop_corridor_door_fire_double_gray",
+      "path": "sprites/props/campus_20261023/prop_corridor_door_fire_double_gray.png",
+      "kind": "image",
+      "width": 128,
+      "height": 128,
+      "mode": "RGBA",
+      "sha256": "aca4a9d3e15d8d917ecabb0426bc522ea0a0f4458a7b3b119e9bf7bd206e5d92",
+      "group": "architecture",
+      "name": "灰色不等宽双扇防火门",
+      "anchor": [
+        64,
+        108
+      ],
+      "visualBounds": [
+        24,
+        24,
+        104,
+        109
+      ],
+      "alpha": "binary"
+    },
+    {
+      "id": "prop_classroom_window_wide",
+      "path": "sprites/props/campus_20261023/prop_classroom_window_wide.png",
+      "kind": "image",
+      "width": 128,
+      "height": 128,
+      "mode": "RGBA",
+      "sha256": "487c9683fa540d3bad6e70637c6cbcfe4163158f1b128df5962e05f7dbb7c37f",
+      "group": "architecture",
+      "name": "深色窗框六格高窗",
+      "anchor": [
+        64,
+        108
+      ],
+      "visualBounds": [
+        21,
+        21,
+        107,
+        109
+      ],
+      "alpha": "binary"
+    },
+    {
+      "id": "prop_classroom_window_narrow",
+      "path": "sprites/props/campus_20261023/prop_classroom_window_narrow.png",
+      "kind": "image",
+      "width": 128,
+      "height": 128,
+      "mode": "RGBA",
+      "sha256": "9be83ab226daca2dc8b584dc2ed00178189699fa53cd148cf3da5145aaf528e0",
+      "group": "architecture",
+      "name": "深色窗框窄高窗",
+      "anchor": [
+        64,
+        108
+      ],
+      "visualBounds": [
+        44,
+        21,
+        84,
+        109
+      ],
+      "alpha": "binary"
+    },
+    {
+      "id": "prop_classroom_curtain_blue_closed",
+      "path": "sprites/props/campus_20261023/prop_classroom_curtain_blue_closed.png",
+      "kind": "image",
+      "width": 128,
+      "height": 128,
+      "mode": "RGBA",
+      "sha256": "4db8e794aabe63036092b3fd3867a615a94f107781a22d35ebebab67b0a73586",
+      "group": "architecture",
+      "name": "蓝灰布窗帘／闭合",
+      "anchor": [
+        64,
+        108
+      ],
+      "visualBounds": [
+        20,
+        25,
+        108,
+        108
+      ],
+      "alpha": "binary"
+    },
+    {
+      "id": "prop_classroom_curtain_blue_parted",
+      "path": "sprites/props/campus_20261023/prop_classroom_curtain_blue_parted.png",
+      "kind": "image",
+      "width": 128,
+      "height": 128,
+      "mode": "RGBA",
+      "sha256": "162e939fdda2b427e968a1e8c36f2a2ae2d60ee358125cb12d4a1328b8551f8e",
+      "group": "architecture",
+      "name": "蓝灰布窗帘／拉开",
+      "anchor": [
+        64,
+        108
+      ],
+      "visualBounds": [
+        20,
+        25,
+        108,
+        108
+      ],
+      "alpha": "binary"
+    },
+    {
+      "id": "prop_classroom_railing_stainless_horizontal",
+      "path": "sprites/props/campus_20261023/prop_classroom_railing_stainless_horizontal.png",
+      "kind": "image",
+      "width": 128,
+      "height": 128,
+      "mode": "RGBA",
+      "sha256": "28a12fca3fc18774bdd6e14a35b013b39b0a2c7d9296dacfe5b658794d7d2279",
+      "group": "architecture",
+      "name": "不锈钢护栏／横向",
+      "anchor": [
+        64,
+        108
+      ],
+      "visualBounds": [
+        23,
+        73,
+        105,
+        109
+      ],
+      "alpha": "binary"
+    },
+    {
+      "id": "prop_classroom_railing_stainless_vertical",
+      "path": "sprites/props/campus_20261023/prop_classroom_railing_stainless_vertical.png",
+      "kind": "image",
+      "width": 128,
+      "height": 128,
+      "mode": "RGBA",
+      "sha256": "c3159f340748f295ed5063d5bf8e775939881756ca081fa6e9e195ad4e05f87f",
+      "group": "architecture",
+      "name": "不锈钢护栏／纵向",
+      "anchor": [
+        64,
+        108
+      ],
+      "visualBounds": [
+        54,
+        26,
+        69,
+        109
+      ],
+      "alpha": "binary"
+    },
+    {
+      "id": "prop_classroom_railing_stainless_corner",
+      "path": "sprites/props/campus_20261023/prop_classroom_railing_stainless_corner.png",
+      "kind": "image",
+      "width": 128,
+      "height": 128,
+      "mode": "RGBA",
+      "sha256": "a9a9ff2c2662a0e6dac6b725071926becc667ceb3a2d804af1ed82ed55c17650",
+      "group": "architecture",
+      "name": "不锈钢护栏／直角转角",
+      "anchor": [
+        64,
+        108
+      ],
+      "visualBounds": [
+        24,
+        34,
+        99,
+        109
+      ],
+      "alpha": "binary"
+    },
+    {
+      "id": "prop_classroom_pillar_round_plaster",
+      "path": "sprites/props/campus_20261023/prop_classroom_pillar_round_plaster.png",
+      "kind": "image",
+      "width": 128,
+      "height": 128,
+      "mode": "RGBA",
+      "sha256": "5c12004a1237c6ef8bc3c6dce781ed84dd4bd1d6f58532b45e5f92bc57f847bc",
+      "group": "architecture",
+      "name": "白灰抹灰圆柱",
+      "anchor": [
+        64,
+        108
+      ],
+      "visualBounds": [
+        42,
+        19,
+        86,
+        109
+      ],
+      "alpha": "binary"
+    },
+    {
+      "id": "prop_stairwell_stairs_up",
+      "path": "sprites/props/campus_20261023/prop_stairwell_stairs_up.png",
+      "kind": "image",
+      "width": 128,
+      "height": 128,
+      "mode": "RGBA",
+      "sha256": "4ff9c36eee24b15f7e0279cdf93c63f52f93a707f63a221e5c6fa57daa2380f4",
+      "group": "architecture",
+      "name": "浅灰瓷砖楼梯／向上",
+      "anchor": [
+        64,
+        108
+      ],
+      "visualBounds": [
+        20,
+        28,
+        109,
+        109
+      ],
+      "alpha": "binary"
+    },
+    {
+      "id": "prop_stairwell_stairs_down",
+      "path": "sprites/props/campus_20261023/prop_stairwell_stairs_down.png",
+      "kind": "image",
+      "width": 128,
+      "height": 128,
+      "mode": "RGBA",
+      "sha256": "c5823932fd5fb0d7e479dc7f935a46013a7bce429627fd4b45fbe293ad7e5471",
+      "group": "architecture",
+      "name": "浅灰瓷砖楼梯／向下",
+      "anchor": [
+        64,
+        108
+      ],
+      "visualBounds": [
+        20,
+        28,
+        109,
+        109
+      ],
+      "alpha": "binary"
+    },
+    {
+      "id": "prop_corridor_wall_plaster",
+      "path": "sprites/props/campus_20261023/prop_corridor_wall_plaster.png",
+      "kind": "image",
+      "width": 128,
+      "height": 128,
+      "mode": "RGBA",
+      "sha256": "ba800de5067c567f7a61a703b421fd8d3af2b6557b858ceb8e31cd0e8fff632f",
+      "group": "architecture",
+      "name": "米白抹灰墙／深色踢脚",
+      "anchor": [
+        64,
+        108
+      ],
+      "visualBounds": [
+        17,
+        42,
+        111,
+        109
+      ],
+      "alpha": "binary"
+    },
+    {
+      "id": "prop_stairwell_wall_red_brick",
+      "path": "sprites/props/campus_20261023/prop_stairwell_wall_red_brick.png",
+      "kind": "image",
+      "width": 128,
+      "height": 128,
+      "mode": "RGBA",
+      "sha256": "44b547da6c5b027a0d92d1146bd2d828a142c046cdcd79cbaf3cc0268080b43d",
+      "group": "architecture",
+      "name": "红褐砖墙／浅灰砖缝",
+      "anchor": [
+        64,
+        108
+      ],
+      "visualBounds": [
+        17,
+        41,
+        111,
+        109
+      ],
+      "alpha": "binary"
+    },
+    {
+      "id": "prop_classroom_chalkboard_green",
+      "path": "sprites/props/campus_20261023/prop_classroom_chalkboard_green.png",
+      "kind": "image",
+      "width": 128,
+      "height": 128,
+      "mode": "RGBA",
+      "sha256": "20f682f74a853e2241a9f888bb90b14f3b3b3450633fcc90ea305123acdd3cc5",
+      "group": "fixtures",
+      "name": "绿色双板黑板／粉笔槽",
+      "anchor": [
+        64,
+        108
+      ],
+      "visualBounds": [
+        18,
+        57,
+        111,
+        109
+      ],
+      "alpha": "binary"
+    },
+    {
+      "id": "prop_classroom_projection_screen_down",
+      "path": "sprites/props/campus_20261023/prop_classroom_projection_screen_down.png",
+      "kind": "image",
+      "width": 128,
+      "height": 128,
+      "mode": "RGBA",
+      "sha256": "ca8ac32e3c481c9383ff1088492251e667c34d036d53f75f01c43d67d0e1f366",
+      "group": "fixtures",
+      "name": "降下的空白投影幕",
+      "anchor": [
+        64,
+        108
+      ],
+      "visualBounds": [
+        19,
+        46,
+        110,
+        109
+      ],
+      "alpha": "binary"
+    },
+    {
+      "id": "prop_classroom_radiator_castiron",
+      "path": "sprites/props/campus_20261023/prop_classroom_radiator_castiron.png",
+      "kind": "image",
+      "width": 128,
+      "height": 128,
+      "mode": "RGBA",
+      "sha256": "57782b49a385f6996f38ccc4b7d5c6643b2aa52b2cc7c5198951215c8e278e9e",
+      "group": "fixtures",
+      "name": "灰褐旧铸铁暖气片",
+      "anchor": [
+        64,
+        108
+      ],
+      "visualBounds": [
+        28,
+        72,
+        99,
+        109
+      ],
+      "alpha": "binary"
+    },
+    {
+      "id": "prop_classroom_ac_floor",
+      "path": "sprites/props/campus_20261023/prop_classroom_ac_floor.png",
+      "kind": "image",
+      "width": 128,
+      "height": 128,
+      "mode": "RGBA",
+      "sha256": "a9c17fbf01e9445414555af96620dca6a66f4a0848e9ebc935c5c814c350db75",
+      "group": "fixtures",
+      "name": "米白立式空调",
+      "anchor": [
+        64,
+        108
+      ],
+      "visualBounds": [
+        51,
+        28,
+        77,
+        109
+      ],
+      "alpha": "binary"
+    },
+    {
+      "id": "prop_classroom_clock_round",
+      "path": "sprites/props/campus_20261023/prop_classroom_clock_round.png",
+      "kind": "image",
+      "width": 128,
+      "height": 128,
+      "mode": "RGBA",
+      "sha256": "9846614bea48a0a88cfb5ac40372f2b2195f1f90af83041d8f79d4bcf7008552",
+      "group": "fixtures",
+      "name": "灰框白面圆挂钟",
+      "anchor": [
+        64,
+        108
+      ],
+      "visualBounds": [
+        51,
+        82,
+        78,
+        109
+      ],
+      "alpha": "binary"
+    },
+    {
+      "id": "prop_classroom_light_fluorescent",
+      "path": "sprites/props/campus_20261023/prop_classroom_light_fluorescent.png",
+      "kind": "image",
+      "width": 128,
+      "height": 128,
+      "mode": "RGBA",
+      "sha256": "9c8f6cd62f16823dfadaefb027dc789c65afd69da9ee70ff43379624befebd90",
+      "group": "fixtures",
+      "name": "嵌入格栅荧光长灯",
+      "anchor": [
+        64,
+        64
+      ],
+      "visualBounds": [
+        32,
+        57,
+        97,
+        71
+      ],
+      "alpha": "binary"
+    },
+    {
+      "id": "prop_corridor_light_downlight",
+      "path": "sprites/props/campus_20261023/prop_corridor_light_downlight.png",
+      "kind": "image",
+      "width": 128,
+      "height": 128,
+      "mode": "RGBA",
+      "sha256": "0384ff07f59dbf932917b624b13beb0362d9b51bdadba1fffe225ba6ee6adcbf",
+      "group": "fixtures",
+      "name": "走廊圆筒灯",
+      "anchor": [
+        64,
+        64
+      ],
+      "visualBounds": [
+        55,
+        55,
+        74,
+        73
+      ],
+      "alpha": "binary"
+    },
+    {
+      "id": "prop_classroom_speaker_wall",
+      "path": "sprites/props/campus_20261023/prop_classroom_speaker_wall.png",
+      "kind": "image",
+      "width": 128,
+      "height": 128,
+      "mode": "RGBA",
+      "sha256": "45256abb8d6af84c43cf85edc6d8cf935314c41c6d3cf0b14ca0811c63d99b84",
+      "group": "fixtures",
+      "name": "窄长浅色壁挂扬声器",
+      "anchor": [
+        64,
+        108
+      ],
+      "visualBounds": [
+        55,
+        65,
+        71,
+        109
+      ],
+      "alpha": "binary"
+    },
+    {
+      "id": "prop_classroom_projector_white",
+      "path": "sprites/props/campus_20261023/prop_classroom_projector_white.png",
+      "kind": "image",
+      "width": 128,
+      "height": 128,
+      "mode": "RGBA",
+      "sha256": "e4923e1e867d7782c858dec78310b9b1ceb55c89e6110234c7f92df243c40393",
+      "group": "fixtures",
+      "name": "白色吊装投影仪",
+      "anchor": [
+        64,
+        64
+      ],
+      "visualBounds": [
+        46,
+        45,
+        81,
+        76
+      ],
+      "alpha": "binary"
+    },
+    {
+      "id": "prop_classroom_projector_black",
+      "path": "sprites/props/campus_20261023/prop_classroom_projector_black.png",
+      "kind": "image",
+      "width": 128,
+      "height": 128,
+      "mode": "RGBA",
+      "sha256": "d74995cb9b9a7854c7d225bd16a750d6055cdd01b1c75323f5aab346613c875c",
+      "group": "fixtures",
+      "name": "深色吊装投影仪",
+      "anchor": [
+        64,
+        64
+      ],
+      "visualBounds": [
+        46,
+        45,
+        81,
+        76
+      ],
+      "alpha": "binary"
+    },
+    {
+      "id": "prop_classroom_fan_ceiling",
+      "path": "sprites/props/campus_20261023/prop_classroom_fan_ceiling.png",
+      "kind": "image",
+      "width": 128,
+      "height": 128,
+      "mode": "RGBA",
+      "sha256": "f27106289497ef9013057de77fa756fe281e016a3d09932b94d1ab690f5a2797",
+      "group": "fixtures",
+      "name": "白色三叶吊扇",
+      "anchor": [
+        64,
+        64
+      ],
+      "visualBounds": [
+        27,
+        46,
+        105,
+        101
+      ],
+      "alpha": "binary"
+    },
+    {
+      "id": "prop_corridor_camera_dome",
+      "path": "sprites/props/campus_20261023/prop_corridor_camera_dome.png",
+      "kind": "image",
+      "width": 128,
+      "height": 128,
+      "mode": "RGBA",
+      "sha256": "e608ea59c44a468c0ba7fb980230f5d68a9b8ccd2e86c162d2b821de690bbe9e",
+      "group": "fixtures",
+      "name": "半球监控摄像头",
+      "anchor": [
+        64,
+        64
+      ],
+      "visualBounds": [
+        54,
+        55,
+        75,
+        76
+      ],
+      "alpha": "binary"
+    },
+    {
+      "id": "prop_stairwell_pipe_fire_red",
+      "path": "sprites/props/campus_20261023/prop_stairwell_pipe_fire_red.png",
+      "kind": "image",
+      "width": 128,
+      "height": 128,
+      "mode": "RGBA",
+      "sha256": "f68885cf34250a97ea2d42bf9c9a5c49923695a3e37afc7518ff1082c1d25240",
+      "group": "fixtures",
+      "name": "暗红消防立管／弯头",
+      "anchor": [
+        64,
+        108
+      ],
+      "visualBounds": [
+        57,
+        21,
+        86,
+        109
+      ],
+      "alpha": "binary"
+    },
+    {
+      "id": "prop_corridor_fire_cabinet_brick",
+      "path": "sprites/props/campus_20261023/prop_corridor_fire_cabinet_brick.png",
+      "kind": "image",
+      "width": 128,
+      "height": 128,
+      "mode": "RGBA",
+      "sha256": "d10284f6f95c525f40db4368c5de7b9639b9ad7c1d59b32ba2da29ea7901cf5b",
+      "group": "fixtures",
+      "name": "砖面内嵌消防器材柜",
+      "anchor": [
+        64,
+        108
+      ],
+      "visualBounds": [
+        42,
+        36,
+        87,
+        109
+      ],
+      "alpha": "binary"
+    },
+    {
+      "id": "prop_corridor_exit_sign_green",
+      "path": "sprites/props/campus_20261023/prop_corridor_exit_sign_green.png",
+      "kind": "image",
+      "width": 128,
+      "height": 128,
+      "mode": "RGBA",
+      "sha256": "d7de33c762611f7e51a45cd914e19573a6bbb0b27fd4c3d1453abee40f4ac85f",
+      "group": "fixtures",
+      "name": "绿色应急出口图示灯",
+      "anchor": [
+        64,
+        108
+      ],
+      "visualBounds": [
+        46,
+        94,
+        83,
+        109
+      ],
+      "alpha": "binary"
+    },
+    {
+      "id": "prop_classroom_switch_socket_cluster",
+      "path": "sprites/props/campus_20261023/prop_classroom_switch_socket_cluster.png",
+      "kind": "image",
+      "width": 128,
+      "height": 128,
+      "mode": "RGBA",
+      "sha256": "1ff58f49a8c59d4a5b22c47d1cc4325c642ad822f95fcb4fa49c80dad7498391",
+      "group": "fixtures",
+      "name": "浅色开关与插座面板",
+      "anchor": [
+        64,
+        108
+      ],
+      "visualBounds": [
+        51,
+        95,
+        78,
+        109
+      ],
+      "alpha": "binary"
+    },
+    {
+      "id": "prop_lobby_icecream_neon",
+      "path": "sprites/props/campus_20261023/prop_lobby_icecream_neon.png",
+      "kind": "image",
+      "width": 128,
+      "height": 128,
+      "mode": "RGBA",
+      "sha256": "8966694158f7f32b2d5fa1df09916beec08dc8231f9a447bb14b6367f654ace6",
+      "group": "extras",
+      "name": "门厅冰淇淋轮廓灯",
+      "anchor": [
+        64,
+        108
+      ],
+      "visualBounds": [
+        38,
+        37,
+        90,
+        110
+      ],
+      "alpha": "binary"
+    },
+    {
+      "id": "prop_stairwell_floor_marker_6",
+      "path": "sprites/props/campus_20261023/prop_stairwell_floor_marker_6.png",
+      "kind": "image",
+      "width": 128,
+      "height": 128,
+      "mode": "RGBA",
+      "sha256": "ef6a913618e87054afb5c98b46a65e1712e80558f31557dd3e500fc412d899f5",
+      "group": "extras",
+      "name": "楼梯间六层圆牌",
+      "anchor": [
+        64,
+        108
+      ],
+      "visualBounds": [
+        53,
+        85,
+        77,
+        109
+      ],
+      "alpha": "binary"
+    },
+    {
+      "id": "sheet_furniture",
+      "path": "maps/campus_20261023/atlas_furniture.png",
+      "kind": "atlas",
+      "width": 512,
+      "height": 512,
+      "mode": "RGBA",
+      "sha256": "0c7be7a65345eeae8c341128b4de0d1058dd015eb12a042a93053e0cf5f3c5fc",
+      "group": "atlases",
+      "name": "sheet_furniture",
+      "cellSize": 128,
+      "columns": 4,
+      "rows": 4
+    },
+    {
+      "id": "sheet_architecture",
+      "path": "maps/campus_20261023/atlas_architecture.png",
+      "kind": "atlas",
+      "width": 512,
+      "height": 512,
+      "mode": "RGBA",
+      "sha256": "3bcd4a374af91ab528821dbbb80f24586ff8d67f9b84c254d6560edf95d71396",
+      "group": "atlases",
+      "name": "sheet_architecture",
+      "cellSize": 128,
+      "columns": 4,
+      "rows": 4
+    },
+    {
+      "id": "sheet_fixtures",
+      "path": "maps/campus_20261023/atlas_fixtures.png",
+      "kind": "atlas",
+      "width": 512,
+      "height": 512,
+      "mode": "RGBA",
+      "sha256": "f30072c350b13746c3f0b3a3f267345f3e4e2f1a71584b34e836a82235b4d737",
+      "group": "atlases",
+      "name": "sheet_fixtures",
+      "cellSize": 128,
+      "columns": 4,
+      "rows": 4
+    },
+    {
+      "id": "tile_classroom_ceramic_clean",
+      "path": "maps/campus_20261023/tiles/tile_classroom_ceramic_clean.png",
+      "kind": "tile",
+      "width": 64,
+      "height": 64,
+      "mode": "RGBA",
+      "sha256": "572d62b9b3811832c38ab3fe74e9b8fef01273589f1cb0c87dbf053b6fdf2cd1",
+      "group": "tiles",
+      "name": "平层教室浅米灰瓷砖",
+      "repeatAxes": "xy"
+    },
+    {
+      "id": "tile_classroom_ceramic_worn",
+      "path": "maps/campus_20261023/tiles/tile_classroom_ceramic_worn.png",
+      "kind": "tile",
+      "width": 64,
+      "height": 64,
+      "mode": "RGBA",
+      "sha256": "a69062dfdfba52750a4aa853427ddbaf47bd7dd3b422022d0eb77ba45baf75f7",
+      "group": "tiles",
+      "name": "平层教室瓷砖轻磨损",
+      "repeatAxes": "xy"
+    },
+    {
+      "id": "tile_corridor_ceramic_neutral",
+      "path": "maps/campus_20261023/tiles/tile_corridor_ceramic_neutral.png",
+      "kind": "tile",
+      "width": 64,
+      "height": 64,
+      "mode": "RGBA",
+      "sha256": "680d75eedb4ef70b84bd838f21a1f3e0f8a9d652dd59dda33e0398e45231abcf",
+      "group": "tiles",
+      "name": "走廊灰米色瓷砖",
+      "repeatAxes": "xy"
+    },
+    {
+      "id": "tile_corridor_ceramic_worn",
+      "path": "maps/campus_20261023/tiles/tile_corridor_ceramic_worn.png",
+      "kind": "tile",
+      "width": 64,
+      "height": 64,
+      "mode": "RGBA",
+      "sha256": "df89b0b3789e92b392900205bec165ab35eeeee749f3a5ee5130ae0b8b416ab0",
+      "group": "tiles",
+      "name": "走廊瓷砖磨损变体",
+      "repeatAxes": "xy"
+    },
+    {
+      "id": "tile_lecture_concrete_base",
+      "path": "maps/campus_20261023/tiles/tile_lecture_concrete_base.png",
+      "kind": "tile",
+      "width": 64,
+      "height": 64,
+      "mode": "RGBA",
+      "sha256": "b532b7b07415fbcc1543a7b23aa8e99ec5a6b04d58424eccda081e6bfdb63e43",
+      "group": "tiles",
+      "name": "阶梯教室灰绿水泥",
+      "repeatAxes": "xy"
+    },
+    {
+      "id": "tile_lecture_concrete_scuffed",
+      "path": "maps/campus_20261023/tiles/tile_lecture_concrete_scuffed.png",
+      "kind": "tile",
+      "width": 64,
+      "height": 64,
+      "mode": "RGBA",
+      "sha256": "63d59c999cb80c0f6717d57fb973ed93129e76c98e95ef46b52834f7724ca788",
+      "group": "tiles",
+      "name": "阶梯教室水泥磨白斑驳",
+      "repeatAxes": "xy"
+    },
+    {
+      "id": "tile_lobby_stone_base",
+      "path": "maps/campus_20261023/tiles/tile_lobby_stone_base.png",
+      "kind": "tile",
+      "width": 64,
+      "height": 64,
+      "mode": "RGBA",
+      "sha256": "74804328efe942ce0aeddd1ac0050140d098088bf99c1398be504bca693de02a",
+      "group": "tiles",
+      "name": "门厅深灰细粒石材",
+      "repeatAxes": "xy"
+    },
+    {
+      "id": "tile_lobby_stone_variant",
+      "path": "maps/campus_20261023/tiles/tile_lobby_stone_variant.png",
+      "kind": "tile",
+      "width": 64,
+      "height": 64,
+      "mode": "RGBA",
+      "sha256": "ff4ae5179a881040be7cd21ec5909c99095a9da05508511ac47d3a06b83862f3",
+      "group": "tiles",
+      "name": "门厅石材纹理变体",
+      "repeatAxes": "xy"
+    },
+    {
+      "id": "tile_wall_plaster_warm",
+      "path": "maps/campus_20261023/tiles/tile_wall_plaster_warm.png",
+      "kind": "tile",
+      "width": 64,
+      "height": 64,
+      "mode": "RGBA",
+      "sha256": "81a40d5d8ebd3c93c5dfd4609d3345e7f6104554fd66d9bd1be15ba77211d66c",
+      "group": "tiles",
+      "name": "教室暖灰白粉刷墙",
+      "repeatAxes": "xy"
+    },
+    {
+      "id": "tile_wall_plaster_cool",
+      "path": "maps/campus_20261023/tiles/tile_wall_plaster_cool.png",
+      "kind": "tile",
+      "width": 64,
+      "height": 64,
+      "mode": "RGBA",
+      "sha256": "19506c36920af68105842ee9a941318f87010cafe8ab2ff0be110c335dc79963",
+      "group": "tiles",
+      "name": "走廊中性灰白墙",
+      "repeatAxes": "xy"
+    },
+    {
+      "id": "tile_wall_brick_base",
+      "path": "maps/campus_20261023/tiles/tile_wall_brick_base.png",
+      "kind": "tile",
+      "width": 64,
+      "height": 64,
+      "mode": "RGBA",
+      "sha256": "066d27422d797b32cf8e3bbcc6fcc8c7c5ad37028316963a90d85975692a4441",
+      "group": "tiles",
+      "name": "暗红砖墙",
+      "repeatAxes": "xy"
+    },
+    {
+      "id": "tile_wall_brick_weathered",
+      "path": "maps/campus_20261023/tiles/tile_wall_brick_weathered.png",
+      "kind": "tile",
+      "width": 64,
+      "height": 64,
+      "mode": "RGBA",
+      "sha256": "8be17d86dc2f558bee3baa5e27d946fcf87cd7ffb07145f1abb98b4570f0058a",
+      "group": "tiles",
+      "name": "泛白旧红砖墙",
+      "repeatAxes": "xy"
+    },
+    {
+      "id": "tile_stair_tread_grooved",
+      "path": "maps/campus_20261023/tiles/tile_stair_tread_grooved.png",
+      "kind": "tile",
+      "width": 64,
+      "height": 64,
+      "mode": "RGBA",
+      "sha256": "4cf005c0652198ddbe89c2f777df79005073b9beb33fb19eb5c9def594282460",
+      "group": "tiles",
+      "name": "防滑槽瓷砖踏步",
+      "repeatAxes": "x"
+    },
+    {
+      "id": "tile_stair_riser_plain",
+      "path": "maps/campus_20261023/tiles/tile_stair_riser_plain.png",
+      "kind": "tile",
+      "width": 64,
+      "height": 64,
+      "mode": "RGBA",
+      "sha256": "0970aa332aa780d491619de5828e48e24f2837b8aacba44bd6b1877a7c78e778",
+      "group": "tiles",
+      "name": "浅灰瓷砖踢面",
+      "repeatAxes": "x"
+    },
+    {
+      "id": "tile_wall_skirt_charcoal",
+      "path": "maps/campus_20261023/tiles/tile_wall_skirt_charcoal.png",
+      "kind": "tile",
+      "width": 64,
+      "height": 64,
+      "mode": "RGBA",
+      "sha256": "9df7ab509fcb68ff535bd53b76552718849f11ec4f89b8afe9ae0c7efe809826",
+      "group": "tiles",
+      "name": "近黑踢脚线墙段",
+      "repeatAxes": "x"
+    },
+    {
+      "id": "tile_door_threshold_metal",
+      "path": "maps/campus_20261023/tiles/tile_door_threshold_metal.png",
+      "kind": "tile",
+      "width": 64,
+      "height": 64,
+      "mode": "RGBA",
+      "sha256": "4e8e12c018049ce77588efbd04e7bf0055cf73b78fa2503c59ec45e8dff4816b",
+      "group": "tiles",
+      "name": "金属门槛横段",
+      "repeatAxes": "x"
+    },
+    {
+      "id": "atlas_materials",
+      "path": "maps/campus_20261023/atlas_materials.png",
+      "kind": "atlas",
+      "width": 256,
+      "height": 256,
+      "mode": "RGBA",
+      "sha256": "d58cb09ddb0089ad79cd41170c5784273d99dd4dfeb29d19f7a32e35319bea13",
+      "group": "atlases",
+      "name": "材质图集",
+      "cellSize": 64,
+      "columns": 4,
+      "rows": 4
+    },
+    {
+      "id": "classroom_flat_neutral",
+      "path": "maps/campus_20261023/map_classroom_flat_neutral.png",
+      "kind": "scene",
+      "width": 768,
+      "height": 432,
+      "mode": "RGBA",
+      "sha256": "3ab6fabaa6c2e4e70f43dfac5f4731e3b84a5d79c1f12b7099f004ce856e9ac1",
+      "group": "scenes",
+      "name": "平层教室·中性日光",
+      "lighting": "neutral_daylight_and_fluorescent_fill",
+      "integratedInGame": false
+    },
+    {
+      "id": "lecture_hall_neutral",
+      "path": "maps/campus_20261023/map_lecture_hall_neutral.png",
+      "kind": "scene",
+      "width": 768,
+      "height": 432,
+      "mode": "RGBA",
+      "sha256": "11c9a59f275dabb9f1905010773f167a97058357bf403fa81a96cfe610cc85f1",
+      "group": "scenes",
+      "name": "阶梯教室·中性日光",
+      "lighting": "neutral_daylight_with_recovered_midtones",
+      "integratedInGame": false
+    },
+    {
+      "id": "classroom_window_warm",
+      "path": "maps/campus_20261023/map_classroom_window_warm.png",
+      "kind": "scene",
+      "width": 768,
+      "height": 432,
+      "mode": "RGBA",
+      "sha256": "8dd441cafed33c904dc8cf75897c231f8e31787325595debd1e35db7cb8e5106",
+      "group": "scenes",
+      "name": "教室窗边·局部暖阳",
+      "lighting": "localized_warm_sunlight_with_cool_neutral_shadows",
+      "integratedInGame": false
+    },
+    {
+      "id": "corridor_neutral",
+      "path": "maps/campus_20261023/map_corridor_neutral.png",
+      "kind": "scene",
+      "width": 768,
+      "height": 432,
+      "mode": "RGBA",
+      "sha256": "9acdeaa8b58fccf2ec51b7039d479424662007e84900a74999f3a2adfbe3a917",
+      "group": "scenes",
+      "name": "普通走廊·中性照明",
+      "lighting": "neutral_indoor_lighting",
+      "integratedInGame": false
+    },
+    {
+      "id": "stairwell_daylight",
+      "path": "maps/campus_20261023/map_stairwell_daylight.png",
+      "kind": "scene",
+      "width": 768,
+      "height": 432,
+      "mode": "RGBA",
+      "sha256": "0f18c0b306f89bf0d4323180754b167d192cc55376e7d341f194944ee8f57815",
+      "group": "scenes",
+      "name": "红砖楼梯间·明亮日光",
+      "lighting": "bright_soft_window_daylight",
+      "integratedInGame": false
+    },
+    {
+      "id": "brick_lobby_neutral",
+      "path": "maps/campus_20261023/map_brick_lobby_neutral.png",
+      "kind": "scene",
+      "width": 768,
+      "height": 432,
+      "mode": "RGBA",
+      "sha256": "18ae179d4bc40c1847a4829c1c840c61844d8a31e8c6a7bc705fb5d8bd9087b2",
+      "group": "scenes",
+      "name": "红砖门厅·中性照明",
+      "lighting": "neutral_indoor_lighting_with_recovered_midtones",
+      "integratedInGame": false
+    },
+    {
+      "id": "fx_campus_window_sunlight",
+      "path": "sprites/fx/campus_20261023/fx_campus_window_sunlight.png",
+      "kind": "overlay",
+      "width": 768,
+      "height": 432,
+      "mode": "RGBA",
+      "sha256": "545f21ee1f2beb0ff3644c0a2f0cfce542950f5a0de485d0aac65991509821cb",
+      "group": "lighting",
+      "name": "窗边暖阳独立光照层",
+      "alpha": "stepped_translucent"
+    }
+  ]
+}

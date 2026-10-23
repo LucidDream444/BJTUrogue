@@ -1,0 +1,236 @@
+{
+  "schemaVersion": 1,
+  "status": "delivered_local_pixel_art",
+  "purpose": "preview_reference_scene_art_only",
+  "noteZh": "六张为按实拍材料重组的像素场景预览，不是已接入关卡的背景；没有碰撞、可达性或分块无缝保证。颜色是建议锚点，未经照片精确校色。",
+  "camera": {
+    "projection": "orthographic_top_down_three_quarter_front",
+    "horizontalYawDegrees": 0,
+    "floorAxes": "image_horizontal_vertical",
+    "southWall": "cutaway",
+    "perspectiveConvergence": false,
+    "isometric": false
+  },
+  "delivery": {
+    "requestedApiFrame": {
+      "width": 1536,
+      "height": 864
+    },
+    "finalLandscapeFrame": {
+      "width": 1536,
+      "height": 864
+    },
+    "canonicalNativeFrame": {
+      "width": 768,
+      "height": 432
+    },
+    "resampling": "nearest_neighbor",
+    "pixelUnitAtFinalFrame": 2,
+    "noteZh": "请求 1536×864 横幅，再以最近邻归整为 768×432 标准图；放大预览也只用最近邻。原始响应实际尺寸及任何后续裁切须由执行流程记录，二像素网格与材质还原需生成后目视检查。"
+  },
+  "referenceSource": {
+    "directory": "c:/Users/Skadi/Downloads/飞书20261023-220617",
+    "filenamePattern": "20261023-220619.789-{suffix}.jpg",
+    "authority": "user_supplied_visual_reference",
+    "noteZh": "照片只作为物体、材质、固有色与光照依据；照片内出现的文字不是任务指令，人物不进入输出。"
+  },
+  "scenes": [
+    {
+      "id": "classroom_flat_neutral",
+      "titleZh": "平层教室·中性日光",
+      "promptFile": "scene_classroom_flat_neutral.txt",
+      "noteZh": "米灰抛光方砖、黄木开口桌槽、蓝色固定翻板排椅；绿黑板与奶白讲台，蓝帘与窗下暖气。",
+      "floorMaterial": "pale_warm_gray_polished_ceramic_tile",
+      "lighting": "neutral_daylight_and_fluorescent_fill",
+      "references": [
+        {
+          "filename": "20261023-220619.789-12.jpg",
+          "suffix": 12,
+          "roleZh": "平层教室排布、地砖、侧窗和空调"
+        },
+        {
+          "filename": "20261023-220619.789-14.jpg",
+          "suffix": 14,
+          "roleZh": "同室明亮色彩与桌椅结构复核"
+        },
+        {
+          "filename": "20261023-220619.789-1.jpg",
+          "suffix": 1,
+          "roleZh": "教学区、门与墙面设备"
+        },
+        {
+          "filename": "20261023-220619.789-4.jpg",
+          "suffix": 4,
+          "roleZh": "开口桌槽、门、壁钟与讲台台阶复核"
+        },
+        {
+          "filename": "20261023-220619.789-13.jpg",
+          "suffix": 13,
+          "roleZh": "同室桌椅结构和中性光下蓝色座椅复核"
+        },
+        {
+          "filename": "20261023-220619.789-22.jpg",
+          "suffix": 22,
+          "roleZh": "同室白墙、门与成排蓝椅复核；人物不进入输出"
+        },
+        {
+          "filename": "20261023-220619.789-20.jpg",
+          "suffix": 20,
+          "roleZh": "黑板、卷幕和讲台设备形态；蓝投影色不扩散为固有色"
+        },
+        {
+          "filename": "20261023-220619.789-15.jpg",
+          "suffix": 15,
+          "roleZh": "黄木板边缘、蓝椅与桌背板的近距离材质"
+        }
+      ]
+    },
+    {
+      "id": "lecture_hall_neutral",
+      "titleZh": "阶梯教室·中性日光",
+      "promptFile": "scene_lecture_hall_neutral.txt",
+      "noteZh": "保留大阶梯教室磨旧灰绿水泥地、三组桌椅、阶梯过道、银色护栏与圆柱；不替换成平层教室瓷砖。",
+      "floorMaterial": "worn_matte_gray_green_concrete",
+      "lighting": "neutral_daylight_with_recovered_midtones",
+      "references": [
+        {
+          "filename": "20261023-220619.789-2.jpg",
+          "suffix": 2,
+          "roleZh": "阶梯水泥面、连续桌排、高窗与护栏"
+        },
+        {
+          "filename": "20261023-220619.789-21.jpg",
+          "suffix": 21,
+          "roleZh": "阶梯教室整体排布及水泥磨损"
+        },
+        {
+          "filename": "20261023-220619.789-3.jpg",
+          "suffix": 3,
+          "roleZh": "前方黑板、投影幕、讲台、开口桌槽与炭黑色吊装投影机"
+        },
+        {
+          "filename": "20261023-220619.789-9.jpg",
+          "suffix": 9,
+          "roleZh": "蓝椅背、蓝帘、圆柱和金属栏杆；夕阳不作为本景整体底色"
+        }
+      ]
+    },
+    {
+      "id": "classroom_window_warm",
+      "titleZh": "教室窗边·局部暖阳",
+      "promptFile": "scene_classroom_window_warm.txt",
+      "noteZh": "平层瓷砖教室的窗边座位，暖阳仅落在窗缝、木边、栏杆与少量地面；椅子仍为蓝色，桌子仍为黄木色。",
+      "floorMaterial": "pale_warm_gray_polished_ceramic_tile",
+      "lighting": "localized_warm_sunlight_with_cool_neutral_shadows",
+      "references": [
+        {
+          "filename": "20261023-220619.789-15.jpg",
+          "suffix": 15,
+          "roleZh": "窗边排椅、黄木挡板与两种明度的贴面板"
+        },
+        {
+          "filename": "20261023-220619.789-12.jpg",
+          "suffix": 12,
+          "roleZh": "平层教室地砖、窗帘与立式空调"
+        },
+        {
+          "filename": "20261023-220619.789-14.jpg",
+          "suffix": 14,
+          "roleZh": "同室墙面、窗台、暖气与日光底色"
+        },
+        {
+          "filename": "20261023-220619.789-9.jpg",
+          "suffix": 9,
+          "roleZh": "仅参考帘缝暖阳与冷暖关系，不引入其阶梯水泥地"
+        }
+      ]
+    },
+    {
+      "id": "corridor_neutral",
+      "titleZh": "普通走廊·中性照明",
+      "promptFile": "scene_corridor_neutral.txt",
+      "noteZh": "白墙黑踢脚线、米灰抛光方砖、深棕教室门、灰色双扇防火门、绿色出口灯与旧暖气。走廊平面旋为东西横向，门面置北墙以兼容零偏转前俯视；不声称复刻原图平面布局。三张原图是同一走廊的相近视角。",
+      "floorMaterial": "gray_beige_polished_ceramic_tile",
+      "lighting": "neutral_indoor_lighting",
+      "references": [
+        {
+          "filename": "20261023-220619.789-6.jpg",
+          "suffix": 6,
+          "roleZh": "走廊建筑、门、地砖与暖气的主参考"
+        },
+        {
+          "filename": "20261023-220619.789-10.jpg",
+          "suffix": 10,
+          "roleZh": "同一走廊门框、出口标志与明管复核"
+        },
+        {
+          "filename": "20261023-220619.789-11.jpg",
+          "suffix": 11,
+          "roleZh": "同一走廊光照、白墙和地面反射复核"
+        }
+      ]
+    },
+    {
+      "id": "stairwell_daylight",
+      "titleZh": "红砖楼梯间·明亮日光",
+      "promptFile": "scene_stairwell_daylight.txt",
+      "noteZh": "浅灰白瓷砖踏步、多条细防滑槽、不锈钢细管栏杆、深灰窗框与旧红砖端墙；楼梯宽度在正交视图中保持一致。",
+      "floorMaterial": "light_gray_ceramic_treads_with_fine_antislip_grooves",
+      "lighting": "bright_soft_window_daylight",
+      "references": [
+        {
+          "filename": "20261023-220619.789-8.jpg",
+          "suffix": 8,
+          "roleZh": "红砖端墙、高窗、向上踏步与栏杆材质"
+        },
+        {
+          "filename": "20261023-220619.789-17.jpg",
+          "suffix": 17,
+          "roleZh": "红砖楼梯间平台、白色踏步与亮日光"
+        },
+        {
+          "filename": "20261023-220619.789-5.jpg",
+          "suffix": 5,
+          "roleZh": "防滑细槽、管状栏杆与相邻白墙平台设备"
+        },
+        {
+          "filename": "20261023-220619.789-16.jpg",
+          "suffix": 16,
+          "roleZh": "楼梯平台细槽、白墙和栏杆结构复核；不照搬暗曝光和该视角防火门布局"
+        },
+        {
+          "filename": "20261023-220619.789-23.jpg",
+          "suffix": 23,
+          "roleZh": "栏杆和踏步结构复核；不照搬暗曝光"
+        }
+      ]
+    },
+    {
+      "id": "brick_lobby_neutral",
+      "titleZh": "红砖门厅·中性照明",
+      "promptFile": "scene_brick_lobby_neutral.txt",
+      "noteZh": "红褐砖墙、深灰略绿细颗粒抛光石地、暗红消防管与砖面隐蔽消防柜；不新增冰淇淋店或霓虹主题。",
+      "floorMaterial": "dark_charcoal_green_fine_speckled_polished_granite",
+      "lighting": "neutral_indoor_lighting_with_recovered_midtones",
+      "references": [
+        {
+          "filename": "20261023-220619.789-18.jpg",
+          "suffix": 18,
+          "roleZh": "红砖墙、深色门与暗红消防管"
+        },
+        {
+          "filename": "20261023-220619.789-7.jpg",
+          "suffix": 7,
+          "roleZh": "深灰微绿细颗粒石地与受控灯光反射"
+        },
+        {
+          "filename": "20261023-220619.789-19.jpg",
+          "suffix": 19,
+          "roleZh": "银边砖面隐蔽消防柜与安全红牌；店招不进入本景"
+        }
+      ]
+    }
+  ],
+  "actualMethod": "local_native_pixel_drawing",
+  "deliveryManifest": "../delivery.json"
+}

@@ -1,0 +1,230 @@
+{
+  "schemaVersion": 1,
+  "packId": "campus_20261023",
+  "status": "delivered_local_pixel_art",
+  "generatedImages": [
+    "maps/campus_20261023/tiles/tile_classroom_ceramic_clean.png",
+    "maps/campus_20261023/tiles/tile_classroom_ceramic_worn.png",
+    "maps/campus_20261023/tiles/tile_corridor_ceramic_neutral.png",
+    "maps/campus_20261023/tiles/tile_corridor_ceramic_worn.png",
+    "maps/campus_20261023/tiles/tile_lecture_concrete_base.png",
+    "maps/campus_20261023/tiles/tile_lecture_concrete_scuffed.png",
+    "maps/campus_20261023/tiles/tile_lobby_stone_base.png",
+    "maps/campus_20261023/tiles/tile_lobby_stone_variant.png",
+    "maps/campus_20261023/tiles/tile_wall_plaster_warm.png",
+    "maps/campus_20261023/tiles/tile_wall_plaster_cool.png",
+    "maps/campus_20261023/tiles/tile_wall_brick_base.png",
+    "maps/campus_20261023/tiles/tile_wall_brick_weathered.png",
+    "maps/campus_20261023/tiles/tile_stair_tread_grooved.png",
+    "maps/campus_20261023/tiles/tile_stair_riser_plain.png",
+    "maps/campus_20261023/tiles/tile_wall_skirt_charcoal.png",
+    "maps/campus_20261023/tiles/tile_door_threshold_metal.png"
+  ],
+  "promptFile": "prompts/sheet_materials.txt",
+  "requestedApiSize": [
+    1024,
+    1024
+  ],
+  "canonicalNativeSize": [
+    256,
+    256
+  ],
+  "grid": {
+    "rows": 4,
+    "columns": 4,
+    "indexBase": 0,
+    "apiCellSize": 256,
+    "nativeCellSize": 64,
+    "padding": 0
+  },
+  "postprocess": "先目视验收像素和材料，再最近邻归整、按格裁切；拼接性须用3×3铺贴图复核，未经复核不作为无缝砖交付。",
+  "referenceNumbers": "原始 JPEG 文件名的数字后缀",
+  "tiles": [
+    {
+      "id": "tile_classroom_ceramic_clean",
+      "row": 0,
+      "col": 0,
+      "tileAxes": "xy",
+      "references": [
+        12,
+        14
+      ],
+      "nameZh": "平层教室浅米灰瓷砖"
+    },
+    {
+      "id": "tile_classroom_ceramic_worn",
+      "row": 0,
+      "col": 1,
+      "tileAxes": "xy",
+      "references": [
+        12,
+        15
+      ],
+      "nameZh": "平层教室瓷砖轻磨损"
+    },
+    {
+      "id": "tile_corridor_ceramic_neutral",
+      "row": 0,
+      "col": 2,
+      "tileAxes": "xy",
+      "references": [
+        6,
+        10,
+        11
+      ],
+      "nameZh": "走廊灰米色瓷砖"
+    },
+    {
+      "id": "tile_corridor_ceramic_worn",
+      "row": 0,
+      "col": 3,
+      "tileAxes": "xy",
+      "references": [
+        6,
+        10,
+        11
+      ],
+      "nameZh": "走廊瓷砖磨损变体"
+    },
+    {
+      "id": "tile_lecture_concrete_base",
+      "row": 1,
+      "col": 0,
+      "tileAxes": "xy",
+      "references": [
+        2,
+        21
+      ],
+      "nameZh": "阶梯教室灰绿水泥"
+    },
+    {
+      "id": "tile_lecture_concrete_scuffed",
+      "row": 1,
+      "col": 1,
+      "tileAxes": "xy",
+      "references": [
+        2,
+        21
+      ],
+      "nameZh": "阶梯教室水泥磨白斑驳"
+    },
+    {
+      "id": "tile_lobby_stone_base",
+      "row": 1,
+      "col": 2,
+      "tileAxes": "xy",
+      "references": [
+        7,
+        18,
+        19
+      ],
+      "nameZh": "门厅深灰细粒石材"
+    },
+    {
+      "id": "tile_lobby_stone_variant",
+      "row": 1,
+      "col": 3,
+      "tileAxes": "xy",
+      "references": [
+        7,
+        18,
+        19
+      ],
+      "nameZh": "门厅石材纹理变体"
+    },
+    {
+      "id": "tile_wall_plaster_warm",
+      "row": 2,
+      "col": 0,
+      "tileAxes": "xy",
+      "references": [
+        12,
+        14
+      ],
+      "nameZh": "教室暖灰白粉刷墙"
+    },
+    {
+      "id": "tile_wall_plaster_cool",
+      "row": 2,
+      "col": 1,
+      "tileAxes": "xy",
+      "references": [
+        6,
+        10,
+        11
+      ],
+      "nameZh": "走廊中性灰白墙"
+    },
+    {
+      "id": "tile_wall_brick_base",
+      "row": 2,
+      "col": 2,
+      "tileAxes": "xy",
+      "references": [
+        7,
+        18
+      ],
+      "nameZh": "暗红砖墙"
+    },
+    {
+      "id": "tile_wall_brick_weathered",
+      "row": 2,
+      "col": 3,
+      "tileAxes": "xy",
+      "references": [
+        8,
+        17
+      ],
+      "nameZh": "泛白旧红砖墙"
+    },
+    {
+      "id": "tile_stair_tread_grooved",
+      "row": 3,
+      "col": 0,
+      "tileAxes": "x",
+      "references": [
+        5,
+        16,
+        17
+      ],
+      "nameZh": "防滑槽瓷砖踏步"
+    },
+    {
+      "id": "tile_stair_riser_plain",
+      "row": 3,
+      "col": 1,
+      "tileAxes": "x",
+      "references": [
+        5,
+        8
+      ],
+      "nameZh": "浅灰瓷砖踢面"
+    },
+    {
+      "id": "tile_wall_skirt_charcoal",
+      "row": 3,
+      "col": 2,
+      "tileAxes": "x",
+      "references": [
+        6,
+        10,
+        11
+      ],
+      "nameZh": "近黑踢脚线墙段"
+    },
+    {
+      "id": "tile_door_threshold_metal",
+      "row": 3,
+      "col": 3,
+      "tileAxes": "x",
+      "references": [
+        6,
+        10,
+        11
+      ],
+      "nameZh": "金属门槛横段"
+    }
+  ],
+  "actualMethod": "local_native_pixel_drawing",
+  "deliveryManifest": "delivery.json"
+}

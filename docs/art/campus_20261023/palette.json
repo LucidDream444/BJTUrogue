@@ -1,0 +1,920 @@
+{
+  "schemaVersion": 1,
+  "packId": "campus_20261023",
+  "artifactType": "photographic_reference_analysis",
+  "sourceImageCount": 23,
+  "referenceNumberMeaning": "Original filename suffix, not chat attachment order.",
+  "colorMethod": {
+    "raw": "Per-channel median of precisely recorded source-image crop pixels after EXIF orientation; no white-balance or exposure correction.",
+    "normalized": "Editorial visual estimates of intrinsic material colors from comparison across the photographs. Not colorimetry, calibration, or exact measurements.",
+    "limitation": "No color chart or capture calibration is available. Illumination, exposure, white balance, reflections, and image compression affect all raw readings."
+  },
+  "constructionNotes": [
+    "Desk storage is an open wooden cubby, without a sliding drawer front or handle.",
+    "Seats are fixed university flip-up seats; the blue sitting panel folds upward toward its blue backrest.",
+    "Keep the yellow wooden tabletop, visible plywood edges, and charcoal steel supports.",
+    "Separate the worn lecture-hall aisle, glazed flat-classroom/corridor tiles, stair tiles, and polished lobby stone.",
+    "Photographs are references only. These boards and measurements are not generated pixel art or runtime assets."
+  ],
+  "materials": {
+    "wood_honey_yellow": {
+      "label": "黄色木板桌 / 蜂蜜黄覆面",
+      "base": "#C9AB68",
+      "light": "#E1CB92",
+      "shadow": "#917143",
+      "explanation": "以桌板较中性的黄色与断面为依据；偏白桌面含反光，棕色桌面含欠曝。"
+    },
+    "chair_blue": {
+      "label": "蓝色翻板座椅覆面",
+      "base": "#4386B6",
+      "light": "#77A7C9",
+      "shadow": "#28516F",
+      "explanation": "取中等饱和度校园座椅蓝；亮处不涂成白色，暗处不另设藏蓝材质。"
+    },
+    "curtain_blue_gray": {
+      "label": "蓝灰色厚布窗帘",
+      "base": "#465E78",
+      "light": "#71849A",
+      "shadow": "#2C3E51",
+      "explanation": "布料比座椅更灰、更暗；用宽竖褶区分材质。"
+    },
+    "classroom_concrete": {
+      "label": "阶梯教室磨损灰色地面",
+      "base": "#7D807A",
+      "light": "#A1A49C",
+      "shadow": "#595E5B",
+      "explanation": "阶梯教室过道有不规则磨痕，与平层教室的光滑地砖分开。"
+    },
+    "glazed_tile_warm_gray": {
+      "label": "走廊灰米色釉面地砖",
+      "base": "#B6B3A8",
+      "light": "#D8D7CB",
+      "shadow": "#8C8E87",
+      "explanation": "灰米色大方砖；灯点和镜面反光不能作为固有纹理烘焙。"
+    },
+    "stair_tile_light_gray": {
+      "label": "楼梯浅灰瓷砖",
+      "base": "#BFC1BA",
+      "light": "#E0E0D6",
+      "shadow": "#939992",
+      "explanation": "踏面偏浅灰，立面较暗；防滑细槽单独画。"
+    },
+    "brick_terracotta": {
+      "label": "红陶砖与灰白砂浆",
+      "base": "#A96149",
+      "light": "#C4866C",
+      "shadow": "#754432",
+      "mortar": "#B2A698",
+      "explanation": "日光下偏粉红、室内偏棕红仍属同一红陶材质；砂浆低饱和。"
+    },
+    "polished_stone_dark_gray": {
+      "label": "门厅深灰抛光石材",
+      "base": "#444B48",
+      "light": "#6E7770",
+      "shadow": "#2D3432",
+      "explanation": "细颗粒深灰石，反射明暗与视角有关；避免误画成纯黑。"
+    },
+    "steel_charcoal": {
+      "label": "深灰喷涂钢架与踢脚线",
+      "base": "#303638",
+      "light": "#515A5D",
+      "shadow": "#1E2529",
+      "explanation": "固定桌椅钢架为深灰近黑色，少量硬边高光。"
+    },
+    "stainless_steel": {
+      "label": "银灰不锈钢栏杆",
+      "base": "#A9B2AF",
+      "light": "#E6E8DC",
+      "shadow": "#626F70",
+      "explanation": "不锈钢无单一可从照片中还原的颜色；用冷暖窄高光与深反射条表现。"
+    },
+    "plaster_offwhite": {
+      "label": "米白乳胶漆墙面",
+      "base": "#D4D2C6",
+      "light": "#E8E6DD",
+      "shadow": "#AAAFA6",
+      "explanation": "墙面接近中性米白，照片局部偏黄或偏蓝主要来自光照与白平衡。"
+    },
+    "chalkboard_green": {
+      "label": "深绿色磨砂黑板",
+      "base": "#284B43",
+      "light": "#486D5E",
+      "shadow": "#1C3533",
+      "explanation": "比座椅更暗、更低饱和；粉笔痕作为局部纹理。"
+    }
+  },
+  "rawCropReadings": [
+    {
+      "id": "wood_yellow_day",
+      "label": "Yellow desk / brighter exposure",
+      "filename": "20261023-220619.789-15.jpg",
+      "sourceSize": [
+        2400,
+        1080
+      ],
+      "contextRectNormalized": [
+        0.46,
+        0.61,
+        0.68,
+        0.88
+      ],
+      "contextRectPixels": [
+        1104,
+        659,
+        1632,
+        950
+      ],
+      "medianRectNormalized": [
+        0.51,
+        0.65,
+        0.64,
+        0.68
+      ],
+      "medianRectPixels": [
+        1224,
+        702,
+        1536,
+        734
+      ],
+      "rawMedianRgb": [
+        174,
+        144,
+        82
+      ],
+      "rawMedianHex": "#AE9052",
+      "interpretation": "raw_photograph_exposure_dependent_not_intrinsic_material_color",
+      "suggestedMaterial": "wood_honey_yellow",
+      "note": "Yellow laminate over wood; open shelf is structural, not a pull-out drawer."
+    },
+    {
+      "id": "wood_yellow_shade",
+      "label": "Yellow desk / room shade",
+      "filename": "20261023-220619.789-3.jpg",
+      "sourceSize": [
+        2400,
+        1080
+      ],
+      "contextRectNormalized": [
+        0.17,
+        0.78,
+        0.49,
+        0.94
+      ],
+      "contextRectPixels": [
+        408,
+        842,
+        1176,
+        1015
+      ],
+      "medianRectNormalized": [
+        0.2,
+        0.8,
+        0.44,
+        0.825
+      ],
+      "medianRectPixels": [
+        480,
+        864,
+        1056,
+        891
+      ],
+      "rawMedianRgb": [
+        127,
+        113,
+        85
+      ],
+      "rawMedianHex": "#7F7155",
+      "interpretation": "raw_photograph_exposure_dependent_not_intrinsic_material_color",
+      "suggestedMaterial": "wood_honey_yellow",
+      "note": "The same yellow family appears brownish in underexposed foreground."
+    },
+    {
+      "id": "chair_blue_day",
+      "label": "Blue flip-up seat / brighter exposure",
+      "filename": "20261023-220619.789-14.jpg",
+      "sourceSize": [
+        2400,
+        1080
+      ],
+      "contextRectNormalized": [
+        0.267,
+        0.48,
+        0.337,
+        0.77
+      ],
+      "contextRectPixels": [
+        641,
+        518,
+        809,
+        832
+      ],
+      "medianRectNormalized": [
+        0.286,
+        0.605,
+        0.296,
+        0.65
+      ],
+      "medianRectPixels": [
+        686,
+        653,
+        710,
+        702
+      ],
+      "rawMedianRgb": [
+        121,
+        145,
+        190
+      ],
+      "rawMedianHex": "#7991BE",
+      "interpretation": "raw_photograph_exposure_dependent_not_intrinsic_material_color",
+      "suggestedMaterial": "chair_blue",
+      "note": "Blue-coated curved wood with a thin yellow plywood edge; fixed dark steel frame."
+    },
+    {
+      "id": "chair_blue_shade",
+      "label": "Blue chair back / room shade",
+      "filename": "20261023-220619.789-9.jpg",
+      "sourceSize": [
+        2400,
+        1080
+      ],
+      "contextRectNormalized": [
+        0.335,
+        0.715,
+        0.44,
+        0.92
+      ],
+      "contextRectPixels": [
+        804,
+        772,
+        1056,
+        994
+      ],
+      "medianRectNormalized": [
+        0.35,
+        0.77,
+        0.42,
+        0.86
+      ],
+      "medianRectPixels": [
+        840,
+        832,
+        1008,
+        929
+      ],
+      "rawMedianRgb": [
+        40,
+        66,
+        89
+      ],
+      "rawMedianHex": "#284259",
+      "interpretation": "raw_photograph_exposure_dependent_not_intrinsic_material_color",
+      "suggestedMaterial": "chair_blue",
+      "note": "Low exposure shifts apparent blue toward dark navy; do not treat this as a second material."
+    },
+    {
+      "id": "curtain_blue_gray",
+      "label": "Pleated blue-gray curtain",
+      "filename": "20261023-220619.789-12.jpg",
+      "sourceSize": [
+        2400,
+        1080
+      ],
+      "contextRectNormalized": [
+        0.582,
+        0.2,
+        0.645,
+        0.392
+      ],
+      "contextRectPixels": [
+        1397,
+        216,
+        1548,
+        423
+      ],
+      "medianRectNormalized": [
+        0.59,
+        0.235,
+        0.625,
+        0.335
+      ],
+      "medianRectPixels": [
+        1416,
+        254,
+        1500,
+        362
+      ],
+      "rawMedianRgb": [
+        82,
+        93,
+        121
+      ],
+      "rawMedianHex": "#525D79",
+      "interpretation": "raw_photograph_exposure_dependent_not_intrinsic_material_color",
+      "suggestedMaterial": "curtain_blue_gray",
+      "note": "Heavy matte cloth, broad vertical folds; less saturated than the chair coating."
+    },
+    {
+      "id": "classroom_concrete",
+      "label": "Lecture-hall aisle / worn concrete",
+      "filename": "20261023-220619.789-21.jpg",
+      "sourceSize": [
+        2400,
+        1080
+      ],
+      "contextRectNormalized": [
+        0.445,
+        0.54,
+        0.5,
+        0.94
+      ],
+      "contextRectPixels": [
+        1068,
+        583,
+        1200,
+        1015
+      ],
+      "medianRectNormalized": [
+        0.466,
+        0.78,
+        0.485,
+        0.84
+      ],
+      "medianRectPixels": [
+        1118,
+        842,
+        1164,
+        907
+      ],
+      "rawMedianRgb": [
+        50,
+        49,
+        39
+      ],
+      "rawMedianHex": "#323127",
+      "interpretation": "raw_photograph_exposure_dependent_not_intrinsic_material_color",
+      "suggestedMaterial": "classroom_concrete",
+      "note": "Tiered lecture-room aisle shows mottled worn gray flooring; distinguish from glazed tile in the flat classroom."
+    },
+    {
+      "id": "corridor_glazed_tile",
+      "label": "Corridor / gray-beige glazed tile",
+      "filename": "20261023-220619.789-6.jpg",
+      "sourceSize": [
+        1080,
+        2400
+      ],
+      "contextRectNormalized": [
+        0.345,
+        0.69,
+        0.65,
+        0.955
+      ],
+      "contextRectPixels": [
+        373,
+        1656,
+        702,
+        2292
+      ],
+      "medianRectNormalized": [
+        0.39,
+        0.79,
+        0.57,
+        0.865
+      ],
+      "medianRectPixels": [
+        421,
+        1896,
+        616,
+        2076
+      ],
+      "rawMedianRgb": [
+        106,
+        97,
+        89
+      ],
+      "rawMedianHex": "#6A6159",
+      "interpretation": "raw_photograph_exposure_dependent_not_intrinsic_material_color",
+      "suggestedMaterial": "glazed_tile_warm_gray",
+      "note": "Large square tiles with thin dark joints; light dots are reflections, not white speckles in the material."
+    },
+    {
+      "id": "stair_gray_tile",
+      "label": "Stair tread / gray ceramic tile",
+      "filename": "20261023-220619.789-8.jpg",
+      "sourceSize": [
+        1080,
+        2400
+      ],
+      "contextRectNormalized": [
+        0.21,
+        0.54,
+        0.88,
+        0.8
+      ],
+      "contextRectPixels": [
+        227,
+        1296,
+        950,
+        1920
+      ],
+      "medianRectNormalized": [
+        0.38,
+        0.618,
+        0.62,
+        0.623
+      ],
+      "medianRectPixels": [
+        410,
+        1483,
+        670,
+        1495
+      ],
+      "rawMedianRgb": [
+        153,
+        149,
+        146
+      ],
+      "rawMedianHex": "#999592",
+      "interpretation": "raw_photograph_exposure_dependent_not_intrinsic_material_color",
+      "suggestedMaterial": "stair_tile_light_gray",
+      "note": "Gray tile stair tread, darker riser, parallel anti-slip grooves near nosing."
+    },
+    {
+      "id": "brick_red_day",
+      "label": "Red brick / stairwell daylight",
+      "filename": "20261023-220619.789-17.jpg",
+      "sourceSize": [
+        1080,
+        2400
+      ],
+      "contextRectNormalized": [
+        0.29,
+        0.28,
+        0.79,
+        0.49
+      ],
+      "contextRectPixels": [
+        313,
+        672,
+        853,
+        1176
+      ],
+      "medianRectNormalized": [
+        0.41,
+        0.35,
+        0.6,
+        0.43
+      ],
+      "medianRectPixels": [
+        443,
+        840,
+        648,
+        1032
+      ],
+      "rawMedianRgb": [
+        200,
+        135,
+        114
+      ],
+      "rawMedianHex": "#C88772",
+      "interpretation": "raw_photograph_exposure_dependent_not_intrinsic_material_color",
+      "suggestedMaterial": "brick_terracotta",
+      "note": "Terracotta brick with pale gray mortar; daylight and white bloom lighten the brick surface."
+    },
+    {
+      "id": "brick_red_shade",
+      "label": "Red brick / indoor shade",
+      "filename": "20261023-220619.789-18.jpg",
+      "sourceSize": [
+        2400,
+        1080
+      ],
+      "contextRectNormalized": [
+        0.36,
+        0.28,
+        0.68,
+        0.65
+      ],
+      "contextRectPixels": [
+        864,
+        302,
+        1632,
+        702
+      ],
+      "medianRectNormalized": [
+        0.42,
+        0.37,
+        0.59,
+        0.56
+      ],
+      "medianRectPixels": [
+        1008,
+        400,
+        1416,
+        605
+      ],
+      "rawMedianRgb": [
+        108,
+        68,
+        41
+      ],
+      "rawMedianHex": "#6C4429",
+      "interpretation": "raw_photograph_exposure_dependent_not_intrinsic_material_color",
+      "suggestedMaterial": "brick_terracotta",
+      "note": "Indoor brick looks browner and darker; preserve the same terracotta material identity."
+    },
+    {
+      "id": "lobby_dark_stone",
+      "label": "Lobby / dark polished stone",
+      "filename": "20261023-220619.789-7.jpg",
+      "sourceSize": [
+        2400,
+        1080
+      ],
+      "contextRectNormalized": [
+        0.25,
+        0.34,
+        0.6,
+        0.7
+      ],
+      "contextRectPixels": [
+        600,
+        367,
+        1440,
+        756
+      ],
+      "medianRectNormalized": [
+        0.32,
+        0.4,
+        0.48,
+        0.57
+      ],
+      "medianRectPixels": [
+        768,
+        432,
+        1152,
+        616
+      ],
+      "rawMedianRgb": [
+        77,
+        74,
+        65
+      ],
+      "rawMedianHex": "#4D4A41",
+      "interpretation": "raw_photograph_exposure_dependent_not_intrinsic_material_color",
+      "suggestedMaterial": "polished_stone_dark_gray",
+      "note": "Fine-grained dark gray stone, large slabs; reflections vary with the viewing angle."
+    },
+    {
+      "id": "steel_charcoal",
+      "label": "Desk support / charcoal steel",
+      "filename": "20261023-220619.789-14.jpg",
+      "sourceSize": [
+        2400,
+        1080
+      ],
+      "contextRectNormalized": [
+        0.278,
+        0.6,
+        0.344,
+        0.87
+      ],
+      "contextRectPixels": [
+        667,
+        648,
+        826,
+        940
+      ],
+      "medianRectNormalized": [
+        0.29,
+        0.795,
+        0.295,
+        0.818
+      ],
+      "medianRectPixels": [
+        696,
+        859,
+        708,
+        883
+      ],
+      "rawMedianRgb": [
+        66,
+        62,
+        56
+      ],
+      "rawMedianHex": "#423E38",
+      "interpretation": "raw_photograph_exposure_dependent_not_intrinsic_material_color",
+      "suggestedMaterial": "steel_charcoal",
+      "note": "Painted steel pedestal and hinge hardware; do not replace the fixed seat with a portable folding chair."
+    },
+    {
+      "id": "stainless_rail",
+      "label": "Stair rail / brushed stainless steel",
+      "filename": "20261023-220619.789-5.jpg",
+      "sourceSize": [
+        1080,
+        2400
+      ],
+      "contextRectNormalized": [
+        0.03,
+        0.42,
+        0.2,
+        0.68
+      ],
+      "contextRectPixels": [
+        32,
+        1008,
+        216,
+        1632
+      ],
+      "medianRectNormalized": [
+        0.069,
+        0.58,
+        0.074,
+        0.61
+      ],
+      "medianRectPixels": [
+        75,
+        1392,
+        80,
+        1464
+      ],
+      "rawMedianRgb": [
+        214,
+        203,
+        193
+      ],
+      "rawMedianHex": "#D6CBC1",
+      "interpretation": "raw_photograph_exposure_dependent_not_intrinsic_material_color",
+      "suggestedMaterial": "stainless_steel",
+      "note": "Narrow bright highlights and charcoal reflections coexist on the stainless tubes; raw median does not describe the whole metal."
+    },
+    {
+      "id": "plaster_offwhite",
+      "label": "Wall / off-white painted plaster",
+      "filename": "20261023-220619.789-12.jpg",
+      "sourceSize": [
+        2400,
+        1080
+      ],
+      "contextRectNormalized": [
+        0.08,
+        0.19,
+        0.28,
+        0.42
+      ],
+      "contextRectPixels": [
+        192,
+        205,
+        672,
+        454
+      ],
+      "medianRectNormalized": [
+        0.15,
+        0.23,
+        0.245,
+        0.36
+      ],
+      "medianRectPixels": [
+        360,
+        248,
+        588,
+        389
+      ],
+      "rawMedianRgb": [
+        216,
+        211,
+        208
+      ],
+      "rawMedianHex": "#D8D3D0",
+      "interpretation": "raw_photograph_exposure_dependent_not_intrinsic_material_color",
+      "suggestedMaterial": "plaster_offwhite",
+      "note": "Neutral off-white paint with subtle wear; window light and camera white balance affect the cast."
+    },
+    {
+      "id": "chalkboard_green",
+      "label": "Chalkboard / dark muted green",
+      "filename": "20261023-220619.789-3.jpg",
+      "sourceSize": [
+        2400,
+        1080
+      ],
+      "contextRectNormalized": [
+        0.41,
+        0.24,
+        0.51,
+        0.44
+      ],
+      "contextRectPixels": [
+        984,
+        259,
+        1224,
+        475
+      ],
+      "medianRectNormalized": [
+        0.425,
+        0.265,
+        0.49,
+        0.32
+      ],
+      "medianRectPixels": [
+        1020,
+        286,
+        1176,
+        346
+      ],
+      "rawMedianRgb": [
+        39,
+        59,
+        54
+      ],
+      "rawMedianHex": "#273B36",
+      "interpretation": "raw_photograph_exposure_dependent_not_intrinsic_material_color",
+      "suggestedMaterial": "chalkboard_green",
+      "note": "Dark green matte board in an aged warm metal frame; screen light is separate."
+    },
+    {
+      "id": "black_skirt",
+      "label": "Wall skirting / dark gray trim",
+      "filename": "20261023-220619.789-6.jpg",
+      "sourceSize": [
+        1080,
+        2400
+      ],
+      "contextRectNormalized": [
+        0.84,
+        0.57,
+        0.99,
+        0.69
+      ],
+      "contextRectPixels": [
+        907,
+        1368,
+        1069,
+        1656
+      ],
+      "medianRectNormalized": [
+        0.925,
+        0.627,
+        0.935,
+        0.633
+      ],
+      "medianRectPixels": [
+        999,
+        1505,
+        1010,
+        1519
+      ],
+      "rawMedianRgb": [
+        54,
+        48,
+        48
+      ],
+      "rawMedianHex": "#363030",
+      "interpretation": "raw_photograph_exposure_dependent_not_intrinsic_material_color",
+      "suggestedMaterial": "steel_charcoal",
+      "note": "Dark wall base trim; sample may include light/shadow transitions due to the viewing angle."
+    }
+  ],
+  "sourceImages": [
+    {
+      "number": 1,
+      "filename": "20261023-220619.789-1.jpg",
+      "width": 2400,
+      "height": 1080
+    },
+    {
+      "number": 2,
+      "filename": "20261023-220619.789-2.jpg",
+      "width": 2400,
+      "height": 1080
+    },
+    {
+      "number": 3,
+      "filename": "20261023-220619.789-3.jpg",
+      "width": 2400,
+      "height": 1080
+    },
+    {
+      "number": 4,
+      "filename": "20261023-220619.789-4.jpg",
+      "width": 2400,
+      "height": 1080
+    },
+    {
+      "number": 5,
+      "filename": "20261023-220619.789-5.jpg",
+      "width": 1080,
+      "height": 2400
+    },
+    {
+      "number": 6,
+      "filename": "20261023-220619.789-6.jpg",
+      "width": 1080,
+      "height": 2400
+    },
+    {
+      "number": 7,
+      "filename": "20261023-220619.789-7.jpg",
+      "width": 2400,
+      "height": 1080
+    },
+    {
+      "number": 8,
+      "filename": "20261023-220619.789-8.jpg",
+      "width": 1080,
+      "height": 2400
+    },
+    {
+      "number": 9,
+      "filename": "20261023-220619.789-9.jpg",
+      "width": 2400,
+      "height": 1080
+    },
+    {
+      "number": 10,
+      "filename": "20261023-220619.789-10.jpg",
+      "width": 1080,
+      "height": 2400
+    },
+    {
+      "number": 11,
+      "filename": "20261023-220619.789-11.jpg",
+      "width": 1080,
+      "height": 2400
+    },
+    {
+      "number": 12,
+      "filename": "20261023-220619.789-12.jpg",
+      "width": 2400,
+      "height": 1080
+    },
+    {
+      "number": 13,
+      "filename": "20261023-220619.789-13.jpg",
+      "width": 2400,
+      "height": 1080
+    },
+    {
+      "number": 14,
+      "filename": "20261023-220619.789-14.jpg",
+      "width": 2400,
+      "height": 1080
+    },
+    {
+      "number": 15,
+      "filename": "20261023-220619.789-15.jpg",
+      "width": 2400,
+      "height": 1080
+    },
+    {
+      "number": 16,
+      "filename": "20261023-220619.789-16.jpg",
+      "width": 1080,
+      "height": 2393
+    },
+    {
+      "number": 17,
+      "filename": "20261023-220619.789-17.jpg",
+      "width": 1080,
+      "height": 2400
+    },
+    {
+      "number": 18,
+      "filename": "20261023-220619.789-18.jpg",
+      "width": 2400,
+      "height": 1080
+    },
+    {
+      "number": 19,
+      "filename": "20261023-220619.789-19.jpg",
+      "width": 1080,
+      "height": 2400
+    },
+    {
+      "number": 20,
+      "filename": "20261023-220619.789-20.jpg",
+      "width": 2400,
+      "height": 1080
+    },
+    {
+      "number": 21,
+      "filename": "20261023-220619.789-21.jpg",
+      "width": 2400,
+      "height": 1080
+    },
+    {
+      "number": 22,
+      "filename": "20261023-220619.789-22.jpg",
+      "width": 2400,
+      "height": 1080
+    },
+    {
+      "number": 23,
+      "filename": "20261023-220619.789-23.jpg",
+      "width": 1080,
+      "height": 2400
+    }
+  ]
+}
