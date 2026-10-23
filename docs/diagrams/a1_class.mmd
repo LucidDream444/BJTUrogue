@@ -1,0 +1,50 @@
+classDiagram
+    class FeedbackTicket {
+        +UUID id
+        +Category category
+        +Severity severity
+        +Status status
+        +String title
+        +Text description
+        +Text repro_steps
+        +String client_version
+        +File attachment
+        +DateTime created_at
+        +DateTime closed_at
+    }
+    class Category {
+        <<enumeration>>
+        CRASH
+        PERFORMANCE
+        SAVE
+        RULE
+        CLARITY
+        OTHER
+    }
+    class Severity {
+        <<enumeration>>
+        LOW
+        MEDIUM
+        HIGH
+        CRITICAL
+    }
+    class Player {
+        +UUID anon_id
+    }
+    class FeedbackSerializer {
+        +validate()
+        +create()
+    }
+    class FeedbackCreateAPIView {
+        +post()
+    }
+    class FeedbackService {
+        +create_ticket(anon_id, data) FeedbackTicket
+    }
+    Player "1" --> "0..*" FeedbackTicket : 归属
+    FeedbackTicket --> Category : category
+    FeedbackTicket --> Severity : severity
+    FeedbackCreateAPIView ..> FeedbackSerializer : 使用
+    FeedbackCreateAPIView ..> FeedbackService : 调用
+    FeedbackService --> FeedbackTicket : 创建
+    FeedbackService --> Player : get_or_create

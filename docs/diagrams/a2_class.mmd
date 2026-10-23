@@ -1,0 +1,30 @@
+classDiagram
+    class FeedbackTicket {
+        +Status status
+        +Category category
+        +DateTime closed_at
+    }
+    class Status {
+        <<enumeration>>
+        SUBMITTED
+        CLASSIFIED
+        PROCESSING
+        VERIFIED
+        CLOSED
+    }
+    class TicketWorkflowService {
+        +classify(ticket, category, severity)
+        +start_processing(ticket)
+        +verify(ticket)
+        +close(ticket)
+        +allowed_transitions() 
+    }
+    class TicketAdmin {
+        +actions
+        +list_display
+        +list_filter
+        +search_fields
+    }
+    FeedbackTicket --> Status : status
+    TicketAdmin ..> TicketWorkflowService : 调用
+    TicketWorkflowService --> FeedbackTicket : 校验并流转
