@@ -53,9 +53,12 @@ describe('真的那份 floor-plan.json', () => {
   const plan = parseFloorPlan(readJson('floor-plan.json'), METRICS)
 
   it('过得了全部校验（这一条红了就是配置表与解析器对不上了）', () => {
-    expect(plan.rooms).toHaveLength(15)
+    // ★ 改了（2026-10-22 晚·七）：房间 15 → **18**、门 16 → **19**。
+    // 多出来的三间是**电梯间** `E_A` / `E_B` / `E_C`（用户「每层添加三个电梯间」），
+    // 每间一扇门，走廊段数没动（电梯是房间，不是走廊）。
+    expect(plan.rooms).toHaveLength(18)
     expect(plan.corridors).toHaveLength(6)
-    expect(plan.doors).toHaveLength(16)
+    expect(plan.doors).toHaveLength(19)
     expect(plan.stairwell.id).toBe('STAIR')
   })
 
@@ -69,22 +72,31 @@ describe('真的那份 floor-plan.json', () => {
     expect(yf604.rect.height).toBe(24 * 40)
   })
 
-  it('写死的关别：YF604 是首领，两间教休室是道具房，其余按种子抽', () => {
+  it('写死的关别：YF604 是首领，两间教休室是道具房，三个电梯间是设施，其余按种子抽', () => {
+    // ★ 改了（2026-10-22 晚·七）：多出三间 `elevator` —— 与 `shop` / `empty` 同一类，
+    // 只由平面图钉死，发牌池抽不到（写进 `roomKindWeights` 会在加载配置时被拒）。
     const fixed = plan.rooms.filter((r) => r.fixed !== null).map((r) => `${r.id}=${r.fixed}`)
-    expect(fixed.sort()).toEqual(['YF604=boss', 'YF607=reward', 'YF612=reward'])
+    expect(fixed.sort()).toEqual([
+      'E_A=elevator',
+      'E_B=elevator',
+      'E_C=elevator',
+      'YF604=boss',
+      'YF607=reward',
+      'YF612=reward',
+    ])
     // 楼梯间恒为 start，且**不在** rooms 里（它不是按种子抽的那个集合的一员）
     expect(plan.rooms.some((r) => r.id === 'STAIR')).toBe(false)
   })
 
-  it('这一层声明 16 间房：15 间编号教室 + 1 间楼梯间', () => {
+  it('这一层声明 19 间房：15 间编号教室 + 3 间电梯间 + 1 间楼梯间', () => {
     // ★ 改了（2026-10-22）：原先这里对着两个数（`rooms.json` 的 classroomCount 是
     //    15、代码里的 FLOOR_ROOM_TOTAL 是 16），因为「同一个量有两个名字」是这一节
     //    最容易读错的地方。现在**只有一个数**：平面图自己声明的 `roomTotal`，
     //    而它必须等于「rooms 的条数 + 楼梯间」—— 少加那 1 就是出生点没有一间
-    //    属于它的房，多减那 1 就是漏了楼梯间。两层楼的间数不同（这里是 6F 的 16），
-    //    所以这个数跟着文件走，不再是全局常量。
-    expect(plan.rooms.length).toBe(15)
-    expect(plan.roomTotal).toBe(16)
+    //    属于它的房，多减那 1 就是漏了楼梯间。三层楼的间数各不相同（这里是 6F 的 16，
+    //    1F 是 14、3F 是 15），所以这个数跟着文件走，不再是全局常量。
+    expect(plan.rooms.length).toBe(18)
+    expect(plan.roomTotal).toBe(19)
     expect(plan.rooms.length + 1).toBe(plan.roomTotal)
   })
 
@@ -155,6 +167,32 @@ describe('真的那份 floor-plan.json', () => {
     }
     expect(plan.bounds.width % METRICS.navCellSize).toBe(0)
     expect(plan.bounds.height % METRICS.navCellSize).toBe(0)
+  })
+
+  it('★ 外框是**声明**的，不是由空间推出来的（`cols` / `rows` 跟着它走）', () => {
+    // ★ 新增（2026-10-22 晚）：这一条守的是「谁说了算」。`bounds` / `cols` / `rows`
+    // 原先是所有空间的最小外接矩形（`boundsOf`，已删），现在是配置表里的
+    // `footprint` —— **整栋楼**的范围，三层必须逐格一样（换层时
+    // `BattleScene.applyArena()` 对账，不一样就当场抛）。
+    //
+    // ⚠️ 6F 这一份上**两者恰好相等**（C_E 铺到 x263、南排铺到 y73），所以这条
+    //    用例在 6F 上看不出区别 —— 真正需要声明的是 1F（房间从 y25 起，
+    //    推出来的外框会矮 25 格，见 floorPlanYf1.test.ts）。但「相等」正是这里
+    //    要钉住的：**哪天 6F 的走廊不再铺满整宽，外框也不许跟着缩**。
+    expect(plan.cols).toBe(263)
+    expect(plan.rows).toBe(73)
+    expect(plan.bounds).toEqual({
+      x: (263 * METRICS.navCellSize) / 2,
+      y: (73 * METRICS.navCellSize) / 2,
+      width: 263 * METRICS.navCellSize,
+      height: 73 * METRICS.navCellSize,
+    })
+    // 与「推出来的并集」的对照：今天两者相等，但那是**巧合**，不是判据。
+    const spans = [plan.stairwell, ...plan.rooms, ...plan.corridors]
+    const x1 = Math.max(...spans.map((s) => s.cells.x + s.cells.width))
+    const y1 = Math.max(...spans.map((s) => s.cells.y + s.cells.height))
+    expect([Math.min(...spans.map((s) => s.cells.x)), Math.min(...spans.map((s) => s.cells.y))]).toEqual([0, 0])
+    expect([x1, y1]).toEqual([plan.cols, plan.rows])
   })
 })
 
@@ -243,14 +281,27 @@ describe('校验器：每一类各一条「改坏 → 报对」', () => {
 
   it('走廊段不再相接时，靠那条走廊接进来的房间也走不到了', () => {
     const plan = brokenPlan()
-    // 把 C_E 整段搬到地图外面 —— 挂在它上面的四间房（YF605/606/609/608）顿时孤立
-    const cE = (plan.corridors as AnyRec[]).find((c) => c.id === 'C_E')!
-    cE.y = 200
+    // 把 C_J（那段竖着把西侧主横廊接到中段的短廊）往上挪**一格** —— 它和 C_W
+    // 之间就多出一格缝，两块走廊不再相接，挂在东侧那几段（C_M / C_S / C_E）上的
+    // 房间顿时孤立。
+    //
+    // ⚠️ **必须挑一段一扇门都没挂的来挪**，C_J 正好是。挪挂门的走廊会先炸
+    //    `checkDoors`（「门的两侧其实是 [...]」），而那句报错里**也**带着
+    //    YF60x 这几个串 —— 断言会看着是绿的，一次都没走到连通性校验上。
+    //    这条用例原来就踩了这个坑：上一版挪的是挂着 5 扇门的 C_E。
+    // ★ 又改了（2026-10-22 晚）：挪出地图（y = 200）也不行了 —— 现在先炸的是
+    //    `checkFootprint`（「超出了这一层声明的外框」）。挪**一格**反而更贴近这个
+    //    用例真正想说的事：走廊只断了一小截，东侧整片就没了。
+    const cJ = (plan.corridors as AnyRec[]).find((c) => c.id === 'C_J')!
+    cJ.y = 28
     const err = expectConfigError(plan)
-    expect(err.message).toMatch(/YF60[5689]/)
+    expect(err.message).toContain('走不到')
+    expect(err.message).toMatch(/YF60[456789]/)
+    // 西侧那几间照样走得到，不该被牵连。
+    expect(err.message).not.toContain('YF601')
   })
 
-  it('声明了 16 间而几何只有 15 间（删了一间教室）→ **两个数字都报出来**', () => {
+  it('声明了 19 间而几何只有 18 间（删了一间教室）→ **两个数字都报出来**', () => {
     const plan = brokenPlan()
     // ⚠️ 删房必须**连它的门一起删**。只删房的话，那扇门就成了悬空引用，
     //    而 `checkDoors` 排在 `checkRoomCount` 前面 —— 报出来的是「门引用了不存在
@@ -261,9 +312,9 @@ describe('校验器：每一类各一条「改坏 → 报对」', () => {
     plan.rooms = roomsOf(plan).filter((r) => r !== yf607)
     plan.doors = doorsOf(plan).filter((d) => d.a !== 'YF607' && d.b !== 'YF607')
     const err = expectConfigError(plan)
-    expect(err.message).toContain('16') // 声明的
-    expect(err.message).toContain('14') // 几何里还有几间
-    expect(err.message).toContain('15') // 14 + 楼梯间
+    expect(err.message).toContain('19') // 声明的
+    expect(err.message).toContain('17') // 几何里还有几间
+    expect(err.message).toContain('18') // 17 + 楼梯间
     // 报错要说清楼梯间**算在总数里** —— 不然读的人会把它当成「多出来的那一间」
     expect(err.message).toContain('楼梯间')
   })
@@ -296,5 +347,43 @@ describe('校验器：每一类各一条「改坏 → 报对」', () => {
     const err = expectConfigError(plan)
     expect(err.message).toContain('boss')
     expect(err.message).toContain('reward')
+  })
+
+  it('★ 没写 footprint → 当场拒（它是**必填**，不是可选的补充说明）', () => {
+    // ★ 新增（2026-10-22 晚）：外框从「推出来」换成「声明」之后，缺了它就没人
+    // 知道这一层多大 —— 而 `cols` / `rows` / 物理世界边界全从它来。这里必须
+    // **必填**而不能给个默认值：默认值救命的方式是「悄悄地按房间推一遍」，
+    // 那正好是 1F 会算错的那件事（见 floorPlan.ts 里那段注释）。
+    const plan = brokenPlan()
+    delete plan.footprint
+    const err = expectConfigError(plan)
+    expect(err.message).toContain('floorPlan.footprint')
+  })
+
+  it("★ 外框的左上角不在 (0,0) → 当场拒（世界坐标是从它起算的）", () => {
+    const plan = brokenPlan()
+    ;(plan.footprint as AnyRec).y = 1
+    const err = expectConfigError(plan)
+    expect(err.message).toContain('(0,0)')
+    expect(err.message).toContain('错位')
+  })
+
+  it('★ 有房间落在声明的外框之外 → 报出来，且**指回那间房**而不是叫你改外框', () => {
+    // 两种改坏的方式各来一次：往东出界、往南出界。
+    for (const [axis, id] of [
+      ['x', 'YF607'],
+      ['y', 'YF604'],
+    ] as const) {
+      const plan = brokenPlan()
+      const room = roomsOf(plan).find((r) => r.id === id)!
+      room[axis] = 400 // 远在 263 / 73 之外
+      const err = expectConfigError(plan)
+      expect(err.message, `${id} 出界`).toContain(id)
+      expect(err.message).toContain('外框')
+      // ⚠️ 报错必须**把人往房间那边推**：外框三层必须一样，改大它换层就炸，
+      //    而这个报错正是读的人第一眼看到的那句。写反了的话他会顺手改外框，
+      //    然后在换层那一步收到一个完全看不懂的错。
+      expect(err.message).toContain('别顺手把外框改大')
+    }
   })
 })

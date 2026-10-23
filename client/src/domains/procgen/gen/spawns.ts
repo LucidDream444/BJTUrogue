@@ -95,7 +95,18 @@ function interiorCells(room: Room, grid: NavGrid): { cx: number; cy: number }[] 
   for (let cy = a.cy; cy <= b.cy; cy++) {
     for (let cx = a.cx; cx <= b.cx; cx++) {
       const p = cellCenter(grid, cx, cy)
-      if (p.x > x0 && p.x < x1 && p.y > y0 && p.y < y1) out.push({ cx, cy })
+      // ★ 改了（2026-10-22 晚·七）：**离四面墙各让出整整一格**。
+      //
+      // 只要求「在房间里」是不够的：最外那一圈格子的中心离墙只有半格（20px），
+      // 而怪放下去要一份 `ENEMY_CLEARANCE = 26px` 的净空（D1 的 `BattleScene`）——
+      // 20 < 26，于是运行时 `safeSpawn()` 把它推开，推的方向**不看墙**：
+      // 实测 6F 的 YF614 有一颗点被推到了走廊里（种子 7919）。
+      // 房间本身仍然「有刷怪点」，所以这件事不报错、只有那条用例看得见。
+      //
+      // 让一格 = 中心离墙 60px > 26 ✓；而且这条判据**不抄 D1 的那个数**
+      // （26 是它们的旋钮，改了不该让这边红）—— 一格是这里能表达的最小裕度。
+      const m = grid.cellSize
+      if (p.x - x0 >= m && x1 - p.x >= m && p.y - y0 >= m && y1 - p.y >= m) out.push({ cx, cy })
     }
   }
   return out

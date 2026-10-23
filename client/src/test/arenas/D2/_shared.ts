@@ -162,12 +162,34 @@ export function generateForArena(
 }
 
 /**
+ * **只有测试场会切、产品不用的**平面图。**今天是空的**。
+ *
+ * 它存在的理由还在，所以留着这个位置而不是删掉：逸夫楼 1F 曾经是它唯一一项
+ * （那时 1F 不在 `floors.json` 里 —— 用户：「先只做地图 + 测试场看」），
+ * 而 `floors.test.ts` 要求「`FLOOR_PLAN_FILES` 里不许有谁都不用的图」
+ * （那是产品的加载清单，多一份 = 每次开屏白下一个文件）。两条规矩都对的，
+ * 冲突的是「场子要切一张产品不用的图」—— 于是分开：**产品的清单归产品，
+ * 场子额外要的自己列在这儿**。
+ *
+ * ★ 改了（2026-10-22 晚）：**1F 进一局了**（用户：「进去后先是 YF1」），
+ * 于是它从这一串搬进了 `FLOOR_PLAN_FILES` —— 两边都写不会报错，反而会让
+ * `load.json()` 拿同一个 key 加载两遍，所以这里必须**同时**把它去掉。
+ * 现在场子要切的每一张都是产品的那三张（`C` 键在三层之间轮转）。
+ *
+ * ⚠️ 下次加进来之前先确认它**真的不在** `FLOOR_PLAN_FILES` 里。
+ */
+const ARENA_EXTRA_PLAN_NAMES: readonly string[] = []
+
+/** 这一场会读的全部配置表：产品的清单 + 场子额外那几张。 */
+const ALL_CONFIG_NAMES: readonly string[] = [ROOMS_CONFIG_NAME, ...FLOOR_PLAN_FILES, ...ARENA_EXTRA_PLAN_NAMES]
+
+/**
  * 配置表都得在缓存里。**缺一张就当场抛**，报出来的是「没加载上」而不是
  * 「配置表写错了」—— 两者在屏幕上长得一模一样，而在代码里差得很远。
  *
- * 查的是 `FLOOR_PLAN_FILES` **整串**（不是只查 6F 那份）：今天有两张平面图，
- * 而场子切层时读的是另一张 —— 漏加载的那一张本该在切过去的那一下才炸，
- * 那时屏幕上已经是另一层楼了。这里一次全查，症状回到「开屏就说没加载上」。
+ * 查的是**全部**（不是只查 6F 那份）：今天有三张平面图，而场子切层时读的是
+ * 另一张 —— 漏加载的那一张本该在切过去的那一下才炸，那时屏幕上已经是另一层楼了。
+ * 这里一次全查，症状回到「开屏就说没加载上」。
  */
 function assertConfigsLoaded(scene: Phaser.Scene): void {
   // ⚠️ `scene.cache.json`，不是 `scene.cache` —— `CacheManager` 上没有 `get()`。
@@ -177,7 +199,7 @@ function assertConfigsLoaded(scene: Phaser.Scene): void {
   //
   // 几张表**一起**查：`floor-plan.json` 漏了的话症状是「rooms.json 明明在，
   // 生成器却在抱怨拿到 undefined」，比只说一句「没加载上」难查得多。
-  for (const name of [ROOMS_CONFIG_NAME, ...FLOOR_PLAN_FILES]) {
+  for (const name of ALL_CONFIG_NAMES) {
     if (scene.cache.json.exists(name)) continue
     throw new Error(
       `配置表 ${name} 没加载上（preload 里 load.json 失败了）。\n` +
@@ -305,10 +327,18 @@ export function nearestSpawn(room: Room): Point | null {
  * 下一个人加第三张表时照样会漏。
  *
  * ★ 又改了（2026-10-22）：平面图那一头挂的是 `FLOOR_PLAN_FILES` **整串**
- * （今天两张：6F + 逸夫楼 3F）。**不在场子里手写文件名** ——
+ * （今天三张：6F + 逸夫楼 3F + 逸夫楼 1F）。**不在场子里手写文件名** ——
  * 一局里第几层走哪张图归 `floors.json`（产品）与那一串（加载清单）管，
  * 场子跟着走就永远是同一份；写死的话，产品加了第 3 张图时这一场看不见，
  * 而它看着一切正常。
+ *
+ * ★ 又改了（同一天晚些）：再挂上 `ARENA_EXTRA_PLAN_NAMES` —— **只有场子会切的**
+ * 那几张。逸夫楼 1F 曾经是它唯一一项：那时 1F 还没进一局，而产品的加载清单由
+ * `floors.test.ts` 对着「清单里不许有谁都不用的图」验，所以它进不了
+ * `FLOOR_PLAN_FILES`；两条路分开之后，**产品不多下一份用不上的文件**，
+ * 场子照样切得到它。
+ * ⚠️ **那一项当天晚上就搬走了**（1F 成了一局的第 1 层），所以现在这一串是空的 ——
+ * 空着不等于可以删，理由见上面 `ARENA_EXTRA_PLAN_NAMES` 自己那段注释。
  *
  * ⚠️ 必须走 **Phaser 的 loader**，不能 `fetch` —— 场景生命周期保证
  * `create()` 一定在所有加载完成之后才跑，所以 `create()` 里读 `cache.json`
@@ -317,7 +347,9 @@ export function nearestSpawn(room: Room): Point | null {
  */
 export function loadProcgenConfigs(scene: Phaser.Scene): void {
   scene.load.json(ROOMS_CONFIG_NAME, ROOMS_CONFIG_URL)
-  for (const name of FLOOR_PLAN_FILES) scene.load.json(name, `config/${name}`)
+  for (const name of [...FLOOR_PLAN_FILES, ...ARENA_EXTRA_PLAN_NAMES]) {
+    scene.load.json(name, `config/${name}`)
+  }
 }
 
 /**
@@ -434,6 +466,10 @@ export function summarise(a: ArenaMap): string[] {
   const counts = new Map<RoomKind, number>()
   for (const room of a.map.rooms) counts.set(room.kind, (counts.get(room.kind) ?? 0) + 1)
   // 门在房间上（`room.doors`），`DungeonMap` 上没有一份汇总 —— 别去 `map.doors` 找。
+  // ⚠️ 这个数**只数挂在房间上的门**（= 会被清房关掉的那些）。1F 的平面图有 17 扇
+  // （`plan.doors`），这里会读到 14：多出来那 3 扇是「大厅 ↔ 两块的走廊」，两头都不是
+  // 房间，所以 `DungeonMap` 里根本没有它们（见 `floor-plan-yf1.json` 的
+  // `_doors_gotcha_comment`）。**两个数不一样是对的**，别照着这里去改平面图。
   const doors = a.map.rooms.reduce((n, r) => n + r.doors.length, 0)
   const kinds = ROOM_KINDS_EMITTED.filter((k) => counts.has(k))
     .map((k) => `${ROOM_KIND_LABELS[k]} ${counts.get(k)}`)

@@ -15,7 +15,9 @@
  *
  * v5 反过来：几何在 `floor-plan.json` 里**画好**（照 6F 平面图照片量的），
  * 这里只做「往几何里填内容」。**删掉的**：主干/侧室的分档、锚点挑选、
- * 尺寸档位、`roomGap` 让步、按边拼墙、`boundsOf`（它已经搬去 `floorPlan.ts`）。
+ * 尺寸档位、`roomGap` 让步、按边拼墙。（外框原先也在这里算，搬去 `floorPlan.ts`
+ * 之后**又删了** —— 2026-10-22 晚起它是平面图自己声明的 `footprint`，
+ * 原因见 `floorPlan.ts` 里 `checkFootprint` 上面那段。）
  *
  * ## 三件事，顺序不能换
  *
@@ -82,7 +84,11 @@ export interface LayoutPlan {
   readonly rooms: readonly Room[]
   readonly passages: readonly Passage[]
   readonly walls: readonly Rect[]
-  /** 全部房间与走廊的并集（px、中心点）。**不含向外那 2 格**，见文件头 */
+  /**
+   * 整层的外框（px、中心点）。**不含向外那 2 格**，见文件头。
+   * 直接抄平面图（`FloorPlan.bounds` ← 声明的 `footprint`）—— ★ 2026-10-22 晚起
+   * **不是**「全部房间与走廊的并集」了，1F 上两者不相等（房间从 y25 起）。
+   */
   readonly bounds: Rect
 }
 
