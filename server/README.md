@@ -10,6 +10,7 @@ server/
 ├── config/                 Django 项目配置（settings / urls / wsgi / asgi）
 ├── apps/
 │   ├── accounts/           模块 B：匿名档案 Player + 注册/登录(JWT) + claim 绑定
+│   ├── cloudsave/          模块 D：云存档（GET/PUT/DELETE /api/profile/save/）
 │   ├── feedback/           模块 A：反馈工单 + 状态机流转 + Admin 看板
 │   ├── telemetry/          模块 A：遥测事件批量接收
 │   └── release/            模块 C：发布记录 + 发布/回退状态机
@@ -54,11 +55,14 @@ docker compose up -d --build
 | POST | `/api/auth/token/` | 无 | simplejwt 获取 access/refresh |
 | POST | `/api/auth/refresh/` | 无 | 刷新 access |
 | POST | `/api/auth/claim/` | JWT | 匿名档案绑定账号 |
+| GET | `/api/profile/save/` | JWT | 拉取云存档（无档 404） |
+| PUT | `/api/profile/save/` | JWT | 上传云存档（`base_revision` 乐观并发，落后 409） |
+| DELETE | `/api/profile/save/` | JWT | 清除云存档 |
 
 ## 测试
 
 ```bash
-python manage.py test    # 17 个用例：反馈提交、工单状态机、遥测、claim、发布回退
+python manage.py test    # 24 个用例：反馈提交、工单状态机、遥测、claim、发布回退、云存档
 ```
 
 ## 三条红线在本域的落地

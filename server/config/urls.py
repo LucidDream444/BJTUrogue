@@ -16,5 +16,6 @@ urlpatterns = [
     path("api/feedback/", include("apps.feedback.urls")),
     path("api/telemetry/", include("apps.telemetry.urls")),
     path("api/auth/", include("apps.accounts.urls")),
+    path("api/profile/save/", include("apps.cloudsave.urls")),
     path("api/release/", include("apps.release.urls")),
 ]

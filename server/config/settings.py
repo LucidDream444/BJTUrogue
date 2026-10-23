@@ -25,6 +25,7 @@ INSTALLED_APPS = [
     "drf_spectacular",
     # 本项目
     "apps.accounts",
+    "apps.cloudsave",
     "apps.feedback",
     "apps.telemetry",
     "apps.release",
