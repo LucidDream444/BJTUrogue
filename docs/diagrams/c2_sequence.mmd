@@ -1,0 +1,15 @@
+sequenceDiagram
+    participant CI as GitHub Actions
+    participant R as ReleaseService
+    participant FS as 静态目录/Caddy
+    participant DB as Release表
+    CI->>R: 上传构建产物 /game/v1.2.3/
+    R->>DB: create Release(version, status=CANDIDATE)
+    Note over R: 测试人员在后台标记 VERIFIED
+    R->>FS: 切换 current → /game/v1.2.3/
+    R->>DB: status=RELEASED, previous=旧版, released_at
+    alt 需要回退
+        R->>DB: 读取 previous
+        R->>FS: 切换 current → 上一稳定版
+        R->>DB: status=ROLLED_BACK, rolled_back_at
+    end

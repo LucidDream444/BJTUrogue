@@ -1,0 +1,20 @@
+flowchart TD
+    A([玩家点击反馈按钮]) --> B[打开反馈表单]
+    B --> C[填写分类/标题/描述/复现步骤]
+    C --> D{是否附截图或日志?}
+    D -->|是| E[选择附件文件]
+    D -->|否| F[跳过附件]
+    E --> F
+    F --> G[点击提交]
+    G --> H[组装 multipart<br>anon_id + client_version + 字段 + 附件]
+    H --> I{本地是否联网?}
+    I -->|否| J[写入本地待发队列<br>联网后自动补传]
+    I -->|是| K[POST /api/feedback/]
+    J --> K
+    K --> L{服务端校验}
+    L -->|校验失败 400| M[返回错误信息<br>客户端提示修正后重填]
+    L -->|通过| N[get_or_create Player 匿名档案]
+    N --> O[创建 FeedbackTicket 关联 Player]
+    O --> P[返回 201 + 工单号]
+    P --> Q([客户端提示已提交])
+    M --> B

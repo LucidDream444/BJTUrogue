@@ -1,0 +1,13 @@
+flowchart TD
+    A([玩家已登录]) --> B[客户端读取本地 anon_id]
+    B --> C[POST /api/auth/claim<br>携带 JWT + anon_id]
+    C --> D{JWT 有效?}
+    D -->|否| E[返回 401]
+    D -->|是| F{该 anon_id 档案存在?}
+    F -->|否| G[创建新 Player 并绑定当前账号]
+    F -->|是| H{档案已被其它账号绑定?}
+    H -->|是| I[返回 409 冲突]
+    H -->|否| J[Player.user = 当前 User]
+    G --> J
+    J --> K[历史反馈/遥测自动归入账号]
+    K --> L([绑定完成])
