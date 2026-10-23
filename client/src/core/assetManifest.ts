@@ -1,4 +1,11 @@
 import { STUDENT_SKIN_SOURCES } from './studentSkinManifest'
+import {
+  CAMPUS_PIXEL_FURNITURE_KEYS,
+  CAMPUS_PIXEL_PROP_KEYS,
+  CAMPUS_PIXEL_TILE_KEYS,
+} from './campusPixelManifest'
+export { CAMPUS_PIXEL_ART, CAMPUS_PIXEL_SPRITES } from './campusPixelManifest'
+export type { CampusPixelSpriteGeometry } from './campusPixelManifest'
 
 /**
  * 资源清单 —— **纯数据，零依赖**。
@@ -131,6 +138,23 @@ export const GOOSE_ART = {
   grip: [12, 16],
   muzzle: [44, 16],
 } as const
+
+function campusPixelAssets(): AssetEntry[] {
+  return [
+    ...CAMPUS_PIXEL_TILE_KEYS.map((key) => ({
+      key, path: `maps/campus_20261023/tiles/${key}.png`, placeholder: false,
+      kind: 'image' as const, width: 64, height: 64,
+    })),
+    ...CAMPUS_PIXEL_FURNITURE_KEYS.map((key) => ({
+      key, path: `sprites/furniture/campus_20261023/${key}.png`, placeholder: false,
+      kind: 'image' as const, width: 128, height: 128,
+    })),
+    ...CAMPUS_PIXEL_PROP_KEYS.map((key) => ({
+      key, path: `sprites/props/campus_20261023/${key}.png`, placeholder: false,
+      kind: 'image' as const, width: 128, height: 128,
+    })),
+  ]
+}
 
 function gooseAssets(): AssetEntry[] {
   return [
@@ -1448,6 +1472,7 @@ const BASE_ASSETS: readonly AssetEntry[] = [
   // ---- 玩家分层：身体层 / 手臂+枪层（由 PLAYER_LAYER_BASES 展开，见上）----
   ...playerLayerAssets(),
   ...gooseAssets(),
+  ...campusPixelAssets(),
 ]
 
 /** Apply the outfit in the asset manifest, leaving animation keys and timing untouched. */

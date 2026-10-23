@@ -53,7 +53,7 @@
     "sprites/props/campus_20261023/prop_classroom_switch_socket_cluster.png"
   ],
   "description": "教室、走廊、楼梯间的照片参考像素组件制作清单；此文件不表示已有成图，也不是运行时资源清单。",
-  "runtimeIntegration": "none",
+  "runtimeIntegration": "selected_sprites_and_materials_via_core_manifest_and_CampusMapArt",
   "referenceRoot": "C:/Users/Skadi/Downloads/飞书20261023-220617",
   "referenceFilenamePattern": "20261023-220619.789-{number}.jpg",
   "referenceNumberMeaning": "原始文件名的数字后缀，不是聊天附件显示顺序。",
