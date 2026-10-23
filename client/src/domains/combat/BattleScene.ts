@@ -1965,10 +1965,12 @@ export class BattleScene extends Phaser.Scene {
         fontFamily: 'monospace',
         fontSize: '14px',
         color: '#9fe8c8',
+        backgroundColor: '#17251fe6',
+        padding: { x: 8, y: 4 },
         wordWrap: { width: 900 },
       })
       .setScrollFactor(0)
-      .setDepth(1001)
+      .setDepth(5001)
   }
   private updateHud(): void {
     const p = this.session.player

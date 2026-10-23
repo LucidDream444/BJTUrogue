@@ -13,7 +13,8 @@ export class SkillHud {
     private readonly scene: Phaser.Scene,
     private readonly session: CombatSession,
   ) {
-    this.root = scene.add.container(0, 0).setScrollFactor(0).setDepth(1012)
+    // 屏幕 HUD 高于按世界 y 排序的实体、家具及世界标注。
+    this.root = scene.add.container(0, 0).setScrollFactor(0).setDepth(5012)
     this.panel = scene.add
       .rectangle(0, 0, 330, 64, 0x15231b, 0.92)
       .setOrigin(0)

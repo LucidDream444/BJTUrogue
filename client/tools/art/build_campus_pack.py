@@ -92,7 +92,7 @@ def build_gallery(delivery):
         sections.append(f'<section data-group="{group}"><h2>{title}</h2><div class="grid {"scenes" if group=="scenes" else ""}">{"".join(cards)}</div></section>')
     html='''<!doctype html><html lang="zh-CN"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>校园实拍 · 像素美术包</title>
 <style>*{box-sizing:border-box}body{margin:0;background:#eae8df;color:#293735;font:15px/1.6 system-ui,"Microsoft YaHei",sans-serif}header{padding:32px max(24px,calc((100vw - 1400px)/2));background:#d8dfd5;border-bottom:3px solid #465e78}h1{margin:0;font-size:30px}header p{max-width:900px;margin:10px 0 0}nav{position:sticky;top:0;z-index:2;display:flex;gap:8px;flex-wrap:wrap;align-items:center;padding:12px 24px;background:#eae8dff5;border-bottom:1px solid #b7c0b3}button{font:inherit;border:1px solid #aab5a7;border-radius:4px;padding:6px 14px;cursor:pointer;background:#f8f7ef;color:#293735}button[aria-pressed=true]{background:#465e78;color:white;border-color:#465e78}label{margin-left:auto}main{max-width:1440px;margin:auto;padding:0 24px 60px}section{padding-top:18px}h2{font-size:20px;border-bottom:1px solid #b8c0b2;padding-bottom:6px}.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(240px,1fr));gap:14px}.grid.scenes{grid-template-columns:repeat(auto-fit,minmax(500px,1fr))}.card{display:block;color:inherit;text-decoration:none;padding:10px;background:#f5f3eb;border:1px solid #bdc6b8;border-radius:5px;overflow:hidden}.canvas{background-color:#d4d8ce;background-image:conic-gradient(#e4e7de 25%,transparent 0 50%,#e4e7de 0 75%,transparent 0);background-size:16px 16px;display:flex;justify-content:center;align-items:center;overflow:hidden}.sprite img{width:256px;height:256px}.scene img{width:100%;height:auto}.card img{image-rendering:pixelated;object-fit:contain}.card span{display:block;margin:8px 0 0}.card small{color:#657567;display:block}.solid .canvas{background:#6c7770}footer{padding:24px;background:#d8dfd5}a:focus-visible,button:focus-visible{outline:3px solid #4386b6;outline-offset:3px}[hidden]{display:none!important}@media(max-width:600px){.grid.scenes{grid-template-columns:1fr}header{padding:24px}h1{font-size:25px}.grid{grid-template-columns:repeat(auto-fit,minmax(210px,1fr))}}</style>
-<header><h1>校园实拍 · 像素美术包</h1><p>黄木开放书斗、蓝色固定翻板椅、蓝灰窗帘，及教室、走廊、楼梯与红砖门厅。所有图像在原生像素网格直接绘制。点击任意图片查看 PNG 原图。</p><p>独立家具采用中性材质色；暖阳只出现在窗边整景与单独光照层。当前是美术交付预览，尚未接入正式游戏地图。</p></header>
+<header><h1>校园实拍 · 像素美术包</h1><p>黄木开放书斗、蓝色固定翻板椅、蓝灰窗帘，及教室、走廊、楼梯与红砖门厅。所有图像在原生像素网格直接绘制。点击任意图片查看 PNG 原图。</p><p>独立家具采用中性材质色；暖阳只出现在窗边整景与单独光照层。组件与材质已用于正式地图；这里的六张整景保留作构图参考。</p></header>
 <nav><button data-filter="all" aria-pressed="true">全部</button><button data-filter="scenes" aria-pressed="false">整景</button><button data-filter="furniture" aria-pressed="false">桌椅</button><button data-filter="architecture" aria-pressed="false">建筑</button><button data-filter="fixtures" aria-pressed="false">设备</button><button data-filter="extras" aria-pressed="false">补充物件</button><button data-filter="tiles" aria-pressed="false">材质</button><label><input id="solid" type="checkbox">深色底检查透明边缘</label></nav><main>'''+''.join(sections)+'''</main><footer>2026-10-23 · 六张整景 / 五十件独立物件 / 十六种材质 · 原生像素 PNG，无外部网页或网络依赖。</footer><script>document.querySelectorAll('[data-filter]').forEach(b=>b.addEventListener('click',()=>{document.querySelectorAll('[data-filter]').forEach(x=>x.setAttribute('aria-pressed',String(x===b)));document.querySelectorAll('section').forEach(s=>s.hidden=b.dataset.filter!=='all'&&s.dataset.group!==b.dataset.filter)}));document.querySelector('#solid').addEventListener('change',e=>document.body.classList.toggle('solid',e.target.checked));</script></html>'''
     (DOCS/'gallery.html').write_text(html,encoding='utf-8')
 
@@ -207,7 +207,7 @@ def main():
     records.append(asset_record('fx_campus_window_sunlight',overlay,path,'overlay',group='lighting',name='窗边暖阳独立光照层',alpha='stepped_translucent'))
     delivery=dict(schemaVersion=1,packId=PACK,status='drawn_and_exported',method='local_native_pixel_drawing',
                   source='client/tools/art/campus_pixel/',palette='palette.json',
-                  noteZh='照片参考的本地像素绘制；整景为构图参考，独立组件和材质待按正式地图几何接入。',
+                  noteZh='照片参考的本地像素绘制；整景为构图参考，独立组件和材质已按正式地图几何接入。',
                   counts=dict(scenes=6,sprites=50,tiles=16,atlases=4,lightingOverlays=1),
                   assets=records)
     dump(DOCS/'delivery.json',delivery)
@@ -218,6 +218,7 @@ def main():
     component_spec.update(status='delivered_local_pixel_art',actualMethod='local_native_pixel_drawing',
                           generatedImages=[a['path'] for a in records if a['group'] in ('furniture','architecture','fixtures')],
                           totalDeliveredComponents=48,bonusComponents=2,deliveryManifest='delivery.json')
+    component_spec['runtimeIntegration']='selected_sprites_and_materials_via_core_manifest_and_CampusMapArt'
     for sheet in component_spec['sheets']:
         sheet.update(status='delivered_local_pixel_art',actualAtlasPath=next(a['path'] for a in records if a['id']==sheet['id']))
     component_spec['sheetGeometry'].update(background='transparent',alphaStatus='native_binary_alpha',
@@ -235,7 +236,7 @@ def main():
             z.write(ASSETS/asset['path'],'assets/'+asset['path'])
         for name in ('delivery.json','palette.json','validation.json'):
             z.write(DOCS/name,name)
-        z.writestr('README.md', '# 校园实拍像素美术包\n\n六张整景、50件透明物件、16种材质、四张图集与一张暖阳层。\n\n打开 `gallery.html` 离线浏览全部 PNG；原图在 `assets/`，总览和桌椅结构在 `previews/`，尺寸、锚点和哈希见 `delivery.json`。\n\n源文件保留在 `source/`，重绘只需 Python 与 Pillow，无 API、密钥或原始照片依赖：\n\n```powershell\ncd source\npython client/tools/art/build_campus_pack.py\n```\n\n重绘结果写入 source 下的资源目录、预览目录与 artifacts 资源包。素材尚未接入正式游戏地图，登记时请遵守项目共享资源清单约定。\n')
+        z.writestr('README.md', '# 校园实拍像素美术包\n\n六张整景、50件透明物件、16种材质、四张图集与一张暖阳层。\n\n打开 `gallery.html` 离线浏览全部 PNG；原图在 `assets/`，总览和桌椅结构在 `previews/`，尺寸、锚点和哈希见 `delivery.json`。\n\n源文件保留在 `source/`，重绘只需 Python 与 Pillow，无 API、密钥或原始照片依赖：\n\n```powershell\ncd source\npython client/tools/art/build_campus_pack.py\n```\n\n重绘结果写入 source 下的资源目录、预览目录与 artifacts 资源包。主项目的共享清单和 CampusMapArt 已使用独立组件与材质；该资源包不含游戏运行时代码。\n')
         z.writestr('gallery.html',(DOCS/'gallery.html').read_text(encoding='utf-8').replace('../../../client/public/assets/','assets/'))
         for source in Path(__file__).parent.joinpath('campus_pixel').glob('*.py'):
             z.write(source,'source/client/tools/art/campus_pixel/'+source.name)

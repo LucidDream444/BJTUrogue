@@ -1,12 +1,13 @@
 import Phaser from 'phaser'
 import { CAMPAIGN_ART } from '@/core/assetManifest'
-import { COLORS, roomFillColor } from '@/domains/procgen/presentation/floorplan'
+import { COLORS } from '@/domains/procgen/presentation/floorplan'
 import { ROOM_KIND_LABELS } from '@/domains/procgen/model/types'
-import type { DungeonMap, Room } from '@/domains/procgen/model/types'
+import type { DungeonMap } from '@/domains/procgen/model/types'
 import type { RoomsConfig } from '@/domains/procgen/config'
 import { left, top } from '@/domains/procgen/model/rect'
 import type { SolidRect } from './StageGeometry'
 import type { DungeonRoom, DoorBrief } from './DungeonStages'
+import { CampusMapArt } from './CampusMapArt'
 
 /**
  * 三张参考画。★ **整层连续之后战斗里已经不用它们了**，但 `joint/_d1Scenes.ts`
@@ -39,38 +40,13 @@ const LABEL_LIFT = 72
 const DOOR_INSET = 3
 
 /**
- * 整层的**观感层**：地面、墙、门、房号。
- *
- * ★ 重写了（2026-10-21，整层连续）。上一版是「**一间房一张参考画**」：
- * 构造时吃下 16 间房的 `rectInBox` / `doorTargets`，`setStage(n)` 换一张
- * `CAMPAIGN_ART.level*` 铺满取景框，家具当独立贴图摆上去，门上挂「→ 07」那种箭头。
- *
- * 那一版整体作废的原因是**它的前提没了**：它画的是「一间房 + 一扇通向外面的门」，
- * 而整层连续里没有"外面" —— 门通向的是**同一张图上的走廊**，墙外面也是**同一张图上的
- * 另一间房**。`rectInBox` / `doorTargets` 这两个字段本身已经删了（`DungeonStages`）。
- *
- * ## 现在画什么
- *
- * 三样，各对应一个玩家要读的问题：
- *
- * | 画的 | 回答的问题 |
- * |---|---|
- * | 地面（走廊 / 房间，房间按关别上色） | **我在哪儿、这一间是什么** |
- * | 墙与桌椅 | **哪儿能走**（这也是碰撞体的同一份几何） |
- * | 门（橙 = 封着 / 绿 = 打完了）+ 房号 | **这一间打完了没有、能不能出去** |
- *
- * ## 为什么门要单独一张 Graphics、还要每帧重画
- *
- * 因为**没有一个静态画法能表达它**：同一扇门在「没进过」「打着」「打完了」三种状态下
- * 长得不一样，而三种状态的切换发生在游戏跑起来之后。地面与墙是**一次画完、不再变**的，
- * 所以分成两张：`floor` 只在换层时重画，`doors` 在状态变了之后重画（并且封着的门
- * 随场景时间呼吸 —— 那是「你被关在这儿」唯一会动的东西）。
- *
- * ⚠️ **两张 Graphics 的 depth 必须差一档**（-102 / -101）：同 depth 时绘制顺序
- * 由加入场景的顺序决定，而那是**初始化顺序的巧合**，不是约定。
+ * The real continuous floor uses CampusMapArt materials and cropped furniture.
+ * Static artwork is rebuilt on floor changes; door seals and room progress keep
+ * their existing independent Graphics/state. No physics geometry is changed.
  */
 export class StageBackground {
   private readonly floor: Phaser.GameObjects.Graphics
+  private readonly art: CampusMapArt
   private readonly doors: Phaser.GameObjects.Graphics
   private readonly labels: Phaser.GameObjects.Text[] = []
   /** 房号 → 那个 Text。`setCleared` 要按房号改字，不靠下标对齐。 */
@@ -89,9 +65,9 @@ export class StageBackground {
 
   constructor(
     private readonly scene: Phaser.Scene,
-    private readonly map: DungeonMap,
+    map: DungeonMap,
     private readonly rooms: readonly DungeonRoom[],
-    private readonly cfg: RoomsConfig,
+    _cfg: RoomsConfig,
     /**
      * 整层的碰撞矩形 —— **与玩家撞的那一份**（`DungeonStages` 交出来的
      * `stages[0].solids`）。画的就是它，不再从 `map.walls` 另推一遍。
@@ -99,78 +75,16 @@ export class StageBackground {
      * `kind` 从 **id 前缀**读（`wall-1` / `desk-2` / `chair-3`）——
      * `DungeonStages` 造 id 时按种类加了前缀，那正是为了这里能分开上色。
      */
-    private readonly solids: readonly SolidRect[],
+    solids: readonly SolidRect[],
   ) {
-    this.floor = scene.add.graphics().setDepth(-102)
+    const b = map.bounds
+    this.floor = scene.add.graphics().setDepth(-120)
+    this.floor.fillStyle(COLORS.outside, 1).fillRect(left(b), top(b), b.width, b.height)
+    this.art = new CampusMapArt(scene, map, solids)
     this.doors = scene.add.graphics().setDepth(-101)
-    this.paintFloor()
     this.makeLabels()
     this.refresh()
   }
-
-  /* ------------------------------------------------------------ 一次画完的那些 */
-
-  /**
-   * 地面 + 墙 + 桌椅。**整层一次画完**，之后不再动。
-   *
-   * ⚠️ **墙与桌椅是 `map.walls` / `collidersOf()` 的那一份几何**，不是另画一套
-   * （`roomsCfg` 传进来只为了拿 `roomFillColor` 里那个 `combatKinds`）。
-   * 观感与碰撞各推一遍的失败模式是「看得见的墙能穿过去、看不见的地方走不动」——
-   * 两边都画得出来，而玩家只会说「这游戏碰撞坏了」。
-   */
-  private paintFloor(): void {
-    const g = this.floor
-    const b = this.map.bounds
-    g.fillStyle(COLORS.outside, 1).fillRect(left(b), top(b), b.width, b.height)
-
-    // 走廊**先**画，房间压在上面。理由与 `Minimap` 同一条（那儿写得更细）。
-    for (const p of this.map.passages) {
-      g.fillStyle(COLORS.passage, 1).fillRect(left(p.rect), top(p.rect), p.rect.width, p.rect.height)
-    }
-
-    // 房间：填色说关别，描边说「哪一间是楼梯间 / 首领房」—— 与 `Minimap`
-    // 走**同一张调色板**（`COLORS` 与 `roomFillColor` 都在 D2 的 `presentation` 里）。
-    // 两处各写一遍 `kind === 'boss' || …` 就是第二份 `combatKinds`：改了配置表
-    // 它不会跟着变，而且**两边都不报错**，只是同一间房在两张图上颜色不一样。
-    for (const room of this.map.rooms) {
-      const r = room.rect
-      g.fillStyle(roomFillColor(this.cfg, room), 1).fillRect(
-        left(r),
-        top(r),
-        r.width,
-        r.height,
-      )
-      g.lineStyle(3, this.edgeColor(room), 1).strokeRect(left(r), top(r), r.width, r.height)
-    }
-
-    // 墙 / 课桌 / 椅子：**与玩家撞的是同一批矩形**。
-    for (const s of this.solids) this.paintSolid(g, s)
-  }
-
-  private paintSolid(g: Phaser.GameObjects.Graphics, s: SolidRect): void {
-    // `x` / `y` 已经是**左上角**（`SolidRect` 的约定），别再减半个宽 ——
-    // 减了之后每块砖都往左上偏半个身位，而画面上只是"砖没对齐"，看不出是 bug。
-    if (s.id.startsWith('wall')) {
-      // 墙：**填 `wall` + 描 `wallEdge`**。只填不描的话，一条 40px 的墙和一片
-      // 深色的地板在缩放后几乎同色 —— 而「哪儿是墙」是玩家唯一要立刻读出来的地形。
-      g.fillStyle(COLORS.wall, 1).fillRect(s.x, s.y, s.width, s.height)
-      g.lineStyle(2, COLORS.wallEdge, 0.55).strokeRect(s.x, s.y, s.width, s.height)
-      return
-    }
-    const chair = s.id.startsWith('chair')
-    g.fillStyle(chair ? COLORS.chair : COLORS.desk, 1).fillRect(s.x, s.y, s.width, s.height)
-    // 椅子**不挡子弹**而课桌挡（`colliders.ts` 的 `ColliderKind`）：画面上也得分得开。
-    // 手柄读不出来、眼睛能。
-    if (chair) g.lineStyle(1, 0xa79880, 0.4).strokeRect(s.x, s.y, s.width, s.height)
-  }
-
-  private edgeColor(room: Room): number {
-    if (room.kind === 'boss') return COLORS.bossEdge
-    if (room.kind === 'start') return COLORS.startEdge
-    return COLORS.roomEdge
-  }
-
-  /* ------------------------------------------------------------ 房号 */
 
   private makeLabels(): void {
     for (const unit of this.rooms) {
@@ -185,7 +99,8 @@ export class StageBackground {
           align: 'center',
         })
         .setOrigin(0.5)
-        .setDepth(99)
+        // Room annotations stay above world-y-sorted furniture and actors.
+        .setDepth(4000)
       this.labels.push(label)
       this.labelOf.set(unit.room.id, label)
     }
@@ -217,7 +132,10 @@ export class StageBackground {
   private refresh(): void {
     for (const unit of this.rooms) {
       const label = this.labelOf.get(unit.room.id)
-      if (label) label.setText(this.labelText(unit)).setColor(this.cleared.has(unit.room.id) ? '#9ff0bd' : '#e9f2ff')
+      if (label)
+        label
+          .setText(this.labelText(unit))
+          .setColor(this.cleared.has(unit.room.id) ? '#9ff0bd' : '#e9f2ff')
     }
     this.paintDoors(this.scene.time.now)
     // ⚠️ 记下画的是哪一帧的脉搏，`update()` 靠它决定要不要重画 ——
@@ -240,16 +158,22 @@ export class StageBackground {
       const closed = this.sealed.has(door.ownerOrder)
       const done = this.cleared.has(this.ownerId(door.ownerOrder))
       const color = closed ? 0xe0663a : done ? 0x8ff0b4 : COLORS.door
-      g.fillStyle(color, closed ? pulse : 0.85).fillRect(
+      g.fillStyle(color, closed ? pulse : 0.08).fillRect(
         door.x + DOOR_INSET,
         door.y + DOOR_INSET,
         door.width - DOOR_INSET * 2,
         door.height - DOOR_INSET * 2,
       )
+      if (!closed) g.lineStyle(2, color, 0.7).strokeRect(door.x, door.y, door.width, door.height)
       // 封着的门再描一圈更外的边 —— 门洞只有 40px 厚，1:1 下那一条线在砖色的墙上
       // 并不显眼，而「这扇门现在过不去」是这一刻唯一要知道的事。
       if (closed)
-        g.lineStyle(3, 0xffb08a, pulse).strokeRect(door.x - 6, door.y - 6, door.width + 12, door.height + 12)
+        g.lineStyle(3, 0xffb08a, pulse).strokeRect(
+          door.x - 6,
+          door.y - 6,
+          door.width + 12,
+          door.height + 12,
+        )
     }
   }
 
@@ -307,6 +231,7 @@ export class StageBackground {
   }
 
   destroy(): void {
+    this.art.destroy()
     this.floor.destroy()
     this.doors.destroy()
     for (const label of this.labels) label.destroy()

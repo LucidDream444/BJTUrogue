@@ -5,7 +5,7 @@
   "method": "local_native_pixel_drawing",
   "source": "client/tools/art/campus_pixel/",
   "palette": "palette.json",
-  "noteZh": "照片参考的本地像素绘制；整景为构图参考，独立组件和材质待按正式地图几何接入。",
+  "noteZh": "照片参考的本地像素绘制；整景为构图参考，独立组件和材质已按正式地图几何接入。",
   "counts": {
     "scenes": 6,
     "sprites": 50,
