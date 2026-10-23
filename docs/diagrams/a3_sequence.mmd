@@ -1,0 +1,14 @@
+sequenceDiagram
+    participant B as C1事件总线
+    participant T as TelemetryClient(客户端)
+    participant Q as 本地队列
+    participant V as TelemetryIngestView
+    participant DB as PostgreSQL
+    B->>T: 订阅 run_started/room_cleared/run_ended/app_error
+    B->>T: emit(run_ended, {...})
+    T->>Q: 组装并入队(不 await)
+    Q->>V: POST /api/telemetry/events (sendBeacon)
+    V->>V: TelemetryBatchSerializer 批量校验
+    V->>DB: bulk_create(TelemetryEvent...)
+    V-->>T: 202 Accepted
+    T->>Q: 清除已确认事件

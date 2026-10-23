@@ -1,0 +1,14 @@
+flowchart TD
+    A([CI 构建通过]) --> B[产物上传 /game/vX.Y.Z/]
+    B --> C[创建 Release 记录 status=candidate]
+    C --> D{测试人员验证通过?}
+    D -->|否| E[记录验证失败<br>不发布]
+    D -->|是| F[切换 current 软链接指向新版]
+    F --> G[Release.status=released<br>previous=旧版]
+    G --> H[玩家刷新即获得新版]
+    H --> I{线上发现严重问题?}
+    I -->|否| J([发布完成])
+    I -->|是| K[检查存档/API 兼容性]
+    K --> L[切换 current 指回上一稳定版]
+    L --> M[Release.status=rolled_back]
+    M --> J

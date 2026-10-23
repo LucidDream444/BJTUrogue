@@ -1,0 +1,19 @@
+classDiagram
+    class Player {
+        +UUID anon_id
+        +User user
+        +claim(user)
+        +is_claimed() bool
+    }
+    class User {
+        +String username
+    }
+    class ClaimService {
+        +claim(user, anon_id) Player
+    }
+    class ClaimView {
+        +post()
+    }
+    ClaimView ..> ClaimService : 调用
+    ClaimService --> Player : 绑定/创建
+    Player --> User : user(OneToOne, 可空)

@@ -1,0 +1,15 @@
+flowchart TD
+    A([游戏运行中产生事件]) --> B[TelemetryClient 订阅 C1 事件总线]
+    B --> C{事件是低频里程碑?}
+    C -->|否 高频战斗事件| D[仅本地诊断<br>不上报网络]
+    C -->|是 run/room/error| E[组装 event_name + payload<br>+ anon_id + client_ts]
+    E --> F[写入本地待发队列]
+    F --> G[浏览器空闲时 flush]
+    G --> H{联网?}
+    H -->|否| G
+    H -->|是| I[POST /api/telemetry/events<br>sendBeacon fire-and-forget]
+    I --> J{服务端校验}
+    J -->|失败| K[丢弃该批<br>不重试不报错]
+    J -->|成功 202| L[bulk_create TelemetryEvent]
+    L --> M[客户端确认后清队列]
+    M --> N([完成])

@@ -1,0 +1,8 @@
+stateDiagram-v2
+    [*] --> SUBMITTED : 玩家提交
+    SUBMITTED --> CLASSIFIED : 管理员分类/定级
+    CLASSIFIED --> PROCESSING : 指派处理
+    PROCESSING --> VERIFIED : 修复完成待验证
+    VERIFIED --> PROCESSING : 验证不通过
+    VERIFIED --> CLOSED : 验证通过关闭
+    CLOSED --> [*]

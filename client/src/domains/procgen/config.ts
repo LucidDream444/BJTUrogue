@@ -286,7 +286,7 @@ export function parseRoomsConfig(raw: unknown): RoomsConfig {
 
   // ⚠️ **这里原来还有一个 `classroomCount`（与平面图对账用的教室数），2026-10-22 删了。**
   //    「这一层有几间房」现在是**平面图自己的事**（`floor-plan.json` 的 `roomTotal`）——
-  //    一局有两层楼之后，一个全局的数根本对不上两张图（6F 十六间、YF3 十五间）。
+  //    一局三层楼之后，一个全局的数根本对不上三张图（1F 十四间、3F 十五间、6F 十六间）。
   //    见 `gen/floorPlan.ts` 的 `FloorPlanMetrics`。
 
   // 格的边长。**全部几何换算的分母** —— 平面图里的格坐标靠它换成 px。
@@ -792,6 +792,11 @@ export function isCombatKind(cfg: RoomsConfig, kind: RoomKind): boolean {
  * ⚠️ 加新的**非战斗**关别时要回来看这一行、明确表态（进名单还是不进）。
  * 写成 `!isCombatKind(cfg, kind)` 那种反判的话，新关别会**默认**捞到一个宝箱，
  * 而那种错只在有人真的走进那一间时才看得到。
+ *
+ * ★ 表过态了（2026-10-22，`'empty'` 空房）：**不进名单**。它存在的全部意义
+ * 就是「什么都没有」—— 用户的第 1 层要求是「所有房间都是空房间，不生成任何东西」，
+ * 摆宝箱就等于生成了一样东西。它与楼梯间（`start`）同理但更彻底：
+ * 楼梯间至少每层再生成一个宝箱，空房连那个都不该有。
  */
 export function roomHasChest(kind: RoomKind): boolean {
   return kind === 'reward' || kind === 'chest'

@@ -1,0 +1,29 @@
+classDiagram
+    class TelemetryEvent {
+        +UUID id
+        +String event_name
+        +JSON payload
+        +Int payload_version
+        +String client_version
+        +DateTime client_ts
+        +DateTime received_at
+    }
+    class Player {
+        +UUID anon_id
+    }
+    class TelemetryClient {
+        +subscribe(bus)
+        +enqueue(event)
+        +flush()
+        +clearAcked(ids)
+    }
+    class TelemetryIngestView {
+        +post()
+    }
+    class TelemetryBatchSerializer {
+        +validate()
+    }
+    TelemetryClient ..> TelemetryEvent : 组装载荷
+    TelemetryIngestView ..> TelemetryBatchSerializer : 使用
+    TelemetryIngestView --> TelemetryEvent : bulk_create
+    TelemetryEvent --> Player : 归属(可空)

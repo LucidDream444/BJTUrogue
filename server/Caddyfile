@@ -1,0 +1,25 @@
+# 同域部署：游戏静态产物 + 反馈附件 + API 都在一个域名下，天然无跨域。
+# 客户端静态产物按版本分目录 /game/vX.Y.Z/，current 为软链接指向当前版本，
+# 发布 = 切换 current，回退 = 指回上一稳定版（UC11）。
+# {$HOST:localhost} 本地可用 http；上线后 Caddy 自动申请 HTTPS。
+
+{$HOST:localhost} {
+    encode gzip
+
+    # 游戏静态产物（构建时把 dist/ 拷贝到 /srv/game/<version>/，current 软链接指向当前版本）
+    handle /game/* {
+        root * /srv
+        file_server
+    }
+
+    # 反馈附件（web 写入 /app/media，挂载到 /srv/media）
+    handle /media/* {
+        root * /srv
+        file_server
+    }
+
+    # 其余（/api/* 与 /admin/*）反代到 Django
+    handle {
+        reverse_proxy web:8000
+    }
+}

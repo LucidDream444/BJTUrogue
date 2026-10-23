@@ -54,7 +54,7 @@ import { bottom, left, right, top } from '@/domains/procgen/model/rect'
  * `nonCombatRoom`），文字那一份是冗余的，先砍冗余的那一份。
  *
  * 「这一间是什么关」还有一个去处：底部标题那一行，它说的是**当前**所在的那一间
- * （`第 2 / 16 间 · YF604 首领`）。玩家要判断「隔壁那间值不值得进」时看的是颜色。
+ * （`第 1 / 3 层 · YF604 首领 · 走过 2 / 16 间`，末一个数跟着这一层的房数走）。玩家要判断「隔壁那间值不值得进」时看的是颜色。
  *
  * ## 三色状态：当前间黄、走过的绿、没到的灰
  *
@@ -70,11 +70,17 @@ import { bottom, left, right, top } from '@/domains/procgen/model/rect'
  */
 const PANEL = {
   /**
+   * ★ 改了（2026-10-23）：**400×150**（原来 320×130）。用户：「许多房间不显示房间号了」——
+   * 房间缩到 8—12 格之后，320 宽的面板缩出来一间只有 9—14px，标号整条被藏掉。
+   * 面板放大 25% 之后同样的房间有 12—18px，能塞下「两位数的号」。
+   * （下面那段 320×130 的推导仍然成立 —— 内框 384:118 = 3.25:1，还是**宽度**卡缩放。）
+   *
    * ★ 改了（v5）：**320×130**，原来 300×150。照的是**新几何的宽高比**。
    *
    * 整层是 10520×2920 = **3.60:1**（S 形），而面板内框是
    * `(320−16) : (130−16−16)` = 304 : 98 = **3.10:1** —— 比地图**瘦**一点，
-   * 所以是**宽度**卡住缩放：`304 / 10520 = 0.0289`，画出来 304×84.4，
+   * 所以是**宽度**卡住缩放（今天：`384 / 10520 = 0.0365`，画出来 384×106.6；
+   * 上一版 320 宽时是 `304 / 10520 = 0.0289`），
    * 内框里上下各余 6.8px（`redraw()` 把它们居中掉了）。
    *
    * 上一版是 300×150（内框 284:118 = 2.41:1），照的是紧凑排布那组数
@@ -82,8 +88,8 @@ const PANEL = {
    * 不换的话多出来的那 20px 高度是**白占的**（地图永远够不到内框的底边），
    * 而白占的地方看起来只是「小地图四周有点空」，没人会想到去改面板。
    */
-  width: 320,
-  height: 130,
+  width: 400,
+  height: 150,
   /** 屏幕右上角的留白 */
   inset: 12,
   padding: 8,
@@ -130,6 +136,11 @@ const NO_VISITED: ReadonlySet<string> = new Set<string>()
  * 玩家会进商店里找下楼的方框。所以改成一张**表**：认得的写认得的样子，
  * 认不出的写 `?` —— 一个看得见的「这里出问题了」，而不是一个看着合理的错标号。
  *
+ * ⚠️ ★ 2026-10-23：这张表**漏过一类** —— 电梯间（`E_A` / `E_B` / `E_C`）加进来时
+ * 没人想起它，于是三个电梯间在缩略图上一起顶着 `?`。`?` 的设计本意就是
+ * 「这里出问题了」，所以它不是一条可以长期挂着的显示；加新的非编号空间时
+ * **要么进 `SHORT_LABELS`、要么进 `SHORT_PREFIX_LABELS`**。
+ *
  * ⚠️ 一个字，不是原样印 `SHOP`：最小的房间（`YF612` 教休室，360px 宽）缩完只有
  * 10px，而 `SHOP` 四个字母在 18px 字号下约 40px —— 会盖住隔壁两间房，
  * 而「标号让位」那一段判的是**字宽 vs 房间宽**，它会**正确地**把自己藏起来，
@@ -137,9 +148,19 @@ const NO_VISITED: ReadonlySet<string> = new Set<string>()
  */
 const SHORT_LABELS: Readonly<Record<string, string>> = { STAIR: '梯', SHOP: '商' }
 
+/**
+ * **按前缀**认的设施标号。★ 新增（2026-10-23，用户：「为什么小地图给电梯间显示问号」）。
+ *
+ * 电梯间是 `E_A` / `E_B` / `E_C`（同一部电梯在三层的三个位置），三个都得单独往
+ * `SHORT_LABELS` 里塞一遍才不显示 `?` —— 而**下一层再来一个 `E_D` 就又漏了**。
+ * 前缀表一次管住一类 id，也顺手把「设施」这条规矩写在了明面上。
+ */
+const SHORT_PREFIX_LABELS: readonly (readonly [string, string])[] = [['E_', '电']]
+
 function shortId(id: string): string {
   const digits = /(\d+)\s*$/.exec(id)
   if (digits !== null) return digits[1]!
+  for (const [prefix, label] of SHORT_PREFIX_LABELS) if (id.startsWith(prefix)) return label
   return SHORT_LABELS[id] ?? '?'
 }
 
@@ -355,6 +376,8 @@ export class Minimap {
 
       // 状态色压在关别的边上。没到的**不统一用灰** —— 首领房给红描边、楼梯间给黄描边，
       // 那是「一眼找到它俩」的唯一线索（`COLORS.bossEdge` / `startEdge` 的注释说的就是这个）。
+      // ★ 2026-10-23：**电梯间给青描边**（`COLORS.elevatorEdge`）—— 它只有 8×8 格，
+      // 缩完放不下「电」那个字（`drawLabels` 会整条藏掉），所以它只能靠颜色认。
       // `todo` 那一档只吃自己关别的边色，其余房间才是灰。
       const edge = here
         ? STATE_COLOR.here
@@ -364,7 +387,9 @@ export class Minimap {
             ? COLORS.bossEdge
             : room.kind === 'start'
               ? COLORS.startEdge
-              : STATE_COLOR.todo
+              : room.kind === 'elevator'
+                ? COLORS.elevatorEdge
+                : STATE_COLOR.todo
       g.lineStyle(here ? 2 : 1, edge, here || !done ? 1 : 0.7)
       g.strokeRect(t.x, t.y, w, h)
     }
@@ -433,15 +458,40 @@ export class Minimap {
       const t = this.labels[ri]
       if (t === undefined) return
       const w = room.rect.width * scale
-      t.setVisible(true)
-      t.setText(shortId(room.id))
+      // ★ 改了（2026-10-23，用户：「许多房间不显示房间号了」）：**三级降级**，不再一刀切。
+      //
+      // 房间缩到 8—12 格之后，一间在小地图上只有 9—14px，而 `112` 三个数字要 16px ——
+      // 原来那一句「放不下就整条不显示」于是把一大片房间的号**全抹了**。
+      // 现在依次试：全号 → 去掉百位的两位号（`112` → `12`）→ 再小一号字。
+      // 两位号在同一层里是唯一的（1F `01`—`13`、3F `01`—`13`、6F `01`—`15`），
+      // 而「这是第几层」小地图标题上一直写着 —— 少一位不会认错房间。
+      // 四级都放不下（比如 8×8 的电梯间）才藏起来：那几间靠**填色**认（`roomFillColor`）。
+      const full = shortId(room.id)
+      const compact = /^\d{3,}$/.test(full) ? full.slice(-2) : full
       // `-4` 是给描边留的两侧余量（描边画在矩形边上，不占宽度，
       // 但字贴着边看起来就像被框切了一半）。宽度是**面板单位** —— 标号和格子
       // 都被同一个 1/zoom 缩放，所以在这里比和在屏幕上比是同一件事。
-      if (t.width > w - 4) {
+      const fits = (text: string, size: number): boolean => {
+        t.setFontSize(size)
+        t.setText(text)
+        return t.width <= w - 4
+      }
+      let text: string | null = null
+      for (const [candidate, size] of [
+        [full, LABEL_FONT],
+        [full, LABEL_FONT - 1],
+        [compact, LABEL_FONT],
+        [compact, LABEL_FONT - 1],
+        [compact, LABEL_FONT - 2],
+      ] as const) {
+        if (text === null && fits(candidate, size)) text = candidate
+      }
+      t.setVisible(true)
+      if (text === null) {
         t.setVisible(false)
         return
       }
+      t.setText(text)
       t.setColor(
         room.id === this.currentId
           ? '#ffe08a'

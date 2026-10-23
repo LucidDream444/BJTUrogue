@@ -6,9 +6,10 @@
  * 1. **把这一局的结果记进档**（发币 + 更新统计）—— 调 `settleRun()`，只此一处；
  * 2. **把结果画出来**给玩家看。
  *
- * 所以它**不订阅任何事件**。谁来判断"这一局结束了"是宿主的事（战斗场景在玩家
+ * 所以它**不订阅战斗总线**。谁来判断"这一局结束了"是宿主的事（战斗场景在玩家
  * 血量归零时调 `show()`），这样它就不会卡在 C1 的 `run_ended` 还没定稿上 ——
  * 事件定稿后只是宿主多一行 `bus.on('run_ended', () => settlement.show())`。
+ * 它只订阅 D4 的 `ProfileStore`，用来同步保存失败横幅。
  *
  * ## ⚠️ `show()` 是幂等的
  *
@@ -24,6 +25,7 @@ import { settleRun, type RunInput, type SettleOutcome } from '../progress/progre
 import { Button } from '../ui/Button'
 import { buildOverlayFrame, type OverlaySink } from '../ui/overlayFrame'
 import { OverlayLayer } from '../ui/overlayLayer'
+import { SaveStatusBanner } from '../ui/SaveStatusBanner'
 import { THEME, fontPx } from '../ui/theme'
 
 /** 宿主（D1 的战斗场景）必须提供这四件事。 */
@@ -69,12 +71,15 @@ export class SettlementOverlay {
   private objects: Phaser.GameObjects.GameObject[] = []
   private buttons: Button[] = []
   private layer: OverlayLayer | null = null
+  private saveBanner: SaveStatusBanner | null = null
+  private readonly unsubscribeStore: () => void
 
   constructor(options: SettlementOverlayOptions) {
     this.scene = options.scene
     this.store = options.store
     this.meta = options.meta
     this.host = options.host
+    this.unsubscribeStore = this.store.subscribe(() => this.saveBanner?.refresh())
   }
 
   get isOpen(): boolean {
@@ -114,6 +119,7 @@ export class SettlementOverlay {
   destroy(): void {
     this.clear()
     this.opened = false
+    this.unsubscribeStore()
     this.layer?.destroy()
     this.layer = null
   }
@@ -226,10 +232,20 @@ export class SettlementOverlay {
       )
     })
 
+    this.saveBanner = new SaveStatusBanner(
+      this.scene,
+      this.store,
+      this.scene.scale.width / 2,
+      44,
+      this.scene.scale.width,
+    )
+    this.parts.push(this.saveBanner.root)
     this.layer?.attach(this.parts)
   }
 
   private clear(): void {
+    this.saveBanner?.destroy()
+    this.saveBanner = null
     for (const b of this.buttons) b.destroy()
     for (const o of this.objects) o.destroy()
     this.buttons = []

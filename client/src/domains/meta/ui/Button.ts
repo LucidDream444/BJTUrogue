@@ -28,6 +28,11 @@ export interface ButtonOptions {
   fontSize?: number
   /** 文字靠左（左栏那种长条按钮），默认居中 */
   align?: 'left' | 'center'
+  /**
+   * 在鼠标按下还是松开时触发。全屏 API 在部分浏览器只接受 `pointerup` 手势，
+   * 这类按钮显式传 `'up'`；普通界面按钮保持即时的 `'down'`。
+   */
+  activateOn?: 'down' | 'up'
 }
 
 export class Button {
@@ -69,7 +74,7 @@ export class Button {
       this.hovered = false
       this.paint()
     })
-    this.bg.on('pointerdown', () => {
+    this.bg.on(options.activateOn === 'up' ? 'pointerup' : 'pointerdown', () => {
       if (this.disabled) return
       this.onClick()
     })
