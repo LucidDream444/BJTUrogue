@@ -175,6 +175,11 @@ export const CAMPAIGN_ART = {
   level3: 'level_3_classroom',
 } as const
 
+/** D4 主菜单的校园地图底图。交互热区与建筑名在 `meta/menu/campusMenuModel.ts`。 */
+export const CAMPUS_MENU_ART = {
+  map: 'ui_campus_main_menu_map',
+} as const
+
 /** 校园场景美术：教室现役资源与走廊/电子屏备用资源统一从清单取用。 */
 export const CAMPUS_ART = {
   classroom: {
@@ -299,6 +304,14 @@ const BASE_ASSETS: readonly AssetEntry[] = [
     kind: 'image',
     width: 1672,
     height: 941,
+  },
+  {
+    key: CAMPUS_MENU_ART.map,
+    path: 'ui/campus/ui_campus_main_menu_map.png',
+    placeholder: false,
+    kind: 'image',
+    width: 1459,
+    height: 821,
   },
   {
     key: 'level_1_classroom',
