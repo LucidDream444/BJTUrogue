@@ -45,6 +45,7 @@ import {
   type FloorPlan,
 } from '@/domains/procgen/gen/floorPlan'
 import { ROOM_KIND_LABELS } from '@/domains/procgen/model/types'
+import { containsPoint } from '@/domains/procgen/model/rect'
 import { Minimap } from './Minimap'
 import { FloorExit } from './FloorExit'
 import { ElevatorPanel, type FloorRow } from './ElevatorPanel'
@@ -531,7 +532,12 @@ export class BattleScene extends Phaser.Scene {
       this.exitUp = new FloorExit(this, { reach: EXIT_REACH, dir: 'up' })
       this.exitDown = new FloorExit(this, { reach: EXIT_REACH, dir: 'down' })
       // ★ 2026-10-23：电梯的楼层面板（走进去弹、走出去关）。选完直接换层。
-      this.elevatorPanel = new ElevatorPanel((floor) => this.goToFloor(floor))
+      // ⚠️ **从电梯走的人，落地要出现在那一部电梯前**（用户 2026-10-23）——
+      //    所以把「现在站在哪一部电梯里」一起带进 `goToFloor()`。
+      this.elevatorPanel = new ElevatorPanel((floor) => {
+        const here = this.roomOrder >= 0 ? this.dungeon.rooms[this.roomOrder] : undefined
+        this.goToFloor(floor, here?.room.kind === 'elevator' ? here.room.id : null)
+      })
       this.rewardPanel = new RewardPanel(this.session)
       this.gallery = new AssetGallery(this, () => this.toggleGallery())
       this.makeHud()
@@ -1503,7 +1509,7 @@ export class BattleScene extends Phaser.Scene {
    *   房号一模一样，`forgetFloor()` 是**唯一**挡着卡死的东西），
    *   `order` 那一半照旧，所以两处都留着。
    */
-  private loadFloor(): void {
+  private loadFloor(fromElevator: string | null = null): void {
     this.dungeon = this.buildFloor(this.floor)
     this.applyArena()
     this.stageConfig = parseStageCollisions(this.dungeon.stages, FLOOR_STAGE)
@@ -1537,6 +1543,13 @@ export class BattleScene extends Phaser.Scene {
     //    从「房号相同」变成「上楼又下楼回到同一间」。
     this.session.rewards.forgetFloor()
     this.session.loadFloor(this.stageConfig)
+    // ★ 2026-10-23（用户：「从电梯去其它层应该是出现在对应电梯前，而不是楼梯间前」）：
+    // `session.loadFloor()` 的落脚点恒是**楼梯间门口**（`dungeon.spawn`）——
+    // 坐电梯上来的人却被扔在楼梯间，等于「电梯白坐了」。所以落地之后**再挪一次**：
+    // 目标层上**同 id 的那一部电梯**（`E_A` / `E_B` / `E_C` 四层同名）的正中间。
+    // 找不到那部电梯（比如新的一层少了一部）就什么都不做，退回楼梯间门口 ——
+    // 不抛：那是「地图少画了一个电梯间」，不该让整局崩在这里。
+    if (fromElevator !== null) this.spawnAtElevator(fromElevator)
     this.syncRoomState()
     // ★ 新增（2026-10-22 晚·七）：落地即**解锁这一层**（电梯只去走到过的楼）。
     this.maxFloorReached = Math.max(this.maxFloorReached, this.floor)
@@ -1708,11 +1721,53 @@ export class BattleScene extends Phaser.Scene {
    * 第 1 层上第 2 层会被 `maxFloorReached = 1` 挡死。电梯的门槛在
    * `elevatorTargets()`（面板里**没解锁的层是灰的**，点不动）。
    */
-  private goToFloor(target: number): void {
+  /**
+   * 把玩家放到**目标层上同 id 那部电梯的门口**（走廊里，不是电梯里面）。
+   *
+   * ★ 改了（2026-10-23，用户：「出电梯应该在电梯门口（像之前楼梯口门口一样），
+   * 不然会被层数选择硬控」）：上一版落在**电梯正中间** —— 落地那一帧
+   * `roomAt()` 就判「你在电梯里」，于是**楼层选择面板立刻弹出来**把玩家按住。
+   * 楼梯间那条路一直是落在**门外**（`DungeonStages.corridorPointAt`），
+   * 这里照同一条：从门口往走廊迈**两格**（80px，比玩家半径 16 大得多）。
+   *
+   * 找不到走廊（那部电梯的门两侧都不是走廊）就退回**房间正中** —— 不抛：
+   * 那是「这一层的电梯间画得不对」，不该让换层崩在这儿。
+   */
+  private spawnAtElevator(id: string): void {
+    const unit = this.dungeon.rooms.find((r) => r.room.id === id && r.room.kind === 'elevator')
+    if (unit === undefined) return
+    const radius = this.session.player.model.stats.radius
+    const cell = this.dungeon.map.navCellSize
+    const door = unit.doors[0]
+    let spot: { x: number; y: number } | null = null
+    if (door !== undefined) {
+      // 门是「墙上挖掉的那几格」，`x` / `y` 是它的**左上角** —— 从中点往外迈。
+      const cx = door.x + door.width / 2
+      const cy = door.y + door.height / 2
+      // `axis === 'v'`（门开在竖直墙上）→ 人沿 x 穿过；否则沿 y 穿过。
+      const alongX = door.axis === 'v'
+      for (const step of [2, 1, 3]) {
+        for (const sign of [1, -1]) {
+          const p = alongX
+            ? { x: cx + sign * step * cell, y: cy }
+            : { x: cx, y: cy + sign * step * cell }
+          if (this.dungeon.map.passages.some((q) => containsPoint(q.rect, p.x, p.y))) {
+            spot = p
+            break
+          }
+        }
+        if (spot !== null) break
+      }
+    }
+    const from = spot ?? { x: unit.room.rect.x, y: unit.room.rect.y }
+    const at = this.session.terrain.safeSpawn(from.x, from.y, radius, radius)
+    this.session.player.body.reset(at.x, at.y)
+  }
+  private goToFloor(target: number, fromElevator: string | null = null): void {
     if (target < 1 || target > this.floors || target === this.floor) return
     this.leaveFloor()
     this.floor = target
-    this.loadFloor()
+    this.loadFloor(fromElevator)
   }
   private refreshStairPads(): void {
     this.exitUp.hide()

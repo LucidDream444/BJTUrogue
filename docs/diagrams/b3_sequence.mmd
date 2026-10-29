@@ -1,0 +1,21 @@
+sequenceDiagram
+    participant C as 客户端
+    participant V as ClaimView
+    participant S as ClaimService
+    participant DB as PostgreSQL
+    C->>V: POST /api/auth/claim (JWT + anon_id)
+    V->>V: 解析 JWT 得到 user
+    V->>S: claim(user, anon_id)
+    S->>DB: 查找 Player(anon_id)
+    alt 不存在
+        S->>DB: create Player(anon_id, user=user)
+    else 已被其它账号绑定
+        DB-->>S: 冲突
+        S-->>V: 冲突
+        V-->>C: 409
+    else 可绑定
+        S->>DB: Player.user = user, save
+        Note over S,DB: 历史反馈/遥测经外键自动归属
+        S-->>V: 成功
+        V-->>C: 200 + 绑定后档案信息
+    end
