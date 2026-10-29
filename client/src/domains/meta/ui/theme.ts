@@ -38,6 +38,12 @@ export const THEME = {
     disabled: 0x18211c,
     /** 滑杆的滑块 */
     knob: 0xf4e7cc,
+    /** 校园地图上的可交互建筑描边 */
+    mapGlow: 0xffd46b,
+    /** 地图高光的外层柔光 */
+    mapGlowSoft: 0xd69a32,
+    /** 地图提示卡底色 */
+    mapInk: 0x07131e,
     dim: 0x000000,
   },
   text: {

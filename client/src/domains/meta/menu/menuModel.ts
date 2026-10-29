@@ -22,16 +22,29 @@
 import { CHARACTERS, characterById, type CharacterDef } from '../catalog'
 import type { ProfileData } from '../profile/types'
 
-/** 主菜单左栏的按钮，顺序以产品动线为准；图鉴紧跟在操作说明之后。 */
-export const MENU_ACTIONS = ['start', 'upgrade', 'help', 'codex', 'quit'] as const
+/**
+ * 主菜单入口。顺序同时用于键盘焦点和校园地图的默认遍历顺序：
+ * 开始闯关是主操作，退出始终留在最后。
+ */
+export const MENU_ACTIONS = [
+  'start',
+  'upgrade',
+  'help',
+  'codex',
+  'achievements',
+  'settings',
+  'quit',
+] as const
 export type MenuAction = (typeof MENU_ACTIONS)[number]
 
 export const MENU_ACTION_LABELS: Readonly<Record<MenuAction, string>> = {
   start: '开始闯关',
-  upgrade: '查看升级',
+  upgrade: '进入升级界面',
   help: '查看操作说明',
-  codex: '怪物图鉴',
-  quit: '退出',
+  codex: '查看怪物图鉴',
+  achievements: '查看成就',
+  settings: '进入设置界面',
+  quit: '退出游戏',
 }
 
 /**
@@ -41,7 +54,8 @@ export const MENU_ACTION_LABELS: Readonly<Record<MenuAction, string>> = {
  * 用**一个字段**而不是三个布尔：三个布尔能有 8 种组合，其中 5 种是"两个弹层
  * 同时开着"这种不合法状态 —— 那种状态迟早会出现，而且只在某个边角操作里出现。
  */
-export type MenuScreen = 'main' | 'help' | 'settings' | 'upgrade' | 'codex' | 'confirm-quit'
+export type MenuScreen =
+  'main' | 'help' | 'settings' | 'upgrade' | 'codex' | 'achievements' | 'confirm-quit'
 
 export interface MenuState {
   screen: MenuScreen
@@ -64,6 +78,11 @@ export function moveFocus(state: MenuState, delta: number): MenuState {
 
 export function focusedAction(state: MenuState): MenuAction {
   return MENU_ACTIONS[state.focusIndex] ?? MENU_ACTIONS[0]
+}
+
+/** 鼠标指到某个建筑时，让鼠标焦点与键盘焦点落在同一个入口上。 */
+export function focusOn(state: MenuState, action: MenuAction): MenuState {
+  return { ...state, focusIndex: MENU_ACTIONS.indexOf(action), notice: '' }
 }
 
 export function openScreen(state: MenuState, screen: MenuScreen): MenuState {
