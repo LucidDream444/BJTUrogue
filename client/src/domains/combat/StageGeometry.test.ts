@@ -9,7 +9,15 @@ const read = (name: string) =>
   JSON.parse(readFileSync(new URL(`../../../public/config/${name}`, import.meta.url), 'utf8'))
 const cfg = parseCombatConfig(read('combat.json'))
 const raw = read('stage-collisions.json')
-const layouts = parseStageCollisions(raw, cfg.arena.maxStages)
+// ⚠️ ★ 修（2026-10-23）：这里用的是**夹具自己的关数**，不是 `cfg.arena.maxStages`。
+//
+// 这份 `stage-collisions.json` 是 v4 时代**手画的三关**，今天只剩这个文件在用
+// （产品那条路走 D2 的 `buildDungeonStages()`，层数由 `floors.json` 决定）。
+// 一局从三层变四层之后，`parseStageCollisions(raw, 4)` 会因为「关卡数量无效」
+// **在 import 那一刻就抛** —— 整个文件一条用例都跑不到，报的却是一句
+// 「地图尺寸、导航网格或关卡数量无效」，看不出是层数变了。
+const STAGES = raw.stages.length
+const layouts = parseStageCollisions(raw, STAGES)
 const frame = fitMapFrame(
   cfg.arena.width,
   cfg.arena.height,
@@ -136,13 +144,13 @@ describe('campus map collisions', () => {
   it('rejects malformed, incomplete and overlapping spawn configurations', () => {
     const bad = structuredClone(raw)
     bad.stages[0].solids[0].width = Infinity
-    expect(() => parseStageCollisions(bad, 3)).toThrow()
-    expect(() => parseStageCollisions({ ...raw, stages: raw.stages.slice(1) }, 3)).toThrow()
+    expect(() => parseStageCollisions(bad, STAGES)).toThrow()
+    expect(() => parseStageCollisions({ ...raw, stages: raw.stages.slice(1) }, STAGES)).toThrow()
     const inside = structuredClone(raw)
     inside.stages[0].playerSpawn = { x: 10, y: 10 }
-    expect(() => parseStageCollisions(inside, 3)).toThrow()
+    expect(() => parseStageCollisions(inside, STAGES)).toThrow()
     const duplicate = structuredClone(raw)
     duplicate.stages[2].stage = 1
-    expect(() => parseStageCollisions(duplicate, 3)).toThrow()
+    expect(() => parseStageCollisions(duplicate, STAGES)).toThrow()
   })
 })

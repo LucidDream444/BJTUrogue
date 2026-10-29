@@ -123,6 +123,7 @@ import {
   FLOOR_PLAN_FILES,
   FLOOR_PLAN_NAME,
   FLOOR_PLAN_YF1_NAME,
+  FLOOR_PLAN_YF2_NAME,
   FLOOR_PLAN_YF3_NAME,
 } from '@/domains/procgen/gen/floorPlan'
 import type { FloorPlan } from '@/domains/procgen/gen/floorPlan'
@@ -283,13 +284,20 @@ function setZoomRoomId(id: string | null): void {
  * ⚠️ **默认 1F 不是随手选的**：进来第一屏要与**玩家真的走进去的那一层**一致
  * （一局的第 1 层现在是 1F），不然「屏幕上看着没问题」这句话没有指向。
  */
-const FLOOR_PLANS: readonly string[] = [FLOOR_PLAN_YF1_NAME, FLOOR_PLAN_YF3_NAME, FLOOR_PLAN_NAME]
+// ★ 改了（2026-10-23）：**四层**了（2F 的图做出来了）。顺序与 `floors.json` 逐项对齐。
+const FLOOR_PLANS: readonly string[] = [
+  FLOOR_PLAN_YF1_NAME,
+  FLOOR_PLAN_YF2_NAME,
+  FLOOR_PLAN_YF3_NAME,
+  FLOOR_PLAN_NAME,
+]
 
 /** 与 `FLOOR_PLANS` **逐项对齐**的层名（给人看的）。加一层要两张表一起加。 */
 const FLOOR_TEXTS: readonly string[] = [
   '逸夫楼 1F（第 1 层）',
-  '逸夫楼 3F（第 2 层）',
-  '6F（第 3 层 · 最后一层）',
+  '逸夫楼 2F（第 2 层）',
+  '逸夫楼 3F（第 3 层）',
+  '6F（第 4 层 · 最后一层）',
 ]
 
 /**

@@ -1,0 +1,51 @@
+classDiagram
+    direction LR
+    class Player {
+        +UUID anon_id
+        +User user
+        +DateTime created_at
+        +DateTime last_seen_at
+        +String client_version
+    }
+    class FeedbackTicket {
+        +UUID id
+        +Category category
+        +Severity severity
+        +Status status
+        +String title
+        +Text description
+        +Text repro_steps
+        +String client_version
+        +File attachment
+        +DateTime closed_at
+    }
+    class TelemetryEvent {
+        +UUID id
+        +String event_name
+        +JSON payload
+        +Int payload_version
+        +String client_version
+        +DateTime client_ts
+        +DateTime received_at
+    }
+    class User {
+        +String username
+        +String password
+        +Groups groups
+    }
+    class Group {
+        +String name
+    }
+    class Release {
+        +String version
+        +Status status
+        +String artifact_path
+        +Release previous
+        +DateTime released_at
+        +DateTime rolled_back_at
+    }
+    Player "0..1" --> "1" User : 绑定
+    Player "1" --> "0..*" FeedbackTicket : 归属
+    Player "1" --> "0..*" TelemetryEvent : 归属(可空)
+    User --> Group : 属于
+    Release --> Release : previous
