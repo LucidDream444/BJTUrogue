@@ -7,8 +7,9 @@
  */
 
 import type Phaser from 'phaser'
+import { unlockedCount } from '../menu/menuModel'
 import type { ProfileStore } from '../profile/ProfileStore'
-import type { DisplayMode } from '../profile/types'
+import type { DisplayMode, ProfileData } from '../profile/types'
 import { Button } from './Button'
 import type { OverlayFrame, OverlaySink } from './overlayFrame'
 import { Slider } from './Slider'
@@ -94,6 +95,74 @@ export function buildHelpPanel(scene: Phaser.Scene, sink: PanelSink, frame: Over
 export interface SettingsPanelParts {
   fullscreen: Button
   windowed: Button
+}
+
+/** 校史馆：把存档里的冒险记录集中展示成成就/档案卡。 */
+export function buildAchievementsPanel(
+  scene: Phaser.Scene,
+  sink: OverlaySink,
+  frame: OverlayFrame,
+  profile: ProfileData,
+): void {
+  const characters = unlockedCount(profile)
+  const records = [
+    ['累计冒险', `${profile.stats.runs} 次`],
+    ['通关记录', `${profile.stats.wins} 次`],
+    ['失败记录', `${profile.stats.deaths} 次`],
+    ['最深抵达', `第 ${profile.stats.bestDepth} 层`],
+    ['角色档案', `${characters.unlocked} / ${characters.total}`],
+    ['校园资产', `${profile.currency.coins} 币`],
+  ] as const
+
+  const gap = THEME.space.md
+  const cardWidth = (frame.panelWidth - THEME.space.lg * 2 - gap) / 2
+  const cardHeight = 94
+  const left = frame.contentLeft
+  const top = frame.contentTop + 8
+
+  records.forEach(([label, value], index) => {
+    const column = index % 2
+    const row = Math.floor(index / 2)
+    const x = left + column * (cardWidth + gap)
+    const y = top + row * (cardHeight + gap)
+    sink.track(
+      scene.add
+        .rectangle(x, y, cardWidth, cardHeight, THEME.color.panelHover)
+        .setOrigin(0)
+        .setStrokeStyle(1, THEME.color.border),
+    )
+    sink.track(scene.add.rectangle(x, y, 5, cardHeight, THEME.color.accent).setOrigin(0))
+    sink.track(
+      scene.add.text(x + THEME.space.md, y + 15, label, {
+        fontFamily: THEME.font.family,
+        fontSize: fontPx(THEME.font.small),
+        color: THEME.text.dim,
+      }),
+    )
+    sink.track(
+      scene.add.text(x + THEME.space.md, y + 45, value, {
+        fontFamily: THEME.font.family,
+        fontSize: fontPx(24),
+        fontStyle: 'bold',
+        color: THEME.text.accent,
+      }),
+    )
+  })
+
+  sink.track(
+    scene.add
+      .text(
+        left,
+        top + cardHeight * 3 + gap * 2 + 18,
+        '校史馆馆藏来自本地冒险记录；永久成长与已获得的金币会一直保留。',
+        {
+          fontFamily: THEME.font.family,
+          fontSize: fontPx(THEME.font.small),
+          color: THEME.text.dim,
+        },
+      )
+      .setWordWrapWidth(frame.panelWidth - THEME.space.lg * 2),
+  )
 }
 
 /**

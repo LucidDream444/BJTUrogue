@@ -20,6 +20,7 @@ import {
   MENU_ACTIONS,
   closeScreen,
   createMenuState,
+  focusOn,
   focusedAction,
   isUnlocked,
   moveFocus,
@@ -49,8 +50,16 @@ describe('焦点', () => {
     expect(state.focusIndex).toBe(0)
   })
 
-  it('「怪物图鉴」紧跟在「查看操作说明」之后，退出仍是末项', () => {
-    expect(MENU_ACTIONS).toEqual(['start', 'upgrade', 'help', 'codex', 'quit'])
+  it('校园入口完整，退出仍是末项', () => {
+    expect(MENU_ACTIONS).toEqual([
+      'start',
+      'upgrade',
+      'help',
+      'codex',
+      'achievements',
+      'settings',
+      'quit',
+    ])
   })
 
   it('往上越过第一项会绕到最后一项，而不是卡住', () => {
@@ -68,6 +77,12 @@ describe('焦点', () => {
   it('移动焦点会清掉上一次的提示（否则「未解锁」会挂在新选项上）', () => {
     const state = withNotice(createMenuState(), '未解锁：xxx')
     expect(moveFocus(state, 1).notice).toBe('')
+  })
+
+  it('鼠标建筑入口能把焦点直接落到同一个入口', () => {
+    const state = focusOn(createMenuState(), 'achievements')
+    expect(focusedAction(state)).toBe('achievements')
+    expect(state.notice).toBe('')
   })
 })
 
