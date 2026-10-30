@@ -12,11 +12,9 @@ export const CAMPUS_BUTTON_SIZE = 38
 
 export interface CampusHotspotDef {
   action: MenuAction
-  /** 地图标注里的编号；西操场没有独立编号，因此写 01 旁。 */
-  buildingNumber: string
   /** 悬停卡里展示的建筑名。 */
   buildingName: string
-  /** 建筑中心按钮内的单字标记。 */
+  /** 建筑中心按钮内的两字文案。单字缩写要靠猜，两个字一眼就知道是干什么的。 */
   buttonLabel: string
   x: number
   y: number
@@ -33,9 +31,8 @@ export interface CampusHotspotDef {
 export const CAMPUS_HOTSPOTS: readonly CampusHotspotDef[] = [
   {
     action: 'achievements',
-    buildingNumber: '14',
     buildingName: '校史馆',
-    buttonLabel: '成',
+    buttonLabel: '成就',
     x: 326,
     y: 333,
     width: 119,
@@ -43,9 +40,8 @@ export const CAMPUS_HOTSPOTS: readonly CampusHotspotDef[] = [
   },
   {
     action: 'upgrade',
-    buildingNumber: '01 旁',
     buildingName: '西操场',
-    buttonLabel: '升',
+    buttonLabel: '升级',
     x: 349,
     y: 5,
     width: 160,
@@ -53,9 +49,8 @@ export const CAMPUS_HOTSPOTS: readonly CampusHotspotDef[] = [
   },
   {
     action: 'help',
-    buildingNumber: '07',
     buildingName: '思源楼',
-    buttonLabel: '说',
+    buttonLabel: '说明',
     x: 489,
     y: 203,
     width: 107,
@@ -63,9 +58,8 @@ export const CAMPUS_HOTSPOTS: readonly CampusHotspotDef[] = [
   },
   {
     action: 'quit',
-    buildingNumber: '34',
     buildingName: '南门',
-    buttonLabel: '退',
+    buttonLabel: '退出',
     x: 522,
     y: 740,
     width: 82,
@@ -73,9 +67,8 @@ export const CAMPUS_HOTSPOTS: readonly CampusHotspotDef[] = [
   },
   {
     action: 'settings',
-    buildingNumber: '24',
     buildingName: '机械楼',
-    buttonLabel: '设',
+    buttonLabel: '设置',
     x: 1099,
     y: 469,
     width: 164,
@@ -83,9 +76,8 @@ export const CAMPUS_HOTSPOTS: readonly CampusHotspotDef[] = [
   },
   {
     action: 'codex',
-    buildingNumber: '03',
     buildingName: '图书馆',
-    buttonLabel: '鉴',
+    buttonLabel: '图鉴',
     x: 934,
     y: 0,
     width: 210,
@@ -93,9 +85,8 @@ export const CAMPUS_HOTSPOTS: readonly CampusHotspotDef[] = [
   },
   {
     action: 'start',
-    buildingNumber: '10',
     buildingName: '逸夫楼',
-    buttonLabel: '始',
+    buttonLabel: '开始',
     x: 1000,
     y: 264,
     width: 204,

@@ -8,7 +8,6 @@ const CARD_HEIGHT = 82
 /** 跟随鼠标的双行说明卡：第一行是按钮功能，第二行是校园地标。 */
 export class CampusTooltip {
   private readonly container: Phaser.GameObjects.Container
-  private readonly number: Phaser.GameObjects.Text
   private readonly action: Phaser.GameObjects.Text
   private readonly building: Phaser.GameObjects.Text
 
@@ -20,40 +19,25 @@ export class CampusTooltip {
     bg.strokeRoundedRect(0, 0, CARD_WIDTH, CARD_HEIGHT, 10)
     bg.fillStyle(THEME.color.mapGlow, 1)
     bg.fillRoundedRect(0, 0, 5, CARD_HEIGHT, { tl: 10, bl: 10, tr: 0, br: 0 })
-    bg.lineStyle(1, THEME.color.mapGlow, 0.5)
-    bg.lineBetween(60, 12, 60, CARD_HEIGHT - 12)
 
-    this.number = scene.add
-      .text(31, CARD_HEIGHT / 2, '', {
-        fontFamily: THEME.font.family,
-        fontSize: fontPx(17),
-        fontStyle: 'bold',
-        color: THEME.text.accent,
-      })
-      .setOrigin(0.5)
-
-    this.action = scene.add.text(76, 13, '', {
+    this.action = scene.add.text(24, 13, '', {
       fontFamily: THEME.font.family,
       fontSize: fontPx(16),
       fontStyle: 'bold',
       color: THEME.text.accent,
     })
-    this.building = scene.add.text(76, 43, '', {
+    this.building = scene.add.text(24, 43, '', {
       fontFamily: THEME.font.family,
       fontSize: fontPx(13),
       color: THEME.text.body,
     })
 
     this.container = scene.add
-      .container(0, 0, [bg, this.number, this.action, this.building])
+      .container(0, 0, [bg, this.action, this.building])
       .setVisible(false)
   }
 
   show(def: CampusHotspotDef, actionLabel: string, pointer: Phaser.Input.Pointer): void {
-    this.number.setText(def.buildingNumber)
-    this.number.setFontSize(
-      def.buildingNumber.replace(/\s/g, '').length > 2 ? fontPx(13) : fontPx(17),
-    )
     this.action.setText(actionLabel)
     this.building.setText(def.buildingName)
     this.container.setVisible(true)
