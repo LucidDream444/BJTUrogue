@@ -1,10 +1,15 @@
 /**
  * 角色升级页：每个角色只有一个固定被动和一个四阶技能。
  *
- * 四个角色的流程完全共用：
+ * 三个角色的流程完全共用：
  * - 解锁角色时技能自动 1 级；
  * - 花币依次升到 2 / 3 / 4 级；
  * - 页面永远只出现一个技能卡和一个“升级”按钮。
+ *
+ * ## 升级对象和出战角色是两件事
+ *
+ * 页面顶部的角色选择器只改「这次升级谁」，**不写 `profile.selected.characterId`**；
+ * 后者是下一局的出战角色，不能因为在升级页翻看别的角色就被改掉。
  */
 
 import type Phaser from 'phaser'
@@ -29,6 +34,10 @@ export function buildUpgradePanel(
   frame: OverlayFrame,
   store: ProfileStore,
   meta: MetaConfig | null,
+  /** 升级页当前操作的角色；由宿主保存，重建页面后仍指向同一个角色 */
+  selectedCharacterId: string,
+  /** 只更新宿主的“升级对象”，不改变出战角色，也不负责重绘 */
+  onSelectCharacter: (id: string) => void,
   onChanged: (notice: string) => void,
 ): void {
   if (!meta) {
@@ -40,27 +49,58 @@ export function buildUpgradePanel(
   }
 
   const profile = store.profile
-  const characterId = profile.selected.characterId
+  const characterId = selectedCharacterId
   const character = meta.characters[characterId]
   const display = characterById(characterId)
+  const contentWidth = frame.panelWidth - THEME.space.lg * 2
 
   text(scene, sink, frame.contentLeft, frame.contentTop, `金币  ${profile.currency.coins}`, {
     size: THEME.font.heading,
     color: THEME.text.accent,
   })
+
+  // 角色选择器：只列配置里存在的角色。未解锁的按钮显示原因并禁用，
+  // 让玩家知道“不是坏了，是还没解锁”，而不是点了没反应。
+  const options = CHARACTERS.filter((candidate) => meta.characters[candidate.id])
+  const selectorGap = THEME.space.sm
+  const selectorWidth =
+    (contentWidth - selectorGap * Math.max(0, options.length - 1)) / Math.max(1, options.length)
+  const selectorY = frame.contentTop + 50
+  options.forEach((candidate, index) => {
+    const unlocked = isUnlocked(profile, candidate.id)
+    const selected = candidate.id === characterId
+    const button = new Button(
+      scene,
+      frame.contentLeft + selectorWidth / 2 + index * (selectorWidth + selectorGap),
+      selectorY,
+      unlocked ? candidate.name : `${candidate.name} · 未解锁`,
+      () => {
+        if (!unlocked || selected) return
+        onSelectCharacter(candidate.id)
+        // 技能卡、等级和按钮都要换成新角色的，所以走宿主的整屏重建；
+        // 空提示顺便清掉上一个角色留下的“升到 X 级”。
+        onChanged('')
+      },
+      { width: selectorWidth, height: 32, fontSize: THEME.font.small },
+    )
+    button.setSelected(selected)
+    button.setDisabled(!unlocked)
+    sink.button(button)
+  })
+
   text(
     scene,
     sink,
     frame.contentLeft,
-    frame.contentTop + 32,
-    `角色：${display?.name ?? characterId} · ${character?.passive.name ?? '被动未配置'}`,
+    frame.contentTop + 72,
+    `升级对象：${display?.name ?? characterId} · ${character?.passive.name ?? '被动未配置'}（不改变出战）`,
     { size: THEME.font.body, color: THEME.text.body },
   )
   text(
     scene,
     sink,
     frame.contentLeft,
-    frame.contentTop + 55,
+    frame.contentTop + 95,
     character?.passive.description ?? '',
     { size: THEME.font.small, color: THEME.text.dim },
   )
@@ -76,10 +116,10 @@ export function buildUpgradePanel(
   const level = skillLevelOf(profile, meta, characterId)
   const current = character.skill.levels[level - 1]
   const nextCost = skillUpgradeCost(profile, meta, characterId)
-  const cardTop = frame.contentTop + 90
+  const cardTop = frame.contentTop + 122
   const cardLeft = frame.contentLeft
-  const cardWidth = frame.panelWidth - THEME.space.lg * 2
-  const cardHeight = 288
+  const cardWidth = contentWidth
+  const cardHeight = 276
   const card = scene.add
     .rectangle(cardLeft, cardTop, cardWidth, cardHeight, THEME.color.panel)
     .setOrigin(0)
@@ -156,7 +196,7 @@ export function buildUpgradePanel(
   const locked = CHARACTERS.filter(
     (candidate) => meta.characters[candidate.id] && !isUnlocked(profile, candidate.id),
   )
-  let unlockY = cardTop + cardHeight + THEME.space.lg
+  let unlockY = cardTop + cardHeight + THEME.space.md
   if (locked.length > 0) {
     text(scene, sink, frame.contentLeft, unlockY, '可解锁角色', {
       size: THEME.font.body,
@@ -179,6 +219,8 @@ export function buildUpgradePanel(
           const saved = store.update((draft) => {
             ok = unlock(draft, meta, candidate.id).ok
           })
+          // 刚解锁就把升级对象切过去：玩家花了币，下一步通常就是升它。
+          if (ok) onSelectCharacter(candidate.id)
           onChanged(
             ok
               ? saved
