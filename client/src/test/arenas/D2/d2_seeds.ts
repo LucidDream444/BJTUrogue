@@ -127,6 +127,7 @@ import {
   FLOOR_PLAN_YF3_NAME,
   FLOOR_PLAN_YF4_NAME,
   FLOOR_PLAN_YF5_NAME,
+  FLOOR_PLAN_YF7_NAME,
 } from '@/domains/procgen/gen/floorPlan'
 import type { FloorPlan } from '@/domains/procgen/gen/floorPlan'
 import { drawFloorplan } from '@/domains/procgen/presentation/floorplan'
@@ -294,6 +295,7 @@ const FLOOR_PLANS: readonly string[] = [
   FLOOR_PLAN_YF4_NAME,
   FLOOR_PLAN_YF5_NAME,
   FLOOR_PLAN_NAME,
+  FLOOR_PLAN_YF7_NAME,
 ]
 
 /** 与 `FLOOR_PLANS` **逐项对齐**的层名（给人看的）。加一层要两张表一起加。 */
@@ -303,7 +305,8 @@ const FLOOR_TEXTS: readonly string[] = [
   '逸夫楼 3F（第 3 层）',
   '逸夫楼 4F（第 4 层）',
   '逸夫楼 5F（第 5 层）',
-  '6F（第 6 层 · 最后一层）',
+  '6F（第 6 层）',
+  '逸夫楼 7F（第 7 层 · 最后一层）',
 ]
 
 /**

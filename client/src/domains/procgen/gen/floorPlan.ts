@@ -159,6 +159,15 @@ export const FLOOR_PLAN_YF2_NAME = 'floor-plan-yf2.json'
  * 用户：「添加 YF4 和 5，构造和 YF6 一样，只是房间标号第一位改一下就行」——
  * 所以那两份 JSON 是 `floor-plan.json`（6F）的**逐格副本**，只换了房号前缀。
  */
+/**
+ * 逸夫楼 7F —— 一局的**第 7 层（最后一层）**（10-30 加）。
+ *
+ * 用户：「根据图片做 YF7 的地图，YF7 不做首领房，中间那部分是可活动区域」。
+ * ⚠️ **它暂时没有首领房**：用户说「首领房暂时不做……之后会安排你做额外空间在七层作为最终关卡」——
+ * 那个「额外空间」接进来之前，一局打到 7F 不会结束（`floors.test.ts` 里那条判据暂时放宽了）。
+ */
+export const FLOOR_PLAN_YF7_NAME = 'floor-plan-yf7.json'
+
 export const FLOOR_PLAN_YF4_NAME = 'floor-plan-yf4.json'
 export const FLOOR_PLAN_YF5_NAME = 'floor-plan-yf5.json'
 
@@ -203,6 +212,7 @@ export const FLOOR_PLAN_FILES: readonly string[] = [
   FLOOR_PLAN_YF3_NAME,
   FLOOR_PLAN_YF4_NAME,
   FLOOR_PLAN_YF5_NAME,
+  FLOOR_PLAN_YF7_NAME,
   FLOOR_PLAN_NAME,
 ]
 

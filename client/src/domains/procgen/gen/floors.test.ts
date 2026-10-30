@@ -43,6 +43,7 @@ import {
   FLOOR_PLAN_YF3_NAME,
   FLOOR_PLAN_YF4_NAME,
   FLOOR_PLAN_YF5_NAME,
+  FLOOR_PLAN_YF7_NAME,
   floorPlansForRun,
   type FloorPlan,
 } from './floorPlan'
@@ -86,7 +87,7 @@ describe('一局的楼层表（floors.json）', () => {
     expect(() => parseFloorsConfig(readJson(FLOORS_CONFIG_NAME), MAX_STAGES - 1)).toThrow(ConfigError)
   })
 
-  it('用户要的顺序：**1F → 2F → 3F → 4F → 5F → 6F**（最后一层是 6F）', () => {
+  it('用户要的顺序：**1F → 2F → 3F → 4F → 5F → 6F → 7F**（最后一层是 7F）', () => {
     // ★ 改了（2026-10-23）：2F 的图做出来了，一局从三层变四层 ——
     // 用户：「按照照片做 YF2 的地图」「YF1 上去是 YF2」。上一版是 [yf1, yf3, 6f]
     // （YF2 还没有，先拿 3F 过渡）。
@@ -99,6 +100,9 @@ describe('一局的楼层表（floors.json）', () => {
       FLOOR_PLAN_YF4_NAME,
       FLOOR_PLAN_YF5_NAME,
       FLOOR_PLAN_NAME,
+      // ★ 2026-10-30：7F 加进来了，而且是**最后一层**（用户：「根据图片做 YF7 的地图，
+      // YF7 不做首领房」）。它暂时没有首领房，见下面那条放宽了的判据。
+      FLOOR_PLAN_YF7_NAME,
     ])
   })
 
@@ -129,6 +133,9 @@ describe('一局的楼层表（floors.json）', () => {
     expect(plans[3]!.roomTotal).toBe(19) // 4F：与 6F 同构（房号 YF4xx）
     expect(plans[4]!.roomTotal).toBe(19) // 5F：与 6F 同构（房号 YF5xx）
     expect(plans[5]!.roomTotal).toBe(19) // 6F：15 间编号教室 + 3 电梯间 + 楼梯间
+    // ★ 2026-10-30：用户「左边少了个电梯间」之后，7F 也是**三个**电梯间了
+    //（西半两间 + 东半一间）：西半 7 + 东半 8 + 3 电梯 + 楼梯间 = 19。
+    expect(plans[6]!.roomTotal).toBe(19)
     expect(new Set(plans.map((p) => p.roomTotal)).size).toBeGreaterThanOrEqual(4)
 
     // 反向证据①：层数对不上时先说「两个文件」，不是闷头往下取。
@@ -155,6 +162,7 @@ describe('一局的楼层表（floors.json）', () => {
         FLOOR_PLAN_YF4_NAME,
         FLOOR_PLAN_YF5_NAME,
         FLOOR_PLAN_NAME,
+        FLOOR_PLAN_YF7_NAME,
       ],
     }
     const ghostCache = {
@@ -194,7 +202,8 @@ describe('一局的楼层表（floors.json）', () => {
       Math.min(...[p.stairwell, ...p.rooms].map((s) => s.cells.y))
     // 2F 的 YF201 也从 y25 起（它是西头那一整块竖长的房）；
     // 4F / 5F / 6F 都有首领房从 y0 起。所以是 [25, 25, 0, 0, 0, 0]。
-    expect(plans.map(minRoomY)).toEqual([25, 25, 0, 0, 0, 0])
+    // 7F 的东半**上移过**（与 6F 东翼同构：北排从 y5 起），而它没有首领房 ⇒ 最北一间是 y5。
+    expect(plans.map(minRoomY)).toEqual([25, 25, 0, 0, 0, 0, 5])
   })
 
   it('三层都生成得出来、且过契约校验 —— 楼层表里的每一层真的能玩', () => {
@@ -212,7 +221,7 @@ describe('一局的楼层表（floors.json）', () => {
     }
   })
 
-  it('★ **最后一层必须有首领房** —— 没有它这一局永远打不出结局', () => {
+  it('★ **最后一层必须有首领房** —— 没有它这一局永远打不出结局（⚠️ 7F 最终关卡做好之前暂时豁免）', () => {
     // ⚠️ 这条原先是 `validate/contract.ts` 里那句「首领房**恰好** 1 间」的
     //    后半截。2026-10-22 晚放宽成「至多 1 间」之后（用户给第 1 层的要求是
     //    「所有房间都是空房间」，那一层因此一间首领都没有），这句话**不能跟着
@@ -222,13 +231,29 @@ describe('一局的楼层表（floors.json）', () => {
     //
     // 判据用**生成结果**而不是 `fixed` 字段：首领也可以是抽出来的
     // （今天 `roomKindWeights` 明令不许出现 boss，但那是配置层的另一条规矩）。
-    for (const seed of [1, 13, 20261022]) {
-      const last = plans[plans.length - 1]!
-      const map = generateDungeon(seed, cfg, last)
-      expect(
-        map.rooms.filter((r) => r.kind === 'boss').map((r) => r.id),
-        `最后一层 seed ${seed} 的首领房`,
-      ).toHaveLength(1)
+    // ⚠️ ★ 2026-10-30 **暂时放宽**：用户加了 7F 并且明说「首领房暂时不做……之后会安排
+    //    你做额外空间在七层作为最终关卡」。所以在那间「额外空间」接进来之前，最后一层
+    //    允许没有首领房 —— 代价是**一局打不出结局**（玩家会停在 7F），这是约定好的临时状态。
+    //    **最终关卡做好之后，把下面这个常量改成 false**，这条判据就恢复成硬规则。
+    const PENDING_FINAL_ROOM = true
+    const last = plans[plans.length - 1]!
+    const lastHasBoss = new Set(
+      [1, 13, 20261022].flatMap((seed) =>
+        generateDungeon(seed, cfg, last).rooms.filter((r) => r.kind === 'boss').map((r) => r.id),
+      ),
+    )
+    if (PENDING_FINAL_ROOM) {
+      // 豁免期内至少钉住「它**确实**没有首领房」—— 免得哪天有人悄悄给它加了一间，
+      // 这条豁免就变成了「藏着一间没人知道的首领房」。
+      expect([...lastHasBoss], '7F 在最终关卡做好之前应当没有首领房').toEqual([])
+    } else {
+      for (const seed of [1, 13, 20261022]) {
+        const map = generateDungeon(seed, cfg, last)
+        expect(
+          map.rooms.filter((r) => r.kind === 'boss').map((r) => r.id),
+          `最后一层 seed ${seed} 的首领房`,
+        ).toHaveLength(1)
+      }
     }
     // 反向证据：这条判据今天**不是**恒真的 —— 第 1 层一间都没有（用户要的空房层），
     // 所以「每层都有首领」是一种**会被这条测试放过去、但那层确实没有**的写法。
