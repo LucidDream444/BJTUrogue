@@ -28,7 +28,7 @@
  * | 键 | 换什么 | 变的 | 不变的 |
  * |---|---|---|---|
  * | `N` / `P` / `S` | 种子 | 关别 / 桌椅 / 刷怪点 | 几何（平面图是画死的） |
- * | `C` | 层（1F → 3F → 6F → 1F） | 几何（房间在哪、几间、门开在哪儿） | 种子、关别权重、桌椅规则 |
+ * | `C` | 层（按 `FLOOR_PLANS` 循环，今天是 1F → 2F → 3F → 4F → 5F → 6F → 1F） | 几何（房间在哪、几间、门开在哪儿） | 种子、关别权重、桌椅规则 |
  *
  * ⚠️ **默认那一层 = 产品一局的第 1 层**，理由不是习惯：
  * **默认那一屏要与玩家真的走进去的那一层一致**，不然「屏幕上看着没问题」
@@ -125,6 +125,9 @@ import {
   FLOOR_PLAN_YF1_NAME,
   FLOOR_PLAN_YF2_NAME,
   FLOOR_PLAN_YF3_NAME,
+  FLOOR_PLAN_YF4_NAME,
+  FLOOR_PLAN_YF5_NAME,
+  FLOOR_PLAN_YF7_NAME,
 } from '@/domains/procgen/gen/floorPlan'
 import type { FloorPlan } from '@/domains/procgen/gen/floorPlan'
 import { drawFloorplan } from '@/domains/procgen/presentation/floorplan'
@@ -275,7 +278,7 @@ function setZoomRoomId(id: string | null): void {
  * 没有那个状态：`C` 就是 `(i + 1) % 3`。
  *
  * ★ 又改了（2026-10-22 晚）：**这一张表的顺序现在与 `floors.json` 逐项相同**
- * （1F → 3F → 6F），默认值也换成了 1F。上一版是 `[3F, 6F, 1F]`，把 1F 排在最后
+ * （按 `FLOOR_PLANS` 循环），默认值也换成了 1F。上一版是 `[3F, 6F, 1F]`，把 1F 排在最后
  * 是因为它当时不在局里 —— 恰好让「按一下 `C`」落在产品的第 2 层上。现在三层
  * 都真的在一局里了，**没理由再让场子的顺序与产品的顺序不一样**：
  * 一样的话，「按 `C` 就是产品里的下一层」这句话对**每一次**按键都成立，
@@ -289,7 +292,10 @@ const FLOOR_PLANS: readonly string[] = [
   FLOOR_PLAN_YF1_NAME,
   FLOOR_PLAN_YF2_NAME,
   FLOOR_PLAN_YF3_NAME,
+  FLOOR_PLAN_YF4_NAME,
+  FLOOR_PLAN_YF5_NAME,
   FLOOR_PLAN_NAME,
+  FLOOR_PLAN_YF7_NAME,
 ]
 
 /** 与 `FLOOR_PLANS` **逐项对齐**的层名（给人看的）。加一层要两张表一起加。 */
@@ -297,7 +303,10 @@ const FLOOR_TEXTS: readonly string[] = [
   '逸夫楼 1F（第 1 层）',
   '逸夫楼 2F（第 2 层）',
   '逸夫楼 3F（第 3 层）',
-  '6F（第 4 层 · 最后一层）',
+  '逸夫楼 4F（第 4 层）',
+  '逸夫楼 5F（第 5 层）',
+  '6F（第 6 层）',
+  '逸夫楼 7F（第 7 层 · 最后一层）',
 ]
 
 /**
@@ -770,7 +779,7 @@ class D2SeedsArena extends ArenaBase {
       if (ev.repeat) return
       this.switchView(1)
     })
-    // `C` = 换层（1F → 3F → 6F → 1F）。**底座没占这个键**（`ArenaBase` 只绑了
+    // `C` = 换层（按 `FLOOR_PLANS` 循环，绕回 1F）。**底座没占这个键**（`ArenaBase` 只绑了
     // 空格 / 0 / R / I / E / Esc，移动是 WASD + 方向键）。
     ctx.scene.input.keyboard?.on('keydown-C', (ev: KeyboardEvent) => {
       if (ev.repeat) return
@@ -814,7 +823,7 @@ class D2SeedsArena extends ArenaBase {
   }
 
   /**
-   * 换层（1F → 3F → 6F → 1F）。**这是唯一一处改 `floorIndex` 的地方**。
+   * 换层（按 `FLOOR_PLANS` 循环，绕回 1F）。**这是唯一一处改 `floorIndex` 的地方**。
    *
    * ⚠️ **不碰 `zoomRoomByPlan`** —— 每层各记各的（见 `zoomRoomId()`）：
    * 3F 的 `YF302` 在 6F 上不存在，共用一个值的话按一下 `C` 观测对象就没了，
@@ -950,6 +959,6 @@ export const arena: ArenaDefinition = {
   // 用 \n 拼起来），所以**超过约 110 个字就会被画布右边缘切掉**。
   // 写得下的细节放这个文件的头部注释里，这里只留"一眼要看到的"。
   description:
-    'N / P 翻种子 · S 跳到任意种子 · C 换层（1F → 3F → 6F）· V 放大看一间 · B 换下一间 · A 批量扫 100 个。换种子时盯住同一间房，好直接比它怎么重抽；换层时种子不变，只换几何。图上按钮同样能点。',
+    'N / P 翻种子 · S 跳到任意种子 · C 换层（按 FLOOR_PLANS 循环）· V 放大看一间 · B 换下一间 · A 批量扫 100 个。换种子时盯住同一间房，好直接比它怎么重抽；换层时种子不变，只换几何。图上按钮同样能点。',
   scene: D2SeedsArena,
 }
