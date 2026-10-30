@@ -53,18 +53,21 @@ import {
   moveFocus,
   openScreen,
   trySelectCharacter,
+  unlockedCount,
   withNotice,
   type MenuState,
   type MenuAction,
 } from '../menu/menuModel'
 import { ProfileStore } from '../profile/ProfileStore'
 import { LocalStorageProfileStorage } from '../profile/storage'
+import { isUnlocked } from '../progress/progress'
 import { META_CONFIG_NAME, META_CONFIG_URL, parseMetaConfig, type MetaConfig } from '../metaConfig'
 import { buildUpgradePanel } from '../upgrade/UpgradePanel'
 import { Button } from '../ui/Button'
+import { Card } from '../ui/Card'
 import { CampusHotspot } from '../ui/CampusHotspot'
 import { CampusTooltip } from '../ui/CampusTooltip'
-import { buildOverlayFrame } from '../ui/overlayFrame'
+import { buildOverlayFrame, type OverlayFrame } from '../ui/overlayFrame'
 import {
   applyDisplayModeSelection,
   buildAchievementsPanel,
@@ -104,8 +107,11 @@ export class MainMenuScene extends Phaser.Scene {
   private hotspots = new Map<MenuAction, CampusHotspot>()
   private mapTooltip: CampusTooltip | null = null
   private hoveredAction: MenuAction | null = null
-  private roleButton: Button | null = null
-  private difficultyButton: Button | null = null
+  private roleSummaryText: Phaser.GameObjects.Text | null = null
+  private difficultySummaryText: Phaser.GameObjects.Text | null = null
+  private cards: Card[] = []
+  private difficultyButtons = new Map<Difficulty, Button>()
+  private unlockedText: Phaser.GameObjects.Text | null = null
   private sliders: Slider[] = []
   private overlayButtons: Button[] = []
   private settingsParts: SettingsPanelParts | null = null
@@ -113,9 +119,17 @@ export class MainMenuScene extends Phaser.Scene {
   private noticeText: Phaser.GameObjects.Text | null = null
   private codexPanel: CodexPanel | null = null
   private codexSelectionId: string | undefined
+  /**
+   * 升级页当前操作的角色。**故意和 `profile.selected.characterId` 分开**：
+   * 后者是下一局出战角色，在升级页翻看 / 升级别的角色不能把它改掉。
+   */
+  private upgradeCharacterId: string | null = null
+  /** 开屏后指针输入禁用的截止时刻（`game.loop.time`）。见 `run()` 的 start 分支。 */
+  private inputGuardUntil = 0
 
   /** 弹层的标题。键就是 `MenuScreen` 里除 `main` 之外的全部屏。 */
   private static readonly OVERLAY_TITLES = {
+    'run-setup': '逸夫楼 · 出发准备',
     help: '操作说明',
     settings: '设置',
     upgrade: '角色升级',
@@ -125,6 +139,7 @@ export class MainMenuScene extends Phaser.Scene {
   } as const
   /** 每屏的面板高度。写在一起，改一处就够 —— 分开写在两个地方必然漂。 */
   private static readonly OVERLAY_HEIGHTS = {
+    'run-setup': 560,
     help: 440,
     settings: 360,
     // 内容有四段（金币 / 三条角色成长线 / 技能 / 可解锁三项）+ 底部一行说明，
@@ -154,6 +169,8 @@ export class MainMenuScene extends Phaser.Scene {
       this.store = new ProfileStore({ storage: new LocalStorageProfileStorage() })
     }
     this.state = createMenuState(data.initialScreen)
+    // 每次进入场景都从当前出战角色重新开始；页面内切换保存在下面这个字段里。
+    this.upgradeCharacterId = null
   }
 
   preload(): void {
@@ -167,6 +184,22 @@ export class MainMenuScene extends Phaser.Scene {
     if (!mapAsset) throw new Error(`资源清单缺少校园主菜单底图：${CAMPUS_MENU_ART.map}`)
     if (!this.textures.exists(CAMPUS_MENU_ART.map)) {
       this.load.image(CAMPUS_MENU_ART.map, imageUrl(mapAsset))
+    }
+
+    // 出发准备页的三张角色卡。新生是待机图集（取第 0 帧），另外两张是单图；
+    // 这里按清单里的 `kind` 分流，场景代码不碰任何真实纹理 key。
+    for (const key of Object.values(CAMPUS_MENU_ART.characterCards)) {
+      if (this.textures.exists(key)) continue
+      const asset = findAsset(key)
+      if (!asset) throw new Error(`资源清单缺少角色卡立绘：${key}`)
+      if (asset.kind === 'spritesheet') {
+        this.load.spritesheet(key, imageUrl(asset), {
+          frameWidth: asset.frameWidth!,
+          frameHeight: asset.frameHeight!,
+        })
+      } else {
+        this.load.image(key, imageUrl(asset))
+      }
     }
 
     // 图鉴要展示的种类和代数由配置决定；预加载阶段先按资源清单里的敌人 /
@@ -338,21 +371,17 @@ export class MainMenuScene extends Phaser.Scene {
   private run(action: MenuAction): void {
     switch (action) {
       case 'start':
-        // 「开始闯关」= 进战斗场景，与标题画面的「开始冒险」是同一条路
-        // （需求 §4.1 的主按钮；Esc 之后回到的也是那边那个主菜单）。
-        //
-        // ⚠️ 先确认 `battle` 真的注册过：只有产品入口会注册它（`main.ts` 的 scene
-        // 列表），D4 的测试场（`test.html?arena=d4_main_menu`）里没有战斗场景 ——
-        // 在那边直接 start 是静默什么都不发生，而"按下去没反应"看起来就是菜单坏了。
-        if (!this.scene.manager.keys['battle']) {
-          this.state = withNotice(this.state, '这个入口没有注册战斗场景（产品入口里才有）')
-          this.refresh()
-          break
-        }
-        // 难度一起带上：这张菜单上就摆着难度三选一，不传的话那个选择只是个摆设。
-        this.scene.start('battle', { difficulty: this.store.profile.selected.difficulty })
+        // 逸夫楼不是直接开打：先开「出发准备」页选角色与难度，确认后才进战斗。
+        // ⚠️ 打开新屏的那次 pointerdown 会穿透到刚创建出来的控件上（实测：点逸夫楼
+        // 会顺手「点」到下面那张角色卡，冒出一条莫名其妙的未解锁提示；换个窗口尺寸
+        // 就可能直接点到「开始闯关」）。开屏后短暂忽略指针输入，键盘不受影响。
+        this.inputGuardUntil = this.game.loop.time + 250
+        this.state = openScreen(this.state, 'run-setup')
+        this.rebuild()
         break
       case 'upgrade':
+        // 默认先看当前出战角色；进入升级页后再由顶部选择器切换升级对象。
+        this.upgradeCharacterId = this.store.profile.selected.characterId
         this.state = openScreen(this.state, 'upgrade')
         this.rebuild()
         break
@@ -384,6 +413,26 @@ export class MainMenuScene extends Phaser.Scene {
     }
   }
 
+  /** 出发准备页的「开始闯关」。真正进战斗前才检查场景是否注册。 */
+  private startRun(): void {
+    if (this.pointerGuarded()) return
+    // ⚠️ 先确认 `battle` 真的注册过：只有产品入口会注册它（`main.ts` 的 scene
+    // 列表），D4 的测试场（`test.html?arena=d4_main_menu`）里没有战斗场景 ——
+    // 在那边直接 start 是静默什么都不发生，而"按下去没反应"看起来就是菜单坏了。
+    if (!this.scene.manager.keys['battle']) {
+      this.state = withNotice(this.state, '这个入口没有注册战斗场景（产品入口里才有）')
+      this.refresh()
+      return
+    }
+    // 难度一起带上：出发准备页摆着难度三选一，不传的话那个选择只是个摆设。
+    this.scene.start('battle', { difficulty: this.store.profile.selected.difficulty })
+  }
+
+  /** 刚开屏的 250ms 内忽略指针点击，挡掉穿透过来的 pointerdown。 */
+  private pointerGuarded(): boolean {
+    return this.game.loop.time < this.inputGuardUntil
+  }
+
   // ------------------------------------------------------------------ 构建
 
   private rebuild(): void {
@@ -408,8 +457,12 @@ export class MainMenuScene extends Phaser.Scene {
     this.mapTooltip?.destroy()
     this.mapTooltip = null
     this.hoveredAction = null
-    this.roleButton = null
-    this.difficultyButton = null
+    this.roleSummaryText = null
+    this.difficultySummaryText = null
+    // 难度按钮也在 `overlayButtons` 里统一销毁；这里只清 Map，别重复 destroy。
+    this.difficultyButtons.clear()
+    for (const card of this.cards) card.destroy()
+    this.cards = []
     for (const b of this.overlayButtons) b.destroy()
     for (const s of this.sliders) s.destroy()
     for (const o of this.objects) o.destroy()
@@ -418,6 +471,7 @@ export class MainMenuScene extends Phaser.Scene {
     this.objects = []
     this.settingsParts = null
     this.noticeText = null
+    this.unlockedText = null
     this.codexPanel = null
   }
 
@@ -526,23 +580,36 @@ export class MainMenuScene extends Phaser.Scene {
     controls.lineStyle(1, THEME.color.mapGlow, 0.62)
     controls.strokeRoundedRect(controlsX, controlsY, controlsWidth, 94, 10)
 
-    this.roleButton = new Button(
-      this,
-      controlsX + controlsWidth / 2,
-      controlsY + 27,
-      '',
-      () => this.cycleCharacter(),
-      { width: controlsWidth - 18, height: 30, fontSize: 12 },
+    // 这里只显示当前选择，**不再做第二个选择入口**：角色与难度统一在
+    // 逸夫楼的「出发准备」页里选，避免同一件事有两个入口、两套高亮。
+    this.track(
+      this.add.text(controlsX + 14, controlsY + 11, '今日出战', {
+        fontFamily: THEME.font.family,
+        fontSize: fontPx(10),
+        color: THEME.text.dim,
+      }),
     )
-    this.difficultyButton = new Button(
-      this,
-      controlsX + controlsWidth / 2,
-      controlsY + 65,
-      '',
-      () => this.cycleDifficulty(),
-      { width: controlsWidth - 18, height: 30, fontSize: 12 },
+    this.roleSummaryText = this.track(
+      this.add.text(controlsX + 14, controlsY + 29, '', {
+        fontFamily: THEME.font.family,
+        fontSize: fontPx(THEME.font.body),
+        color: THEME.text.body,
+      }),
     )
-    this.overlayButtons.push(this.roleButton, this.difficultyButton)
+    this.difficultySummaryText = this.track(
+      this.add.text(controlsX + 14, controlsY + 52, '', {
+        fontFamily: THEME.font.family,
+        fontSize: fontPx(THEME.font.small),
+        color: THEME.text.accent,
+      }),
+    )
+    this.track(
+      this.add.text(controlsX + 14, controlsY + 74, '点击逸夫楼出发', {
+        fontFamily: THEME.font.family,
+        fontSize: fontPx(10),
+        color: THEME.text.dim,
+      }),
+    )
 
     const shortcut = narrow ? '方向键选择 · Enter 确认' : '方向键选择  ·  Enter 确认  ·  Esc 返回'
     this.track(
@@ -577,15 +644,25 @@ export class MainMenuScene extends Phaser.Scene {
         screenWidth: W,
         screenHeight: H,
         title: MainMenuScene.OVERLAY_TITLES[screen],
-        panelWidth: screen === 'codex' ? Math.min(W - THEME.space.xl, 980) : undefined,
+        panelWidth:
+          screen === 'codex'
+            ? Math.min(W - THEME.space.xl, 980)
+            : screen === 'run-setup'
+              ? Math.min(W - THEME.space.xl, 720)
+              : undefined,
         panelHeight:
           screen === 'codex'
             ? Math.min(H - THEME.space.xl, MainMenuScene.OVERLAY_HEIGHTS.codex)
-            : MainMenuScene.OVERLAY_HEIGHTS[screen],
+            : screen === 'run-setup'
+              ? Math.min(H - THEME.space.xl, MainMenuScene.OVERLAY_HEIGHTS['run-setup'])
+              : MainMenuScene.OVERLAY_HEIGHTS[screen],
+        // 出发准备页自己带「返回校园 / 开始闯关」两个按钮，不再要外框的「关闭」。
+        showClose: screen !== 'run-setup',
       },
       () => this.escape(),
     )
     this.noticeText = frame.notice
+    if (screen === 'run-setup') this.buildRunSetup(frame, W < 760)
 
     // 说明与设置这两块内容与暂停菜单**共用同一份实现**：
     // 需求 §4.3 的备注要求它们"是同一个界面"。
@@ -599,12 +676,24 @@ export class MainMenuScene extends Phaser.Scene {
       )
     }
     if (screen === 'upgrade') {
-      buildUpgradePanel(this, sink, frame, this.store, this.meta, (notice) => {
-        // 买完要重建整屏（数字变了、按钮的可用态也变了），而重建会销毁
-        // 那块面板上的提示行 —— 所以提示走菜单状态，由 `refresh()` 重新写上去。
-        this.state = withNotice(this.state, notice)
-        this.rebuild()
-      })
+      buildUpgradePanel(
+        this,
+        sink,
+        frame,
+        this.store,
+        this.meta,
+        this.currentUpgradeCharacterId(),
+        (id) => {
+          // 只改升级对象；出战角色仍是 `profile.selected.characterId`。
+          this.upgradeCharacterId = id
+        },
+        (notice) => {
+          // 买完要重建整屏（数字变了、按钮的可用态也变了），而重建会销毁
+          // 那块面板上的提示行 —— 所以提示走菜单状态，由 `refresh()` 重新写上去。
+          this.state = withNotice(this.state, notice)
+          this.rebuild()
+        },
+      )
     }
     if (screen === 'codex' && this.codexConfig) {
       this.codexPanel = new CodexPanel(this, sink, frame, {
@@ -629,6 +718,141 @@ export class MainMenuScene extends Phaser.Scene {
     }
   }
 
+  /**
+   * 逸夫楼的「出发准备」：恢复旧版主菜单的三角色卡 + 难度三选一。
+   *
+   * 旧版整张主菜单被校园地图替代后，这两个选择没有落点；现在它们只活在
+   * 点击逸夫楼之后的这一页里。卡片/按钮的**状态**仍由 `refresh()` 统一刷，
+   * 这里只负责排布，避免两处各写一套高亮。
+   */
+  private buildRunSetup(frame: OverlayFrame, narrow: boolean): void {
+    const contentWidth = frame.panelWidth - THEME.space.lg * 2
+    const compact = narrow || contentWidth < 480
+
+    const text = (
+      x: number,
+      y: number,
+      label: string,
+      size: number,
+      color: string,
+    ): Phaser.GameObjects.Text =>
+      this.track(
+        this.add.text(x, y, label, {
+          fontFamily: THEME.font.family,
+          fontSize: fontPx(size),
+          color,
+        }),
+      )
+
+    this.unlockedText = text(
+      frame.contentLeft,
+      frame.contentTop,
+      '',
+      compact ? THEME.font.body : THEME.font.heading,
+      THEME.text.body,
+    )
+    if (!compact) {
+      text(
+        frame.contentLeft,
+        frame.contentTop + 28,
+        '带上你的勇气，选择今天的冒险伙伴。',
+        THEME.font.small,
+        THEME.text.dim,
+      )
+    }
+
+    const gap = compact ? 6 : 12
+    const cardW = (contentWidth - gap * (CHARACTERS.length - 1)) / CHARACTERS.length
+    const cardsTop = frame.contentTop + (compact ? 30 : 58)
+    const panelBottom = frame.cy + frame.panelHeight / 2
+    // 给下方「难度 + 底部按钮 + 提示行」留出固定高度，剩下的才是卡片高度。
+    const reservedBelowCards = compact ? 88 : 110
+    const reservedBottom = compact ? 92 : 100
+    const cardSpace = panelBottom - reservedBottom - cardsTop - reservedBelowCards
+    const cardH = Math.max(compact ? 108 : 150, Math.min(compact ? 200 : 210, cardSpace))
+
+    CHARACTERS.forEach((def, i) => {
+      this.cards.push(
+        new Card(
+          this,
+          frame.contentLeft + cardW / 2 + i * (cardW + gap),
+          cardsTop + cardH / 2,
+          def,
+          () => this.pickCharacter(def.id),
+          { width: cardW, height: cardH, compact },
+        ),
+      )
+    })
+
+    const difficultyTop = cardsTop + cardH + (compact ? 14 : 24)
+    text(
+      frame.contentLeft,
+      difficultyTop,
+      '冒险难度',
+      compact ? THEME.font.body : 16,
+      THEME.text.body,
+    )
+    if (!compact) {
+      text(
+        frame.contentLeft,
+        difficultyTop + 26,
+        '按自己的节奏，探索异次元校园。',
+        THEME.font.small,
+        THEME.text.dim,
+      )
+    }
+
+    const diffGap = compact ? 6 : 12
+    const diffW = (contentWidth - diffGap * (DIFFICULTY_ORDER.length - 1)) / DIFFICULTY_ORDER.length
+    // 非紧凑态多一行说明，按钮要躲开它，否则文字会被按钮压住。
+    const diffY = difficultyTop + (compact ? 30 : 68)
+    DIFFICULTY_ORDER.forEach((d, i) => {
+      const button = new Button(
+        this,
+        frame.contentLeft + diffW / 2 + i * (diffW + diffGap),
+        diffY,
+        DIFFICULTY_LABELS[d],
+        () => this.pickDifficulty(d),
+        {
+          width: diffW,
+          height: compact ? 36 : 42,
+          fontSize: compact ? 13 : 15,
+        },
+      )
+      this.difficultyButtons.set(d, button)
+      this.overlayButtons.push(button)
+    })
+
+    // 外框的「关闭」在本页被关掉，换成明确语义的「返回校园」+「开始闯关」。
+    const rowY = panelBottom - (compact ? 58 : 62)
+    const rowGap = compact ? 10 : 14
+    const backW = compact ? Math.min(108, contentWidth * 0.34) : 140
+    const startW = compact ? contentWidth - backW - rowGap : 240
+    const rowWidth = backW + rowGap + startW
+    const rowLeft = frame.cx - rowWidth / 2
+    const back = new Button(
+      this,
+      rowLeft + backW / 2,
+      rowY,
+      '返回校园',
+      () => this.escape(),
+      { width: backW, height: 42, fontSize: compact ? 12 : THEME.font.body },
+    )
+    const start = new Button(
+      this,
+      rowLeft + backW + rowGap + startW / 2,
+      rowY,
+      '开始闯关  →',
+      () => this.startRun(),
+      { width: startW, height: 42, fontSize: compact ? 14 : 16 },
+    )
+    // 主操作常亮高亮；这不是「已选中」状态，只是视觉上的主按钮。
+    start.setSelected(true)
+    this.overlayButtons.push(back, start)
+
+    this.refresh()
+  }
+
   // ------------------------------------------------------------------ 行为
 
   private codexEntries(): readonly CodexEntry[] {
@@ -636,25 +860,40 @@ export class MainMenuScene extends Phaser.Scene {
     return buildCodexEntries(this.codexConfig, this.store.profile.selected.difficulty)
   }
 
-  private cycleCharacter(): void {
-    const unlocked = CHARACTERS.filter((candidate) =>
-      this.store.profile.unlocks.characters.includes(candidate.id),
-    )
-    if (unlocked.length === 0) return
-    const current = unlocked.findIndex(
-      (candidate) => candidate.id === this.store.profile.selected.characterId,
-    )
-    const next = unlocked[(current + 1) % unlocked.length]!
-    this.pickCharacter(next.id)
-  }
+  /**
+   * 升级页要操作的角色。
+   *
+   * 优先用页面里刚才切到的那个；它失效（未解锁 / 配置里没有）时退回当前出战角色，
+   * 再不行就找第一个已解锁且配置齐全的角色。**这里不写 `selected.characterId`。**
+   */
+  private currentUpgradeCharacterId(): string {
+    const profile = this.store.profile
+    const usable = (id: string): boolean =>
+      Boolean(this.meta?.characters[id]) && isUnlocked(profile, id)
 
-  private cycleDifficulty(): void {
-    const current = DIFFICULTY_ORDER.indexOf(this.store.profile.selected.difficulty)
-    const next = DIFFICULTY_ORDER[(current + 1) % DIFFICULTY_ORDER.length]!
-    this.pickDifficulty(next)
+    if (this.upgradeCharacterId && usable(this.upgradeCharacterId)) {
+      return this.upgradeCharacterId
+    }
+
+    const preferred = profile.selected.characterId
+    if (usable(preferred)) {
+      this.upgradeCharacterId = preferred
+      return preferred
+    }
+
+    const fallback = CHARACTERS.find((candidate) => usable(candidate.id))
+    if (fallback) {
+      this.upgradeCharacterId = fallback.id
+      return fallback.id
+    }
+
+    // 连初始角色都没配置 / 没解锁时保留原 id，让升级页照实报「没有成长配置」。
+    this.upgradeCharacterId = preferred
+    return preferred
   }
 
   private pickCharacter(id: string): void {
+    if (this.pointerGuarded()) return
     const result = trySelectCharacter(this.store.profile, id)
     if (!result.ok) {
       this.state = withNotice(this.state, result.notice)
@@ -667,6 +906,7 @@ export class MainMenuScene extends Phaser.Scene {
   }
 
   private pickDifficulty(d: Difficulty): void {
+    if (this.pointerGuarded()) return
     this.store.setSelection({ difficulty: d })
     this.refresh()
   }
@@ -711,8 +951,21 @@ export class MainMenuScene extends Phaser.Scene {
     }
 
     const name = characterById(p.selected.characterId)?.name ?? p.selected.characterId
-    this.roleButton?.setText(`角色 · ${name}`)
-    this.difficultyButton?.setText(`难度 · ${DIFFICULTY_LABELS[p.selected.difficulty]}`)
+    this.roleSummaryText?.setText(`角色 · ${name}`)
+    this.difficultySummaryText?.setText(`难度 · ${DIFFICULTY_LABELS[p.selected.difficulty]}`)
+
+    for (const [difficulty, button] of this.difficultyButtons) {
+      button.setSelected(p.selected.difficulty === difficulty)
+    }
+    for (const card of this.cards) {
+      const unlocked = p.unlocks.characters.includes(card.id)
+      card.setLocked(!unlocked)
+      card.setSelected(unlocked && p.selected.characterId === card.id)
+    }
+    if (this.unlockedText) {
+      const { unlocked, total } = unlockedCount(p)
+      this.unlockedText.setText(`选择角色（已解锁 ${unlocked} / ${total}）`)
+    }
 
     const mode = p.settings.displayMode
     if (this.settingsParts) applyDisplayModeSelection(this.settingsParts, mode)
