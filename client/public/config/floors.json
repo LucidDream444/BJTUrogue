@@ -4,12 +4,14 @@
   "_owner": "D2。字段定义归 D2（C2 契约），消费方是 D1（BattleScene 按这张表取几何：换层时整层换掉）。",
   "_length_comment": "⚠️ **条数 MUST 等于 combat.json 的 arena.maxStages（一局几层）。** 两个数分开是因为它们管的不是同一件事：这一张说「哪一层走哪张图」，那一个说「一局几层」（D1 的玩法旋钮，首领数、楼梯间里那个「上一层」的入口按它算）。对不上时 `parseFloorsConfig` 当场炸，不报错地跑下去的症状是「第 3 层怎么又长这样」。",
   "_files_comment": "⚠️ 这里写的每个文件名**还必须出现在代码的 `FLOOR_PLAN_FILES` 里**（`client/src/domains/procgen/gen/floorPlan.ts`）—— 那一串是 preload 时真的去加载的文件，而加载必须在读这张表**之前**发生（先有鸡才有蛋），所以它是常量。写了没加载的文件时 `floorPlansForRun()` 会当场报出来并指回那一串。",
-  "_box_comment": "⚠️ **每一层的外框（bounds）必须一样。** 今天一层的几何在进关卡时就定死了（TerrainMap 的行列数、物理世界边界都在 `CombatSession` 构造时读走，之后改不了），换层只换内容不换尺寸 —— 两层的包围盒不同的话 `BattleScene.applyArena()` 会当场抛。**四张**图都声明了同一份 `footprint`（0,0,263,73 格），所以这个外框逐像素一样。★ 改了（2026-10-22 晚）：上一版的外框是**由房间推出来**的（所有空间的并集），那时「三张一样」靠的是「三层的房间都铺到了楼的边上」 —— 1F 的教室缩小之后这条不再成立（它最北的一间房在 y25，楼的最北一条带在那一层是墙），所以外框改成了平面图自己声明的 `footprint` 字段。**加新平面图时照抄这三个数**（`floor-plan.json` 的 `_footprint_comment` 写了理由）。守护在 `floors.test.ts`。",
-  "_today_comment": "★ 改了（2026-10-23）：现在是**四层、四张图**，顺序按用户：「YF1 上去是 YF2」「按照照片做 YF2 的地图」—— ① `floor-plan-yf1.json`（逸夫楼 1F，13 间全空房）② `floor-plan-yf2.json`（**2F**，9 间编号教室 + 3 电梯间，首领 `YF202`）③ `floor-plan-yf3.json`（3F，楼梯间左侧并成一间商店，首领 `YF303`）④ `floor-plan.json`（6F，首领 `YF604` 在最后一层）。上一版是 `[yf1, yf3, 6f]`（YF2 还没做，先拿 3F 过渡）。★ **一局从三层变四层**：`combat.json` 的 `arena.maxStages` 3 → **4**（那是 D1 的玩法旋钮：几个首领、楼梯间里那个入口按它算）。「打完首领才能上一层」的门槛不变；第 1 层（1F）仍然一间首领房都没有 ⇒ 那一层没有门槛（`BattleScene.bossDown()`）。",
+  "_box_comment": "⚠️ **每一层的外框（bounds）必须一样。** 今天一层的几何在进关卡时就定死了（TerrainMap 的行列数、物理世界边界都在 `CombatSession` 构造时读走，之后改不了），换层只换内容不换尺寸 —— 两层的包围盒不同的话 `BattleScene.applyArena()` 会当场抛。**六张**图都声明了同一份 `footprint`（0,0,263,73 格），所以这个外框逐像素一样。★ 改了（2026-10-22 晚）：上一版的外框是**由房间推出来**的（所有空间的并集），那时「三张一样」靠的是「三层的房间都铺到了楼的边上」 —— 1F 的教室缩小之后这条不再成立（它最北的一间房在 y25，楼的最北一条带在那一层是墙），所以外框改成了平面图自己声明的 `footprint` 字段。**加新平面图时照抄这三个数**（`floor-plan.json` 的 `_footprint_comment` 写了理由）。守护在 `floors.test.ts`。",
+  "_today_comment": "★ 改了（2026-10-30）：现在是**六层、六张图** —— ① `floor-plan-yf1.json`（1F，13 间全空房，无首领）② `floor-plan-yf2.json`（2F，首领 `YF202`）③ `floor-plan-yf3.json`（3F，首领 `YF303`）④ `floor-plan-yf4.json`（4F）⑤ `floor-plan-yf5.json`（5F）⑥ `floor-plan.json`（6F，最后一层，首领 `YF604`）。★ 4F / 5F 是用户 2026-10-30 要的：「构造和 YF6 一样，只是房间标号第一位改一下」—— 那两份就是 6F 的**逐格副本**（房号 `YF4xx` / `YF5xx`，首领分别在 `YF404` / `YF504`）。★ **一局从四层变六层**：`combat.json` 的 `arena.maxStages` 4 → **6**。门槛不变：1F 没有首领房 ⇒ 无门槛，其余每层打完自己的首领才能上一层。",
   "floors": [
     "floor-plan-yf1.json",
     "floor-plan-yf2.json",
     "floor-plan-yf3.json",
+    "floor-plan-yf4.json",
+    "floor-plan-yf5.json",
     "floor-plan.json"
   ]
 }
