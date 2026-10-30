@@ -60,6 +60,7 @@ import {
 } from '../menu/menuModel'
 import { ProfileStore } from '../profile/ProfileStore'
 import { LocalStorageProfileStorage } from '../profile/storage'
+import { isUnlocked } from '../progress/progress'
 import { META_CONFIG_NAME, META_CONFIG_URL, parseMetaConfig, type MetaConfig } from '../metaConfig'
 import { buildUpgradePanel } from '../upgrade/UpgradePanel'
 import { Button } from '../ui/Button'
@@ -118,6 +119,11 @@ export class MainMenuScene extends Phaser.Scene {
   private noticeText: Phaser.GameObjects.Text | null = null
   private codexPanel: CodexPanel | null = null
   private codexSelectionId: string | undefined
+  /**
+   * 升级页当前操作的角色。**故意和 `profile.selected.characterId` 分开**：
+   * 后者是下一局出战角色，在升级页翻看 / 升级别的角色不能把它改掉。
+   */
+  private upgradeCharacterId: string | null = null
   /** 开屏后指针输入禁用的截止时刻（`game.loop.time`）。见 `run()` 的 start 分支。 */
   private inputGuardUntil = 0
 
@@ -163,6 +169,8 @@ export class MainMenuScene extends Phaser.Scene {
       this.store = new ProfileStore({ storage: new LocalStorageProfileStorage() })
     }
     this.state = createMenuState(data.initialScreen)
+    // 每次进入场景都从当前出战角色重新开始；页面内切换保存在下面这个字段里。
+    this.upgradeCharacterId = null
   }
 
   preload(): void {
@@ -372,6 +380,8 @@ export class MainMenuScene extends Phaser.Scene {
         this.rebuild()
         break
       case 'upgrade':
+        // 默认先看当前出战角色；进入升级页后再由顶部选择器切换升级对象。
+        this.upgradeCharacterId = this.store.profile.selected.characterId
         this.state = openScreen(this.state, 'upgrade')
         this.rebuild()
         break
@@ -666,12 +676,24 @@ export class MainMenuScene extends Phaser.Scene {
       )
     }
     if (screen === 'upgrade') {
-      buildUpgradePanel(this, sink, frame, this.store, this.meta, (notice) => {
-        // 买完要重建整屏（数字变了、按钮的可用态也变了），而重建会销毁
-        // 那块面板上的提示行 —— 所以提示走菜单状态，由 `refresh()` 重新写上去。
-        this.state = withNotice(this.state, notice)
-        this.rebuild()
-      })
+      buildUpgradePanel(
+        this,
+        sink,
+        frame,
+        this.store,
+        this.meta,
+        this.currentUpgradeCharacterId(),
+        (id) => {
+          // 只改升级对象；出战角色仍是 `profile.selected.characterId`。
+          this.upgradeCharacterId = id
+        },
+        (notice) => {
+          // 买完要重建整屏（数字变了、按钮的可用态也变了），而重建会销毁
+          // 那块面板上的提示行 —— 所以提示走菜单状态，由 `refresh()` 重新写上去。
+          this.state = withNotice(this.state, notice)
+          this.rebuild()
+        },
+      )
     }
     if (screen === 'codex' && this.codexConfig) {
       this.codexPanel = new CodexPanel(this, sink, frame, {
@@ -836,6 +858,38 @@ export class MainMenuScene extends Phaser.Scene {
   private codexEntries(): readonly CodexEntry[] {
     if (!this.codexConfig) return []
     return buildCodexEntries(this.codexConfig, this.store.profile.selected.difficulty)
+  }
+
+  /**
+   * 升级页要操作的角色。
+   *
+   * 优先用页面里刚才切到的那个；它失效（未解锁 / 配置里没有）时退回当前出战角色，
+   * 再不行就找第一个已解锁且配置齐全的角色。**这里不写 `selected.characterId`。**
+   */
+  private currentUpgradeCharacterId(): string {
+    const profile = this.store.profile
+    const usable = (id: string): boolean =>
+      Boolean(this.meta?.characters[id]) && isUnlocked(profile, id)
+
+    if (this.upgradeCharacterId && usable(this.upgradeCharacterId)) {
+      return this.upgradeCharacterId
+    }
+
+    const preferred = profile.selected.characterId
+    if (usable(preferred)) {
+      this.upgradeCharacterId = preferred
+      return preferred
+    }
+
+    const fallback = CHARACTERS.find((candidate) => usable(candidate.id))
+    if (fallback) {
+      this.upgradeCharacterId = fallback.id
+      return fallback.id
+    }
+
+    // 连初始角色都没配置 / 没解锁时保留原 id，让升级页照实报「没有成长配置」。
+    this.upgradeCharacterId = preferred
+    return preferred
   }
 
   private pickCharacter(id: string): void {
