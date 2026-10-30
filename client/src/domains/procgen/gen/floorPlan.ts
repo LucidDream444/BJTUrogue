@@ -153,6 +153,15 @@ export const FLOOR_PLAN_URL = `config/${FLOOR_PLAN_NAME}`
  */
 export const FLOOR_PLAN_YF2_NAME = 'floor-plan-yf2.json'
 
+/**
+ * 逸夫楼 4F / 5F —— 一局的**第 4 / 第 5 层**（10-30 加）。
+ *
+ * 用户：「添加 YF4 和 5，构造和 YF6 一样，只是房间标号第一位改一下就行」——
+ * 所以那两份 JSON 是 `floor-plan.json`（6F）的**逐格副本**，只换了房号前缀。
+ */
+export const FLOOR_PLAN_YF4_NAME = 'floor-plan-yf4.json'
+export const FLOOR_PLAN_YF5_NAME = 'floor-plan-yf5.json'
+
 export const FLOOR_PLAN_YF3_NAME = 'floor-plan-yf3.json'
 
 /**
@@ -192,6 +201,8 @@ export const FLOOR_PLAN_FILES: readonly string[] = [
   FLOOR_PLAN_YF1_NAME,
   FLOOR_PLAN_YF2_NAME,
   FLOOR_PLAN_YF3_NAME,
+  FLOOR_PLAN_YF4_NAME,
+  FLOOR_PLAN_YF5_NAME,
   FLOOR_PLAN_NAME,
 ]
 
