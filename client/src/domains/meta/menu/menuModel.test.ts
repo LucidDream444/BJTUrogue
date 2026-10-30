@@ -98,6 +98,12 @@ describe('弹层开关（需求 §4.6）', () => {
     expect(closeScreen(state)?.screen).toBe('main')
   })
 
+  it('逸夫楼打开出发准备页；Esc 回校园地图而不是直接开打', () => {
+    const state = openScreen(createMenuState(), 'run-setup')
+    expect(state.screen).toBe('run-setup')
+    expect(closeScreen(state)?.screen).toBe('main')
+  })
+
   it('关掉弹层时**清掉提示** —— 否则它会盖住主菜单底部的「当前选择」', () => {
     const state = withNotice(openScreen(createMenuState(), 'upgrade'), '已解锁：大鹅')
     expect(closeScreen(state)?.notice).toBe('')
