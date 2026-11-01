@@ -277,6 +277,76 @@
         "bubbleCount": 3
       },
       "_design": "沾液后加速并自由穿怪，接触所有敌人当步结算首跳，持续重叠按节拍帧伤；纸团出生宽限只限制其攻击玩家，不挡沾液攻击。实际移动累计每秒扣2点生命，累计移动4秒或静止3秒任一完成即清除。液滩踩过即消失，再次踩液不叠加、不刷新两种进度。"
+    },
+    "muscovy": {
+      "kind": "muscovy",
+      "displayName": "展翅番鸭",
+      "threatLevel": 3,
+      "hpMode": "shots",
+      "hpValue": 9,
+      "speed": 68,
+      "radius": 24,
+      "visualScale": 0.8,
+      "textureKey": "enemy_muscovy_body",
+      "contactDamagePerTick": 0,
+      "aggroRadius": 720,
+      "loseTargetRadius": 960,
+      "ai": {
+        "nearTickHz": 30,
+        "farTickHz": 5,
+        "flinchMs": 0,
+        "separationPad": 10,
+        "separationStrength": 100
+      },
+      "charge": {
+        "range": 420,
+        "windupMs": 1100,
+        "dashSpeed": 620,
+        "dashDistance": 440,
+        "recoverMs": 550,
+        "cooldownMs": 2800,
+        "damage": 26
+      }
+    },
+    "nightmare_cat": {
+      "kind": "nightmare_cat",
+      "displayName": "梦魇猫咪",
+      "threatLevel": 4,
+      "hpMode": "shots",
+      "hpValue": 12,
+      "speed": 72,
+      "radius": 22,
+      "visualScale": 0.75,
+      "textureKey": "enemy_nightmare_cat_body",
+      "contactDamagePerTick": 0,
+      "aggroRadius": 720,
+      "loseTargetRadius": 960,
+      "ai": {
+        "nearTickHz": 30,
+        "farTickHz": 5,
+        "flinchMs": 0,
+        "separationPad": 10,
+        "separationStrength": 100
+      },
+      "vortex": {
+        "range": 300,
+        "windupMs": 1200,
+        "durationMs": 3400,
+        "recoverMs": 600,
+        "cooldownMs": 3600,
+        "damage": 8,
+        "damageTickMs": 200,
+        "damageRadius": 112,
+        "pullRadius": 220,
+        "pullSpeed": 44,
+        "maxPullSpeed": 68,
+        "projectileRadius": 150,
+        "turnRateRadPerSec": 2.1,
+        "maxTurnRateRadPerSec": 3.2,
+        "rotationSign": 1,
+        "maxFields": 12,
+        "purificationMs": 1500
+      }
     }
   }
 }

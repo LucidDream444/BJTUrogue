@@ -1,4 +1,5 @@
 import Phaser from 'phaser'
+import { deflectVortexVelocity, type VortexSnapshot } from '@/core/vortex'
 import { ASSETS, PROJECTILE_ART } from '@/core/assetManifest'
 import { textureKeyFor } from '@/core/assets'
 import { allocActorId } from '@/core/actor/ActorModel'
@@ -98,6 +99,17 @@ export class Weapons {
     )
     this.muzzleFlash = scene.add.graphics()
     this.world.on(Phaser.Physics.Arcade.Events.WORLD_STEP, this.onWorldStep, this)
+  }
+
+  applyVortices(fields: readonly VortexSnapshot[], dtSec: number): void {
+    if (!fields.length || this.clock.paused || this.clock.frozen) return
+    for (const b of this.bullets) {
+      if (!b.slot.active || b.pending) continue
+      const velocity = deflectVortexVelocity(b.body.center, b.body.velocity, fields, dtSec)
+      b.body.setVelocity(velocity.x, velocity.y)
+      b.angle = Math.atan2(velocity.y, velocity.x)
+      b.sprite.setRotation(b.angle)
+    }
   }
 
   update(stats: EffectiveStats, weapon: WeaponDef): void {

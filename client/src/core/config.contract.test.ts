@@ -8,6 +8,8 @@ import {
   deriveTank,
   oneShotHpCap,
   parseConfigBundle,
+  validateEnemies,
+  type EnemiesConfig,
   type ConfigBundle,
   type Difficulty,
 } from './config'
@@ -94,6 +96,34 @@ describe('契约 — 三份真实 JSON 必须能解析', () => {
       expect(m.enemyHp, diff).toBeGreaterThan(0)
       expect(m.enemySpeed, diff).toBeGreaterThan(0)
     }
+  })
+})
+
+describe('新校园动物配置契约', () => {
+  it('两种新怪使用shots派生生命，纹理引用真实清单', () => {
+    for (const kind of ['muscovy', 'nightmare_cat'] as const) {
+      const def = bundle().enemies.enemies[kind]
+      expect(def.kind).toBe(kind)
+      expect(def.hpMode).toBe('shots')
+      expect(def.hpValue).toBeGreaterThan(1)
+      expect(findAsset(def.textureKey)?.kind).toBe('spritesheet')
+      expect(def.contactDamagePerTick).toBe(0)
+    }
+  })
+  it('拒绝非法攻击时长、上限和缺失资源引用', () => {
+    const fresh = () => structuredClone(readJson('enemies.json')) as EnemiesConfig
+    const invalidSpeed = fresh()
+    invalidSpeed.enemies.muscovy.charge.dashSpeed = -1
+    expect(() => validateEnemies(invalidSpeed)).toThrow(/dashSpeed/)
+    const invalidTick = fresh()
+    invalidTick.enemies.nightmare_cat.vortex.damageTickMs = invalidTick.enemies.nightmare_cat.vortex.durationMs + 1
+    expect(() => validateEnemies(invalidTick)).toThrow(/伤害间隔/)
+    const invalidFields = fresh()
+    invalidFields.enemies.nightmare_cat.vortex.maxFields = 1.5
+    expect(() => validateEnemies(invalidFields)).toThrow(/整数/)
+    const missing = fresh()
+    missing.enemies.muscovy.textureKey = 'missing-animal-resource'
+    expect(() => validateEnemies(missing)).toThrow()
   })
 })
 

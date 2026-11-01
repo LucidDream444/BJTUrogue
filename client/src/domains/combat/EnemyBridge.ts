@@ -202,6 +202,12 @@ export class EnemyBridge implements BulletContactPort {
   clearLiquid(): void {
     this.system.clearLiquid()
   }
+  clearVortices(): void { this.system.clearVortices() }
+  despawnAll(): void { this.system.despawnAll() }
+  collidesWithUnits(enemy: Phaser.GameObjects.GameObject): boolean {
+    const model = (enemy as { model?: { id: number } }).model
+    return model ? this.system.collidesWithUnits(model.id) : true
+  }
   get remaining(): number {
     return this.system.pool.live + this.system.spawns.length
   }

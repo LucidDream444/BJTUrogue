@@ -16,7 +16,7 @@ import {
   type ConfigBundle,
   type Difficulty,
 } from '@/core/config'
-import { ANIMS, STAGE2_BOSS_ART, findAsset } from '@/core/assetManifest'
+import { ANIMS, BOSS_FIRST_ART, FINAL_BOSS_ART, STAGE2_BOSS_ART, findAsset } from '@/core/assetManifest'
 
 export type CodexCategory = '普通敌人' | '首领'
 
@@ -54,8 +54,7 @@ const LORE_PLACEHOLDER =
  * 把敌人配置与当前难度转换成图鉴条目。
  *
  * 分裂纸团的每一代都有独立数值，所以各占一条；肉盾和抓取怪各占一条。
- * 第二层首领已经有配置和资源 key，也纳入图鉴；第一层 / 最终首领目前没有
- * 独立配置，等 D3 的配置落地后会自动从这里获得接入位置。
+ * 两种校园动物和三种首领均展示真实身份；数值从配置派生，行为说明与攻击预警对应。
  */
 export function buildCodexEntries(
   bundle: ConfigBundle,
@@ -167,6 +166,46 @@ export function buildCodexEntries(
     lorePlaceholder: LORE_PLACEHOLDER,
   })
 
+  const muscovy = bundle.enemies.enemies.muscovy
+  entries.push({
+    id: 'muscovy', category: '普通敌人', name: muscovy.displayName, variant: '直冲型',
+    role: `蓄力 ${formatSeconds(muscovy.charge.windupMs)} 后沿预警直线展翅冲刺；不追踪，撞障碍提前停止，对沿途玩家和其他敌人造成伤害`,
+    threatLevel: muscovy.threatLevel, textureKey: muscovy.textureKey,
+    visualScale: muscovy.visualScale, hasArt: hasDeliveredArt(muscovy.textureKey),
+    stats: [
+      { label: '生命值', value: `${Math.max(1, Math.round(muscovy.hpValue * bundle.balance.baseline.bullet.damage * modifiers.enemyHp))}` },
+      { label: '冲刺伤害', value: `${muscovy.charge.damage * modifiers.enemyDamage}` },
+      { label: '冲刺距离', value: `${muscovy.charge.dashDistance} px` },
+      { label: '冲刺速度', value: `${muscovy.charge.dashSpeed} px/s` },
+      { label: '冷却', value: formatSeconds(muscovy.charge.cooldownMs) },
+    ],
+    lorePlaceholder: '明湖旁的番鸭也被噩梦惊动。红面瘤、黑羽与白颈是它的标记。看清蓄力方向，向侧面躲开；冲刺时仍可伤害它，也能借它的冲锋击中其他怪物。',
+  })
+  const cat = bundle.enemies.enemies.nightmare_cat
+  entries.push({
+    id: 'nightmare_cat', category: '普通敌人', name: cat.displayName, variant: '旋风型',
+    role: `蓄力 ${formatSeconds(cat.vortex.windupMs)} 后原地旋转；持续伤害玩家与其他敌人，轻微吸引并偏转双方飞行子弹`,
+    threatLevel: cat.threatLevel, textureKey: cat.textureKey,
+    visualScale: cat.visualScale, hasArt: hasDeliveredArt(cat.textureKey),
+    stats: [
+      { label: '生命值', value: `${Math.max(1, Math.round(cat.hpValue * bundle.balance.baseline.bullet.damage * modifiers.enemyHp))}` },
+      { label: '范围伤害', value: `${cat.vortex.damage * modifiers.enemyDamage} / ${formatSeconds(cat.vortex.damageTickMs)}` },
+      { label: '伤害半径', value: `${cat.vortex.damageRadius} px` },
+      { label: '旋转持续', value: formatSeconds(cat.vortex.durationMs) },
+      { label: '冷却', value: formatSeconds(cat.vortex.cooldownMs) },
+    ],
+    lorePlaceholder: '熟悉的校园猫被梦魇裹住，化成卷动试卷的旋风。远离风圈，留心弯曲的弹道。击败后黑暗会褪去，猫咪恢复正常，穿过虚空安然离开。',
+  })
+
+  entries.push({
+    id: 'first-boss', category: '首领', name: '蘑菇首领', variant: '重压首领',
+    role: '校园雨后菌菇与培养皿的梦魇 · 预警后范围下砸', threatLevel: tank.threatLevel,
+    textureKey: BOSS_FIRST_ART.texture, visualScale: tank.visualScale,
+    hasArt: hasDeliveredArt(BOSS_FIRST_ART.texture),
+    stats: [{ label: '攻击前摇', value: formatSeconds(tank.slam.windupMs) }],
+    lorePlaceholder: '从校园雨后菌菇与实验培养皿中生出的重压梦魇。先观察下砸预警，再离开危险范围。它是中途首领，击败它不会提前结束整局。',
+  })
+
   const boss = bundle.enemies.stage2Boss
   entries.push({
     id: 'stage2-boss',
@@ -186,6 +225,15 @@ export function buildCodexEntries(
       { label: '碰撞半径', value: `${boss.radius} px` },
     ],
     lorePlaceholder: LORE_PLACEHOLDER,
+  })
+
+  entries.push({
+    id: 'heart-demon', category: '首领', name: '心魔', variant: '第八层最终首领',
+    role: '考研梦魇 · 试卷、倒计时与学子影子构成的最终心魔',
+    threatLevel: entries.find((entry) => entry.id === 'stage2-boss')!.threatLevel,
+    textureKey: FINAL_BOSS_ART.idle, visualScale: boss.visualScale,
+    hasArt: hasDeliveredArt(FINAL_BOSS_ART.idle), stats: [],
+    lorePlaceholder: '它守在梦境第八层，把失败的恐惧变成钟表与试卷。打破心魔，让被困的北交学子回到黄昏的教室；只要自己也活下来，就能迎来梦醒。',
   })
 
   return entries

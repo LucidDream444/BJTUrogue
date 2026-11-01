@@ -11,6 +11,10 @@
     "coinsPerDepth": 20
   },
 
+  "finalRewards": {
+    "heart_demon": { "coins": 120 }
+  },
+
   "characters": {
     "student": {
       "unlockCost": 0,
@@ -127,7 +131,7 @@
     "scholar": {
       "unlockCost": 400,
       "passive": {
-        "name": "馆藏检索",
+        "name": "红果生息",
         "description": "能量恢复速度 +50%"
       },
       "combat": {
@@ -137,13 +141,13 @@
       },
       "skill": {
         "id": "library_loan",
-        "name": "馆藏借阅",
-        "description": "放置参考书自动攻击附近敌人",
+        "name": "红果伴读",
+        "description": "小红果唤出参考书，自动攻击附近敌人",
         "kind": "summon",
         "upgradeCosts": [140, 300, 540],
         "levels": [
           {
-            "name": "开馆",
+            "name": "萌芽",
             "description": "放置一本参考书",
             "cooldownMs": 12000,
             "durationMs": 8000,
@@ -153,7 +157,7 @@
             "maxCharges": 1
           },
           {
-            "name": "加印",
+            "name": "舒叶",
             "description": "书页伤害、发射频率和冷却改善",
             "cooldownMs": 10800,
             "durationMs": 9000,
@@ -163,7 +167,7 @@
             "maxCharges": 1
           },
           {
-            "name": "扩充馆藏",
+            "name": "枝繁",
             "description": "持续时间、伤害、频率和冷却再次改善",
             "cooldownMs": 9600,
             "durationMs": 10000,
@@ -173,7 +177,7 @@
             "maxCharges": 1
           },
           {
-            "name": "双馆开放",
+            "name": "双果相伴",
             "description": "技能获得两层充能，可继续放置会过期的参考书",
             "cooldownMs": 9000,
             "durationMs": 10500,

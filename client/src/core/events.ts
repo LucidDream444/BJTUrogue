@@ -79,12 +79,42 @@ export class TypedBus<E extends EventMap> {
 export type EmptyPayload = Record<string, never>
 
 export type ActorKind = 'player' | 'enemy'
-export type EnemyKind = 'splitter' | 'tank' | 'grabber' | 'sprayer'
+export type EnemyKind = 'splitter' | 'tank' | 'grabber' | 'sprayer' | 'muscovy' | 'nightmare_cat'
+
+export interface RunContext {
+  readonly runId: string
+  readonly characterId: string
+  readonly difficulty: 'easy' | 'normal' | 'hard'
+}
+
+export interface RunResultSnapshot extends RunContext {
+  readonly outcome: 'dead' | 'cleared' | 'quit'
+  readonly depth: number
+  readonly kills: number
+  readonly clearedRooms: number
+  readonly elapsedMs: number
+  readonly finalRewardId?: string
+}
+
+export interface StoryRequest extends RunContext {
+  readonly requestId: string
+  readonly kind: 'intro' | 'ending'
+}
+
+export interface RunResultCommitted {
+  readonly runId: string
+  readonly snapshot: RunResultSnapshot
+  readonly coinsEarned: number
+  readonly coinsTotal: number
+  readonly saved: boolean
+}
 
 // 伤害相关的两个枚举只定义在 actor/damage.ts 一份，这里转发，避免两处漂移。
 // 依赖方向是 events → damage，反过来是禁止的（damage.ts 必须保持零依赖，见 architecture.test.ts）。
 export type { DamageSourceKind, DamageMode } from './actor/damage'
 import type { DamageSourceKind, DamageMode } from './actor/damage'
+import type { HitRequest } from './actor/damage'
+import type { VortexSnapshot } from './vortex'
 
 /**
  * 全局事件表。**新增事件 = 改契约，要在群里说。**
@@ -92,6 +122,21 @@ import type { DamageSourceKind, DamageMode } from './actor/damage'
  * 命名约定：`<名词>_<过去式动词>`，全小写下划线。
  */
 export interface GameEvents extends EventMap {
+  enemy_vortex_started: VortexSnapshot
+  enemy_vortex_ended: { fieldId: number; sourceId: number; ownerId: number }
+  /** 新攻击只由玩家所属域同步落账，D3不再额外调用玩家模型。 */
+  enemy_attack_requested: HitRequest & { targetId: number; targetSpawnSeq: number }
+  story_requested: StoryRequest
+  story_finished: {
+    runId: string
+    requestId: string
+    kind: 'intro' | 'ending'
+    result: 'completed' | 'skipped'
+  }
+  run_result_ready: RunResultSnapshot
+  run_result_committed: RunResultCommitted
+  settlement_requested: { runId: string }
+  settlement_action_requested: { runId: string; action: 'restart' | 'menu' | 'upgrade' }
   /** D3 发布液体状态；玩家所属域应用速度，界面显示累计静止进度。 */
   player_liquid_changed: {
     playerId: number
@@ -109,6 +154,7 @@ export interface GameEvents extends EventMap {
     nowMs: number
   }
   entity_spawned: {
+    finalBoss?: boolean
     bossStage?: number
     id: number
     kind: ActorKind
@@ -137,6 +183,7 @@ export interface GameEvents extends EventMap {
   }
 
   entity_killed: {
+    finalBoss?: boolean
     bossStage?: number
     id: number
     kind: ActorKind

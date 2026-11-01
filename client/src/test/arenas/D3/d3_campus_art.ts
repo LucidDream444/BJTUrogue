@@ -25,12 +25,12 @@ class CampusArtArena extends ArenaBase {
     ctx.enemies.requestBoss(1, 240, 560, maxHp)
     ctx.enemies.requestBoss(2, 640, 560, maxHp)
     ctx.enemies.requestBoss(3, 1040, 560, maxHp, true)
-    ctx.hud.setNotice('P：击杀当前纸团观察展开分裂；R：重置。首领：白 / 蓝 / 紫。')
+    ctx.hud.setNotice('P：击杀当前纸团观察展开分裂；R：重置。三首领使用独立真实动画。')
     this.add.text(195, 190, '纸团：三代逐次缩小', { color: '#f6f0d9', fontSize: '16px' })
     this.add.text(945, 190, '厚课本《计组》', { color: '#a9d6d4', fontSize: '16px' })
-    this.add.text(180, 665, '蘑菇首领 · 白', { color: '#ffffff', fontSize: '16px' })
-    this.add.text(580, 665, '霜翼领主 · 蓝', { color: '#4da6ff', fontSize: '16px' })
-    this.add.text(980, 665, '蜘蛛女皇 · 紫', { color: '#a855f7', fontSize: '16px' })
+    this.add.text(180, 665, '校园菌菇首领', { color: '#ffffff', fontSize: '16px' })
+    this.add.text(580, 665, '霜翼使徒', { color: '#4da6ff', fontSize: '16px' })
+    this.add.text(980, 665, '最终心魔', { color: '#a855f7', fontSize: '16px' })
     const killPaper = () => {
       for (const { model } of ctx.enemies.liveEnemies) {
         if (model.alive && model.enemyKind === 'splitter') {
@@ -44,7 +44,7 @@ class CampusArtArena extends ArenaBase {
 }
 
 export const arena: ArenaDefinition = {
-  displayName: '校园敌人美术与占位',
-  description: '纸团展开分裂、厚课本跳跃、三个首领的白蓝紫占位；P 击杀纸团，R 重置。',
+  displayName: '校园敌人与首领动画',
+  description: '纸团展开分裂、厚课本跳跃、菌菇/霜翼/心魔三首领真实动画；P 击杀纸团，R 重置。',
   scene: CampusArtArena,
 }

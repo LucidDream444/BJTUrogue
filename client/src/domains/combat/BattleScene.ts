@@ -82,7 +82,9 @@ import {
   type RunInput,
 } from '@/domains/meta/progress/progress'
 import { RunLedger } from '@/domains/meta/run/RunLedger'
-import { SettlementOverlay } from '@/domains/meta/settlement/SettlementOverlay'
+import { D4StoryAdapter } from '@/domains/meta/story/D4StoryAdapter'
+import { parseStoryConfig, STORY_CONFIG_NAME, STORY_CONFIG_URL } from '@/domains/meta/story/storyConfig'
+import { RunFlow } from './RunFlow'
 
 /**
  * 「够得着」的距离门槛（世界像素）。**量的是到目标矩形的最短距离**，贴着它才是 0。
@@ -137,6 +139,7 @@ document.head.append(style)
  */
 export interface BattleSceneData {
   difficulty?: Difficulty
+  characterId?: string
   /** 测试场专用：使用内存档并开放角色 / 技能等级调试。 */
   skillLab?: boolean
   skillLabCharacterId?: string
@@ -391,7 +394,10 @@ export class BattleScene extends Phaser.Scene {
   /** 成长数值表。**读不出来时是 `null`**，那时这一局照常玩，只是结束时退回旧的那行文字 */
   private meta: MetaConfig | null = null
   private ledger!: RunLedger
-  private settlement: SettlementOverlay | null = null
+  private storyAdapter: D4StoryAdapter | null = null
+  private flow: RunFlow | null = null
+  private launchCharacterId: string | undefined
+  private resultPresented = false
   private pauseMenu!: PauseOverlay
   /**
    * 这一局结算过没有。
@@ -401,7 +407,6 @@ export class BattleScene extends Phaser.Scene {
    * （`SettlementOverlay.show()` 自己也幂等，那是第二层保险，不是这一道的替代品。）
    */
   private runEnded = false
-  private runOutcome: RunInput['outcome'] = 'dead'
 
   constructor(key = 'battle') {
     super(key)
@@ -412,6 +417,7 @@ export class BattleScene extends Phaser.Scene {
   }
   init(data: BattleSceneData = {}): void {
     this.difficulty = data.difficulty ?? 'normal'
+    this.launchCharacterId = data.characterId
     this.skillLab = data.skillLab === true
     this.skillLabCharacterId = data.skillLabCharacterId
     this.skillLabLevel = Phaser.Math.Clamp(data.skillLabLevel ?? 1, 1, 4)
@@ -435,7 +441,9 @@ export class BattleScene extends Phaser.Scene {
     // 场景实例是复用的，字段必须在这里回到初始值 —— 漏了 `runEnded` 的话，
     // 重开的第二局一上来就"已经结算过"，结算界面再也不会出现。
     this.runEnded = false
-    this.settlement = null
+    this.storyAdapter = null
+    this.flow = null
+    this.resultPresented = false
   }
   preload(): void {
     preloadAssets(this)
@@ -464,6 +472,7 @@ export class BattleScene extends Phaser.Scene {
       this.load.json(n, `config/${n}`)
     // 文件名与路径走 D4 的常量，别在这里再写一遍字面量（`metaConfig.ts` 是唯一真值）
     this.load.json(META_CONFIG_NAME, META_CONFIG_URL)
+    this.load.json(STORY_CONFIG_NAME, STORY_CONFIG_URL)
   }
   create(): void {
     try {
@@ -562,6 +571,9 @@ export class BattleScene extends Phaser.Scene {
       this.session.bus.on('entity_killed', (event) => {
         // 首领也不例外：**每一间都是「清完 → 开箱 → 门开」**，首领那间不再单独掉。
         if (event.bossStage === this.floor) this.notice.setText('首领已击败')
+        if (event.kind === 'enemy' && event.finalBoss === true &&
+          event.bossStage === this.cfg.arena.finale.floor && this.floor === this.cfg.arena.finale.floor)
+          this.flow?.recordFinalBossDeath()
       })
       // 成长选完（或没有可选项）之后：**把这一间收尾**，再说清「接下来去哪儿」。
       //
@@ -585,7 +597,6 @@ export class BattleScene extends Phaser.Scene {
         // **本层的首领打完了**：层内没有"下一个首领"了，改亮「下一层」的入口。
         // 最后一层不亮 —— 那是通关，走 `finishRun()`。
         if (this.floor >= this.floors) {
-          this.finishRun()
           return
         }
         this.showFloorExit(bonus)
@@ -610,7 +621,12 @@ export class BattleScene extends Phaser.Scene {
         })
         this.skillLabCharacterId = this.store.profile.selected.characterId
       }
-      this.session.player.setCharacter(this.store.profile.selected.characterId)
+      const requestedCharacterId = this.launchCharacterId ?? this.store.profile.selected.characterId
+      const characterId = this.store.profile.unlocks.characters.includes(requestedCharacterId)
+        ? requestedCharacterId : this.store.profile.selected.characterId
+      this.launchCharacterId = characterId
+      this.session.player.setCharacter(characterId)
+      this.flow = new RunFlow({ runId: this.session.runId, characterId, difficulty: this.difficulty })
       const syncAudio = (): void => {
         const { bgmVolume, sfxVolume } = this.store.profile.settings
         this.session.setAudioVolumes(bgmVolume, sfxVolume)
@@ -629,21 +645,37 @@ export class BattleScene extends Phaser.Scene {
       this.applyProfileToRun()
       this.ledger = new RunLedger(this.session.bus)
       if (this.meta) {
-        this.settlement = new SettlementOverlay({
-          scene: this,
-          store: this.store,
-          meta: this.meta,
-          host: {
-            // 击杀数由账本自己从总线上数（`entity_killed`）；层数与清房数由这里报。
-            runInput: () => this.ledger.input(this.runOutcome),
-            restart: () => this.restartRun(),
-            // 结算的「返回主菜单」回**标题画面**（D1 的 `main-menu`），
-            // 不是 D4 那个局外成长主菜单 —— 打完一局先看到的是标题。
-            backToMenu: () => this.backToMenu(),
-            goToUpgrade: () => this.goToUpgrade(),
-          },
+        this.storyAdapter = new D4StoryAdapter({
+          scene: this, bus: this.session.bus, store: this.store, meta: this.meta,
+          story: parseStoryConfig(this.cache.json.get(STORY_CONFIG_NAME)),
         })
       }
+      this.session.bus.on('story_finished', (event) => {
+        if (!this.flow?.finishStory(event.runId, event.requestId)) return
+        if (this.flow.phase === 'playing') {
+          this.session.resume('story')
+        } else if (this.flow.phase === 'settlement') {
+          this.session.bus.emit('settlement_requested', { runId: this.session.runId })
+        }
+      })
+      this.session.bus.on('settlement_action_requested', (event) => {
+        if (event.runId !== this.session.runId) return
+        if (event.action === 'restart') this.restartRun()
+        else if (event.action === 'upgrade') this.goToUpgrade()
+        else this.backToMenu()
+      })
+      this.session.bus.on('run_result_committed', (event) => {
+        if (event.runId !== this.session.runId || this.resultPresented || !this.flow?.result) return
+        this.resultPresented = true
+        if (this.flow.phase === 'ending') {
+          const request = this.flow.activeStory
+          if (request) this.session.bus.emit('story_requested', request)
+        } else {
+          this.session.bus.emit('settlement_requested', { runId: this.session.runId })
+        }
+      })
+      if (this.meta && !this.meta.finalRewards[this.cfg.arena.finale.finalRewardId])
+        throw new Error('最终收益ID不存在：' + this.cfg.arena.finale.finalRewardId)
       this.pauseMenu = new PauseOverlay({
         scene: this,
         store: this.store,
@@ -683,7 +715,7 @@ export class BattleScene extends Phaser.Scene {
           // 显示名倒是「能量上限」），D1 这边叫 `stamina`。要统一是跨域改名，得先在群里说 ——
           // 这里只做映射。
           snapshot: () => ({
-            characterId: this.store.profile.selected.characterId,
+            characterId: this.flow?.context.characterId ?? this.store.profile.selected.characterId,
             hp: Math.round(this.session.player.model.hp),
             maxHp: this.session.player.model.maxHp,
             shield: Math.round(this.session.player.model.shield),
@@ -707,6 +739,13 @@ export class BattleScene extends Phaser.Scene {
       this.refreshStairPads()
       // 电梯面板这时是关着的（玩家不在电梯间里），建出来就行 —— 走进去才弹。
       this.notice.setText(this.floorBrief())
+      if (this.storyAdapter && !this.skillLab) {
+        this.session.pause('story')
+        const request = this.flow?.activeStory
+        if (request) this.session.bus.emit('story_requested', request)
+      } else {
+        this.flow?.finishStory(this.session.runId, `${this.session.runId}:intro`)
+      }
     } catch (e) {
       this.showFatal(e)
     }
@@ -715,7 +754,8 @@ export class BattleScene extends Phaser.Scene {
   /** 把当前测试/正式档里的角色被动和技能重新应用到本局。 */
   private applyProfileToRun(): void {
     if (!this.meta) return
-    const characterId = this.store.profile.selected.characterId
+    const characterId = this.skillLab ? this.store.profile.selected.characterId :
+      this.flow?.context.characterId ?? this.launchCharacterId ?? this.store.profile.selected.characterId
     const permanent = effectiveStats(this.store.profile, this.meta, characterId)
     this.session.player.setCharacter(characterId)
     this.session.applyPermanentRunStats({
@@ -852,6 +892,11 @@ export class BattleScene extends Phaser.Scene {
 
   override update(_time: number, delta: number): void {
     if (!this.session) return
+    if (this.flow?.phase === 'intro' || this.flow?.phase === 'ending' || this.flow?.phase === 'settlement') {
+      this.session.player.draw()
+      this.layoutHud()
+      return
+    }
     this.driveGrab(delta)
     this.trackPlayerRoom()
     // `F` 只管**换层**（楼梯间里那两个入口）—— 门是走过去就行的，没有"过门键"了。
@@ -885,6 +930,11 @@ export class BattleScene extends Phaser.Scene {
     // 画面才是静的。
     this.scenery.update(this.time.now)
     this.session.update(delta)
+    // Scene.UPDATE在本帧物理事件和全部伤害生产者之后运行，不在单个死亡回调抢先暂停。
+    const outcome = this.flow?.adjudicate(this.session.player.model.alive)
+    if (outcome === 'cleared') this.finishRun()
+    else if (outcome === 'dead') this.endRun('dead')
+    if (this.runEnded) return
     this.loot.update()
     this.loadout.update()
     this.skillHud.update()
@@ -906,11 +956,10 @@ export class BattleScene extends Phaser.Scene {
     if (this.clearRequested && !this.session.clock.paused) this.session.enemies.simulateClear()
     this.layoutHud()
     this.updateHud()
-    const ended = this.gameWon || !this.session.player.model.alive
-    if (ended) this.endRun(this.gameWon ? 'cleared' : 'dead')
+    const ended = !this.session.player.model.alive
     // 结算面板铺上去之后就不需要这行兜底文字了（面板上的信息更全）。
     // 只有成长表读不出来、结算建不出来时，才退回原来那套"按 R 重新开始"。
-    const fallbackNotice = ended && this.settlement === null
+    const fallbackNotice = ended && this.storyAdapter === null
     this.deathNotice.setVisible(fallbackNotice)
     if (fallbackNotice) {
       this.deathNotice.setText(
@@ -1303,7 +1352,7 @@ export class BattleScene extends Phaser.Scene {
     //    `Room.budget` 由 D2 按「到楼梯间的跳数」算（`gen/budget.ts`），
     //    `budgetBase` 是 `t = 0`（出生点旁边那间）的值 —— 比值正好是强度倍数。
     const growth = unit.room.budget / this.rooms.budgetBase
-    const p = roomPlan(this.bundle, this.cfg, this.difficulty, growth)
+    const p = roomPlan(this.bundle, this.cfg, this.difficulty, growth, this.floor)
     for (let i = 0; i < p.splitters; i++) {
       const s = at(i)
       this.session.enemies.spawn(
@@ -1325,6 +1374,14 @@ export class BattleScene extends Phaser.Scene {
       const k = p.splitters + p.tanks + p.grabbers + i
       const s = at(k)
       this.session.enemies.spawn('sprayer', 0, s.x + offset(k), s.y + offset(k))
+    }
+    for (const [kind, count] of [['muscovy', p.muscovies], ['nightmare_cat', p.nightmareCats]] as const) {
+      for (let i = 0; i < count; i++) {
+        const k = p.splitters + p.tanks + p.grabbers + p.sprayers +
+          (kind === 'nightmare_cat' ? p.muscovies : 0) + i
+        const s = at(k)
+        this.session.enemies.spawn(kind, 0, s.x + offset(k), s.y + offset(k))
+      }
     }
     for (let i = 0; i < p.tanks; i++) {
       const s = at(p.splitters + i)
@@ -1365,7 +1422,7 @@ export class BattleScene extends Phaser.Scene {
         spot.x,
         spot.y - 40,
         this.cfg.encounter.bossHp + (tier - 1) * this.cfg.encounter.bossHpPerStage,
-        tier >= this.floors,
+        tier === this.cfg.arena.finale.floor,
       )
     }
   }
@@ -1858,10 +1915,17 @@ export class BattleScene extends Phaser.Scene {
     )
   }
   private finishRun(): void {
-    if (this.gameWon) return
+    if (this.gameWon || this.runEnded || !this.session.player.model.alive) return
+    const room = this.dungeon.rooms.find((unit) => unit.room.kind === 'boss')
+    if (room && !this.cleared.has(room.order)) {
+      this.cleared.add(room.order)
+      this.ledger.countClearedRoom()
+    }
+    this.activeRoom = null
+    this.clearRequested = false
+    this.clearEmitted = true
     this.gameWon = true
-    this.session.weapons.clear()
-    this.session.pause('victory')
+    this.endRun('cleared')
     this.notice.setText(`全部 ${this.floors} 层已通关 · 按 R 开始新一局`)
   }
   /**
@@ -1870,7 +1934,7 @@ export class BattleScene extends Phaser.Scene {
    * 第 3 档（最后一层）是最终首领。
    */
   private bossName(tier: number): string {
-    if (tier >= 3) return '终焉蛛王'
+    if (tier === this.cfg.arena.finale.floor) return this.cfg.arena.finale.displayName
     if (tier === 2) return this.bundle.enemies.stage2Boss.displayName
     return '蘑菇首领'
   }
@@ -2044,7 +2108,8 @@ export class BattleScene extends Phaser.Scene {
    * 每个角色只有一个固定技能；名字来自 meta，等级来自统一 skill 存档。
    */
   private skillNames(): string | undefined {
-    const characterId = this.store.profile.selected.characterId
+    const characterId = this.skillLab ? this.store.profile.selected.characterId :
+      this.flow?.context.characterId ?? this.store.profile.selected.characterId
     const skill = this.meta?.characters[characterId]?.skill
     if (!skill || !this.meta) return undefined
     return `${skill.name} Lv.${skillLevelOf(this.store.profile, this.meta, characterId)}`
@@ -2074,30 +2139,30 @@ export class BattleScene extends Phaser.Scene {
   private bindKeys(): void {
     const k = this.input.keyboard
     k?.on('keydown-H', () => {
-      if (this.grabbing) return
+      if (this.grabbing || this.flow?.phase !== 'playing') return
       this.demoHit()
     })
     k?.on('keydown-C', () => {
-      if (this.grabbing) return
+      if (this.grabbing || this.flow?.phase !== 'playing') return
       this.requestClear()
     })
     k?.on('keydown-V', () => {
-      if (this.grabbing) return
+      if (this.grabbing || this.flow?.phase !== 'playing') return
       this.toggleGallery()
     })
     // `R` = **先结算、再重开**（见 `restartRun`）—— 不再是"把这一局白扔"的调试键
     k?.on('keydown-R', () => {
-      if (this.grabbing) return
+      if (this.grabbing || this.storyAdapter?.storyOpen) return
       this.restartRun()
     })
-    k?.on('keydown-E', () => this.loot.interact())
+    k?.on('keydown-E', () => { if (this.flow?.phase === 'playing') this.loot.interact() })
     k?.on('keydown-ONE', () =>
-      this.loot.replacementPending ? this.loot.chooseReplacement(0) : this.session.equipSlot(0),
+      this.flow?.phase !== 'playing' ? undefined : this.loot.replacementPending ? this.loot.chooseReplacement(0) : this.session.equipSlot(0),
     )
     k?.on('keydown-TWO', () =>
-      this.loot.replacementPending ? this.loot.chooseReplacement(1) : this.session.equipSlot(1),
+      this.flow?.phase !== 'playing' ? undefined : this.loot.replacementPending ? this.loot.chooseReplacement(1) : this.session.equipSlot(1),
     )
-    k?.on('keydown-X', () => this.session.cycleWeapon())
+    k?.on('keydown-X', () => { if (this.flow?.phase === 'playing') this.session.cycleWeapon() })
     if (k) {
       // 这几个键默认会让页面滚动（`Scale.RESIZE` 下画布就是整页）—— 不捕获的话
       // 按一下空格整页就跳。
@@ -2105,26 +2170,26 @@ export class BattleScene extends Phaser.Scene {
       // ⚠️ 暂停的键盘入口**只有这一处**（`togglePauseMenu`）。宿主自己再绑一个
       // "Esc 关菜单"，按一下就会同时又关又开 —— 见 `PauseOverlay` 文件头。
       k.on('keydown-ESC', () => {
-        if (this.grabbing) return
+        if (this.grabbing || this.flow?.phase !== 'playing') return
         if (this.loot.replacementPending) this.loot.cancelReplacement()
         else this.togglePauseMenu()
       })
       k.on('keydown-SPACE', () => {
-        if (this.grabbing || this.session.clock.paused) return
+        if (this.grabbing || this.session.clock.paused || this.flow?.phase !== 'playing') return
         const pointer = this.input.activePointer
         const aim = this.cameras.main.getWorldPoint(pointer.x, pointer.y)
         this.session.activateSkill({ x: aim.x, y: aim.y })
       })
-      k.on('keydown-UP', () => this.pauseMenu.handleMoveFocus(-1))
-      k.on('keydown-DOWN', () => this.pauseMenu.handleMoveFocus(1))
-      k.on('keydown-ENTER', () => this.pauseMenu.handleActivate())
+      k.on('keydown-UP', () => { if (!this.storyAdapter?.storyOpen) this.pauseMenu.handleMoveFocus(-1) })
+      k.on('keydown-DOWN', () => { if (!this.storyAdapter?.storyOpen) this.pauseMenu.handleMoveFocus(1) })
+      k.on('keydown-ENTER', () => { if (!this.storyAdapter?.storyOpen) this.pauseMenu.handleActivate() })
     }
     this.events.once(Phaser.Scenes.Events.SHUTDOWN, () => {
       k?.removeAllListeners()
       // 退订要**显式**做：`SettlementOverlay` 没订阅什么，但 `PauseOverlay`
       // 在构造里订了 `RESIZE` —— 漏掉的话重启三次就留三个重建回调。
       this.ledger?.dispose()
-      this.settlement?.destroy()
+      this.storyAdapter?.destroy()
       this.pauseMenu?.destroy()
       this.rewardPanel?.destroy()
       // 两个换层入口（`FloorExit` 自己画 Graphics、自己挂 Text，得显式收）。
@@ -2149,7 +2214,7 @@ export class BattleScene extends Phaser.Scene {
    * 3. 其余交给 `PauseOverlay` —— 顶着菜单时它是"继续游戏"，否则是"打开菜单"。
    */
   private togglePauseMenu(): void {
-    if (this.settlement?.isOpen) return
+    if (this.flow?.phase !== 'playing') return
     if (this.loot.replacementPending) {
       this.loot.reset()
       return
@@ -2175,10 +2240,21 @@ export class BattleScene extends Phaser.Scene {
   private endRun(outcome: RunInput['outcome']): void {
     if (this.runEnded) return
     this.runEnded = true
-    this.runOutcome = outcome
     this.ledger.setDepth(this.floor)
-    if (!this.settlement) return
-    this.settlement.show()
+    const snapshot = {
+      ...this.flow!.context, ...this.ledger.input(outcome), elapsedMs: this.session.clock.nowMs,
+      ...(outcome === 'cleared' ? { finalRewardId: this.cfg.arena.finale.finalRewardId } : {}),
+    }
+    this.flow?.commit(snapshot)
+    this.ledger.dispose()
+    this.session.pause(outcome === 'dead' ? 'death' : 'victory')
+    this.session.weapons.clear()
+    this.session.enemies.despawnAll()
+    this.session.bus.emit('run_result_ready', snapshot)
+    if (!this.storyAdapter) {
+      this.deathNotice.setText(outcome === 'cleared' ? '心魔已击败 · 按 R 重开' : '本局已结束 · 按 R 重开')
+        .setPosition(this.cameras.main.width / 2, this.cameras.main.height / 2).setVisible(true)
+    }
   }
 
   /**
@@ -2190,7 +2266,6 @@ export class BattleScene extends Phaser.Scene {
    */
   private restartRun(): void {
     if (!this.runEnded) this.endRun('quit')
-    this.settlement?.hide()
     this.restartDifficulty(this.difficulty)
   }
 

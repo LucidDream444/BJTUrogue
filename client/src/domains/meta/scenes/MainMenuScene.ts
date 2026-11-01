@@ -156,12 +156,14 @@ export class MainMenuScene extends Phaser.Scene {
   private codexConfig: ConfigBundle | null = null
 
   private readonly disposers: (() => void)[] = []
+  private startingRun = false
 
   constructor() {
     super(MAIN_MENU_SCENE_KEY)
   }
 
   init(data: MainMenuData = {}): void {
+    this.startingRun = false
     this.onExit = data.onExit
     if (data.store) {
       this.store = data.store
@@ -415,7 +417,7 @@ export class MainMenuScene extends Phaser.Scene {
 
   /** 出发准备页的「开始闯关」。真正进战斗前才检查场景是否注册。 */
   private startRun(): void {
-    if (this.pointerGuarded()) return
+    if (this.pointerGuarded() || this.startingRun) return
     // ⚠️ 先确认 `battle` 真的注册过：只有产品入口会注册它（`main.ts` 的 scene
     // 列表），D4 的测试场（`test.html?arena=d4_main_menu`）里没有战斗场景 ——
     // 在那边直接 start 是静默什么都不发生，而"按下去没反应"看起来就是菜单坏了。
@@ -425,7 +427,11 @@ export class MainMenuScene extends Phaser.Scene {
       return
     }
     // 难度一起带上：出发准备页摆着难度三选一，不传的话那个选择只是个摆设。
-    this.scene.start('battle', { difficulty: this.store.profile.selected.difficulty })
+    this.startingRun = true
+    this.scene.start('battle', {
+      difficulty: this.store.profile.selected.difficulty,
+      characterId: this.store.profile.selected.characterId,
+    })
   }
 
   /** 刚开屏的 250ms 内忽略指针点击，挡掉穿透过来的 pointerdown。 */

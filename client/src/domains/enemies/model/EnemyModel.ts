@@ -31,6 +31,8 @@ import type {
   SplitterDef,
   TankDef,
   SprayerDef,
+  MuscovyDef,
+  NightmareCatDef,
 } from '@/core/config'
 import { deriveSprayer, type DifficultyModifiers, type BalanceConfig } from '@/core/config'
 
@@ -58,6 +60,11 @@ export type EnemyState =
    * 位置冻住，尸体飞不起来。落地那一刻才走死亡流程。
    */
   | 'flung'
+  /** 番鸭：沿预警方向冲刺。 */
+  | 'dash'
+  /** 黑化猫：固定圆心旋转。 */
+  | 'spin'
+  | 'cooldown'
   | 'dead'
 
 /** 一只怪「该长什么样」的全部参数。回池复用时整份重写，不做增量更新。 */
@@ -191,6 +198,33 @@ export function specFromSprayer(
   }
 }
 
+export function specFromCampusAnimal(
+  def: MuscovyDef | NightmareCatDef,
+  diff: DifficultyModifiers,
+  balance: BalanceConfig,
+): EnemySpec {
+  return {
+    kind: def.kind,
+    gen: 0,
+    stats: {
+      maxHp: Math.max(1, Math.round(def.hpValue * balance.baseline.bullet.damage * diff.enemyHp)),
+      speed: def.speed * diff.enemySpeed,
+      radius: def.radius,
+    },
+    pierceImmune: false,
+    graceMs: 0,
+    graceMoveMult: 1,
+    flinchMs: 0,
+    slowPerHit: 0,
+    slowMaxStacks: 0,
+    slowDurationMs: 0,
+    slowMultPerStack: 1,
+    minSpeedMult: 1,
+    vulnerableMult: 1,
+    windupMoveMult: 0,
+  }
+}
+
 export class EnemyModel extends ActorModel<EnemyState> {
   readonly enemyKind: EnemyKind
   /** 从 spec 灌入：子弹不穿过我。见 `EnemySpec.pierceImmune` */
@@ -245,6 +279,18 @@ export class EnemyModel extends ActorModel<EnemyState> {
   lateralSign = 1
   /** 分裂怪：该在什么时刻分裂 */
   splitAtMs = 0
+
+  /** 校园动物攻击阶段；respawn 全量重置，不能继承上一只的攻击。 */
+  attackReadyAtMs = 0
+  attackSourceId = 0
+  lockedDirX = 1
+  lockedDirY = 0
+  dashTravelled = 0
+  dashLastX = 0
+  dashLastY = 0
+  spinX = 0
+  spinY = 0
+  vortexFieldId = 0
 
   /**
    * 抓取怪被甩出去时的**飞行速度**（px/s）。由系统在挣脱那一刻写好，brain 在 `flung`
@@ -301,6 +347,14 @@ export class EnemyModel extends ActorModel<EnemyState> {
     this.unstuckUntilMs = 0
     this.lateralSign = 1
     this.splitAtMs = 0
+    this.attackReadyAtMs = nowMs
+    this.attackSourceId = 0
+    this.lockedDirX = 1
+    this.lockedDirY = 0
+    this.dashTravelled = 0
+    this.dashLastX = this.dashLastY = 0
+    this.spinX = this.spinY = 0
+    this.vortexFieldId = 0
     this.flingVx = 0
     this.flingVy = 0
     this.slowStacks = 0

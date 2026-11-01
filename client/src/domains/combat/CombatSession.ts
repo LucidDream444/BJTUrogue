@@ -2,12 +2,14 @@ import Phaser from 'phaser'
 import { GameClock } from '@/core/time'
 import { Rng } from '@/core/rng'
 import { TypedBus, type Unsubscribe } from '@/core/events'
+import { vortexPullVelocity, type VortexSnapshot } from '@/core/vortex'
 import { allocActorId } from '@/core/actor/ActorModel'
 import type { ConfigBundle, Difficulty } from '@/core/config'
 import { Player } from './Player'
 import { planReplacement } from './WeaponInventory'
 import { TerrainMap } from './TerrainMap'
 import { StageColliders } from './StageColliders'
+import { earliestObstacleHit } from './BarrierSweep'
 import { stageGeometry, type StageCollisionConfig } from './StageGeometry'
 import { EnemyBridge } from './EnemyBridge'
 import { Weapons } from './Weapons'
@@ -35,6 +37,7 @@ export type PauseReason =
   | 'death'
   | 'intermission'
   | 'victory'
+  | 'story'
   /**
    * **抓取怪抓住了玩家**：世界冻结、镜头特写、只留挣脱连点。
    *
@@ -74,6 +77,7 @@ export class CombatSession {
   kills = 0
   private dead = false
   private disposed = false
+  private readonly vortices = new Map<number, VortexSnapshot>()
   constructor(
     private readonly scene: Phaser.Scene,
     readonly bundle: ConfigBundle,
@@ -146,6 +150,13 @@ export class CombatSession {
           x1 > this.terrain.width - radius ||
           y1 > this.terrain.height - radius ||
           this.terrain.crossesSolid({ x: x0, y: y0 }, { x: x1, y: y1 }, radius),
+        solidHitTime: (x0, y0, x1, y1, radius) => {
+          const from = { x: x0, y: y0 }, to = { x: x1, y: y1 }
+          return earliestObstacleHit(
+            this.terrain.solidHitTime(from, to, radius),
+            this.stageColliders?.barrierHitTime(from, to, radius) ?? null,
+          )
+        },
       },
     )
     for (const rect of this.terrain.water) {
@@ -190,7 +201,8 @@ export class CombatSession {
       this.player.anchor,
       this.enemies.group,
       (_player, enemy) => this.enemies.touchPlayer(enemy as Phaser.GameObjects.GameObject),
-      () => this.player.model.collidesWithEnemies,
+      (_player, enemy) => this.player.model.collidesWithEnemies &&
+        this.enemies.collidesWithUnits(enemy as Phaser.GameObjects.GameObject),
     )
     this.audio = new CombatAudio(scene, this.bus, cfg.audio)
     this.weapons = new Weapons(
@@ -216,6 +228,14 @@ export class CombatSession {
       new Rng(cfg.arena.seed + 2),
     )
     this.unsubs.push(
+      this.bus.on('enemy_vortex_started', (field) => { this.vortices.set(field.fieldId, field) }),
+      this.bus.on('enemy_vortex_ended', ({ fieldId }) => { this.vortices.delete(fieldId) }),
+      this.bus.on('enemy_attack_requested', (request) => {
+        if (request.targetId !== this.player.model.id ||
+          request.targetSpawnSeq !== this.player.model.spawnSeq || this.clock.paused || this.clock.frozen)
+          return
+        this.player.model.takeHit(request)
+      }),
       this.bus.on('room_cleared', (e) => {
         if (e.runId !== this.runId || !this.player.model.alive) return
         const options = this.rewards.offer(
@@ -258,6 +278,8 @@ export class CombatSession {
    */
   loadFloor(stageConfig: StageCollisionConfig): void {
     this.enemies.clearLiquid()
+    this.enemies.clearVortices()
+    this.vortices.clear()
     this.stageConfig = stageConfig
     this.enterStage(1)
   }
@@ -341,7 +363,12 @@ export class CombatSession {
     this.scene.physics.world.resume()
     const pointer = this.scene.input.activePointer
     this.scene.cameras.main.getWorldPoint(pointer.x, pointer.y, this.aim)
-    if (!this.skill?.isDashing()) this.player.move(this.clock.nowMs - before, true)
+    const fields = [...this.vortices.values()]
+    if (!this.skill?.isDashing()) {
+      const pull = vortexPullVelocity({ x: this.player.x, y: this.player.y }, fields)
+      this.player.move(this.clock.nowMs - before, true, pull)
+    } else this.player.clearMovementInertia()
+    this.weapons.applyVortices(fields, (this.clock.nowMs - before) / 1000)
     this.player.aim(this.aim.x, this.aim.y, this.weapons.firing)
     this.player.advanceStamina(this.clock.nowMs - before, this.weapons.firing)
     this.weapons.update(this.stats, this.weapon)

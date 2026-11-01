@@ -31,6 +31,7 @@ import {
 import { ProfileStore } from '@/domains/meta/profile/ProfileStore'
 import { LocalStorageProfileStorage } from '@/domains/meta/profile/storage'
 import { RunLedger } from '@/domains/meta/run/RunLedger'
+import { RunResultCommitter } from '@/domains/meta/run/RunResultCommitter'
 import { SettlementOverlay } from '@/domains/meta/settlement/SettlementOverlay'
 import type { RunInput } from '@/domains/meta/progress/progress'
 import { MAIN_MENU_SCENE_KEY, MainMenuScene } from '@/domains/meta/scenes/MainMenuScene'
@@ -41,6 +42,8 @@ class D4SettlementArena extends ArenaBase {
   private store!: ProfileStore
   private meta!: MetaConfig
   private outcome: RunInput['outcome'] = 'dead'
+  private committer!: RunResultCommitter
+  private runSerial = 0
 
   protected get definition(): ArenaDefinition {
     return arena
@@ -67,6 +70,7 @@ class D4SettlementArena extends ArenaBase {
     this.store = new ProfileStore({ storage: new LocalStorageProfileStorage() })
     this.store.load()
     this.ledger = new RunLedger(ctx.bus)
+    this.committer = new RunResultCommitter(this.store, this.meta)
 
     this.overlay = new SettlementOverlay({
       scene: ctx.scene,
@@ -114,11 +118,17 @@ class D4SettlementArena extends ArenaBase {
     this.ledger.setDepth(outcome === 'cleared' ? 3 : 1)
     this.clock.pause()
     this.physics.world.pause()
-    this.overlay.show()
+    this.overlay.show(this.committer.commit({
+      runId: `d4-settlement-${this.runSerial}`,
+      characterId: this.store.profile.selected.characterId,
+      difficulty: this.store.profile.selected.difficulty,
+      ...this.ledger.input(outcome), elapsedMs: this.clock.nowMs,
+    }))
   }
 
   private softRestart(): void {
     this.overlay.hide()
+    this.runSerial++
     this.clock.resume()
     this.physics.world.resume()
     // ⚠️ 顺序要紧：`killAll()` 走**完整的死亡流程**，所以它会往账本里记击杀。
