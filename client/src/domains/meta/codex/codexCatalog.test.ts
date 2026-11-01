@@ -22,7 +22,7 @@ function bundle() {
 }
 
 describe('怪物图鉴目录', () => {
-  it('普通敌人按代际展开，并带入第二层首领', () => {
+  it('普通敌人按代际展开，包含两种校园动物与三种首领', () => {
     const entries = buildCodexEntries(bundle(), 'normal')
     expect(entries.map((entry) => entry.id)).toEqual([
       'splitter-0',
@@ -31,9 +31,13 @@ describe('怪物图鉴目录', () => {
       'tank',
       'grabber',
       'sprayer',
+      'muscovy',
+      'nightmare_cat',
+      'first-boss',
       'stage2-boss',
+      'heart-demon',
     ])
-    expect(entries.filter((entry) => entry.category === '首领')).toHaveLength(1)
+    expect(entries.filter((entry) => entry.category === '首领')).toHaveLength(3)
   })
 
   it('数值来自当前难度派生，不在图鉴里复制一份', () => {
@@ -52,10 +56,22 @@ describe('怪物图鉴目录', () => {
     for (const entry of entries) expect(codexAnimationKey(entry.textureKey)).toBeTruthy()
   })
 
-  it('首领缺美术时明确标记为占位，不伪造动画', () => {
+  it('首领展示独立正式美术，最终身份是心魔', () => {
     const boss = buildCodexEntries(bundle(), 'normal').find((entry) => entry.id === 'stage2-boss')!
-    expect(boss.hasArt).toBe(false)
+    expect(boss.hasArt).toBe(true)
     expect(codexAnimationKey(boss.textureKey)).toBe('enemy_stage2_idle_anim')
+    expect(buildCodexEntries(bundle(), 'normal').find((entry) => entry.id === 'heart-demon')?.name).toBe('心魔')
+  })
+
+  it('校园动物的攻击数值读取配置，文案解释互伤与猫的安全退场', () => {
+    const config = bundle()
+    const entries = buildCodexEntries(config, 'normal')
+    const duck = entries.find((entry) => entry.id === 'muscovy')!
+    const cat = entries.find((entry) => entry.id === 'nightmare_cat')!
+    expect(duck.stats.find((value) => value.label === '冲刺距离')?.value).toBe(`${config.enemies.enemies.muscovy.charge.dashDistance} px`)
+    expect(duck.role).toContain('其他敌人')
+    expect(cat.role).toContain('双方飞行子弹')
+    expect(cat.lorePlaceholder).toContain('恢复正常')
   })
 
   it('列表选择首尾环绕', () => {

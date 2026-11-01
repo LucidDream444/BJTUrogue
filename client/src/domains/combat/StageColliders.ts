@@ -1,5 +1,6 @@
 import Phaser from 'phaser'
-import type { StageBarrier } from './StageGeometry'
+import type { MapPoint, StageBarrier } from './StageGeometry'
+import { sweepEnabledBarriers } from './BarrierSweep'
 import type { TerrainMap } from './TerrainMap'
 
 /** Stable collider groups; only their static bodies change between rooms. */
@@ -105,6 +106,13 @@ export class StageColliders {
       if (body?.enable) out.push(this.barrierRects[i]!.ownerOrder)
     }
     return out
+  }
+
+  /** 高速攻击的预先截断必须看启用挡板，不能仅靠随后会被校正覆盖的 Arcade 分离。 */
+  barrierHitTime(from: MapPoint, to: MapPoint, radius = 0): number | null {
+    return sweepEnabledBarriers(from, to, radius, this.barrierRects, (index) =>
+      (this.doorZones[index]?.body as Phaser.Physics.Arcade.StaticBody | null)?.enable === true,
+    )
   }
 
   private clear(): void {

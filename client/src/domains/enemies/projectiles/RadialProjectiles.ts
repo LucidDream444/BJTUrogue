@@ -1,4 +1,5 @@
 import type { RadialProjectileConfig } from '@/core/config'
+import { deflectVortexVelocity, type VortexSnapshot } from '@/core/vortex'
 
 export interface RadialShot {
   active: boolean
@@ -74,6 +75,7 @@ export class RadialProjectiles {
     ownerAlive: (id: number) => boolean,
     canTravel: (x0: number, y0: number, x1: number, y1: number) => boolean,
     hit: (shot: RadialShot) => void,
+    fields: readonly VortexSnapshot[] = [],
   ): void {
     for (const shot of this.shots) {
       if (!shot.active) continue
@@ -87,6 +89,9 @@ export class RadialProjectiles {
       const dt = (nextAt - shot.updatedAtMs) / 1000
       const x0 = shot.x,
         y0 = shot.y
+      const velocity = deflectVortexVelocity(shot, { x: shot.vx, y: shot.vy }, fields, dt)
+      shot.vx = velocity.x
+      shot.vy = velocity.y
       shot.x += shot.vx * dt
       shot.y += shot.vy * dt
       shot.updatedAtMs = nextAt

@@ -233,6 +233,11 @@ export interface CombatConfig {
      * 整条曲线见 `roomPlan()`。
      */
     initialGrabbers: number
+    initialMuscovies: number
+    initialNightmareCats: number
+    muscovyMinFloor: number
+    nightmareCatMinFloor: number
+    finale: { floor: number; displayName: string; finalRewardId: string }
     /**
      * ⚠️ **这个字段今天没有消费方**（2026-10-21 整层连续之后）。
      *
@@ -475,13 +480,25 @@ export function parseCombatConfig(raw: unknown): CombatConfig {
   if (!(c.weaponEffects.glowAlpha > 0 && c.weaponEffects.glowAlpha <= 1))
     throw new Error('weaponEffects: 光晕透明度无效')
   numeric(c.limits, 'limits')
-  numeric(c.arena, 'arena')
+  const { finale: _finale, ...arenaNumbers } = c.arena
+  numeric(arenaNumbers, 'arena')
   if (!Number.isInteger(c.arena.maxStages) || c.arena.maxStages < 1)
     throw new Error('arena.maxStages: 关卡上限无效')
   if (!Number.isFinite(c.arena.initialSprayers) || c.arena.initialSprayers < 0)
     throw new Error('arena.initialSprayers: 必须为非负有限数')
   if (!Number.isFinite(c.arena.initialGrabbers) || c.arena.initialGrabbers < 0)
     throw new Error('arena.initialGrabbers: 不能为负（0 是合法值：第一层不出抓取怪）')
+  for (const key of ['initialMuscovies', 'initialNightmareCats'] as const) {
+    if (!Number.isFinite(c.arena[key]) || c.arena[key] < 0)
+      throw new Error(`arena.${key}: 新敌人预算必须为非负数`)
+  }
+  for (const key of ['muscovyMinFloor', 'nightmareCatMinFloor'] as const) {
+    if (!Number.isInteger(c.arena[key]) || c.arena[key] < 2 || c.arena[key] > c.arena.maxStages)
+      throw new Error(`arena.${key}: 新敌人最早出现层必须在2至末层之间`)
+  }
+  if (!c.arena.finale || c.arena.finale.floor !== c.arena.maxStages ||
+    !c.arena.finale.displayName?.trim() || !c.arena.finale.finalRewardId?.trim())
+    throw new Error('arena.finale: 必须明确末层首领名称与最终收益ID')
   // 一局几层 = `maxStages`（第 1..N 层的首领按层的序号挑），一层几间 = 下面这两个数。
   // 层与间都进配置：红线 2 说数值不许写死在代码里，而这两个数直接决定一局有多长。
   if (!Number.isInteger(c.arena.roomsPerFloor) || c.arena.roomsPerFloor < 4)

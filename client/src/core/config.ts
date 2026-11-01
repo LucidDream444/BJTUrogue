@@ -376,7 +376,58 @@ export interface SprayerDef {
   fx: { color: number; edgeColor: number; warningColor: number; bubbleCount: number }
 }
 
-export type EnemyDef = SplitterDef | TankDef | GrabberDef | SprayerDef
+export interface AnimalEnemyDef {
+  displayName: string
+  threatLevel: number
+  hpMode: 'shots'
+  hpValue: number
+  speed: number
+  radius: number
+  visualScale: number
+  textureKey: string
+  contactDamagePerTick: number
+  aggroRadius: number
+  loseTargetRadius: number
+  ai: AiConfig
+}
+
+export interface MuscovyDef extends AnimalEnemyDef {
+  kind: 'muscovy'
+  charge: {
+    range: number
+    windupMs: number
+    dashSpeed: number
+    dashDistance: number
+    recoverMs: number
+    cooldownMs: number
+    damage: number
+  }
+}
+
+export interface NightmareCatDef extends AnimalEnemyDef {
+  kind: 'nightmare_cat'
+  vortex: {
+    range: number
+    windupMs: number
+    durationMs: number
+    recoverMs: number
+    cooldownMs: number
+    damage: number
+    damageTickMs: number
+    damageRadius: number
+    pullRadius: number
+    pullSpeed: number
+    maxPullSpeed: number
+    projectileRadius: number
+    turnRateRadPerSec: number
+    maxTurnRateRadPerSec: number
+    rotationSign: 1 | -1
+    maxFields: number
+    purificationMs: number
+  }
+}
+
+export type EnemyDef = SplitterDef | TankDef | GrabberDef | SprayerDef | MuscovyDef | NightmareCatDef
 
 export interface RadialProjectileConfig {
   count: number
@@ -412,6 +463,8 @@ export interface EnemiesConfig {
     tank: TankDef
     grabber: GrabberDef
     sprayer: SprayerDef
+    muscovy: MuscovyDef
+    nightmare_cat: NightmareCatDef
   }
 }
 
@@ -810,11 +863,13 @@ export function validateEnemies(raw: unknown): EnemiesConfig {
   const tank = validateTank(need(enemies.tank, 'enemies.enemies.tank'))
   const grabber = validateGrabber(need(enemies.grabber, 'enemies.enemies.grabber'))
   const sprayer = validateSprayer(need(enemies.sprayer, 'enemies.enemies.sprayer'))
+  const muscovy = validateMuscovy(need(enemies.muscovy, 'enemies.enemies.muscovy'))
+  const nightmare_cat = validateNightmareCat(need(enemies.nightmare_cat, 'enemies.enemies.nightmare_cat'))
 
   return {
     schemaVersion: needNumber(r.schemaVersion, 'enemies.schemaVersion', { min: 1 }),
     stage2Boss: validateStage2Boss(r.stage2Boss),
-    enemies: { splitter, tank, grabber, sprayer },
+    enemies: { splitter, tank, grabber, sprayer, muscovy, nightmare_cat },
   }
 }
 
@@ -1201,6 +1256,71 @@ function validateTank(raw: unknown): TankDef {
       jitterHz: needNumber(juice.jitterHz, `${path}.juice.jitterHz`, { min: 0 }),
       squashHz: needNumber(juice.squashHz, `${path}.juice.squashHz`, { min: 0 }),
       hpPitchCents: needNumber(juice.hpPitchCents, `${path}.juice.hpPitchCents`, { min: 0 }),
+    },
+  }
+}
+
+function validateAnimal(raw: unknown, kind: 'muscovy' | 'nightmare_cat'): AnimalEnemyDef {
+  const path = `enemies.enemies.${kind}`
+  const r = need(raw as Record<string, unknown>, path)
+  if (r.kind !== kind || r.hpMode !== 'shots')
+    throw new ConfigError(path, `必须使用 ${kind} / shots`)
+  for (const forbidden of ['maxHp', 'difficulty', 'enemyHp', 'enemyDamage', 'enemySpeed', 'enemyCount']) {
+    if (forbidden in r) throw new ConfigError(`${path}.${forbidden}`, '派生血量与难度字段不能嵌入敌人表')
+  }
+  const positive = (key: string) => needNumber(r[key], `${path}.${key}`, { min: 0.01 })
+  const aggroRadius = positive('aggroRadius'), loseTargetRadius = positive('loseTargetRadius')
+  if (loseTargetRadius < aggroRadius)
+    throw new ConfigError(`${path}.loseTargetRadius`, '丢失目标范围不得小于索敌范围')
+  return {
+    displayName: needString(r.displayName, `${path}.displayName`),
+    threatLevel: needNumber(r.threatLevel, `${path}.threatLevel`, { min: 1, max: 5 }),
+    hpMode: 'shots', hpValue: positive('hpValue'), speed: positive('speed'),
+    radius: positive('radius'), visualScale: positive('visualScale'),
+    textureKey: validateTextureKey(needString(r.textureKey, `${path}.textureKey`), `${path}.textureKey`, 'image'),
+    contactDamagePerTick: needNumber(r.contactDamagePerTick, `${path}.contactDamagePerTick`, { min: 0 }),
+    aggroRadius, loseTargetRadius, ai: validateAi(r.ai, `${path}.ai`),
+  }
+}
+
+function validateMuscovy(raw: unknown): MuscovyDef {
+  const common = validateAnimal(raw, 'muscovy')
+  const path = 'enemies.enemies.muscovy.charge'
+  const c = need((raw as Record<string, unknown>).charge as Record<string, unknown>, path)
+  const positive = (key: string) => needNumber(c[key], `${path}.${key}`, { min: 0.01 })
+  return {
+    ...common, kind: 'muscovy',
+    charge: {
+      range: positive('range'), windupMs: positive('windupMs'), dashSpeed: positive('dashSpeed'),
+      dashDistance: positive('dashDistance'), recoverMs: positive('recoverMs'),
+      cooldownMs: positive('cooldownMs'), damage: positive('damage'),
+    },
+  }
+}
+
+function validateNightmareCat(raw: unknown): NightmareCatDef {
+  const common = validateAnimal(raw, 'nightmare_cat')
+  const path = 'enemies.enemies.nightmare_cat.vortex'
+  const v = need((raw as Record<string, unknown>).vortex as Record<string, unknown>, path)
+  const positive = (key: string) => needNumber(v[key], `${path}.${key}`, { min: 0.01 })
+  const maxFields = needNumber(v.maxFields, `${path}.maxFields`, { min: 1, max: 64 })
+  if (!Number.isInteger(maxFields)) throw new ConfigError(`${path}.maxFields`, '必须为整数')
+  if (v.rotationSign !== 1 && v.rotationSign !== -1)
+    throw new ConfigError(`${path}.rotationSign`, '必须为1或-1')
+  const durationMs = positive('durationMs'), damageTickMs = positive('damageTickMs')
+  const turnRateRadPerSec = positive('turnRateRadPerSec')
+  const maxTurnRateRadPerSec = positive('maxTurnRateRadPerSec')
+  if (damageTickMs > durationMs || maxTurnRateRadPerSec < turnRateRadPerSec)
+    throw new ConfigError(path, '伤害间隔不能超过持续时间，合成转向上限不能低于单场转向率')
+  return {
+    ...common, kind: 'nightmare_cat',
+    vortex: {
+      range: positive('range'), windupMs: positive('windupMs'), durationMs,
+      recoverMs: positive('recoverMs'), cooldownMs: positive('cooldownMs'),
+      damage: positive('damage'), damageTickMs, damageRadius: positive('damageRadius'),
+      pullRadius: positive('pullRadius'), pullSpeed: positive('pullSpeed'), maxPullSpeed: positive('maxPullSpeed'),
+      projectileRadius: positive('projectileRadius'), turnRateRadPerSec, maxTurnRateRadPerSec,
+      rotationSign: v.rotationSign, maxFields, purificationMs: positive('purificationMs'),
     },
   }
 }

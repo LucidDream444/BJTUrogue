@@ -1,27 +1,9 @@
-/**
- * 结算界面（需求 §4.6 那一支：血量归零 → 结算 → 重新开始 / 返回主菜单）。
- *
- * ## 它只做两件事
- *
- * 1. **把这一局的结果记进档**（发币 + 更新统计）—— 调 `settleRun()`，只此一处；
- * 2. **把结果画出来**给玩家看。
- *
- * 所以它**不订阅战斗总线**。谁来判断"这一局结束了"是宿主的事（战斗场景在玩家
- * 血量归零时调 `show()`），这样它就不会卡在 C1 的 `run_ended` 还没定稿上 ——
- * 事件定稿后只是宿主多一行 `bus.on('run_ended', () => settlement.show())`。
- * 它只订阅 D4 的 `ProfileStore`，用来同步保存失败横幅。
- *
- * ## ⚠️ `show()` 是幂等的
- *
- * 加币只能发生一次。玩家死的那一刻可能有好几条路径都想弹结算（血量归零、
- * 落水、超时……），每一条都调一次 `show()` 的话，币会翻倍 —— 而这种 bug
- * 只在"碰巧两条路径同时触发"时出现，测都难测。所以里面有个 `settled` 闸门。
- */
+/** 结算面板只展示已提交结果。记账由 RunResultCommitter 按 runId 防重，面板可反复打开。 */
 
 import type Phaser from 'phaser'
 import type { MetaConfig } from '../metaConfig'
 import type { ProfileStore } from '../profile/ProfileStore'
-import { settleRun, type RunInput, type SettleOutcome } from '../progress/progress'
+import type { RunInput, SettleOutcome } from '../progress/progress'
 import { Button } from '../ui/Button'
 import { buildOverlayFrame, type OverlaySink } from '../ui/overlayFrame'
 import { OverlayLayer } from '../ui/overlayLayer'
@@ -31,7 +13,7 @@ import { THEME, fontPx } from '../ui/theme'
 /** 宿主（D1 的战斗场景）必须提供这四件事。 */
 export interface SettlementHost {
   /** 本局的原始计数。谁统计由宿主决定 —— 见 `run/RunLedger.ts` */
-  runInput(): RunInput
+  runInput?(): RunInput
   /** 「重新开始」：宿主重开一局 */
   restart(): void
   /** 「返回主菜单」：宿主切回主菜单 */
@@ -61,7 +43,6 @@ export interface SettlementResult extends SettleOutcome {
 export class SettlementOverlay {
   private readonly scene: Phaser.Scene
   private readonly store: ProfileStore
-  private readonly meta: MetaConfig
   private readonly host: SettlementHost
 
   private opened = false
@@ -77,7 +58,6 @@ export class SettlementOverlay {
   constructor(options: SettlementOverlayOptions) {
     this.scene = options.scene
     this.store = options.store
-    this.meta = options.meta
     this.host = options.host
     this.unsubscribeStore = this.store.subscribe(() => this.saveBanner?.refresh())
   }
@@ -91,19 +71,11 @@ export class SettlementOverlay {
     return this.settled
   }
 
-  /** 结算并显示。**重复调用不会重复加币**（见文件头）。 */
-  show(): SettlementResult {
-    if (this.opened && this.settled) return this.settled
-
-    const input = this.host.runInput()
-    let earned: SettleOutcome = { coinsEarned: 0, coinsTotal: this.store.profile.currency.coins }
-    // 加币与写统计一起走 `update()`：它是"先克隆再改、改完才落盘"的那条路，
-    // 所以落盘失败也不会留下一个改到一半的档（见 ProfileStore 的三条不变式）。
-    this.store.update((draft) => {
-      earned = settleRun(draft, this.meta, input)
-    })
-
-    this.settled = { ...earned, input }
+  /** 只展示已提交结果；隐藏、重建、重复展示不会触碰存档。 */
+  show(result?: SettlementResult): SettlementResult {
+    if (result) this.settled = result
+    if (!this.settled) throw new Error('结算面板需要先提交的结果')
+    if (this.opened) return this.settled
     this.opened = true
     // 弹层整块要有自己的坐标系：宿主那台相机怎么缩放平移都不该影响它（见 OverlayLayer）
     this.layer ??= new OverlayLayer(this.scene)

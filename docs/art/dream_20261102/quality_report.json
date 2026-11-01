@@ -1,0 +1,308 @@
+{
+  "schemaVersion": 1,
+  "assets": [
+    {
+      "key": "player_red_berry_body",
+      "size": [
+        256,
+        448
+      ],
+      "bytes": 9436,
+      "frameCount": 26,
+      "uniqueFrames": 13,
+      "transparentCorners": true
+    },
+    {
+      "key": "player_red_berry_portrait",
+      "size": [
+        128,
+        128
+      ],
+      "bytes": 1116
+    },
+    {
+      "key": "weapon_pencil_base",
+      "size": [
+        48,
+        32
+      ],
+      "bytes": 251
+    },
+    {
+      "key": "weapon_pulse_base",
+      "size": [
+        48,
+        32
+      ],
+      "bytes": 249
+    },
+    {
+      "key": "weapon_venom_base",
+      "size": [
+        48,
+        32
+      ],
+      "bytes": 248
+    },
+    {
+      "key": "weapon_flare_base",
+      "size": [
+        48,
+        32
+      ],
+      "bytes": 252
+    },
+    {
+      "key": "weapon_rail_base",
+      "size": [
+        48,
+        32
+      ],
+      "bytes": 267
+    },
+    {
+      "key": "weapon_smg_base",
+      "size": [
+        48,
+        32
+      ],
+      "bytes": 251
+    },
+    {
+      "key": "enemy_muscovy_body",
+      "size": [
+        768,
+        1536
+      ],
+      "bytes": 37387,
+      "frameCount": 128,
+      "uniqueFrames": 77,
+      "transparentCorners": true
+    },
+    {
+      "key": "enemy_nightmare_cat_body",
+      "size": [
+        672,
+        576
+      ],
+      "bytes": 20373,
+      "frameCount": 42,
+      "uniqueFrames": 34,
+      "transparentCorners": true
+    },
+    {
+      "key": "fx_nightmare_cat_vortex",
+      "size": [
+        384,
+        192
+      ],
+      "bytes": 3206,
+      "frameCount": 8,
+      "uniqueFrames": 8,
+      "transparentCorners": true
+    },
+    {
+      "key": "fx_nightmare_cat_void",
+      "size": [
+        384,
+        192
+      ],
+      "bytes": 1861,
+      "frameCount": 8,
+      "uniqueFrames": 8,
+      "transparentCorners": true
+    },
+    {
+      "key": "boss_first_body",
+      "size": [
+        1024,
+        512
+      ],
+      "bytes": 14507,
+      "frameCount": 32,
+      "uniqueFrames": 20,
+      "transparentCorners": true
+    },
+    {
+      "key": "enemy_stage2_idle",
+      "size": [
+        512,
+        512
+      ],
+      "bytes": 9139,
+      "frameCount": 16,
+      "uniqueFrames": 7,
+      "transparentCorners": true
+    },
+    {
+      "key": "enemy_stage2_attack",
+      "size": [
+        512,
+        512
+      ],
+      "bytes": 12190,
+      "frameCount": 16,
+      "uniqueFrames": 16,
+      "transparentCorners": true
+    },
+    {
+      "key": "boss_final_idle",
+      "size": [
+        512,
+        512
+      ],
+      "bytes": 13634,
+      "frameCount": 16,
+      "uniqueFrames": 16,
+      "transparentCorners": true
+    },
+    {
+      "key": "boss_final_walk",
+      "size": [
+        512,
+        512
+      ],
+      "bytes": 14238,
+      "frameCount": 16,
+      "uniqueFrames": 16,
+      "transparentCorners": true
+    },
+    {
+      "key": "boss_final_attack",
+      "size": [
+        512,
+        512
+      ],
+      "bytes": 18115,
+      "frameCount": 16,
+      "uniqueFrames": 16,
+      "transparentCorners": true
+    },
+    {
+      "key": "boss_final_poison",
+      "size": [
+        512,
+        512
+      ],
+      "bytes": 17858,
+      "frameCount": 16,
+      "uniqueFrames": 16,
+      "transparentCorners": true
+    },
+    {
+      "key": "ui_story_intro_study",
+      "size": [
+        1280,
+        720
+      ],
+      "bytes": 9936
+    },
+    {
+      "key": "ui_story_intro_sleep",
+      "size": [
+        1280,
+        720
+      ],
+      "bytes": 8824
+    },
+    {
+      "key": "ui_story_intro_nightmare",
+      "size": [
+        1280,
+        720
+      ],
+      "bytes": 15658
+    },
+    {
+      "key": "ui_story_intro_discover_student",
+      "size": [
+        1280,
+        720
+      ],
+      "bytes": 10317
+    },
+    {
+      "key": "ui_story_intro_discover_goose",
+      "size": [
+        1280,
+        720
+      ],
+      "bytes": 7901
+    },
+    {
+      "key": "ui_story_intro_discover_berry",
+      "size": [
+        1280,
+        720
+      ],
+      "bytes": 8493
+    },
+    {
+      "key": "ui_story_intro_enter_student",
+      "size": [
+        1280,
+        720
+      ],
+      "bytes": 10901
+    },
+    {
+      "key": "ui_story_intro_enter_goose",
+      "size": [
+        1280,
+        720
+      ],
+      "bytes": 10555
+    },
+    {
+      "key": "ui_story_intro_enter_berry",
+      "size": [
+        1280,
+        720
+      ],
+      "bytes": 10803
+    },
+    {
+      "key": "ui_story_ending_wake",
+      "size": [
+        1280,
+        720
+      ],
+      "bytes": 10389
+    },
+    {
+      "key": "ui_story_ending_student",
+      "size": [
+        1280,
+        720
+      ],
+      "bytes": 11268
+    },
+    {
+      "key": "ui_story_ending_goose",
+      "size": [
+        1280,
+        720
+      ],
+      "bytes": 8929
+    },
+    {
+      "key": "ui_story_ending_berry",
+      "size": [
+        1280,
+        720
+      ],
+      "bytes": 11646
+    },
+    {
+      "key": "ui_story_ending_confidence",
+      "size": [
+        1280,
+        720
+      ],
+      "bytes": 10665
+    }
+  ],
+  "storyCount": 14,
+  "storyImagesDistinct": true,
+  "totalBytes": 320863
+}

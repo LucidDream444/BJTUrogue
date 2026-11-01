@@ -139,6 +139,108 @@ export const GOOSE_ART = {
   muzzle: [44, 16],
 } as const
 
+/** 小红果只改变第三角色表现，scholar仍是存档身份。 */
+export const RED_BERRY_ART = {
+  characterId: 'scholar', texture: 'player_red_berry_body', portrait: 'player_red_berry_portrait',
+  frameSize: 64, foot: [32, 56], center: [32, 35], visualScale: 0.65,
+  hopHeight: 8, socketRadius: 14, recoilDistance: 3,
+  states: {
+    idle: { start: 0, count: 4, frameRate: 4, loop: true },
+    run: { start: 4, count: 8, frameRate: 10, loop: true },
+    shoot: { start: 12, count: 4, frameRate: 16, loop: false },
+    hurt: { start: 16, count: 4, frameRate: 10, loop: false },
+    death: { start: 20, count: 6, frameRate: 8, loop: false },
+  },
+} as const
+
+export const PUBLIC_WEAPON_ART = {
+  pencil: { texture: 'weapon_pencil_base', size: [48, 32], grip: [12, 16], muzzle: [44, 16], visualScale: 1 },
+  pulse: { texture: 'weapon_pulse_base', size: [48, 32], grip: [12, 16], muzzle: [44, 16], visualScale: 1 },
+  venom: { texture: 'weapon_venom_base', size: [48, 32], grip: [12, 16], muzzle: [44, 16], visualScale: 1 },
+  flare: { texture: 'weapon_flare_base', size: [48, 32], grip: [12, 16], muzzle: [44, 16], visualScale: 1 },
+  rail: { texture: 'weapon_rail_base', size: [48, 32], grip: [12, 16], muzzle: [44, 16], visualScale: 1 },
+  smg: { texture: 'weapon_smg_base', size: [48, 32], grip: [12, 16], muzzle: [44, 16], visualScale: 1 },
+} as const
+
+export const MUSCOVY_ART = {
+  texture: 'enemy_muscovy_body', frameSize: 96, foot: [48, 82],
+  directions: { right: 0, down: 32, left: 64, up: 96 },
+  states: {
+    idle: { start: 0, count: 4, frameRate: 4, loop: true },
+    walk: { start: 4, count: 6, frameRate: 8, loop: true },
+    windup: { start: 10, count: 6, frameRate: 8, loop: false },
+    dash: { start: 16, count: 4, frameRate: 16, loop: true },
+    recover: { start: 20, count: 4, frameRate: 8, loop: false },
+    hit: { start: 24, count: 2, frameRate: 12, loop: false },
+    death: { start: 26, count: 6, frameRate: 10, loop: false },
+  },
+} as const
+
+export const NIGHTMARE_CAT_ART = {
+  texture: 'enemy_nightmare_cat_body', vortex: 'fx_nightmare_cat_vortex', void: 'fx_nightmare_cat_void',
+  frameSize: 96, foot: [48, 82], fxFrameCount: 8, fxFrameRate: 12,
+  states: {
+    idle: { start: 0, count: 4, frameRate: 4, loop: true },
+    walk: { start: 4, count: 6, frameRate: 8, loop: true },
+    windup: { start: 10, count: 6, frameRate: 8, loop: false },
+    spin: { start: 16, count: 8, frameRate: 14, loop: true },
+    recover: { start: 24, count: 4, frameRate: 8, loop: false },
+    hit: { start: 28, count: 2, frameRate: 12, loop: false },
+    purify: { start: 30, count: 6, frameRate: 8, loop: false },
+    vanish: { start: 36, count: 6, frameRate: 8, loop: false },
+  },
+} as const
+
+export const BOSS_FIRST_ART = {
+  texture: 'boss_first_body', frameSize: 128,
+  states: {
+    idle: { start: 0, count: 4, frameRate: 4, loop: true },
+    walk: { start: 4, count: 6, frameRate: 7, loop: true },
+    windup: { start: 10, count: 6, frameRate: 8, loop: false },
+    attack: { start: 16, count: 4, frameRate: 12, loop: false },
+    recover: { start: 20, count: 4, frameRate: 8, loop: false },
+    hit: { start: 24, count: 2, frameRate: 12, loop: false },
+    death: { start: 26, count: 6, frameRate: 8, loop: false },
+  },
+} as const
+
+export const STORY_ART = {
+  intro: {
+    study: 'ui_story_intro_study', sleep: 'ui_story_intro_sleep', nightmare: 'ui_story_intro_nightmare',
+    discover: { student: 'ui_story_intro_discover_student', goose: 'ui_story_intro_discover_goose', berry: 'ui_story_intro_discover_berry' },
+    enter: { student: 'ui_story_intro_enter_student', goose: 'ui_story_intro_enter_goose', berry: 'ui_story_intro_enter_berry' },
+  },
+  ending: {
+    wake: 'ui_story_ending_wake', confidence: 'ui_story_ending_confidence',
+    student: 'ui_story_ending_student', goose: 'ui_story_ending_goose', berry: 'ui_story_ending_berry',
+  },
+} as const
+
+function dreamAssets(): AssetEntry[] {
+  const sheet = (key: string, path: string, frameSize: number): AssetEntry => ({
+    key, path, placeholder: false, kind: 'spritesheet', width: frameSize, height: frameSize,
+    frameWidth: frameSize, frameHeight: frameSize,
+  })
+  const storyKeys = [
+    STORY_ART.intro.study, STORY_ART.intro.sleep, STORY_ART.intro.nightmare,
+    ...Object.values(STORY_ART.intro.discover), ...Object.values(STORY_ART.intro.enter),
+    ...Object.values(STORY_ART.ending),
+  ]
+  return [
+    sheet(RED_BERRY_ART.texture, 'sprites/player/red_berry/player_red_berry_body.png', RED_BERRY_ART.frameSize),
+    { key: RED_BERRY_ART.portrait, path: 'sprites/player/red_berry/player_red_berry_portrait.png', placeholder: false, kind: 'image' },
+    ...Object.values(PUBLIC_WEAPON_ART).map((a): AssetEntry => ({
+      key: a.texture, path: `sprites/weapons/${a.texture}.png`, placeholder: false, kind: 'image',
+    })),
+    sheet(MUSCOVY_ART.texture, 'sprites/enemies/enemy_muscovy_body.png', MUSCOVY_ART.frameSize),
+    sheet(NIGHTMARE_CAT_ART.texture, 'sprites/enemies/enemy_nightmare_cat_body.png', NIGHTMARE_CAT_ART.frameSize),
+    sheet(NIGHTMARE_CAT_ART.vortex, 'sprites/fx/fx_nightmare_cat_vortex.png', NIGHTMARE_CAT_ART.frameSize),
+    sheet(NIGHTMARE_CAT_ART.void, 'sprites/fx/fx_nightmare_cat_void.png', NIGHTMARE_CAT_ART.frameSize),
+    sheet(BOSS_FIRST_ART.texture, 'sprites/enemies/boss_first_body.png', BOSS_FIRST_ART.frameSize),
+    ...storyKeys.map((key): AssetEntry => ({ key, path: `ui/story/${key}.png`, placeholder: false, kind: 'image', width: 1280, height: 720 })),
+  ]
+}
+
 function campusPixelAssets(): AssetEntry[] {
   return [
     ...CAMPUS_PIXEL_TILE_KEYS.map((key) => ({
@@ -215,7 +317,7 @@ export const CAMPUS_MENU_ART = {
   characterCards: {
     student: 'player_student_idle_s',
     athlete: GOOSE_ART.portrait,
-    scholar: SKILL_ART.referenceBook,
+    scholar: RED_BERRY_ART.portrait,
   },
 } as const
 
@@ -335,7 +437,7 @@ const BASE_ASSETS: readonly AssetEntry[] = [
   {
     key: 'enemy_stage2_idle',
     path: 'sprites/enemies/stage2_boss/enemy_stage2_idle.png',
-    placeholder: true,
+    placeholder: false,
     kind: 'spritesheet',
     width: 96,
     height: 128,
@@ -345,7 +447,7 @@ const BASE_ASSETS: readonly AssetEntry[] = [
   {
     key: 'enemy_stage2_attack',
     path: 'sprites/enemies/stage2_boss/enemy_stage2_attack.png',
-    placeholder: true,
+    placeholder: false,
     kind: 'spritesheet',
     width: 96,
     height: 128,
@@ -453,7 +555,7 @@ const BASE_ASSETS: readonly AssetEntry[] = [
   {
     key: 'boss_final_poison',
     path: 'sprites/enemies/final_boss/boss_final_poison.png',
-    placeholder: true,
+    placeholder: false,
     kind: 'spritesheet',
     width: 96,
     height: 128,
@@ -464,7 +566,7 @@ const BASE_ASSETS: readonly AssetEntry[] = [
   {
     key: 'boss_final_walk',
     path: 'sprites/enemies/final_boss/boss_final_walk.png',
-    placeholder: true,
+    placeholder: false,
     kind: 'spritesheet',
     width: 96,
     height: 128,
@@ -474,7 +576,7 @@ const BASE_ASSETS: readonly AssetEntry[] = [
   {
     key: 'boss_final_attack',
     path: 'sprites/enemies/final_boss/boss_final_attack.png',
-    placeholder: true,
+    placeholder: false,
     kind: 'spritesheet',
     width: 96,
     height: 128,
@@ -484,7 +586,7 @@ const BASE_ASSETS: readonly AssetEntry[] = [
   {
     key: 'boss_final_idle',
     path: 'sprites/enemies/final_boss/boss_final_idle.png',
-    placeholder: true,
+    placeholder: false,
     kind: 'spritesheet',
     width: 96,
     height: 128,
@@ -1494,6 +1596,7 @@ const BASE_ASSETS: readonly AssetEntry[] = [
   // ---- 玩家分层：身体层 / 手臂+枪层（由 PLAYER_LAYER_BASES 展开，见上）----
   ...playerLayerAssets(),
   ...gooseAssets(),
+  ...dreamAssets(),
   ...campusPixelAssets(),
 ]
 
@@ -1565,6 +1668,32 @@ export const PAPER_DEATH_ANIMS: readonly AnimDef[] = [
 ]
 
 export const ANIMS: readonly AnimDef[] = [
+  ...Object.entries(RED_BERRY_ART.states).map(([state, a]): AnimDef => ({
+    animKey: `${RED_BERRY_ART.texture}_${state}`, textureKey: RED_BERRY_ART.texture,
+    frames: Array.from({ length: a.count }, (_, i) => a.start + i), frameRate: a.frameRate,
+    repeat: a.loop ? -1 : 0,
+  })),
+  ...Object.entries(MUSCOVY_ART.directions).flatMap(([direction, offset]) =>
+    Object.entries(MUSCOVY_ART.states).map(([state, a]): AnimDef => ({
+      animKey: `${MUSCOVY_ART.texture}_${direction}_${state}`, textureKey: MUSCOVY_ART.texture,
+      frames: Array.from({ length: a.count }, (_, i) => offset + a.start + i), frameRate: a.frameRate,
+      repeat: a.loop ? -1 : 0,
+    }))),
+  ...Object.entries(NIGHTMARE_CAT_ART.states).map(([state, a]): AnimDef => ({
+    animKey: `${NIGHTMARE_CAT_ART.texture}_${state}`, textureKey: NIGHTMARE_CAT_ART.texture,
+    frames: Array.from({ length: a.count }, (_, i) => a.start + i), frameRate: a.frameRate,
+    repeat: a.loop ? -1 : 0,
+  })),
+  ...[NIGHTMARE_CAT_ART.vortex, NIGHTMARE_CAT_ART.void].map((textureKey): AnimDef => ({
+    animKey: `${textureKey}_loop`, textureKey,
+    frames: Array.from({ length: NIGHTMARE_CAT_ART.fxFrameCount }, (_, i) => i),
+    frameRate: NIGHTMARE_CAT_ART.fxFrameRate, repeat: -1,
+  })),
+  ...Object.entries(BOSS_FIRST_ART.states).map(([state, a]): AnimDef => ({
+    animKey: `${BOSS_FIRST_ART.texture}_${state}`, textureKey: BOSS_FIRST_ART.texture,
+    frames: Array.from({ length: a.count }, (_, i) => a.start + i), frameRate: a.frameRate,
+    repeat: a.loop ? -1 : 0,
+  })),
   {
     animKey: 'enemy_sprayer_idle_loop',
     textureKey: SPRAYER_ART.texture,

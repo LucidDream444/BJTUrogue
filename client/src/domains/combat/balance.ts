@@ -24,6 +24,7 @@ export function roomPlan(
   cfg: CombatConfig,
   difficulty: Difficulty,
   growth: number,
+  floor = cfg.arena.maxStages,
 ) {
   if (!Number.isFinite(growth) || growth < 0)
     // 非有限值一路乘下去会得到 `NaN`，而 `NaN` 喂给 `Math.round` 还是 `NaN`，
@@ -41,6 +42,8 @@ export function roomPlan(
     //    给它套上 `max(1, ...)` 会让第一间房就出现它，那正是这一档要避免的。
     grabbers: Math.max(0, Math.round(a.initialGrabbers * growth * d.enemyCount)),
     sprayers: Math.max(0, Math.round(a.initialSprayers * growth * d.enemyCount)),
+    muscovies: floor < a.muscovyMinFloor ? 0 : Math.max(0, Math.round(a.initialMuscovies * growth * d.enemyCount)),
+    nightmareCats: floor < a.nightmareCatMinFloor ? 0 : Math.max(0, Math.round(a.initialNightmareCats * growth * d.enemyCount)),
     phaseDelayMs: a.phaseBaseMs / d.enemySpeed,
     secondPhaseFraction: a.phaseCountScale,
   }
