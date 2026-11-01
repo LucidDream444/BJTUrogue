@@ -144,6 +144,33 @@ export const FLOOR_PLAN_URL = `config/${FLOOR_PLAN_NAME}`
  * （YF2 还没做，先这样上 3 过渡）」—— 3F 因此退到第 2 层，第 1 层是
  * `FLOOR_PLAN_YF1_NAME`。**平面图本身一格没动**，变的只是它排在第几层。
  */
+/**
+ * 逸夫楼 2F —— 一局的**第 2 层**（1F → **2F** → 3F → 6F，★ 2026-10-23 加进来）。
+ *
+ * 用户：「按照照片做 YF2 的地图」「YF1 上去是 YF2」。
+ * ⚠️ 它排进来之后**一局从三层变成四层**：`floors.json` 多一项、
+ * `combat.json` 的 `arena.maxStages` 3 → 4（一局几层是 D1 的旋钮，见那份文件）。
+ */
+export const FLOOR_PLAN_YF2_NAME = 'floor-plan-yf2.json'
+
+/**
+ * 逸夫楼 4F / 5F —— 一局的**第 4 / 第 5 层**（10-30 加）。
+ *
+ * 用户：「添加 YF4 和 5，构造和 YF6 一样，只是房间标号第一位改一下就行」——
+ * 所以那两份 JSON 是 `floor-plan.json`（6F）的**逐格副本**，只换了房号前缀。
+ */
+/**
+ * 逸夫楼 7F —— 一局的**第 7 层（最后一层）**（10-30 加）。
+ *
+ * 用户：「根据图片做 YF7 的地图，YF7 不做首领房，中间那部分是可活动区域」。
+ * ⚠️ **它暂时没有首领房**：用户说「首领房暂时不做……之后会安排你做额外空间在七层作为最终关卡」——
+ * 那个「额外空间」接进来之前，一局打到 7F 不会结束（`floors.test.ts` 里那条判据暂时放宽了）。
+ */
+export const FLOOR_PLAN_YF7_NAME = 'floor-plan-yf7.json'
+
+export const FLOOR_PLAN_YF4_NAME = 'floor-plan-yf4.json'
+export const FLOOR_PLAN_YF5_NAME = 'floor-plan-yf5.json'
+
 export const FLOOR_PLAN_YF3_NAME = 'floor-plan-yf3.json'
 
 /**
@@ -181,7 +208,11 @@ export const FLOOR_PLAN_YF1_NAME = 'floor-plan-yf1.json'
  */
 export const FLOOR_PLAN_FILES: readonly string[] = [
   FLOOR_PLAN_YF1_NAME,
+  FLOOR_PLAN_YF2_NAME,
   FLOOR_PLAN_YF3_NAME,
+  FLOOR_PLAN_YF4_NAME,
+  FLOOR_PLAN_YF5_NAME,
+  FLOOR_PLAN_YF7_NAME,
   FLOOR_PLAN_NAME,
 ]
 

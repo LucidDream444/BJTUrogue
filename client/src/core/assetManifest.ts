@@ -205,6 +205,20 @@ export const CAMPAIGN_ART = {
   level3: 'level_3_classroom',
 } as const
 
+/** D4 主菜单的校园地图底图。交互热区与建筑名在 `meta/menu/campusMenuModel.ts`。 */
+export const CAMPUS_MENU_ART = {
+  map: 'ui_campus_main_menu_map',
+  /**
+   * 出发准备页的角色卡立绘。角色 id 与 `meta/catalog.ts` 的目录一致；
+   * 新生用现有待机图集的第一帧，大鹅与图书委员复用已交付的立绘 / 书本图。
+   */
+  characterCards: {
+    student: 'player_student_idle_s',
+    athlete: GOOSE_ART.portrait,
+    scholar: SKILL_ART.referenceBook,
+  },
+} as const
+
 /** 校园场景美术：教室现役资源与走廊/电子屏备用资源统一从清单取用。 */
 export const CAMPUS_ART = {
   classroom: {
@@ -346,6 +360,14 @@ const BASE_ASSETS: readonly AssetEntry[] = [
     kind: 'image',
     width: 1672,
     height: 941,
+  },
+  {
+    key: CAMPUS_MENU_ART.map,
+    path: 'ui/campus/ui_campus_main_menu_map.png',
+    placeholder: false,
+    kind: 'image',
+    width: 1459,
+    height: 821,
   },
   {
     key: 'level_1_classroom',
