@@ -20,6 +20,7 @@ import {
   MENU_ACTIONS,
   closeScreen,
   createMenuState,
+  focusOn,
   focusedAction,
   isUnlocked,
   moveFocus,
@@ -49,8 +50,16 @@ describe('焦点', () => {
     expect(state.focusIndex).toBe(0)
   })
 
-  it('「怪物图鉴」紧跟在「查看操作说明」之后，退出仍是末项', () => {
-    expect(MENU_ACTIONS).toEqual(['start', 'upgrade', 'help', 'codex', 'quit'])
+  it('校园入口完整，退出仍是末项', () => {
+    expect(MENU_ACTIONS).toEqual([
+      'start',
+      'upgrade',
+      'help',
+      'codex',
+      'achievements',
+      'settings',
+      'quit',
+    ])
   })
 
   it('往上越过第一项会绕到最后一项，而不是卡住', () => {
@@ -69,6 +78,12 @@ describe('焦点', () => {
     const state = withNotice(createMenuState(), '未解锁：xxx')
     expect(moveFocus(state, 1).notice).toBe('')
   })
+
+  it('鼠标建筑入口能把焦点直接落到同一个入口', () => {
+    const state = focusOn(createMenuState(), 'achievements')
+    expect(focusedAction(state)).toBe('achievements')
+    expect(state.notice).toBe('')
+  })
 })
 
 describe('弹层开关（需求 §4.6）', () => {
@@ -80,6 +95,12 @@ describe('弹层开关（需求 §4.6）', () => {
 
   it('关掉弹层回主菜单', () => {
     const state = openScreen(createMenuState(), 'settings')
+    expect(closeScreen(state)?.screen).toBe('main')
+  })
+
+  it('逸夫楼打开出发准备页；Esc 回校园地图而不是直接开打', () => {
+    const state = openScreen(createMenuState(), 'run-setup')
+    expect(state.screen).toBe('run-setup')
     expect(closeScreen(state)?.screen).toBe('main')
   })
 
