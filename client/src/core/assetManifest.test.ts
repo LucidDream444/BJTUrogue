@@ -8,6 +8,18 @@ import {
 } from './assetManifest'
 
 describe('character voice manifest', () => {
+  const readyKeys = new Set([
+    'voice_player_student_hurt',
+    'voice_player_student_death',
+    'voice_player_student_skill',
+    'voice_player_student_reward',
+    'voice_player_athlete_hurt',
+    'voice_player_athlete_death',
+    'voice_player_athlete_skill',
+    'voice_player_athlete_reward',
+    'voice_player_all_boss_kill',
+  ])
+
   it('gives every playable character a distinct voice identity', () => {
     const characterIds = CHARACTER_VOICE_PROFILES.map((profile) => profile.characterId)
     const voiceIds = CHARACTER_VOICE_PROFILES.map((profile) => profile.voiceId)
@@ -20,14 +32,10 @@ describe('character voice manifest', () => {
     for (const characterId of CHARACTER_VOICE_CHARACTER_IDS) {
       for (const cue of CHARACTER_VOICE_CUES) {
         const key = characterVoiceKey(characterId, cue)
-        const ready =
-          key === 'voice_player_student_hurt' ||
-          key === 'voice_player_student_reward' ||
-          key === 'voice_player_all_boss_kill'
         expect(findAsset(key)).toEqual({
           key,
           path: `audio/voice/player/${key}`,
-          placeholder: !ready,
+          placeholder: !readyKeys.has(key),
           kind: 'audio',
           codecs: ['ogg', 'mp3'],
         })
