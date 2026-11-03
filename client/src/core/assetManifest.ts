@@ -306,14 +306,21 @@ export function characterVoiceKey(characterId: string, cue: CharacterVoiceCue): 
  * 预加载才会读取它；不在集合里的 cue 继续静默，不发起网络请求。
  */
 const CHARACTER_VOICE_READY_KEYS: ReadonlySet<string> = new Set([
-  // 例：'voice_player_student_hurt',
+  'voice_player_student_hurt',
 ])
 
 function characterVoiceAssets(): AssetEntry[] {
   return CHARACTER_VOICE_PROFILES.flatMap(({ characterId }) =>
     CHARACTER_VOICE_CUES.map((cue) => {
       const key = characterVoiceKey(characterId, cue)
-      return audio(key, `audio/voice/player/${key}`, !CHARACTER_VOICE_READY_KEYS.has(key))
+      // 新生的受伤短呼目前是浏览器原生支持的 PCM WAV；其余语音仍按 ogg + mp3 交付。
+      const codecs = key === 'voice_player_student_hurt' ? ['wav'] : undefined
+      return audio(
+        key,
+        `audio/voice/player/${key}`,
+        !CHARACTER_VOICE_READY_KEYS.has(key),
+        codecs,
+      )
     }),
   )
 }
@@ -1669,8 +1676,13 @@ export const ASSETS: readonly AssetEntry[] = BASE_ASSETS.map((asset) =>
     : asset,
 )
 
-function audio(key: string, path: string, placeholder = true): AssetEntry {
-  return { key, path, placeholder, kind: 'audio', codecs: ['ogg', 'mp3'] }
+function audio(
+  key: string,
+  path: string,
+  placeholder = true,
+  codecs: readonly string[] = ['ogg', 'mp3'],
+): AssetEntry {
+  return { key, path, placeholder, kind: 'audio', codecs }
 }
 
 /**
