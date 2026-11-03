@@ -730,9 +730,10 @@ export class BattleScene extends Phaser.Scene {
 
   /** 把当前测试/正式档里的角色被动和技能重新应用到本局。 */
   private applyProfileToRun(): void {
-    if (!this.meta) return
     const characterId = this.skillLab ? this.store.profile.selected.characterId :
       this.flow?.context.characterId ?? this.launchCharacterId ?? this.store.profile.selected.characterId
+    this.session.setCharacterVoice(characterId)
+    if (!this.meta) return
     const permanent = effectiveStats(this.store.profile, this.meta, characterId)
     this.session.player.setCharacter(characterId)
     this.session.applyPermanentRunStats({
