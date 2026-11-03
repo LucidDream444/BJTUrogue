@@ -223,6 +223,7 @@ class D4ProfileArena extends ArenaBase {
         `            解锁 ${p.unlocks.characters.join(', ') || '（空）'}`,
         `            升级 ${this.upgradeText(p.upgrades)}`,
         `            设置 BGM ${pct(p.settings.bgmVolume)}  音效 ${pct(p.settings.sfxVolume)}  ${p.settings.displayMode}`,
+        `            首次引导 ${p.onboarding.tutorialSeen ? '已结束' : '待展示'}`,
         `            统计 局数 ${p.stats.runs} · 通关 ${p.stats.wins} · 死亡 ${p.stats.deaths} · 最深 ${p.stats.bestDepth}`,
         '',
         '存储里现在有什么（不是内存里的档）',

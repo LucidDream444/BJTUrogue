@@ -22,6 +22,7 @@ import {
   createMenuState,
   focusOn,
   focusedAction,
+  initialMenuScreen,
   isUnlocked,
   moveFocus,
   openScreen,
@@ -83,6 +84,25 @@ describe('焦点', () => {
     const state = focusOn(createMenuState(), 'achievements')
     expect(focusedAction(state)).toBe('achievements')
     expect(state.notice).toBe('')
+  })
+})
+
+describe('首次引导入口', () => {
+  it('新档回主菜单时先展示一次引导', () => {
+    const profile = createDefaultProfile()
+    expect(profile.onboarding.tutorialSeen).toBe(false)
+    expect(initialMenuScreen(profile)).toBe('first-run')
+  })
+
+  it('看过之后直接进入主菜单', () => {
+    const profile = profileWith((draft) => {
+      draft.onboarding.tutorialSeen = true
+    })
+    expect(initialMenuScreen(profile)).toBe('main')
+  })
+
+  it('结算页明确要求去升级时，不被首次引导改道', () => {
+    expect(initialMenuScreen(createDefaultProfile(), 'upgrade')).toBe('upgrade')
   })
 })
 

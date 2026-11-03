@@ -255,6 +255,17 @@ export class ProfileStore {
     })
   }
 
+  /**
+   * 结束首次进入引导。**成功后同一份档永远只写一次**，所以重复调用不会让
+   * revision 无意义地前进；写盘失败时内存档仍标记为已看，本次会话不会被反复拦住。
+   */
+  markTutorialSeen(): boolean {
+    if (this.current.onboarding.tutorialSeen) return this.error === null
+    return this.update((draft) => {
+      draft.onboarding.tutorialSeen = true
+    })
+  }
+
   // ------------------------------------------------------------- 订阅
 
   /** 订阅变化。**返回退订函数，场景 shutdown 里必须调**（同 `core/events.ts` 的约定）。 */
