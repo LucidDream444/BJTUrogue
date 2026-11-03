@@ -1,10 +1,10 @@
-import type { RunContext, RunResultSnapshot, StoryRequest } from '@/core/events'
+import type { RunContext, RunResultSnapshot } from '@/core/events'
 
-export type RunPhase = 'intro' | 'playing' | 'ending' | 'settlement'
+export type RunPhase = 'playing' | 'settlement'
 
 /** 流程只收归并后的逻辑结果，不依赖事件到达顺序或任何表现层对象。 */
 export class RunFlow {
-  private currentPhase: RunPhase = 'intro'
+  private currentPhase: RunPhase = 'playing'
   private finalKilled = false
   private settled: RunResultSnapshot | null = null
   readonly context: RunContext
@@ -12,17 +12,6 @@ export class RunFlow {
   constructor(context: RunContext) { this.context = Object.freeze({ ...context }) }
   get phase(): RunPhase { return this.currentPhase }
   get result(): RunResultSnapshot | null { return this.settled }
-  get activeStory(): StoryRequest | null {
-    if (this.currentPhase !== 'intro' && this.currentPhase !== 'ending') return null
-    return { ...this.context, kind: this.currentPhase, requestId: `${this.context.runId}:${this.currentPhase}` }
-  }
-
-  finishStory(runId: string, requestId: string): boolean {
-    const active = this.activeStory
-    if (!active || active.runId !== runId || active.requestId !== requestId) return false
-    this.currentPhase = active.kind === 'intro' ? 'playing' : 'settlement'
-    return true
-  }
 
   recordFinalBossDeath(): void {
     if (this.currentPhase === 'playing') this.finalKilled = true
@@ -38,7 +27,7 @@ export class RunFlow {
   commit(snapshot: RunResultSnapshot): boolean {
     if (snapshot.runId !== this.context.runId || this.settled) return false
     this.settled = Object.freeze({ ...snapshot, ...this.context })
-    this.currentPhase = snapshot.outcome === 'cleared' ? 'ending' : 'settlement'
+    this.currentPhase = 'settlement'
     return true
   }
 }

@@ -1,46 +1,29 @@
 # 校园梦境像素美术交付
 
 从仓库根目录重建：`python client/tools/art/build_dream_pack.py`，需要 Pillow。
+`--bosses-only` 仅重建七张首领图集和交付预览/报告，不写角色、动物、武器或特效。
 
-本批为用户选定的本地逐像素绘制，不访问网络或图像生成服务。番鸭参考照片中的
-红色面瘤、黑羽白颈与宽蹼；小红果参考单颗红果，身体不含手臂或枪械。
-动物原生48像素、红果和首领原生64像素、故事原生320×180，全部以最近邻放大。
+## 2026-11-03 参考图重绘
 
-`delivery.json` 列出路径、图集行列、状态帧区间、播放速率、地面锚点及SHA256。
-`quality_report.json` 校验实际尺寸、透明角、有效帧和14幅画面独立性。
-`sprite_sample.png` 是透明底造型预览，`animation_contact.png` 覆盖全部状态，
-`story_contact.png` 为14幕分镜，每幕只显示一次。
+番鸭按用户提供的校园照片画为白头白胸、黑背白翼斑、红色面瘤与粉灰扁嘴。
+蓄力与冲刺四个方向均保持侧身展翅扑击，实际移动方向由锁定向量决定。
+小红果只保留深色像素眼与眨眼，不画眼白、虹膜或写实高光。
+首领分别为课本作业堆、考卷折纸鸟、破裂考场钟盘与试卷纸涡，全部没有人形。
 
-动画身体地面锚点：番鸭与猫(48,82)、小红果(32,56)、首领(64,116)。
-红果跳跃高度由RedBerryPose统一作用于身体与枪，图片不烘焙离地位移。
-六张公共枪图与已有鹅枪图逐字节一致，仅提升为公共资源，画布48×32，
-握点(12,16)、枪口(44,16)、原始朝右；不新增按角色、角度或动作的武器版本。
+动物原生48×48、红果与首领原生64×64，均最近邻放大。图集、状态帧与地面锚点沿用。
+动画身体锚点：番鸭与猫(48,82)、红果(32,56)、首领(64,116)。
+红果跳跃由RedBerryPose统一作用于身体与枪，贴图不含手臂、枪或离地位移。
+六把公共枪图与既有鹅枪逐字节一致，画布48×32、握点(12,16)、枪口(44,16)，原始朝右。
 
-14幕共用教室、红色书签笔记本与棕衣考研学子；可玩新生穿蓝色校服，与学子区分。
-睡眠/发热状态为侧脸伏在桌面交叠前臂上，没有桌前站姿双腿。最终心魔是试卷和
-破碎钟环包围的学生阴影，只有两只人形手臂。入梦分镜含八级悬空平台，
-梦境8F不声称来自真实校园测绘。中文字幕由story.json与运行时UI提供，不画入图片。
+## 交付文件
 
-## Rebuild notes
+- delivery.json：路径、尺寸、状态帧、锚点与SHA256。
+- quality_report.json：实际文件、透明角、首领完整透明边界和原生像素缩放检查。
+- sprite_sample.png / boss_preview.png：角色与首领对照。
+- animation_contact.png / boss_animation_contact.png：动作逐帧接触表。
 
-Rebuild from repository root: `python client/tools/art/build_dream_pack.py` (Pillow).
+可编辑源稿在client/tools/art/dream_pack：sprites.py（番鸭/果实）、bosses.py（首领）。
+全部使用本地Pillow绘画，无网络生成服务。游玩不需要安装Python或Pillow。
 
-All drawings are locally authored pixel art with no network or generation service.
-The supplied Muscovy photographs guide the black plumage, red facial caruncles,
-white neck and webbed feet. The supplied fruit photograph guides one red berry.
-Native art uses 48px animals, 64px berry/boss drawings and 320x180 story paintings;
-all export scaling uses nearest-neighbor. Story captions are runtime UI text.
-
-`delivery.json` lists runtime paths, canvas/frame grids, counts, anchors, states
-and SHA256 values. `sprite_sample.png`, `animation_contact.png`, and
-`story_contact.png` provide transparent checker previews and all story scenes.
-
-Animal frames use a fixed foot at (48,82), berry (32,56), boss (64,116).
-Berry jump height comes from RedBerryPose, not vertically shifted image frames.
-The six common weapon PNGs are promoted byte-identical from existing goose gun
-layers; grip=(12,16), muzzle=(44,16), canvas=48x32, native facing right.
-
-The fourteen story paintings share the same classroom, red-bookmark notebook,
-brown examinee and blue freshman. The eight floating landings mark the dream
-finale; the seventh real floor remains unchanged. No claim is made that the
-dream eighth floor is a measured real campus location.
+2026-11-03按用户要求移除全部开场、结局漫画及其资源与制作脚本；出发直接进入战斗，
+通关直接进入结算。用户提供的原参考图片保留在原位置，不属于此交付包。

@@ -184,13 +184,15 @@ export function buildCodexEntries(
   const cat = bundle.enemies.enemies.nightmare_cat
   entries.push({
     id: 'nightmare_cat', category: '普通敌人', name: cat.displayName, variant: '旋风型',
-    role: `蓄力 ${formatSeconds(cat.vortex.windupMs)} 后原地旋转；持续伤害玩家与其他敌人，轻微吸引并偏转双方飞行子弹`,
+    role: `蓄力 ${formatSeconds(cat.vortex.windupMs)} 后旋转；持续伤害玩家与其他敌人，牵引范围内所有单位并偏转双方飞行子弹`,
     threatLevel: cat.threatLevel, textureKey: cat.textureKey,
     visualScale: cat.visualScale, hasArt: hasDeliveredArt(cat.textureKey),
     stats: [
       { label: '生命值', value: `${Math.max(1, Math.round(cat.hpValue * bundle.balance.baseline.bullet.damage * modifiers.enemyHp))}` },
       { label: '范围伤害', value: `${cat.vortex.damage * modifiers.enemyDamage} / ${formatSeconds(cat.vortex.damageTickMs)}` },
       { label: '伤害半径', value: `${cat.vortex.damageRadius} px` },
+      { label: '牵引半径', value: `${cat.vortex.pullRadius} px` },
+      { label: '偏弹半径', value: `${cat.vortex.projectileRadius} px` },
       { label: '旋转持续', value: formatSeconds(cat.vortex.durationMs) },
       { label: '冷却', value: formatSeconds(cat.vortex.cooldownMs) },
     ],
@@ -198,12 +200,12 @@ export function buildCodexEntries(
   })
 
   entries.push({
-    id: 'first-boss', category: '首领', name: '蘑菇首领', variant: '重压首领',
-    role: '校园雨后菌菇与培养皿的梦魇 · 预警后范围下砸', threatLevel: tank.threatLevel,
+    id: 'first-boss', category: '首领', name: '课业重压', variant: '重压首领',
+    role: '教材与未交作业堆成的梦魇 · 预警后范围下砸', threatLevel: tank.threatLevel,
     textureKey: BOSS_FIRST_ART.texture, visualScale: tank.visualScale,
     hasArt: hasDeliveredArt(BOSS_FIRST_ART.texture),
     stats: [{ label: '攻击前摇', value: formatSeconds(tank.slam.windupMs) }],
-    lorePlaceholder: '从校园雨后菌菇与实验培养皿中生出的重压梦魇。先观察下砸预警，再离开危险范围。它是中途首领，击败它不会提前结束整局。',
+    lorePlaceholder: '厚课本、装订作业和批满红勾的试卷堆成了课业重压。它抬起整摞教材时，先看清下砸预警，再离开危险范围。它是中途首领，击败它不会提前结束整局。',
   })
 
   const boss = bundle.enemies.stage2Boss
@@ -224,12 +226,12 @@ export function buildCodexEntries(
       { label: '攻击前摇', value: formatSeconds(boss.windupMs) },
       { label: '碰撞半径', value: `${boss.radius} px` },
     ],
-    lorePlaceholder: LORE_PLACEHOLDER,
+    lorePlaceholder: '考卷折成纸鸢，准考证压在胸前，答题框与红色批改痕迹展开成双翼。它在远处释放环形弹幕；利用预警间隙穿过弹道，别被成堆试题困住。',
   })
 
   entries.push({
     id: 'heart-demon', category: '首领', name: '心魔', variant: '第八层最终首领',
-    role: '考研梦魇 · 试卷、倒计时与学子影子构成的最终心魔',
+    role: '考研梦魇 · 破裂考场钟盘、齿轮与批改试卷构成的最终心魔',
     threatLevel: entries.find((entry) => entry.id === 'stage2-boss')!.threatLevel,
     textureKey: FINAL_BOSS_ART.idle, visualScale: boss.visualScale,
     hasArt: hasDeliveredArt(FINAL_BOSS_ART.idle), stats: [],

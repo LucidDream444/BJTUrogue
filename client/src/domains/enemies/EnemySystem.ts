@@ -62,7 +62,6 @@ import type {
 import type { GameClock } from '@/core/time'
 import type { GameEvents, EnemyKind, TypedBus } from '@/core/events'
 import { Rng } from '@/core/rng'
-import { vortexPullVelocity } from '@/core/vortex'
 import {
   deriveGrabber,
   deriveSplitterGeneration,
@@ -113,6 +112,7 @@ import { makeMuscovyBrain, finishMuscovyAttack } from './brains/MuscovyBrain'
 import { makeVortexCatBrain } from './brains/VortexCatBrain'
 import { ChargeSweep, type ChargeTarget, type SolidHitTime } from './charge/ChargeSweep'
 import { VortexField, type VortexTarget } from './vortex/VortexField'
+import { enemyVortexPull } from './vortex/VortexForces'
 
 type EnemyActor = Actor<EnemyState>
 export type Entry = PooledEnemy<EnemyActor>
@@ -610,15 +610,18 @@ export class EnemySystem implements ActorEventSink {
     // A charge has already moved during this physical step, even on catch-up steps.
     const target = this.playerOf()
     this.stepCharges(target, nowMs, dtSec)
-    // Hit squash can change Arcade's rounded half-width and therefore its center.
-    // Keep the promised spin anchor exact even while taking damage and changing frames.
+    // Follow resolved body travel, including other cats' pull and wall separation.
+    // Ignore center changes caused solely by squash/frame dimensions.
     for (const entry of this.frameEntries) {
       const model = entry.model
       if (!model.alive || model.state !== 'spin') continue
       const body = entry.view.body
+      model.spinX += body.position.x - body.prev.x
+      model.spinY += body.position.y - body.prev.y
       body.position.x += model.spinX - body.center.x
       body.position.y += model.spinY - body.center.y
       body.updateCenter()
+      this.vortex.moveOwner(model.id, model.spinX, model.spinY)
     }
     if (newFrame) {
       this.refreshSnaps()
@@ -671,11 +674,9 @@ export class EnemySystem implements ActorEventSink {
       if (!entry.model.alive) continue
       const model = entry.model
       const baseX = model.velIntent.x, baseY = model.velIntent.y
-      if (model.state !== 'dash' && model.state !== 'spin' && model.state !== 'flung' && model.state !== 'grabbing') {
-        const pull = vortexFields.length ? vortexPullVelocity(entry.view.body.center, vortexFields) : null
-        model.velIntent.x += pull?.x ?? 0
-        model.velIntent.y += pull?.y ?? 0
-      }
+      const pull = vortexFields.length ? enemyVortexPull(model.id, entry.view.body.center, vortexFields) : null
+      model.velIntent.x += pull?.x ?? 0
+      model.velIntent.y += pull?.y ?? 0
       entry.view.applyVelocityIntent()
       model.velIntent.x = baseX
       model.velIntent.y = baseY
@@ -807,9 +808,9 @@ export class EnemySystem implements ActorEventSink {
         model.attackSourceId = allocActorId()
         model.vortexFieldId = allocActorId()
         const field = this.vortex.start(model.vortexFieldId, model.attackSourceId, model.id, model.spinX, model.spinY, nowMs, cfg, Math.round(cfg.damage * this.diffMods.enemyDamage))
-        // Phaser 3.90 separateCircle also checks pushable, not just immovable.
-        entry.view.body.setImmovable(true)
-        entry.view.body.pushable = false
+        // A spinning cat can be pulled by other cats and must still resolve walls.
+        entry.view.body.setImmovable(false)
+        entry.view.body.pushable = true
         if (field) this.bus.emit('enemy_vortex_started', field)
       }
     }
@@ -836,7 +837,11 @@ export class EnemySystem implements ActorEventSink {
       if (!model.alive || model.state !== 'dash' || !run) continue
       const from = { x: model.dashLastX, y: model.dashLastY }
       const intendedDistance = cfg.dashSpeed * Math.max(0, dtSec)
-      const to = { x: from.x + model.lockedDirX * intendedDistance, y: from.y + model.lockedDirY * intendedDistance }
+      const pull = enemyVortexPull(model.id, from, this.vortex.snapshots)
+      const to = {
+        x: from.x + model.lockedDirX * intendedDistance + pull.x * Math.max(0, dtSec),
+        y: from.y + model.lockedDirY * intendedDistance + pull.y * Math.max(0, dtSec),
+      }
       const sweep = run.sweep(from, to, model.stats.radius, cfg.dashDistance - model.dashTravelled, targets, this.chargeBlockTime)
       // body.position is the single position authority; sync sprite only for this explicit correction.
       const center = entry.view.body.center

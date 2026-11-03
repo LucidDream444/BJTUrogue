@@ -13,6 +13,7 @@ export interface VortexTarget {
 export interface VortexDamage extends HitRequest { targetId: number; targetSpawnSeq: number }
 interface ActiveVortex {
   snapshot: VortexSnapshot
+  center: { x: number; y: number }
   damage: number
   tickMs: number
   lastTick: number
@@ -31,8 +32,13 @@ export class VortexField {
 
   start(fieldId: number, sourceId: number, ownerId: number, x: number, y: number, nowMs: number, cfg: NightmareCatDef['vortex'], damage: number): VortexSnapshot | null {
     if (this.fields.size >= this.capacity || this.fields.has(fieldId)) return null
+    const center = { x, y }
     const snapshot: VortexSnapshot = Object.freeze({
-      fieldId, sourceId, ownerId, x, y,
+      fieldId, sourceId, ownerId,
+      // Consumers retain the started-event reference. Read-only coordinates follow
+      // the owner without sending duplicate lifecycle events or changing C1.
+      get x() { return center.x },
+      get y() { return center.y },
       startedAtMs: nowMs,
       endsAtMs: nowMs + cfg.durationMs,
       damageRadius: cfg.damageRadius,
@@ -44,8 +50,17 @@ export class VortexField {
       maxTurnRateRadPerSec: cfg.maxTurnRateRadPerSec,
       rotationSign: cfg.rotationSign,
     })
-    this.fields.set(fieldId, { snapshot, damage, tickMs: cfg.damageTickMs, lastTick: -1, settledFrames: new Map() })
+    this.fields.set(fieldId, { snapshot, center, damage, tickMs: cfg.damageTickMs, lastTick: -1, settledFrames: new Map() })
     return snapshot
+  }
+
+  /** Move only with the owner's resolved physical position, never integrate force twice. */
+  moveOwner(ownerId: number, x: number, y: number): void {
+    for (const field of this.fields.values()) {
+      if (field.snapshot.ownerId !== ownerId) continue
+      field.center.x = x
+      field.center.y = y
+    }
   }
 
   /** Call only from WORLD_STEP. Skipped slots are dropped rather than burst-replayed. */

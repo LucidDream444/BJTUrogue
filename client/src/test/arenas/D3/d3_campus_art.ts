@@ -11,8 +11,8 @@ interface Clip { texture: string; frames: readonly number[]; frameRate: number; 
 const SUBJECTS: readonly { id: Subject; key: string; label: string }[] = [
   { id: 'muscovy', key: 'ONE', label: '1 番鸭动画' },
   { id: 'cat', key: 'TWO', label: '2 黑化猫动画' },
-  { id: 'first', key: 'THREE', label: '3 菌菇首领' },
-  { id: 'second', key: 'FOUR', label: '4 霜翼使徒' },
+  { id: 'first', key: 'THREE', label: '3 课业重压' },
+  { id: 'second', key: 'FOUR', label: '4 考卷纸鸢' },
   { id: 'final', key: 'FIVE', label: '5 最终心魔' },
   { id: 'overview', key: 'SIX', label: '6 原实战总览' },
 ]
@@ -87,8 +87,8 @@ class CampusArtArena extends ArenaBase {
       this.add.text(195, 200, '纸团：三代逐次缩小', { color: '#f6f0d9', fontSize: '16px' })
       this.add.text(684, 240, '番鸭 / 黑化猫', { color: '#f6f0d9', fontSize: '16px' })
       this.add.text(945, 245, '厚课本《计组》', { color: '#a9d6d4', fontSize: '16px' })
-      this.add.text(180, 630, '校园菌菇首领', { color: '#ffffff', fontSize: '16px' })
-      this.add.text(580, 630, '霜翼使徒', { color: '#4da6ff', fontSize: '16px' })
+      this.add.text(180, 630, '课业重压', { color: '#ffffff', fontSize: '16px' })
+      this.add.text(580, 630, '考卷纸鸢', { color: '#f1d9a2', fontSize: '16px' })
       this.add.text(980, 630, '最终心魔', { color: '#a855f7', fontSize: '16px' })
       ctx.hud.setNotice('P 看纸团分裂；右上1—5单独查看动画')
     } else {
@@ -193,6 +193,6 @@ class CampusArtArena extends ArenaBase {
 
 export const arena: ArenaDefinition = {
   displayName: '校园敌人与首领动画',
-  description: '1番鸭 / 2猫 / 3菌菇 / 4霜翼 / 5心魔逐帧预览；6实战总览，P纸团分裂。',
+  description: '1番鸭 / 2猫 / 3课业重压 / 4考卷纸鸢 / 5心魔逐帧预览；6实战总览，P纸团分裂。',
   scene: CampusArtArena,
 }

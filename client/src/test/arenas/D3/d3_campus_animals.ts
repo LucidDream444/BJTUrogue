@@ -10,8 +10,8 @@ interface ProbeShot { view: Phaser.GameObjects.Arc; x: number; y: number; vx: nu
 type AnimalMode = 'mixed' | 'duck' | 'cat' | 'cats' | 'wall' | 'friendly'
 const MODES: readonly { id: AnimalMode; key: string; label: string; player: { x: number; y: number }; goal: string }[] = [
   { id: 'duck', key: 'ONE', label: '1 单只番鸭', player: { x: 470, y: 370 }, goal: '蓄力时移动：预警方向应保持不变；冲刺时开枪：仍可受伤。结束后等待完整冷却。' },
-  { id: 'cat', key: 'TWO', label: '2 单只黑化猫', player: { x: 1030, y: 400 }, goal: '走入内圈关掉无敌观察周期伤害；外圈观察轻吸。B 发双方探针，K 击杀猫查看正常化退场。' },
-  { id: 'cats', key: 'THREE', label: '3 双猫叠场', player: { x: 1080, y: 390 }, goal: '两猫距离接近时会互伤，圆心固定；K 只杀一猫，另一场继续；T 撤场观察范围立即消失。' },
+  { id: 'cat', key: 'TWO', label: '2 单只黑化猫', player: { x: 1030, y: 400 }, goal: '停步观察被外圈拉向猫；内圈才会周期伤害。B 发双方探针，观察大圈内偏弹；K 查看正常化退场。' },
+  { id: 'cats', key: 'THREE', label: '3 双猫叠场', player: { x: 1080, y: 390 }, goal: '两猫也会被对方的旋风牵引，靠近后互伤；K 只杀一猫，另一场继续；T 撤场观察范围立即消失。' },
   { id: 'wall', key: 'FOUR', label: '4 墙前后靶', player: { x: 550, y: 370 }, goal: '站着等待：番鸭穿过墙前课本后在墙前停下，墙后课本不掉血。靶子不主动移动或下砸。' },
   { id: 'friendly', key: 'FIVE', label: '5 敌方互伤', player: { x: 1070, y: 420 }, goal: '番鸭沿途命中课本、猫和玩家；猫旋风持续伤害其他敌人。观察单位旁的受伤次数与累计掉血。' },
   { id: 'mixed', key: 'SIX', label: '6 原混合场', player: { x: 470, y: 370 }, goal: '原始左右混合布局，保留 I / B / R 及自动复跑入口。右侧双猫，左侧番鸭与墙前课本。' },
