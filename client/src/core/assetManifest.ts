@@ -270,6 +270,70 @@ export const GAME_AUDIO = {
   shot: 'sfx_player_shot',
 } as const
 
+/** 角色语音的五个固定触发点。语音资源可以逐个到齐，未到齐的 cue 静默。 */
+export const CHARACTER_VOICE_CUES = ['hurt', 'death', 'skill', 'reward', 'boss_kill'] as const
+export type CharacterVoiceCue = (typeof CHARACTER_VOICE_CUES)[number]
+
+/**
+ * 角色与声线身份是显式一对一关系。
+ *
+ * `voiceId` 后续必须唯一：它可以和角色 id 相同，但换成另一套配音资源时
+ * 不能让两个角色指向同一个 voiceId。资源 key 与文件路径都由它生成。
+ */
+export const CHARACTER_VOICE_PROFILES = [
+  { characterId: 'student', voiceId: 'student' },
+  { characterId: 'athlete', voiceId: 'athlete' },
+  // UI 与战斗身份已是小红果；scholar 只作为旧存档 id 保留。
+  { characterId: 'scholar', voiceId: 'red_berry' },
+] as const
+
+export type CharacterVoiceProfile = (typeof CHARACTER_VOICE_PROFILES)[number]
+
+/** Boss 击杀由题设要求全角色共用同一条语音，不复制三份资源。 */
+export const SHARED_CHARACTER_VOICE_KEYS = {
+  boss_kill: 'voice_player_all_boss_kill',
+} as const
+
+/** 目前可出战的三名角色。新增角色时补 profile，资源清单会一并生成五个空槽。 */
+export const CHARACTER_VOICE_CHARACTER_IDS = CHARACTER_VOICE_PROFILES.map(
+  (profile) => profile.characterId,
+)
+
+/** 业务代码只通过这个函数取角色语音 key，不自己拼字符串。 */
+export function characterVoiceKey(characterId: string, cue: CharacterVoiceCue): string {
+  if (cue === 'boss_kill') return SHARED_CHARACTER_VOICE_KEYS.boss_kill
+  const profile = CHARACTER_VOICE_PROFILES.find((p) => p.characterId === characterId)
+  const voiceId = profile?.voiceId ?? characterId
+  return `voice_player_${voiceId}_${cue}`
+}
+
+/**
+ * 真正已交付的角色语音 key。文件进仓后在这里登记对应 key，
+ * 预加载才会读取它；不在集合里的 cue 继续静默，不发起网络请求。
+ */
+const CHARACTER_VOICE_READY_KEYS: ReadonlySet<string> = new Set([
+  'voice_player_student_hurt',
+  'voice_player_student_death',
+  'voice_player_student_skill',
+  'voice_player_student_reward',
+  'voice_player_athlete_hurt',
+  'voice_player_athlete_death',
+  'voice_player_athlete_skill',
+  'voice_player_athlete_reward',
+  SHARED_CHARACTER_VOICE_KEYS.boss_kill,
+])
+
+function characterVoiceAssets(): AssetEntry[] {
+  const keys = new Set(
+    CHARACTER_VOICE_PROFILES.flatMap(({ characterId }) =>
+      CHARACTER_VOICE_CUES.map((cue) => characterVoiceKey(characterId, cue)),
+    ),
+  )
+  return [...keys].map((key) =>
+    audio(key, `audio/voice/player/${key}`, !CHARACTER_VOICE_READY_KEYS.has(key)),
+  )
+}
+
 export const STAGE2_BOSS_ART = {
   idle: 'enemy_stage2_idle',
   attack: 'enemy_stage2_attack',
@@ -318,7 +382,7 @@ export const CAMPUS_MENU_ART = {
   map: 'ui_campus_main_menu_map',
   /**
    * 出发准备页的角色卡立绘。角色 id 与 `meta/catalog.ts` 的目录一致；
-   * 新生用现有待机图集的第一帧，大鹅与图书委员复用已交付的立绘 / 书本图。
+   * 新生用现有待机图集的第一帧；大鹅与小红果使用各自已交付的立绘。
    */
   characterCards: {
     student: 'player_student_idle_s',
@@ -1598,6 +1662,7 @@ const BASE_ASSETS: readonly AssetEntry[] = [
   audio('sfx_enemy_grabber_emp', 'audio/sfx/enemies/sfx_enemy_grabber_emp', false),
   audio('sfx_enemy_grabber_land', 'audio/sfx/enemies/sfx_enemy_grabber_land', false),
   audio('sfx_kill_flourish', 'audio/sfx/ui/sfx_kill_flourish'),
+  ...characterVoiceAssets(),
 
   // ---- 玩家分层：身体层 / 手臂+枪层（由 PLAYER_LAYER_BASES 展开，见上）----
   ...Object.values(REWARD_ART).map((key): AssetEntry => ({

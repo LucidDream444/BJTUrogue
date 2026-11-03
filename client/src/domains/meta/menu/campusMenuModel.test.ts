@@ -30,7 +30,7 @@ describe('校园地图入口表', () => {
       buildingName: '机械楼',
     })
     expect(hotspotForAction('codex')).toMatchObject({
-      buildingName: '图书馆',
+      buildingName: '16号楼',
     })
     expect(hotspotForAction('start')).toMatchObject({
       buildingName: '逸夫楼',
