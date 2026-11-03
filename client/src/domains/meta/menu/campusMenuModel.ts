@@ -76,7 +76,7 @@ export const CAMPUS_HOTSPOTS: readonly CampusHotspotDef[] = [
   },
   {
     action: 'codex',
-    buildingName: '图书馆',
+    buildingName: '16号楼',
     buttonLabel: '图鉴',
     x: 934,
     y: 0,

@@ -49,6 +49,10 @@ export type ProfileStoreEvent =
   | 'loaded'
   | 'updated'
   | 'reset'
+  /** 云端存档已成功应用到本地。它与普通 update 分开，因为 revision 不一定前进。 */
+  | 'cloud-loaded'
+  /** 云端载荷版本过高或无法迁移，本机档完全未修改。 */
+  | 'cloud-rejected'
   /** `save()` 成功。云同步层可以在收到它之后再决定何时上传。 */
   | 'saved'
   /** `save()` 仍失败。界面靠 `lastError` 显示原因并保留重试入口。 */
@@ -253,6 +257,43 @@ export class ProfileStore {
     return this.update((draft) => {
       draft.selected = { ...draft.selected, ...patch }
     })
+  }
+
+  /**
+   * 结束首次进入引导。**成功后同一份档永远只写一次**，所以重复调用不会让
+   * revision 无意义地前进；写盘失败时内存档仍标记为已看，本次会话不会被反复拦住。
+   */
+  markTutorialSeen(): boolean {
+    if (this.current.onboarding.tutorialSeen) return this.error === null
+    return this.update((draft) => {
+      draft.onboarding.tutorialSeen = true
+    })
+  }
+
+  /**
+   * 把一份云端载荷应用到本地。**这是下载云档的唯一入口。**
+   *
+   * - 先走正式迁移；版本比本版新、坏 JSON 或迁移链断裂时整次拒绝，本机档不动；
+   * - 音量、显示模式等设备设置永远保留当前本机值；
+   * - revision 只允许前进，防止本机设置已经产生更新的 revision 时被云档回退；
+   * - 这不是普通 `update()`，不会额外 +1。
+   */
+  applyCloudProfile(raw: unknown): boolean {
+    const migrated = migrateProfile(raw)
+    if (migrated.outcome.status === 'recovered') {
+      this.emit('cloud-rejected')
+      return false
+    }
+
+    const remote = migrated.profile
+    this.current = normalizeProfile({
+      ...remote,
+      revision: Math.max(this.current.revision, remote.revision),
+      settings: { ...this.current.settings },
+    })
+    const ok = this.writeCurrent()
+    this.emit(ok ? 'cloud-loaded' : 'save-failed')
+    return ok
   }
 
   // ------------------------------------------------------------- 订阅

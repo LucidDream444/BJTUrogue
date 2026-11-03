@@ -79,5 +79,6 @@ export function createDefaultProfile(): ProfileData {
     upgrades: {},
     stats: { runs: 0, wins: 0, deaths: 0, bestDepth: 0 },
     selected: { characterId: STARTER_CHARACTER_ID, difficulty: DEFAULT_DIFFICULTY },
+    onboarding: { tutorialSeen: false },
   }
 }
