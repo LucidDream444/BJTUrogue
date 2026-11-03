@@ -20,11 +20,14 @@ describe('character voice manifest', () => {
     for (const characterId of CHARACTER_VOICE_CHARACTER_IDS) {
       for (const cue of CHARACTER_VOICE_CUES) {
         const key = characterVoiceKey(characterId, cue)
-        const studentHurt = key === 'voice_player_student_hurt'
+        const ready =
+          key === 'voice_player_student_hurt' ||
+          key === 'voice_player_student_reward' ||
+          key === 'voice_player_all_boss_kill'
         expect(findAsset(key)).toEqual({
           key,
           path: `audio/voice/player/${key}`,
-          placeholder: !studentHurt,
+          placeholder: !ready,
           kind: 'audio',
           codecs: ['ogg', 'mp3'],
         })
@@ -32,10 +35,15 @@ describe('character voice manifest', () => {
     }
   })
 
-  it('keeps every generated voice key unique', () => {
+  it('shares one boss-kill clip while keeping the remaining voice keys unique', () => {
     const keys = CHARACTER_VOICE_CHARACTER_IDS.flatMap((characterId) =>
       CHARACTER_VOICE_CUES.map((cue) => characterVoiceKey(characterId, cue)),
     )
-    expect(new Set(keys).size).toBe(keys.length)
+    expect(new Set(keys).size).toBe(keys.length - 2)
+    for (const characterId of CHARACTER_VOICE_CHARACTER_IDS) {
+      expect(characterVoiceKey(characterId, 'boss_kill')).toBe(
+        'voice_player_all_boss_kill',
+      )
+    }
   })
 })
