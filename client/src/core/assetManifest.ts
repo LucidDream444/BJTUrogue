@@ -289,6 +289,11 @@ export const CHARACTER_VOICE_PROFILES = [
 
 export type CharacterVoiceProfile = (typeof CHARACTER_VOICE_PROFILES)[number]
 
+/** Boss 击杀由题设要求全角色共用同一条语音，不复制三份资源。 */
+export const SHARED_CHARACTER_VOICE_KEYS = {
+  boss_kill: 'voice_player_all_boss_kill',
+} as const
+
 /** 目前可出战的三名角色。新增角色时补 profile，资源清单会一并生成五个空槽。 */
 export const CHARACTER_VOICE_CHARACTER_IDS = CHARACTER_VOICE_PROFILES.map(
   (profile) => profile.characterId,
@@ -296,6 +301,7 @@ export const CHARACTER_VOICE_CHARACTER_IDS = CHARACTER_VOICE_PROFILES.map(
 
 /** 业务代码只通过这个函数取角色语音 key，不自己拼字符串。 */
 export function characterVoiceKey(characterId: string, cue: CharacterVoiceCue): string {
+  if (cue === 'boss_kill') return SHARED_CHARACTER_VOICE_KEYS.boss_kill
   const profile = CHARACTER_VOICE_PROFILES.find((p) => p.characterId === characterId)
   const voiceId = profile?.voiceId ?? characterId
   return `voice_player_${voiceId}_${cue}`
@@ -307,14 +313,18 @@ export function characterVoiceKey(characterId: string, cue: CharacterVoiceCue): 
  */
 const CHARACTER_VOICE_READY_KEYS: ReadonlySet<string> = new Set([
   'voice_player_student_hurt',
+  'voice_player_student_reward',
+  SHARED_CHARACTER_VOICE_KEYS.boss_kill,
 ])
 
 function characterVoiceAssets(): AssetEntry[] {
-  return CHARACTER_VOICE_PROFILES.flatMap(({ characterId }) =>
-    CHARACTER_VOICE_CUES.map((cue) => {
-      const key = characterVoiceKey(characterId, cue)
-      return audio(key, `audio/voice/player/${key}`, !CHARACTER_VOICE_READY_KEYS.has(key))
-    }),
+  const keys = new Set(
+    CHARACTER_VOICE_PROFILES.flatMap(({ characterId }) =>
+      CHARACTER_VOICE_CUES.map((cue) => characterVoiceKey(characterId, cue)),
+    ),
+  )
+  return [...keys].map((key) =>
+    audio(key, `audio/voice/player/${key}`, !CHARACTER_VOICE_READY_KEYS.has(key)),
   )
 }
 
