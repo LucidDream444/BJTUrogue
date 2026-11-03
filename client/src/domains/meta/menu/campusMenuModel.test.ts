@@ -15,31 +15,24 @@ describe('校园地图入口表', () => {
 
   it('按用户确认的地标映射按钮', () => {
     expect(hotspotForAction('achievements')).toMatchObject({
-      buildingNumber: '14',
       buildingName: '校史馆',
     })
     expect(hotspotForAction('upgrade')).toMatchObject({
-      buildingNumber: '01 旁',
       buildingName: '西操场',
     })
     expect(hotspotForAction('help')).toMatchObject({
-      buildingNumber: '07',
       buildingName: '思源楼',
     })
     expect(hotspotForAction('quit')).toMatchObject({
-      buildingNumber: '34',
       buildingName: '南门',
     })
     expect(hotspotForAction('settings')).toMatchObject({
-      buildingNumber: '24',
       buildingName: '机械楼',
     })
     expect(hotspotForAction('codex')).toMatchObject({
-      buildingNumber: '03',
       buildingName: '图书馆',
     })
     expect(hotspotForAction('start')).toMatchObject({
-      buildingNumber: '10',
       buildingName: '逸夫楼',
     })
   })
@@ -55,10 +48,10 @@ describe('校园地图入口表', () => {
     }
   })
 
-  it('每个入口都是一个落在建筑范围内的中心方块，并有单字按钮文案', () => {
+  it('每个入口都是一个落在建筑范围内的中心方块，并有恰好两个字的按钮文案', () => {
     for (const hotspot of CAMPUS_HOTSPOTS) {
       const center = hotspotButtonCenter(hotspot)
-      expect(hotspot.buttonLabel.length).toBeGreaterThan(0)
+      expect(hotspot.buttonLabel).toHaveLength(2)
       expect(center.x).toBeGreaterThan(hotspot.x)
       expect(center.y).toBeGreaterThan(hotspot.y)
       expect(center.x).toBeLessThan(hotspot.x + hotspot.width)

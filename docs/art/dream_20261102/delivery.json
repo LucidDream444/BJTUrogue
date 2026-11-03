@@ -1,0 +1,584 @@
+{
+  "schemaVersion": 1,
+  "pack": "campus_dream_20261102",
+  "source": "Locally authored pixel art; Pillow only; user photo-referenced anatomy",
+  "command": "python client/tools/art/build_dream_pack.py",
+  "filter": "NEAREST",
+  "assets": [
+    {
+      "key": "player_red_berry_body",
+      "path": "sprites/player/red_berry/player_red_berry_body.png",
+      "kind": "spritesheet",
+      "frameSize": [
+        64,
+        64
+      ],
+      "frameCount": 26,
+      "columns": 4,
+      "rows": 7,
+      "foot": [
+        32,
+        56
+      ],
+      "states": {
+        "idle": {
+          "start": 0,
+          "count": 4,
+          "frameRate": 4,
+          "loop": true
+        },
+        "run": {
+          "start": 4,
+          "count": 8,
+          "frameRate": 10,
+          "loop": true
+        },
+        "shoot": {
+          "start": 12,
+          "count": 4,
+          "frameRate": 16,
+          "loop": false
+        },
+        "hurt": {
+          "start": 16,
+          "count": 4,
+          "frameRate": 10,
+          "loop": false
+        },
+        "death": {
+          "start": 20,
+          "count": 6,
+          "frameRate": 8,
+          "loop": false
+        }
+      },
+      "sha256": "6c572f4836b9dd5865b5863b9d41e660476910a73621c1926ea46d9141cf023c"
+    },
+    {
+      "key": "player_red_berry_portrait",
+      "path": "sprites/player/red_berry/player_red_berry_portrait.png",
+      "kind": "image",
+      "size": [
+        128,
+        128
+      ],
+      "sha256": "bf6086b4cf0a26ceef2bc4e35d19876afc3a5ec9606f880eaf8eb2e0669c61cd"
+    },
+    {
+      "key": "weapon_pencil_base",
+      "path": "sprites/weapons/weapon_pencil_base.png",
+      "kind": "image",
+      "size": [
+        48,
+        32
+      ],
+      "grip": [
+        12,
+        16
+      ],
+      "muzzle": [
+        44,
+        16
+      ],
+      "source": "sprites/player/goose/player_goose_gun_pencil.png",
+      "sha256": "dd7c08e06f0d71a3fa51e9ed593b52de3aeb970eb82b0d199c7dc69fd796dabc"
+    },
+    {
+      "key": "weapon_pulse_base",
+      "path": "sprites/weapons/weapon_pulse_base.png",
+      "kind": "image",
+      "size": [
+        48,
+        32
+      ],
+      "grip": [
+        12,
+        16
+      ],
+      "muzzle": [
+        44,
+        16
+      ],
+      "source": "sprites/player/goose/player_goose_gun_pulse.png",
+      "sha256": "7a8998d6c3302fbaee4b6e33aaebb0e86cda35cd319d52d1c7c847c6c41ac7a1"
+    },
+    {
+      "key": "weapon_venom_base",
+      "path": "sprites/weapons/weapon_venom_base.png",
+      "kind": "image",
+      "size": [
+        48,
+        32
+      ],
+      "grip": [
+        12,
+        16
+      ],
+      "muzzle": [
+        44,
+        16
+      ],
+      "source": "sprites/player/goose/player_goose_gun_venom.png",
+      "sha256": "9cde3e51eef7f7ea8e72cd8fa23908959f70bcd1342a6da7a7eed182ebe0168b"
+    },
+    {
+      "key": "weapon_flare_base",
+      "path": "sprites/weapons/weapon_flare_base.png",
+      "kind": "image",
+      "size": [
+        48,
+        32
+      ],
+      "grip": [
+        12,
+        16
+      ],
+      "muzzle": [
+        44,
+        16
+      ],
+      "source": "sprites/player/goose/player_goose_gun_flare.png",
+      "sha256": "1528741f2c7454530652eff9df267b7a77974af38f8c4fb36110965706f8ef4b"
+    },
+    {
+      "key": "weapon_rail_base",
+      "path": "sprites/weapons/weapon_rail_base.png",
+      "kind": "image",
+      "size": [
+        48,
+        32
+      ],
+      "grip": [
+        12,
+        16
+      ],
+      "muzzle": [
+        44,
+        16
+      ],
+      "source": "sprites/player/goose/player_goose_gun_rail.png",
+      "sha256": "bc60d63b02046219cfbd9aeb6694fce78ae85be0f5f541c07679a0898ea56b61"
+    },
+    {
+      "key": "weapon_smg_base",
+      "path": "sprites/weapons/weapon_smg_base.png",
+      "kind": "image",
+      "size": [
+        48,
+        32
+      ],
+      "grip": [
+        12,
+        16
+      ],
+      "muzzle": [
+        44,
+        16
+      ],
+      "source": "sprites/player/goose/player_goose_gun_smg.png",
+      "sha256": "289f32fda8269b59ff86791b2eddbd6ae7c4adbabcf2cfb8b318759b2a48bf61"
+    },
+    {
+      "key": "enemy_muscovy_body",
+      "path": "sprites/enemies/enemy_muscovy_body.png",
+      "kind": "spritesheet",
+      "frameSize": [
+        96,
+        96
+      ],
+      "frameCount": 128,
+      "columns": 8,
+      "rows": 16,
+      "foot": [
+        48,
+        82
+      ],
+      "states": {
+        "idle": {
+          "start": 0,
+          "count": 4,
+          "frameRate": 4,
+          "loop": true
+        },
+        "walk": {
+          "start": 4,
+          "count": 6,
+          "frameRate": 8,
+          "loop": true
+        },
+        "windup": {
+          "start": 10,
+          "count": 6,
+          "frameRate": 8,
+          "loop": false
+        },
+        "dash": {
+          "start": 16,
+          "count": 4,
+          "frameRate": 16,
+          "loop": true
+        },
+        "recover": {
+          "start": 20,
+          "count": 4,
+          "frameRate": 8,
+          "loop": false
+        },
+        "hit": {
+          "start": 24,
+          "count": 2,
+          "frameRate": 12,
+          "loop": false
+        },
+        "death": {
+          "start": 26,
+          "count": 6,
+          "frameRate": 10,
+          "loop": false
+        }
+      },
+      "sha256": "618d5ced539dc0219dd172186c4ed837a7b8158a4796366bc74ea048deacc5fc",
+      "directions": {
+        "right": 0,
+        "down": 32,
+        "left": 64,
+        "up": 96
+      }
+    },
+    {
+      "key": "enemy_nightmare_cat_body",
+      "path": "sprites/enemies/enemy_nightmare_cat_body.png",
+      "kind": "spritesheet",
+      "frameSize": [
+        96,
+        96
+      ],
+      "frameCount": 42,
+      "columns": 7,
+      "rows": 6,
+      "foot": [
+        48,
+        82
+      ],
+      "states": {
+        "idle": {
+          "start": 0,
+          "count": 4,
+          "frameRate": 4,
+          "loop": true
+        },
+        "walk": {
+          "start": 4,
+          "count": 6,
+          "frameRate": 8,
+          "loop": true
+        },
+        "windup": {
+          "start": 10,
+          "count": 6,
+          "frameRate": 8,
+          "loop": false
+        },
+        "spin": {
+          "start": 16,
+          "count": 8,
+          "frameRate": 14,
+          "loop": true
+        },
+        "recover": {
+          "start": 24,
+          "count": 4,
+          "frameRate": 8,
+          "loop": false
+        },
+        "hit": {
+          "start": 28,
+          "count": 2,
+          "frameRate": 12,
+          "loop": false
+        },
+        "purify": {
+          "start": 30,
+          "count": 6,
+          "frameRate": 8,
+          "loop": false
+        },
+        "vanish": {
+          "start": 36,
+          "count": 6,
+          "frameRate": 8,
+          "loop": false
+        }
+      },
+      "sha256": "cf9916c02f43dec522e6e912e6eb951ce2e0942a487469bf7f5137bc8e02dfe5"
+    },
+    {
+      "key": "fx_nightmare_cat_vortex",
+      "path": "sprites/fx/fx_nightmare_cat_vortex.png",
+      "kind": "spritesheet",
+      "frameSize": [
+        96,
+        96
+      ],
+      "frameCount": 8,
+      "columns": 4,
+      "rows": 2,
+      "foot": [
+        48,
+        82
+      ],
+      "states": {
+        "loop": {
+          "start": 0,
+          "count": 8,
+          "frameRate": 12,
+          "loop": true
+        }
+      },
+      "sha256": "2b21aa0858293e1d28e6fec37ff0f949ca55aaf48b0be702bd4ad8bfc2a747bd"
+    },
+    {
+      "key": "fx_nightmare_cat_void",
+      "path": "sprites/fx/fx_nightmare_cat_void.png",
+      "kind": "spritesheet",
+      "frameSize": [
+        96,
+        96
+      ],
+      "frameCount": 8,
+      "columns": 4,
+      "rows": 2,
+      "foot": [
+        48,
+        82
+      ],
+      "states": {
+        "loop": {
+          "start": 0,
+          "count": 8,
+          "frameRate": 12,
+          "loop": true
+        }
+      },
+      "sha256": "520f47fc9e51f499c3bcefdf0e3830d6b22841ee5c7d3b9004d8b699fdc54d28"
+    },
+    {
+      "key": "boss_first_body",
+      "path": "sprites/enemies/boss_first_body.png",
+      "kind": "spritesheet",
+      "frameSize": [
+        128,
+        128
+      ],
+      "frameCount": 32,
+      "columns": 8,
+      "rows": 4,
+      "foot": [
+        64,
+        116
+      ],
+      "states": {
+        "idle": {
+          "start": 0,
+          "count": 4,
+          "frameRate": 4,
+          "loop": true
+        },
+        "walk": {
+          "start": 4,
+          "count": 6,
+          "frameRate": 7,
+          "loop": true
+        },
+        "windup": {
+          "start": 10,
+          "count": 6,
+          "frameRate": 8,
+          "loop": false
+        },
+        "attack": {
+          "start": 16,
+          "count": 4,
+          "frameRate": 12,
+          "loop": false
+        },
+        "recover": {
+          "start": 20,
+          "count": 4,
+          "frameRate": 8,
+          "loop": false
+        },
+        "hit": {
+          "start": 24,
+          "count": 2,
+          "frameRate": 12,
+          "loop": false
+        },
+        "death": {
+          "start": 26,
+          "count": 6,
+          "frameRate": 8,
+          "loop": false
+        }
+      },
+      "sha256": "58aee7295e40d9279ccac9ed62a5de2aa2c17d3dfbbc15fc578d778d3e5164f1"
+    },
+    {
+      "key": "enemy_stage2_idle",
+      "path": "sprites/enemies/stage2_boss/enemy_stage2_idle.png",
+      "kind": "spritesheet",
+      "frameSize": [
+        128,
+        128
+      ],
+      "frameCount": 16,
+      "columns": 4,
+      "rows": 4,
+      "foot": [
+        64,
+        116
+      ],
+      "states": {
+        "idle": {
+          "start": 0,
+          "count": 16,
+          "frameRate": 8,
+          "loop": true
+        }
+      },
+      "sha256": "750fa33858cdef436fca0e14b73c46a79a58381c01926380f62192de125f979f"
+    },
+    {
+      "key": "enemy_stage2_attack",
+      "path": "sprites/enemies/stage2_boss/enemy_stage2_attack.png",
+      "kind": "spritesheet",
+      "frameSize": [
+        128,
+        128
+      ],
+      "frameCount": 16,
+      "columns": 4,
+      "rows": 4,
+      "foot": [
+        64,
+        116
+      ],
+      "states": {
+        "attack": {
+          "start": 0,
+          "count": 16,
+          "frameRate": 8,
+          "loop": false
+        }
+      },
+      "sha256": "9d8b69396467cce52741cf04d49b5abb41294e18a6c7f9a469758500684e224c"
+    },
+    {
+      "key": "boss_final_idle",
+      "path": "sprites/enemies/final_boss/boss_final_idle.png",
+      "kind": "spritesheet",
+      "frameSize": [
+        128,
+        128
+      ],
+      "frameCount": 16,
+      "columns": 4,
+      "rows": 4,
+      "foot": [
+        64,
+        116
+      ],
+      "states": {
+        "idle": {
+          "start": 0,
+          "count": 16,
+          "frameRate": 8,
+          "loop": true
+        }
+      },
+      "sha256": "36fbd068bd0864ffffc8ef8280246cf02e1254908234d2f755d0f5bc5d09c542"
+    },
+    {
+      "key": "boss_final_walk",
+      "path": "sprites/enemies/final_boss/boss_final_walk.png",
+      "kind": "spritesheet",
+      "frameSize": [
+        128,
+        128
+      ],
+      "frameCount": 16,
+      "columns": 4,
+      "rows": 4,
+      "foot": [
+        64,
+        116
+      ],
+      "states": {
+        "walk": {
+          "start": 0,
+          "count": 16,
+          "frameRate": 8,
+          "loop": true
+        }
+      },
+      "sha256": "41860f7a4e23d0f3cfc6488229ce1356de09b2372cecc8796ca3bea96cf96a83"
+    },
+    {
+      "key": "boss_final_attack",
+      "path": "sprites/enemies/final_boss/boss_final_attack.png",
+      "kind": "spritesheet",
+      "frameSize": [
+        128,
+        128
+      ],
+      "frameCount": 16,
+      "columns": 4,
+      "rows": 4,
+      "foot": [
+        64,
+        116
+      ],
+      "states": {
+        "attack": {
+          "start": 0,
+          "count": 16,
+          "frameRate": 8,
+          "loop": false
+        }
+      },
+      "sha256": "8d7e498f3d6bbd8cdf1153cd9356270e8209b4e25661cec942b6b5f8ce90c374"
+    },
+    {
+      "key": "boss_final_poison",
+      "path": "sprites/enemies/final_boss/boss_final_poison.png",
+      "kind": "spritesheet",
+      "frameSize": [
+        128,
+        128
+      ],
+      "frameCount": 16,
+      "columns": 4,
+      "rows": 4,
+      "foot": [
+        64,
+        116
+      ],
+      "states": {
+        "poison": {
+          "start": 0,
+          "count": 16,
+          "frameRate": 8,
+          "loop": false
+        }
+      },
+      "sha256": "05b63a052f3e05e810eee3ae7e52b97478dd0d3d8da5f3a42940521134310866"
+    }
+  ],
+  "notes": [
+    "Berry body frames contain no weapon/arms and no baked hop displacement.",
+    "Muscovy direction offsets are right0/down32/left64/up96.",
+    "Public guns are byte-identical promotions of existing 48x32 layers.",
+    "Boss revision 2026-11-03: textbook overload, corrected-exam origami bird, and nonhuman exam clock.",
+    "All boss canvases, state grids, paths and ground anchors are unchanged."
+  ]
+}

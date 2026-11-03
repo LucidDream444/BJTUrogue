@@ -3,15 +3,19 @@ import { D1_ART, D1_ANIMS } from '@/core/d1AssetManifest'
 import { textureKeyFor } from '@/core/assets'
 import type { GameClock } from '@/core/time'
 import type { TypedBus } from '@/core/events'
+import type { Unsubscribe } from '@/core/events'
 import type { CombatEvents } from './events'
 import type { CombatConfig, WeaponDef } from './config'
-import { PlayerModel, moveVelocity, staminaAfterRegen } from './PlayerModel'
+import { PlayerModel, staminaAfterRegen } from './PlayerModel'
+import { advancePlayerMovement, type MovementVector } from './MovementForces'
 import { aimBand, aimFrame, equippedMuzzle, shotRecoil } from './AimPose'
 import type { PlayerPort } from './EnemyBridge'
 import type { BalanceConfig } from '@/core/config'
-import { GOOSE_ART } from '@/core/assetManifest'
+import { GOOSE_ART, RED_BERRY_ART } from '@/core/assetManifest'
 import { GooseView } from './GooseView'
 import { gooseDirection, gooseFrame, goosePose, type GooseDirection } from './GoosePose'
+import { RedBerryView } from './RedBerryView'
+import { redBerryFrame, redBerryPose } from './RedBerryPose'
 type Art = (typeof D1_ART)[number]
 export const PLAYER_ART = {
   pulseRun: D1_ART.find((a) => a.group === 'pulse_run')!,
@@ -44,6 +48,7 @@ export function displayArt(
   sprite.setOrigin(flip ? 1 - anchor[0] : anchor[0], anchor[1])
 }
 export class Player {
+  private readonly liquidUnsubs: Unsubscribe[] = []
   readonly model: PlayerModel
   readonly body: Phaser.Physics.Arcade.Body
   readonly sprite: Phaser.GameObjects.Sprite
@@ -53,7 +58,10 @@ export class Player {
   private aimY = 0
   private facingLeft = false
   private moving = false
+  private controlVelocity: MovementVector = { x: 0, y: 0 }
   private goose: GooseView | null = null
+  private redBerry: RedBerryView | null = null
+  private berryAimAngle = 0
   private gooseFacing: GooseDirection = 'right'
   private deathAtMs = 0
   private runAnimationMs = 0
@@ -81,6 +89,7 @@ export class Player {
       cfg.player.maxShield,
     )
     this.model.onHurt = (req, hpDamage, shieldDamage) => {
+      this.controlVelocity = { x: 0, y: 0 }
       this.body.stop()
       bus.emit('player_hurt', {
         id: this.model.id,
@@ -91,6 +100,15 @@ export class Player {
       })
     }
     this.model.iframeMs = balance.baseline.player.iframeMs
+    this.liquidUnsubs.push(
+      bus.on('player_liquid_changed', (e) => {
+        if (e.playerId === this.model.id) this.model.applyLiquidCoating(e.active, e.speedMultiplier)
+      }),
+      bus.on('player_liquid_drain', (e) => {
+        if (e.playerId === this.model.id)
+          this.model.takeLiquidDrain(e.amount, e.sourceId, e.frameId, e.nowMs)
+      }),
+    )
     this.model.protectedUntilMs = clock.nowMs + cfg.player.spawnGraceMs
     const radius = this.model.stats.radius
     this.anchor = scene.add.zone(x, y, radius * 2, radius * 2)
@@ -117,6 +135,7 @@ export class Player {
         bus.emit('entity_damaged', { ...e, targetKind: 'player', batched: false, tickCount: 1 })
       },
       onKilled: (e) => {
+        this.controlVelocity = { x: 0, y: 0 }
         this.deathAtMs = this.clock.realNowMs
         this.body.stop()
         bus.emit('entity_killed', {
@@ -144,6 +163,11 @@ export class Player {
       this.goose?.destroy()
       this.goose = null
     }
+    if (characterId === RED_BERRY_ART.characterId) this.redBerry ??= new RedBerryView(this.sprite)
+    else {
+      this.redBerry?.destroy()
+      this.redBerry = null
+    }
     this.draw()
   }
 
@@ -168,9 +192,10 @@ export class Player {
       alive: this.model.alive,
     }
   }
-  move(dtMs: number, enabled: boolean): void {
+  move(dtMs: number, enabled: boolean, external: MovementVector = { x: 0, y: 0 }): void {
     if (!enabled || !this.model.alive) {
       this.body.stop()
+      this.controlVelocity = { x: 0, y: 0 }
       this.moving = false
       this.runAnimationMs = 0
       return
@@ -180,18 +205,18 @@ export class Player {
     this.gooseFacing = gooseDirection(dx, dy, this.gooseFacing)
     // Movement sets the default facing; active mouse fire can override it afterwards.
     if (dx !== 0) this.facingLeft = dx < 0
-    const v = moveVelocity(
-      this.body.velocity.x,
-      this.body.velocity.y,
-      dx,
-      dy,
-      this.model.stats.speed,
+    const result = advancePlayerMovement(
+      this.controlVelocity,
+      { x: dx, y: dy },
+      this.model.stats.speed * this.model.liquidSpeedMultiplier,
       this.cfg.player.acceleration,
       this.cfg.player.deceleration,
       dtMs / 1000,
+      external,
     )
-    this.body.setVelocity(v.x, v.y)
-    const speed = Math.hypot(v.x, v.y)
+    this.controlVelocity = result.control
+    this.body.setVelocity(result.body.x, result.body.y)
+    const speed = Math.hypot(result.body.x, result.body.y)
     this.moving = speed > 1
     if (this.moving) this.runAnimationMs += (Math.max(0, dtMs) * speed) / this.model.stats.speed
     else this.runAnimationMs = 0
@@ -270,6 +295,7 @@ export class Player {
   get angle(): number {
     // 鼠标在长脖子内侧时也保持枪管方向，不能从枪口反算后突然倒射。
     if (this.goose) return this.goosePose().angle
+    if (this.redBerry) return this.redBerryPose().angle
     const muzzle = this.muzzle()
     return Math.atan2(this.aimY - muzzle.y, this.aimX - muzzle.x)
   }
@@ -289,6 +315,7 @@ export class Player {
   }
   muzzle(): { x: number; y: number } {
     if (this.goose) return this.goosePose().muzzle
+    if (this.redBerry) return this.redBerryPose().muzzle
     const pose = this.visualPose()
     const weaponMuzzle =
       this.weaponIdValue === 'pencil'
@@ -306,6 +333,22 @@ export class Player {
   draw(): void {
     this.model.syncState(this.moving)
     const hurt = this.model.alive && this.clock.nowMs < this.model.hurtUntilMs
+    if (this.redBerry) {
+      const attack = this.clock.nowMs < this.model.attackUntilMs
+      const action = !this.model.alive ? 'death' : hurt ? 'hurt' : attack ? 'shoot' : this.moving ? 'run' : 'idle'
+      const elapsed = !this.model.alive ? this.clock.realNowMs - this.deathAtMs
+        : hurt ? this.clock.nowMs - this.model.hurtAtMs
+        : attack ? this.clock.nowMs - (this.model.attackUntilMs - this.cfg.player.attackPoseMs)
+        : this.moving ? this.runAnimationMs : this.clock.nowMs
+      const duration = hurt ? this.cfg.player.hurtMs : attack ? this.cfg.player.attackPoseMs : undefined
+      const pose = this.redBerryPose()
+      this.berryAimAngle = pose.angle
+      this.redBerry.draw(pose, redBerryFrame(action, elapsed, duration),
+        this.cfg.player.visualScale * RED_BERRY_ART.visualScale, this.weaponIdValue, this.model.alive,
+        hurt && this.clock.nowMs - this.model.hurtAtMs < this.cfg.feedback.hurtFlashMs)
+      this.shadow.setPosition(this.x, this.feetY).setDepth(this.feetY - 1)
+      return
+    }
     if (this.goose) {
       const attack = this.clock.nowMs < this.model.attackUntilMs
       const action = !this.model.alive ? 'death' : hurt ? 'hurt' : attack ? 'shoot' : this.moving ? 'run' : 'idle'
@@ -366,7 +409,11 @@ export class Player {
     else this.sprite.clearTint()
     this.shadow.setPosition(this.x, this.feetY).setDepth(this.feetY - 1)
   }
+  clearMovementInertia(): void {
+    this.controlVelocity = { x: 0, y: 0 }
+  }
   clearInput(): void {
+    this.clearMovementInertia()
     for (const key of Object.values(this.keys)) key.reset()
     this.body.stop()
   }
@@ -374,10 +421,23 @@ export class Player {
     return goosePose({ x: this.x, y: this.feetY }, this.gooseFacing,
       this.cfg.player.visualScale * GOOSE_ART.visualScale, { x: this.aimX, y: this.aimY })
   }
+  private redBerryPose() {
+    const attack = this.model.alive && this.clock.nowMs < this.model.attackUntilMs
+    return redBerryPose({
+      feet: { x: this.x, y: this.feetY }, aim: { x: this.aimX, y: this.aimY },
+      scale: this.cfg.player.visualScale * RED_BERRY_ART.visualScale,
+      weapon: this.weaponIdValue, moving: this.moving && this.model.alive,
+      runElapsedMs: this.runAnimationMs,
+      attackElapsedMs: attack ? this.clock.nowMs - (this.model.attackUntilMs - this.cfg.player.attackPoseMs) : null,
+      attackDurationMs: this.cfg.player.attackPoseMs, previousAngle: this.berryAimAngle,
+    })
+  }
   destroy(): void {
+    for (const off of this.liquidUnsubs) off()
     this.model.sink = null
     this.model.onHurt = null
     this.goose?.destroy()
+    this.redBerry?.destroy()
     this.sprite.destroy()
     this.shadow.destroy()
     this.anchor.destroy()

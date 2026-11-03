@@ -55,7 +55,14 @@ export const MENU_ACTION_LABELS: Readonly<Record<MenuAction, string>> = {
  * 同时开着"这种不合法状态 —— 那种状态迟早会出现，而且只在某个边角操作里出现。
  */
 export type MenuScreen =
-  'main' | 'help' | 'settings' | 'upgrade' | 'codex' | 'achievements' | 'confirm-quit'
+  | 'main'
+  | 'run-setup'
+  | 'help'
+  | 'settings'
+  | 'upgrade'
+  | 'codex'
+  | 'achievements'
+  | 'confirm-quit'
 
 export interface MenuState {
   screen: MenuScreen

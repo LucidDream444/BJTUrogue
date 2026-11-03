@@ -2,6 +2,7 @@ import { describe, expect, it, vi } from 'vitest'
 import { readFileSync } from 'node:fs'
 import { validateEnemies } from '@/core/config'
 import { RadialProjectiles } from './RadialProjectiles'
+import type { VortexSnapshot } from '@/core/vortex'
 
 const raw = () => JSON.parse(readFileSync('public/config/enemies.json', 'utf8'))
 const cfg = validateEnemies(raw()).stage2Boss.projectile
@@ -14,6 +15,25 @@ function ring() {
 }
 
 describe('360-degree radial projectiles', () => {
+  it('旋风改变敌弹方向但保持伤害、所有者、速率与出生寿命，偏转后仍扫掠地形', () => {
+    const pool = ring()
+    const shot = pool.shots[0]!
+    const before = { ...shot }
+    const field: VortexSnapshot = {
+      fieldId: 90, sourceId: 91, ownerId: 92, x: 0, y: 0,
+      startedAtMs: 0, endsAtMs: 5000, damageRadius: 80,
+      pullRadius: 100, pullSpeed: 10, maxPullSpeed: 10,
+      projectileRadius: 1000, turnRateRadPerSec: 2, maxTurnRateRadPerSec: 2, rotationSign: 1,
+    }
+    pool.step(100, null, always, always, () => {}, [field])
+    expect(shot.vy).toBeGreaterThan(0)
+    expect(Math.hypot(shot.vx, shot.vy)).toBeCloseTo(cfg.speed)
+    expect(shot.ownerId).toBe(before.ownerId)
+    expect(shot.damage).toBe(before.damage)
+    expect(shot.bornAtMs).toBe(before.bornAtMs)
+    pool.step(200, null, always, () => false, () => {}, [field])
+    expect(shot.active).toBe(false)
+  })
   it('covers a whole circle uniformly and rotates the next volley into the gaps', () => {
     const pool = ring()
     const shots = pool.shots.filter((shot) => shot.active)

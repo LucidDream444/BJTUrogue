@@ -4,6 +4,36 @@ import type { HitRequest, HitResult } from '@/core/actor/damage'
 import type { GameClock } from '@/core/time'
 export type PlayerState = 'idle' | 'move' | 'attack' | 'hurt' | 'dead'
 export class PlayerModel extends ActorModel<PlayerState> {
+  liquidSpeedMultiplier = 1
+  private liquidActive = false
+
+  get collidesWithEnemies(): boolean { return !this.liquidActive }
+
+  applyLiquidCoating(active: boolean, speedMultiplier: number): void {
+    this.liquidActive = active
+    this.liquidSpeedMultiplier = active ? speedMultiplier : 1
+  }
+
+  /** 催化液的移动代价：经基类去重/死亡流程，跳过护盾和普通受击保护。 */
+  takeLiquidDrain(amount: number, sourceId: number, frameId: number, nowMs: number): HitResult {
+    if (
+      !this.alive ||
+      this.clock.paused ||
+      this.clock.frozen ||
+      !Number.isFinite(amount) ||
+      amount <= 0
+    )
+      return { applied: 0, killed: false, consumed: false }
+    return super.takeHit({
+      sourceId,
+      frameId,
+      nowMs,
+      amount,
+      mode: 'tick',
+      sourceKind: 'aoe',
+      hitKey: `liquid-drain:${sourceId}:${frameId}`,
+    })
+  }
   protectedUntilMs = 0
   hurtUntilMs = 0
   attackUntilMs = 0
@@ -93,7 +123,8 @@ export class PlayerModel extends ActorModel<PlayerState> {
   protected override blocksSource(): boolean {
     return false
   }
-  protected override absorbIncomingDamage(amount: number, _req: HitRequest): number {
+  protected override absorbIncomingDamage(amount: number, req: HitRequest): number {
+    if (req.hitKey.startsWith('liquid-drain:')) return amount
     const absorbed = Math.min(this.shield, amount)
     if (absorbed <= 0) return amount
     this.shield -= absorbed
@@ -104,6 +135,7 @@ export class PlayerModel extends ActorModel<PlayerState> {
   }
 
   protected override onDamageApplied(req: HitRequest, applied: number): void {
+    if (req.hitKey.startsWith('liquid-drain:')) return
     if (applied + this.absorbedDamage <= 0) return
     this.hurtAtMs = this.clock.nowMs
     this.attackUntilMs = 0

@@ -1,0 +1,208 @@
+{
+  "schemaVersion": 1,
+  "assets": [
+    {
+      "key": "player_red_berry_body",
+      "size": [
+        256,
+        448
+      ],
+      "bytes": 8765,
+      "frameCount": 26,
+      "uniqueFrames": 13,
+      "transparentCorners": true
+    },
+    {
+      "key": "player_red_berry_portrait",
+      "size": [
+        128,
+        128
+      ],
+      "bytes": 1046
+    },
+    {
+      "key": "weapon_pencil_base",
+      "size": [
+        48,
+        32
+      ],
+      "bytes": 251
+    },
+    {
+      "key": "weapon_pulse_base",
+      "size": [
+        48,
+        32
+      ],
+      "bytes": 249
+    },
+    {
+      "key": "weapon_venom_base",
+      "size": [
+        48,
+        32
+      ],
+      "bytes": 248
+    },
+    {
+      "key": "weapon_flare_base",
+      "size": [
+        48,
+        32
+      ],
+      "bytes": 252
+    },
+    {
+      "key": "weapon_rail_base",
+      "size": [
+        48,
+        32
+      ],
+      "bytes": 267
+    },
+    {
+      "key": "weapon_smg_base",
+      "size": [
+        48,
+        32
+      ],
+      "bytes": 251
+    },
+    {
+      "key": "enemy_muscovy_body",
+      "size": [
+        768,
+        1536
+      ],
+      "bytes": 42306,
+      "frameCount": 128,
+      "uniqueFrames": 57,
+      "transparentCorners": true
+    },
+    {
+      "key": "enemy_nightmare_cat_body",
+      "size": [
+        672,
+        576
+      ],
+      "bytes": 20373,
+      "frameCount": 42,
+      "uniqueFrames": 34,
+      "transparentCorners": true
+    },
+    {
+      "key": "fx_nightmare_cat_vortex",
+      "size": [
+        384,
+        192
+      ],
+      "bytes": 3206,
+      "frameCount": 8,
+      "uniqueFrames": 8,
+      "transparentCorners": true
+    },
+    {
+      "key": "fx_nightmare_cat_void",
+      "size": [
+        384,
+        192
+      ],
+      "bytes": 1861,
+      "frameCount": 8,
+      "uniqueFrames": 8,
+      "transparentCorners": true
+    },
+    {
+      "key": "boss_first_body",
+      "size": [
+        1024,
+        512
+      ],
+      "bytes": 19035,
+      "frameCount": 32,
+      "uniqueFrames": 25,
+      "transparentCorners": true,
+      "transparentPerimeter": true,
+      "nativePixelScale": 2
+    },
+    {
+      "key": "enemy_stage2_idle",
+      "size": [
+        512,
+        512
+      ],
+      "bytes": 14559,
+      "frameCount": 16,
+      "uniqueFrames": 6,
+      "transparentCorners": true,
+      "transparentPerimeter": true,
+      "nativePixelScale": 2
+    },
+    {
+      "key": "enemy_stage2_attack",
+      "size": [
+        512,
+        512
+      ],
+      "bytes": 16034,
+      "frameCount": 16,
+      "uniqueFrames": 15,
+      "transparentCorners": true,
+      "transparentPerimeter": true,
+      "nativePixelScale": 2
+    },
+    {
+      "key": "boss_final_idle",
+      "size": [
+        512,
+        512
+      ],
+      "bytes": 16692,
+      "frameCount": 16,
+      "uniqueFrames": 16,
+      "transparentCorners": true,
+      "transparentPerimeter": true,
+      "nativePixelScale": 2
+    },
+    {
+      "key": "boss_final_walk",
+      "size": [
+        512,
+        512
+      ],
+      "bytes": 17454,
+      "frameCount": 16,
+      "uniqueFrames": 16,
+      "transparentCorners": true,
+      "transparentPerimeter": true,
+      "nativePixelScale": 2
+    },
+    {
+      "key": "boss_final_attack",
+      "size": [
+        512,
+        512
+      ],
+      "bytes": 18240,
+      "frameCount": 16,
+      "uniqueFrames": 16,
+      "transparentCorners": true,
+      "transparentPerimeter": true,
+      "nativePixelScale": 2
+    },
+    {
+      "key": "boss_final_poison",
+      "size": [
+        512,
+        512
+      ],
+      "bytes": 18230,
+      "frameCount": 16,
+      "uniqueFrames": 16,
+      "transparentCorners": true,
+      "transparentPerimeter": true,
+      "nativePixelScale": 2
+    }
+  ],
+  "totalBytes": 199319
+}

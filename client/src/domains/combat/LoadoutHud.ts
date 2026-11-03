@@ -13,7 +13,8 @@ export class LoadoutHud {
     private readonly scene: Phaser.Scene,
     private readonly session: CombatSession,
   ) {
-    this.root = scene.add.container(18, 0).setScrollFactor(0).setDepth(1010)
+    // 屏幕 HUD 高于按世界 y 排序的实体、家具及世界标注。
+    this.root = scene.add.container(18, 0).setScrollFactor(0).setDepth(5010)
     for (let i = 0; i < 2; i++) {
       const x = i * 192
       const panel = scene.add

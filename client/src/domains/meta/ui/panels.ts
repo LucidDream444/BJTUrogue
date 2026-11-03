@@ -7,6 +7,7 @@
  */
 
 import type Phaser from 'phaser'
+import { HELP_SECTIONS } from './helpContent'
 import { unlockedCount } from '../menu/menuModel'
 import type { ProfileStore } from '../profile/ProfileStore'
 import type { DisplayMode, ProfileData } from '../profile/types'
@@ -21,38 +22,11 @@ export interface PanelSink extends OverlaySink {
 
 /** UC01 的操作说明。主菜单与暂停菜单共用，内容以当前产品键位为准。 */
 export function buildHelpPanel(scene: Phaser.Scene, sink: PanelSink, frame: OverlayFrame): void {
-  const columns = [
-    {
-      title: '基础操作',
-      x: frame.contentLeft,
-      width: frame.panelWidth / 2 - THEME.space.xl,
-      rows: [
-        ['WASD', '移动角色'],
-        ['鼠标', '瞄准；按住左键连续攻击'],
-        ['Space', '释放当前角色技能'],
-        ['X', '循环切换已有武器'],
-        ['1 / 2', '直接装备对应武器槽'],
-        ['E', '开启宝箱 / 拾取地上武器'],
-        ['F', '站在楼梯入口时上下楼'],
-        ['Esc', '暂停游戏'],
-      ],
-    },
-    {
-      title: '战斗与结算',
-      x: frame.cx + THEME.space.sm,
-      width: frame.panelWidth / 2 - THEME.space.xl,
-      rows: [
-        ['护盾', '先扣护盾，护盾清空后扣生命'],
-        ['清房', '清空敌人后可开宝箱并选择强化'],
-        ['宝箱', '靠近后按 E 开启，武器掉落也按 E 拾取'],
-        ['技能', '每个角色只有一个技能，冷却/充能显示在底部'],
-        ['死亡', '本局临时进度结束；金币和永久成长保留'],
-        ['暂停', 'Esc 或右上角暂停按钮；再次按 Esc 返回游戏'],
-        ['设置', '设置面板可调 BGM、音效音量与显示模式'],
-        ['提示', '敌方攻击前摇要提前走位，不要贴脸硬吃'],
-      ],
-    },
-  ]
+  const columns = HELP_SECTIONS.map((section, index) => ({
+    ...section,
+    x: index === 0 ? frame.contentLeft : frame.cx + THEME.space.sm,
+    width: frame.panelWidth / 2 - THEME.space.xl,
+  }))
 
   for (const column of columns) {
     sink.track(

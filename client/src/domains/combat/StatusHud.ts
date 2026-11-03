@@ -15,7 +15,8 @@ export class StatusHud {
   private readonly bars: { health: StatusBar; stamina: StatusBar; shield: StatusBar }
 
   constructor(private readonly scene: Phaser.Scene) {
-    this.root = scene.add.container(18, 16).setScrollFactor(0).setDepth(1001)
+    // 屏幕 HUD 高于按世界 y 排序的实体、家具及世界标注。
+    this.root = scene.add.container(18, 16).setScrollFactor(0).setDepth(5001)
     this.bars = {
       health: this.makeBar(STATUS_HUD_ART.health, 0),
       stamina: this.makeBar(STATUS_HUD_ART.stamina, 42),

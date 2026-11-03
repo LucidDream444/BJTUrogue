@@ -73,6 +73,8 @@ export interface MetaConfig {
     coinsPerClearedRoom: number
     coinsPerDepth: number
   }
+  /** 最终收益按稳定配置 ID 引用；旧表未提供时为空。 */
+  finalRewards: Readonly<Record<string, { readonly coins: number }>>
   characters: Readonly<Record<string, CharacterDef2>>
 }
 
@@ -85,6 +87,11 @@ export function parseMetaConfig(raw: unknown): MetaConfig {
     throw new MetaConfigError(`meta.schemaVersion 只认 2，拿到 ${JSON.stringify(version)}`)
   }
   const economy = needRecord(root.economy, 'meta.economy')
+  const finalRewards: Record<string, { coins: number }> = {}
+  for (const [id, value] of Object.entries(needRecord(root.finalRewards ?? {}, 'meta.finalRewards'))) {
+    const reward = needRecord(value, `meta.finalRewards.${id}`)
+    finalRewards[id] = { coins: needNumber(reward.coins, `meta.finalRewards.${id}.coins`, 0) }
+  }
   const characters: Record<string, CharacterDef2> = {}
   for (const [id, value] of Object.entries(needRecord(root.characters, 'meta.characters'))) {
     const def = needRecord(value, `meta.characters.${id}`)
@@ -126,6 +133,7 @@ export function parseMetaConfig(raw: unknown): MetaConfig {
       ),
       coinsPerDepth: needNumber(economy.coinsPerDepth, 'meta.economy.coinsPerDepth', 0),
     },
+    finalRewards,
     characters,
   }
 }
