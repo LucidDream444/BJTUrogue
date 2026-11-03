@@ -31,25 +31,20 @@
  */
 
 import Phaser from 'phaser'
-import { characterById } from '../catalog'
 import type { ProfileStore } from '../profile/ProfileStore'
 import type { DisplayMode } from '../profile/types'
-import { totalLevelsFor } from '../progress/progress'
-import { Bar } from '../ui/Bar'
-import { Button } from '../ui/Button'
-import { dashRect } from '../ui/dashed'
-import { buildOverlayFrame } from '../ui/overlayFrame'
 import { OverlayLayer } from '../ui/overlayLayer'
+import type { OverlaySink } from '../ui/overlayFrame'
+import { ArchiveUI } from '../ui/ArchiveUI'
 import {
-  applyDisplayModeSelection,
-  buildHelpPanel,
-  buildSettingsPanel,
-  type PanelSink,
-  type SettingsPanelParts,
-} from '../ui/panels'
+  buildNotebookPause,
+  buildNotebookHelp,
+  buildNotebookSettings,
+  buildNotebookQuit,
+  type NotebookSettingsParts,
+} from '../ui/NotebookPanels'
 import { SaveStatusBanner } from '../ui/SaveStatusBanner'
-import { Slider } from '../ui/Slider'
-import { THEME, fontPx } from '../ui/theme'
+import { THEME, ARCHIVE_THEME as A } from '../ui/theme'
 import type { RunSnapshot } from './runSnapshot'
 
 /** 宿主（D1 的战斗场景）必须提供这四件事。 */
@@ -80,9 +75,6 @@ const SCREEN_TITLES: Readonly<Record<PauseScreen, string>> = {
   'confirm-quit': '确定返回主菜单？',
 }
 
-const PANEL_WIDTH = 760
-const PANEL_HEIGHT = 440
-
 /** 左栏四个按钮的名字与顺序（需求 §4.3 的控件表） */
 const MENU_LABELS = ['继续游戏', '查看操作说明', '设置', '返回主菜单'] as const
 
@@ -97,13 +89,11 @@ export class PauseOverlay {
   private snapshot: RunSnapshot | null = null
 
   private objects: Phaser.GameObjects.GameObject[] = []
-  private buttons: Button[] = []
-  private sliders: Slider[] = []
-  private bars: Bar[] = []
+  private pauseChoices: Phaser.GameObjects.Rectangle[] = []
   /** 这一屏的所有显示对象（**含控件内部那些**），顺序 = 创建顺序，见 `ui/overlayLayer.ts` */
   private parts: Phaser.GameObjects.GameObject[] = []
   private layer: OverlayLayer | null = null
-  private settingsParts: SettingsPanelParts | null = null
+  private settingsParts: NotebookSettingsParts | null = null
   private saveBanner: SaveStatusBanner | null = null
   private noticeText: Phaser.GameObjects.Text | null = null
   private readonly onResize: () => void
@@ -122,8 +112,7 @@ export class PauseOverlay {
       if (this.opened) this.rebuild()
     }
     this.scene.scale.on(Phaser.Scale.Events.RESIZE, this.onResize)
-    this.onFullscreenChanged = () =>
-      this.store.syncDisplayMode(this.scene.scale.isFullscreen)
+    this.onFullscreenChanged = () => this.store.syncDisplayMode(this.scene.scale.isFullscreen)
     this.onFullscreenFailed = () => {
       this.noticeText?.setText('全屏切换失败，浏览器未进入全屏')
     }
@@ -133,12 +122,7 @@ export class PauseOverlay {
     this.scene.scale.on(Phaser.Scale.Events.FULLSCREEN_UNSUPPORTED, this.onFullscreenFailed)
     this.unsubscribeStore = this.store.subscribe(() => {
       this.saveBanner?.refresh()
-      if (this.settingsParts) {
-        applyDisplayModeSelection(
-          this.settingsParts,
-          this.store.profile.settings.displayMode,
-        )
-      }
+      this.settingsParts?.refresh()
     })
   }
 
@@ -257,20 +241,15 @@ export class PauseOverlay {
 
   // ------------------------------------------------------------------ 画面
 
-  private makeSink(): PanelSink {
+  private makeSink(): OverlaySink {
     return {
       track: (obj) => {
         this.objects.push(obj)
         this.parts.push(obj)
       },
       button: (button) => {
-        this.buttons.push(button)
-        // 控件的内部对象也要一起搬（见 `Button.parts` 的说明）
+        this.objects.push(...button.parts)
         this.parts.push(...button.parts)
-      },
-      slider: (slider) => {
-        this.sliders.push(slider)
-        this.parts.push(...slider.parts)
       },
     }
   }
@@ -278,31 +257,35 @@ export class PauseOverlay {
   private rebuild(): void {
     this.clear()
     const sink = this.makeSink()
-    const frame = buildOverlayFrame(
+    const ui = new ArchiveUI(
       this.scene,
       sink,
-      {
-        screenWidth: this.scene.scale.width,
-        screenHeight: this.scene.scale.height,
-        title: SCREEN_TITLES[this.screen],
-        panelWidth: PANEL_WIDTH,
-        panelHeight: PANEL_HEIGHT,
-        // 暂停菜单本体没有「关闭」按钮：它的"关闭"就是左边的「继续游戏」。
-        // 子弹层有 —— 需求 §4.3 要求"关闭后返回暂停菜单"。
-        showClose: this.screen !== 'paused',
-      },
-      () => this.escape(),
+      SCREEN_TITLES[this.screen],
+      () => (this.screen === 'paused' ? this.hide() : this.escape()),
+      this.screen === 'help',
+      this.screen === 'paused' ? '继续游戏  ×' : '返回暂停  ×',
     )
-    this.noticeText = frame.notice
-
-    if (this.screen === 'paused') this.buildPauseBody(frame.cx, frame.contentTop, sink)
-    if (this.screen === 'help') buildHelpPanel(this.scene, sink, frame)
-    if (this.screen === 'settings') {
-      this.settingsParts = buildSettingsPanel(this.scene, sink, frame, this.store, (mode) =>
+    this.noticeText = ui.label(800, 882, '', THEME.font.heading).setOrigin(0.5, 1)
+    if (this.screen === 'paused') {
+      this.pauseChoices = buildNotebookPause(ui, this.store.profile, this.snapshot, (index) =>
+        this.runMenuAction(index),
+      )
+      this.pauseChoices.forEach((button) => button.on('pointerout', () => this.refreshFocus()))
+      this.refreshFocus()
+    }
+    if (this.screen === 'help') buildNotebookHelp(ui)
+    if (this.screen === 'settings')
+      this.settingsParts = buildNotebookSettings(ui, this.store, (mode) =>
         this.setDisplayMode(mode),
       )
-    }
-    if (this.screen === 'confirm-quit') this.buildQuitConfirm(frame.cx, frame.cy, sink)
+    if (this.screen === 'confirm-quit')
+      buildNotebookQuit(
+        ui,
+        this.store.profile,
+        () => this.confirmQuitToMenu(),
+        () => this.hide(),
+        true,
+      )
 
     this.saveBanner = new SaveStatusBanner(
       this.scene,
@@ -315,156 +298,20 @@ export class PauseOverlay {
     this.layer?.attach(this.parts)
   }
 
-  private buildPauseBody(cx: number, contentTop: number, sink: PanelSink): void {
-    // ---- 左栏：四个按钮 ----
-    const buttonX = cx - PANEL_WIDTH / 2 + THEME.space.lg + 130
-    MENU_LABELS.forEach((label, i) => {
-      sink.button(
-        new Button(this.scene, buttonX, contentTop + i * 54, label, () => this.runMenuAction(i), {
-          width: 260,
-          height: 42,
-          fontSize: THEME.font.body,
-        }),
+  private refreshFocus(): void {
+    this.pauseChoices.forEach((button, index) => {
+      button.setStrokeStyle(
+        index === this.focusIndex ? 2 : 1,
+        index === this.focusIndex ? A.cyan : A.brass,
       )
     })
-
-    // ---- 左下：**这里原来是「游戏音量」滑杆，2026-10-16 删掉了** ----
-    // 它和「设置 → BGM 音量」绑的是同一个 `bgmVolume`（需求 §4.5 的备注要求两者同步），
-    // 也就是说同一份数据在同一个弹层里有两个入口：一个是本体上的滑杆，
-    // 一个是「设置」里的那条。用户报"按钮下面单独的游戏音量"是多余的 —— 说得对，
-    // 而且它格外容易让人以为"游戏音量"是第三种音量（BGM 之外的一种）。
-    // 现在只剩设置里那一条，**真值来源仍然只有 `bgmVolume` 一个**。
-    //
-    // 删除后左下留出的空档**不补别的东西**：面板高度 440 是按"四个按钮 + 一块角色卡"
-    // 定的，塞满反而更挤。
-
-    // ---- 右栏：当前角色数据 ----
-    const snapshot = this.snapshot
-    const rightX = cx + THEME.space.md
-    const boxWidth = 130
-    const boxHeight = 120
-    const boxCx = rightX + boxWidth / 2
-    const boxCy = contentTop + boxHeight / 2
-
-    // 立绘占位（需求 §4.3：「立绘占位（虚线框）」）。虚线而不是实线：
-    // 实线框看起来像"图没加载出来"，虚线框才是"本来就还没有"。见 docs/UI规范.md §五。
-    const frameG = this.scene.add.graphics()
-    frameG.lineStyle(1, THEME.color.border, 1)
-    dashRect(frameG, boxCx - boxWidth / 2, boxCy - boxHeight / 2, boxWidth, boxHeight)
-    sink.track(frameG)
-
-    const name = snapshot
-      ? (characterById(snapshot.characterId)?.name ?? snapshot.characterId)
-      : '—'
-    sink.track(
-      this.scene.add
-        .text(boxCx, boxCy + boxHeight / 2 + 16, name, {
-          fontFamily: THEME.font.family,
-          fontSize: fontPx(THEME.font.body),
-          color: THEME.text.body,
-        })
-        .setOrigin(0.5),
-    )
-
-    const dataX = rightX + boxWidth + THEME.space.md
-    sink.track(
-      this.scene.add.text(dataX, contentTop + 2, '当前角色数据', {
-        fontFamily: THEME.font.family,
-        fontSize: fontPx(THEME.font.small),
-        color: THEME.text.dim,
-      }),
-    )
-
-    const bars: [string, number | null, number | null][] = [
-      ['生命', snapshot?.hp ?? null, snapshot?.maxHp ?? null],
-      ['护盾', snapshot?.shield ?? null, snapshot?.maxShield ?? null],
-      ['能量', snapshot?.magic ?? null, snapshot?.maxMagic ?? null],
-    ]
-    bars.forEach(([label, value, max], i) => {
-      const bar = new Bar(this.scene, dataX, contentTop + 44 + i * 30, label, value, max, {
-        width: 80,
-      })
-      this.bars.push(bar)
-      this.parts.push(...bar.parts)
-    })
-
-    const rows = [
-      `装备技能   ${snapshot?.skillName ?? '—'}`,
-      `武器       ${snapshot?.weaponName ?? '—'}`,
-      `升级次数   ${this.upgradesOf(snapshot?.characterId)}`,
-    ]
-    sink.track(
-      this.scene.add.text(dataX, contentTop + 146, rows.join('\n'), {
-        fontFamily: THEME.font.family,
-        fontSize: fontPx(THEME.font.small),
-        color: THEME.text.dim,
-        lineSpacing: 6,
-      }),
-    )
-
-    this.refreshFocus()
-  }
-
-  private buildQuitConfirm(cx: number, cy: number, sink: PanelSink): void {
-    sink.track(
-      this.scene.add
-        .text(cx, cy - 40, '本局进度不会保存。', {
-          fontFamily: THEME.font.family,
-          fontSize: fontPx(THEME.font.body),
-          color: THEME.text.body,
-        })
-        .setOrigin(0.5),
-    )
-    sink.track(
-      this.scene.add
-        .text(cx, cy - 10, '（永久解锁与升级次数不受影响）', {
-          fontFamily: THEME.font.family,
-          fontSize: fontPx(THEME.font.small),
-          color: THEME.text.dim,
-        })
-        .setOrigin(0.5),
-    )
-    // 取消在上、确认在下：与主菜单的退出确认一致，默认焦点是"取消"，
-    // 免得手快直接退出这一局。
-    sink.button(
-      new Button(this.scene, cx, cy + 44, '取消', () => this.escape(), {
-        width: 160,
-        height: 38,
-        fontSize: THEME.font.body,
-      }),
-    )
-    sink.button(
-      new Button(this.scene, cx, cy + 96, '确认返回主菜单', () => this.confirmQuitToMenu(), {
-        width: 220,
-        height: 40,
-        fontSize: THEME.font.body,
-      }),
-    )
-  }
-
-  /** 焦点只在暂停菜单本体上有意义；子弹层里所有主菜单按钮都不高亮。 */
-  private refreshFocus(): void {
-    this.buttons.forEach((button, i) => {
-      button.setSelected(this.screen === 'paused' && i === this.focusIndex)
-    })
-  }
-
-  private upgradesOf(characterId: string | undefined): number {
-    if (!characterId) return 0
-    // 升级次数 = 该角色唯一技能的已付费升级次数。
-    return totalLevelsFor(this.store.profile, characterId)
   }
 
   private clear(): void {
     this.saveBanner?.destroy()
     this.saveBanner = null
-    for (const b of this.buttons) b.destroy()
-    for (const s of this.sliders) s.destroy()
-    for (const bar of this.bars) bar.destroy()
     for (const o of this.objects) o.destroy()
-    this.buttons = []
-    this.sliders = []
-    this.bars = []
+    this.pauseChoices = []
     this.objects = []
     this.parts = []
     this.layer?.detach()

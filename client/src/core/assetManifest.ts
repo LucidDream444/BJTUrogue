@@ -290,6 +290,30 @@ export const CAMPAIGN_ART = {
 } as const
 
 /** D4 主菜单的校园地图底图。交互热区与建筑名在 `meta/menu/campusMenuModel.ts`。 */
+/** D4 图鉴运行时装饰切片；文字、费用与等级由界面实时绘制。 */
+export const REWARD_ART = {
+  header: 'ui_reward_header',
+  survival: 'ui_reward_survival',
+  utility: 'ui_reward_utility',
+  firepower: 'ui_reward_firepower',
+  growth: 'ui_reward_growth',
+  speed: 'ui_reward_speed',
+} as const
+
+export const ARCHIVE_ART = {
+  dark: 'ui_notebook_dark',
+  light: 'ui_notebook_light',
+  grimoire: 'ui_notebook_grimoire',
+  crystal: 'ui_notebook_crystal',
+  book: 'ui_notebook_book',
+  orb: 'ui_notebook_orb',
+  paper: 'ui_notebook_paper',
+  sakura: 'ui_notebook_sakura',
+  stone: 'ui_notebook_stone',
+  seal: 'ui_notebook_seal',
+  button: 'ui_notebook_button',
+} as const
+
 export const CAMPUS_MENU_ART = {
   map: 'ui_campus_main_menu_map',
   /**
@@ -1576,6 +1600,12 @@ const BASE_ASSETS: readonly AssetEntry[] = [
   audio('sfx_kill_flourish', 'audio/sfx/ui/sfx_kill_flourish'),
 
   // ---- 玩家分层：身体层 / 手臂+枪层（由 PLAYER_LAYER_BASES 展开，见上）----
+  ...Object.values(REWARD_ART).map((key): AssetEntry => ({
+    key, path: 'ui/rewards/' + key + '.png', placeholder: false, kind: 'image',
+  })),
+  ...Object.values(ARCHIVE_ART).map((key): AssetEntry => ({
+    key, path: 'ui/codex/' + key + '.png', placeholder: false, kind: 'image',
+  })),
   ...playerLayerAssets(),
   ...gooseAssets(),
   ...dreamAssets(),
