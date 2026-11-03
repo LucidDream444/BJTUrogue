@@ -1,4 +1,4 @@
-import { campusAsset } from './uiSkin'
+import { REWARD_ART, findAsset, imageUrl } from '@/core/assetManifest'
 import type { CombatSession } from './CombatSession'
 
 /** One atomic choice per cleared round; only this modal consumes its keyboard shortcuts. */
@@ -12,39 +12,40 @@ export class RewardPanel {
 
   constructor(private readonly session: CombatSession) {
     this.root.className = 'd1-reward'
+    this.root.style.setProperty('--reward-header', `url("${rewardArtUrl(REWARD_ART.header)}")`)
     this.root.hidden = true
     this.root.setAttribute('role', 'dialog')
     this.root.setAttribute('aria-modal', 'true')
     this.root.setAttribute('aria-labelledby', 'd1-reward-title')
     this.style.textContent = `
 .d1-reward[hidden]{display:none!important}
-.d1-reward{position:fixed;inset:0;z-index:100;display:flex;align-items:center;justify-content:center;box-sizing:border-box;padding:32px;overflow:auto;background:radial-gradient(ellipse at 50% 15%,#183d4780,transparent 60%),#07131ce8;backdrop-filter:blur(7px);color:#edf6ff;font-family:system-ui,'Microsoft YaHei',sans-serif}
+.d1-reward{position:fixed;inset:0;z-index:100;display:flex;align-items:center;justify-content:center;box-sizing:border-box;padding:18px 30px;overflow:auto;background:radial-gradient(ellipse at 12% 8%,#b9648940,transparent 45%),radial-gradient(ellipse at 88% 72%,#589f8e24,transparent 45%),#101a27ed;backdrop-filter:blur(8px);color:#f2e7d0;font-family:system-ui,'Microsoft YaHei',sans-serif}
 .d1-reward *{box-sizing:border-box}
-.d1-reward-content{width:min(100%,1000px);margin:auto}
-.d1-reward-header{text-align:center;margin-bottom:28px}
-.d1-reward-kicker{display:inline-block;color:#83efc6;border:1px solid #538d7b70;border-radius:999px;padding:7px 16px;font-size:13px;letter-spacing:2px;background:#102f2980}
-.d1-reward h1{font-size:clamp(26px,4vw,38px);letter-spacing:4px;margin:15px 0 10px}
-.d1-reward-intro{color:#a4b7c9;font-size:14px;margin:0}
-.d1-reward-cards{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:18px}
-.d1-reward-card{--accent:#7cdfff;position:relative;text-align:left;color:inherit;font:inherit;border:1px solid #53657d70;border-top:3px solid var(--accent);border-radius:17px;padding:22px 22px 18px;background:linear-gradient(145deg,#1c2d42,#0e1b2c);box-shadow:0 16px 38px #0003;min-height:354px;display:flex;flex-direction:column;gap:0;transition:transform .16s,border-color .16s,background .16s}
-.d1-reward-card:hover,.d1-reward-card:focus-visible{transform:translateY(-6px);border-color:var(--accent);background:linear-gradient(145deg,#233c51,#15293d);outline:2px solid color-mix(in srgb,var(--accent) 30%,transparent);outline-offset:3px}
-.d1-reward-card:disabled{opacity:.55;transform:none}
-.d1-reward-card[data-category=survival]{--accent:#f5a5dc}
-.d1-reward-card[data-category=firepower]{--accent:#ffc879}
-.d1-reward-card[data-category=utility]{--accent:#89dfff}
-.d1-reward-card-top{display:flex;justify-content:space-between;align-items:center;color:var(--accent);font-size:12px;letter-spacing:1px}
-.d1-reward-key{border:1px solid #758da550;border-radius:6px;width:26px;height:26px;display:grid;place-items:center;background:#0b1728}
-.d1-reward-icon{height:66px;width:66px;object-fit:contain;align-self:center;margin:20px 0 15px;filter:drop-shadow(0 0 14px #c0e6ff25)}
-.d1-reward-name{font-size:23px;letter-spacing:1px}
-.d1-reward-headline{color:var(--accent);font-size:15px;font-weight:650;margin:9px 0 12px}
-.d1-reward-stat{border-radius:9px;background:#06111d8c;padding:11px 12px;margin-bottom:12px;font-size:13px;display:flex;align-items:center;justify-content:space-between;gap:8px;font-variant-numeric:tabular-nums}
-.d1-reward-stat span{color:#9cafc4}
-.d1-reward-stat strong{white-space:nowrap;color:#f2f9ff}
-.d1-reward-detail{color:#aabed0;font-size:12px;line-height:1.7;margin:0 0 18px;min-height:40px}
-.d1-reward-card-bottom{display:flex;justify-content:space-between;align-items:center;margin-top:auto;padding-top:13px;border-top:1px solid #7892ac25;font-size:12px;color:#98adbf}
-.d1-reward-card-bottom b{color:var(--accent);font-size:13px}
-.d1-reward-footer{text-align:center;color:#8099ad;font-size:12px;margin:22px 0 0;line-height:1.7}
-@media(max-width:650px){.d1-reward{padding:16px}.d1-reward-header{margin-bottom:18px}.d1-reward-cards{grid-template-columns:1fr;gap:12px}.d1-reward-card{min-height:0;padding:14px 17px;display:grid;grid-template-columns:58px 1fr;column-gap:14px}.d1-reward-card-top{grid-column:1/-1;margin-bottom:10px}.d1-reward-icon{grid-column:1;grid-row:2/5;width:56px;height:56px;margin:0}.d1-reward-name,.d1-reward-headline,.d1-reward-stat,.d1-reward-detail{grid-column:2}.d1-reward-name{font-size:19px}.d1-reward-headline{margin:4px 0 7px}.d1-reward-stat{margin:0 0 5px;padding:8px;font-size:11px}.d1-reward-detail{margin:0;min-height:0;font-size:11px}.d1-reward-card-bottom{grid-column:1/-1;margin-top:10px;padding-top:9px}.d1-reward h1{margin:9px 0}.d1-reward-card:hover,.d1-reward-card:focus-visible{transform:none}}
+.d1-reward-content{width:min(100%,980px);margin:auto}
+.d1-reward-header{text-align:center;position:relative;height:225px;margin:0 auto 0;max-width:850px;background:var(--reward-header) center top/100% 100% no-repeat;filter:drop-shadow(0 8px 16px #0005)}
+.d1-reward-kicker{position:absolute;top:104px;left:50%;transform:translateX(-50%);padding:4px 14px;border-radius:3px;background:#172839dd;font-size:12px;color:#f7e8bd;white-space:nowrap}
+.d1-reward h1{position:absolute;top:152px;left:31%;width:40%;margin:0;padding:7px 0;background:linear-gradient(90deg,#20304900,#203049 13%,#203049 87%,#20304900);font-family:'KaiTi','SimSun',serif;font-size:29px;letter-spacing:4px;color:#ffe6ae;text-shadow:0 2px 4px #000}
+.d1-reward-intro{position:absolute;top:226px;width:100%;font-size:12px;color:#bdc9ce;margin:0}
+.d1-reward-cards{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:24px;align-items:start;padding:26px 28px 0}
+.d1-reward-card{--accent:#8bccff;position:relative;aspect-ratio:372/720;padding:0;border:0;border-radius:12px;background:transparent;color:#3e3529;font:inherit;cursor:pointer;filter:drop-shadow(0 12px 18px #0007);transition:transform .18s,filter .18s}
+.d1-reward-art{position:absolute;inset:0;width:100%;height:100%;object-fit:fill;pointer-events:none}
+.d1-reward-card[data-category=survival]{--accent:#a4e979}
+.d1-reward-card[data-category=firepower]{--accent:#ffc77b}
+.d1-reward-card:hover,.d1-reward-card:focus-visible{transform:translateY(-7px);filter:drop-shadow(0 0 9px var(--accent)) drop-shadow(0 15px 19px #0008);outline:none}
+.d1-reward-card:disabled{opacity:.6;cursor:default;transform:none}
+.d1-reward-card-top{position:absolute;top:13%;left:10%;right:10%;display:flex;align-items:center;justify-content:space-between;font-size:11px;color:#f9eccc;letter-spacing:1px}
+.d1-reward-key{width:25px;height:25px;border:1px solid #d0b67c;border-radius:4px;background:#142432aa;display:grid;place-items:center}
+.d1-reward-copy{position:absolute;top:64.2%;left:9%;right:9%;bottom:8%;display:flex;flex-direction:column;text-align:center;line-height:1.25}
+.d1-reward-name{font-size:23px;font-family:'KaiTi','SimSun',serif;font-weight:700;letter-spacing:1px}
+.d1-reward-headline{margin:5px 0 6px;color:#71512e;font-size:14px;font-weight:650}
+.d1-reward-stat{display:flex;justify-content:space-between;gap:4px;padding:3px 0;border-top:1px solid #94764740;font-size:12px;font-variant-numeric:tabular-nums}
+.d1-reward-stat strong{color:#285d50;white-space:nowrap}
+.d1-reward-detail{font-size:12px;line-height:1.4;margin:4px 0;color:#685e4e}
+.d1-reward-card-bottom{display:flex;align-items:center;justify-content:space-between;margin-top:auto;font-size:11px;color:#75664f;border-top:1px solid #94764740;padding-top:4px}
+.d1-reward-card-bottom b{color:#705027;font-size:11px}
+.d1-reward-footer{font-size:12px;line-height:1.7;text-align:center;color:#b9c2c7;margin:16px 0 0}
+@media(min-width:900px) and (max-height:800px){.d1-reward-content{max-width:820px}.d1-reward-header{height:145px;max-width:550px}.d1-reward-kicker{top:54px}.d1-reward h1{top:94px;font-size:20px}.d1-reward-intro{top:145px}.d1-reward-name{font-size:18px}.d1-reward-detail{font-size:10px}.d1-reward-headline{margin:3px 0;font-size:11px}.d1-reward-copy{top:64.2%}.d1-reward-cards{gap:18px}.d1-reward-footer{margin-top:9px}}
+@media(max-width:650px){.d1-reward{padding:12px}.d1-reward-header{height:155px}.d1-reward-kicker{top:65px;font-size:10px}.d1-reward h1{top:103px;font-size:19px;letter-spacing:1px}.d1-reward-intro{top:145px;font-size:10px}.d1-reward-cards{grid-template-columns:1fr;padding:14px 0;gap:16px}.d1-reward-card{width:min(100%,320px);justify-self:center}.d1-reward-name{font-size:23px}.d1-reward-headline{font-size:14px}.d1-reward-stat,.d1-reward-detail{font-size:12px}.d1-reward-card-bottom,.d1-reward-card-bottom b{font-size:11px}.d1-reward-card:hover,.d1-reward-card:focus-visible{transform:none}}
 @media(prefers-reduced-motion:reduce){.d1-reward-card{transition:none;transform:none!important}}
 `
     document.head.append(this.style)
@@ -140,11 +141,23 @@ export class RewardPanel {
       key.className = 'd1-reward-key'
       key.textContent = String(index + 1)
       top.append(category, key)
-      const icon = document.createElement('img')
-      icon.className = 'd1-reward-icon'
-      icon.src = campusAsset(r.icon ?? 'energy')
-      icon.alt = ''
-      icon.draggable = false
+      const art = document.createElement('img')
+      art.className = 'd1-reward-art'
+      const artKey =
+        r.id === 'sneakers'
+          ? REWARD_ART.speed
+          : r.id === 'tempo'
+            ? REWARD_ART.utility
+            : r.category === 'survival'
+              ? REWARD_ART.survival
+              : r.category === 'firepower'
+                ? REWARD_ART.firepower
+                : REWARD_ART.utility
+      art.src = rewardArtUrl(artKey)
+      art.alt = ''
+      art.draggable = false
+      const copy = document.createElement('div')
+      copy.className = 'd1-reward-copy'
       const name = document.createElement('strong')
       name.className = 'd1-reward-name'
       name.textContent = r.name
@@ -171,7 +184,8 @@ export class RewardPanel {
       const action = document.createElement('b')
       action.textContent = '选择强化 →'
       bottom.append(stacks, action)
-      button.append(top, icon, name, headline, ...changes, detail, bottom)
+      copy.append(name, headline, ...changes, detail, bottom)
+      button.append(art, top, copy)
       button.addEventListener('click', () => this.select(r.id, roomId))
       cards.append(button)
     })
@@ -196,4 +210,10 @@ export class RewardPanel {
     this.root.remove()
     this.style.remove()
   }
+}
+
+function rewardArtUrl(key: string): string {
+  const entry = findAsset(key)
+  if (!entry) throw new Error('缺少奖励界面素材：' + key)
+  return imageUrl(entry)
 }
