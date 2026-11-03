@@ -313,7 +313,13 @@ export function characterVoiceKey(characterId: string, cue: CharacterVoiceCue): 
  */
 const CHARACTER_VOICE_READY_KEYS: ReadonlySet<string> = new Set([
   'voice_player_student_hurt',
+  'voice_player_student_death',
+  'voice_player_student_skill',
   'voice_player_student_reward',
+  'voice_player_athlete_hurt',
+  'voice_player_athlete_death',
+  'voice_player_athlete_skill',
+  'voice_player_athlete_reward',
   SHARED_CHARACTER_VOICE_KEYS.boss_kill,
 ])
 
