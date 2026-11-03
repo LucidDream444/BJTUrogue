@@ -20,12 +20,13 @@ describe('character voice manifest', () => {
     for (const characterId of CHARACTER_VOICE_CHARACTER_IDS) {
       for (const cue of CHARACTER_VOICE_CUES) {
         const key = characterVoiceKey(characterId, cue)
+        const studentHurt = key === 'voice_player_student_hurt'
         expect(findAsset(key)).toEqual({
           key,
           path: `audio/voice/player/${key}`,
-          placeholder: true,
+          placeholder: !studentHurt,
           kind: 'audio',
-          codecs: ['ogg', 'mp3'],
+          codecs: studentHurt ? ['wav'] : ['ogg', 'mp3'],
         })
       }
     }
