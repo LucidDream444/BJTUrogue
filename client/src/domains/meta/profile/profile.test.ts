@@ -354,6 +354,54 @@ describe('云同步准备', () => {
     expect(store.profile.unlocks.characters).not.toContain('外部乱改')
   })
 
+  it('下载云档会应用进度但保留本机设置，revision 不额外自增', () => {
+    const storage = new MemoryProfileStorage()
+    const store = storeWith(storage)
+    store.load()
+    store.setSettings({ bgmVolume: 0.2, displayMode: 'windowed' })
+    const events: string[] = []
+    store.subscribe((_p, event) => events.push(event))
+
+    const remote = createDefaultProfile()
+    remote.revision = 8
+    remote.currency.coins = 300
+    remote.stats = { runs: 4, wins: 2, deaths: 2, bestDepth: 6 }
+    remote.settings = { bgmVolume: 1, sfxVolume: 0, displayMode: 'fullscreen' }
+    remote.unlocks.characters.push('athlete')
+
+    expect(store.applyCloudProfile(remote)).toBe(true)
+    expect(store.profile.currency.coins).toBe(300)
+    expect(store.profile.unlocks.characters).toContain('athlete')
+    expect(store.profile.revision).toBe(8)
+    expect(store.profile.settings).toEqual({
+      bgmVolume: 0.2,
+      sfxVolume: 0.8,
+      displayMode: 'windowed',
+    })
+    expect(events).toEqual(['cloud-loaded'])
+    expect(JSON.parse(storage.read(PROFILE_STORAGE_KEY)!).currency.coins).toBe(300)
+  })
+
+  it('更高版本的云档整体拒绝，本机档完全不动', () => {
+    const store = storeWith(new MemoryProfileStorage())
+    store.load()
+    const before = store.snapshot()
+    let rejected = 0
+    store.subscribe((_p, event) => {
+      if (event === 'cloud-rejected') rejected++
+    })
+
+    expect(
+      store.applyCloudProfile({
+        ...createDefaultProfile(),
+        schemaVersion: PROFILE_SCHEMA_VERSION + 1,
+        currency: { coins: 999 },
+      }),
+    ).toBe(false)
+    expect(store.snapshot()).toEqual(before)
+    expect(rejected).toBe(1)
+  })
+
   it('手动重试会发出成功/失败事件，界面可据此刷新而不轮询', () => {
     const quiet = vi.spyOn(console, 'warn').mockImplementation(() => {})
     const storage = new FlakyStorage()
