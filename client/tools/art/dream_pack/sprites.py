@@ -2,7 +2,8 @@
 from __future__ import annotations
 import math
 from PIL import Image, ImageDraw, ImageOps
-from .drawing import canvas, polygon, ellipse, line, cubic, arc, resize, fade, INK, PAPER, GOLD
+from .drawing import canvas, polygon, ellipse, line, cubic, arc, resize, fade, INK, GOLD
+from .bosses import first_boss, frost_boss, final_boss
 
 ANIMAL_STATES = [('idle', 4), ('walk', 6), ('windup', 6), ('dash', 4),
                  ('recover', 4), ('hit', 2), ('death', 6)]
@@ -38,9 +39,8 @@ def berry(state='idle', index=0, count=4, size=64):
         if closed:
             line(d, [(x-2, 33), (x, 34), (x+2, 33)], '#362e34')
         else:
-            ellipse(d, (x-3, 28, x+3, 37), '#fff1cd')
-            ellipse(d, (x-1, 30, x+2, 36), '#313442', None)
-            d.point((x, 30), '#ffffff')
+            # Plain dark pixel eyes: no sclera, iris, or shiny human-eye detail.
+            ellipse(d, (x-1, 30, x+1, 34), '#392e34', None)
     if state == 'hurt':
         line(d, [(19, 25), (25, 27)], '#762f3d')
         line(d, [(37, 27), (43, 25)], '#762f3d')
@@ -59,86 +59,111 @@ def muscovy(state='idle', index=0, count=4, direction='right', size=96):
     im, d = canvas()
     t = index/max(1, count-1)
     stride = math.sin(index*math.tau/max(1, count)) if state == 'walk' else 0
-    lean = 3 if state == 'dash' else round(t*2) if state == 'windup' else round((1-t)*3) if state=='recover' else 0
     bob = round(stride) if state == 'walk' else round(math.sin(t*math.tau)) if state == 'idle' else 0
-    # Webbed feet retain a common ground line of y41.
-    for x, delta in [(18, stride), (29, -stride)]:
-        line(d, [(x, 34), (x+delta*2, 39)], '#b48c5d', 2)
+    attack = state in ['windup', 'dash']
+    # Photographed black-and-white Muscovy: white head/chest, black back, red face.
+    white, shade = '#f0eee2', '#c4d0c7'
+    black, feather = '#202c34', '#354b50'
+    pink, red = '#cba39c', '#ce514f'
+    # Both feet share y41 in every direction; no weapon or FX is baked in.
+    for x, delta in [(18, stride), (28, -stride)]:
+        line(d, [(x, 34), (x+delta*2, 39)], '#a88b83', 2)
         polygon(d, [(x+delta*2-3, 40), (x+delta*2, 38),
-                    (x+delta*2+4, 41), (x+delta*2-2, 41)], '#d3a16a')
-    polygon(d, [(10, 28+bob), (5, 28+bob), (10, 21+bob),
-                (19, 18+bob), (34, 23+bob), (34, 33+bob), (21, 38)], '#303b42')
-    ellipse(d, (11, 19+bob, 35, 37), '#273039')
-    ellipse(d, (13, 20+bob, 29, 32+bob), '#3c4850', None)
-    # Scalloped feather rows make the broad black torso recognizably feathered.
-    for row in range(5):
-        y = 23+row*2+bob
-        for j in range(4):
-            x = 14+j*4+(row%2)
-            line(d, [(x, y), (x+1, y+1), (x+3, y)], '#65716f' if row<3 else '#444f54')
-            d.point((x+1, y), '#4a5b59')
-    # Neck/head curves forward under charge, matching the supplied photo silhouette.
-    polygon(d, [(27, 26+bob), (27, 18+bob), (29+lean, 10+bob),
-                (34+lean, 8+bob), (39+lean, 12+bob), (36+lean, 20+bob),
-                (34, 28+bob)], '#dde0d3')
-    polygon(d, [(29, 23+bob), (30, 16+bob), (32+lean, 11+bob),
-                (35+lean, 11+bob), (33+lean, 18+bob), (33, 25+bob)], '#5b686a', None)
-    ellipse(d, (28+lean, 6+bob, 39+lean, 17+bob), '#3d4549')
-    polygon(d, [(29+lean, 11+bob), (32+lean, 9+bob), (38+lean, 10+bob),
-                (40+lean, 14+bob), (36+lean, 18+bob), (31+lean, 17+bob)], '#c94b45')
-    for x, y in [(30,12),(32,10),(34,16),(36,15),(38,12),(32,15)]:
-        d.point((x+lean,y+bob), '#ee7f68')
-    ellipse(d, (34+lean, 10+bob, 37+lean, 13+bob), '#e3c278')
-    d.point((36+lean, 11+bob), '#1c2834')
-    polygon(d, [(38+lean, 13+bob), (44+lean, 16+bob), (42+lean, 18+bob),
-                (37+lean, 16+bob)], '#c6c9b9')
-    line(d, [(40+lean,16+bob),(43+lean,17+bob)], '#545b5d')
-    line(d, [(30+lean,7+bob),(33+lean,6+bob),(37+lean,8+bob)], '#eef0df')
-    # Extended primary feathers are anatomy, rather than a generic attack rectangle.
-    if state in ['windup', 'dash']:
-        spread = (0.3+t*0.7) if state=='windup' else 1
-        tip_y = 22-round(spread*15)
-        polygon(d, [(21,24+bob),(11,19),(4,tip_y),(4,tip_y+8),(9,18),
-                    (7,tip_y+14),(14,23),(12,27),(22,30)], '#37444b')
-        for k in range(5):
-            line(d, [(20-k,25),(7+k*2,tip_y+4+k*3)], '#83908a')
-        polygon(d, [(25,26),(31,21),(39,21-round(spread*11)),
-                    (42,13),(40,24),(34,30),(27,32)], '#354149')
-        for k in range(3): line(d, [(29+k,28),(39+k,16+k*3)], '#6b7e77')
+                    (x+delta*2+4, 41), (x+delta*2-2, 41)], pink)
+        line(d, [(x+delta*2, 39), (x+delta*2, 41)], '#8d7978')
+    if attack:
+        # Far wing sits behind the body. A staggered pair reads as a side pounce.
+        spread = (.15+.85*t) if state == 'windup' else [1, .65, .22, .65][index % 4]
+        tip = 19-round(15*spread)
+        polygon(d, [(23,25),(24,16),(30,tip),(32,tip+2),(29,16),
+                    (34,tip+5),(32,20),(29,26)], black)
+        polygon(d, [(25,18),(29,tip+4),(29,tip+8),(27,21)], white, None)
+        line(d, [(29,tip+2),(27,19),(27,23)], feather)
+    # Long low black back and broad pale breast reproduce the supplied duck.
+    polygon(d, [(14,21+bob),(6,20+bob),(3,24+bob),(12,29+bob),
+                (16,35),(29,38),(37,32+bob),(34,23+bob),(25,19+bob)], black)
+    ellipse(d, (11,21+bob,37,38), white)
+    polygon(d, [(12,22+bob),(17,19+bob),(28,20+bob),(31,27+bob),
+                (26,33),(16,34),(10,29+bob)], black)
+    line(d, [(11,23+bob),(17,21+bob),(24,21+bob)], feather)
+    polygon(d, [(15,33),(20,36),(29,36),(34,31),(33,34),(29,38),(20,37)], shade, None)
+    if attack:
+        # Head extends forward and low while the near wing opens above the back.
+        lean = round(2*t) if state == 'windup' else 2
+        hy = round(8*t) if state == 'windup' else 8
+        polygon(d, [(27,31),(27,22),(31+lean,13+hy),(36+lean,13+hy),
+                    (39+lean,19+hy),(35,30),(32,34)], white)
+        line(d, [(29,29),(30,24),(33+lean,18+hy)], shade)
+        hx = 29+lean
+        ellipse(d, (hx,7+hy,hx+11,18+hy), white)
+        # Near wing has separated primary tips and a broad white flight-feather bar.
+        tip = 21-round(16*spread)
+        polygon(d, [(24,28),(18,23),(10,tip+7),(5,tip),(4,tip+5),
+                    (8,tip+11),(3,tip+8),(4,tip+13),(11,tip+17),
+                    (6,tip+15),(8,tip+20),(16,29),(21,32)], black)
+        polygon(d, [(12,tip+11),(16,tip+14),(21,25),(23,29),(18,27),
+                    (11,tip+16)], white, None)
+        for dx, dy in [(5,5),(5,10),(8,15)]:
+            line(d, [(dx,tip+dy),(14,tip+17)], feather)
+        line(d, [(15,tip+15),(19,25),(22,28)], shade)
     else:
-        polygon(d, [(15,24+bob),(25,22+bob),(31,25+bob),(27,33),(18,33)], '#3b4b4f')
-        for k in range(4): line(d, [(18+k*3,25),(17+k*3,31)], '#718179')
-    if direction == 'left': im = ImageOps.mirror(im)
-    elif direction in ['down', 'up']:
-        # Front/back views retain photographed facial and plumage identity.
+        hx, hy = 28, 0
+        # Compact neck is mainly white, unlike a mallard's dark neck/head.
+        polygon(d, [(26,31+bob),(27,22+bob),(29,16+bob),(35,14+bob),
+                    (39,21+bob),(36,30+bob),(31,34+bob)], white)
+        polygon(d, [(28,29+bob),(29,25+bob),(30,22+bob),(30,29+bob)], shade, None)
+        ellipse(d, (hx,10+bob,hx+12,22+bob), white)
+        # Folded black wing, white patch, and a few restrained blue-green feathers.
+        polygon(d, [(12,24+bob),(18,21+bob),(28,23+bob),(29,28+bob),
+                    (23,33),(14,31)], '#25353c')
+        polygon(d, [(21,24+bob),(27,24+bob),(28,27+bob),(24,29),
+                    (19,28)], white, None)
+        for x,y in [(14,25),(17,24),(14,28),(18,30)]:
+            line(d, [(x,y+bob),(x+2,y+1+bob),(x+4,y+bob)], feather)
+        hy = bob+4
+    # White crown with a few black flecks, simplified red caruncles, flat pink bill.
+    polygon(d, [(hx+1,10+hy),(hx+4,9+hy),(hx+9,10+hy),(hx+12,13+hy),
+                (hx+10,18+hy),(hx+4,18+hy),(hx+2,15+hy)], red)
+    for x,y in [(3,11),(4,16),(10,14)]:
+        d.point((hx+x,y+hy), '#ed8370')
+    for x,y in [(3,8),(5,7),(7,8)]:
+        d.point((hx+x,y+hy), black)
+    d.rectangle((hx+7,11+hy,hx+8,12+hy), fill='#252934')
+    polygon(d, [(hx+10,14+hy),(min(46,hx+17),16+hy),
+                (min(46,hx+16),18+hy),(hx+10,17+hy)], '#d6b5ac')
+    line(d, [(hx+11,17+hy),(min(45,hx+16),17+hy)], '#9b8887')
+    d.point((min(46,hx+17),17+hy), black)
+    if not attack and direction in ['down', 'up']:
+        # Resting locomotion retains four directions and the same photographed colors.
         im, d = canvas()
         for x in [19,28]:
-            line(d, [(x,34),(x,39)], '#c19462',2)
-            polygon(d, [(x-3,41),(x,38),(x+3,41)], '#d4a369')
-        ellipse(d, (11,18+bob,36,38), '#28343d')
-        for row in range(6):
-            for x in range(14+row%2,34,5):
-                line(d,[(x,22+row*2+bob),(x+1,23+row*2+bob),(x+3,22+row*2+bob)],'#687971')
-        ellipse(d,(17,10+bob,30,27+bob),'#e5e5d3')
-        ellipse(d,(17,5+bob,30,18+bob),'#343d44')
+            line(d, [(x,34),(x,39)], '#a88b83',2)
+            polygon(d, [(x-3,41),(x,38),(x+3,41)], pink)
+        ellipse(d, (10,19+bob,37,38), black if direction=='up' else white)
+        for sign in [-1,1]:
+            polygon(d, [(24+sign*9,21+bob),(24+sign*13,25+bob),
+                        (24+sign*12,33),(24+sign*8,34),(24+sign*7,27)], black)
+            polygon(d, [(24+sign*10,25+bob),(24+sign*12,26+bob),
+                        (24+sign*11,30),(24+sign*8,30)], white, None)
+        polygon(d, [(17,25+bob),(18,13+bob),(23,10+bob),(29,13+bob),
+                    (30,25+bob),(28,31),(20,31)], white)
+        ellipse(d, (17,6+bob,30,19+bob), white)
+        for x,y in [(20,8),(23,7),(27,9)]: d.point((x,y+bob), black)
         if direction=='down':
-            polygon(d,[(18,10+bob),(20,8+bob),(24,10+bob),(28,8+bob),
-                       (30,12+bob),(27,18+bob),(20,18+bob)],'#c34a45')
-            for x in [20,27]:
-                d.point((x,12+bob),'#e9ce9c'); d.point((x,13+bob),'#1a2835')
-            polygon(d,[(21,15+bob),(26,15+bob),(27,19+bob),(24,21+bob),(21,19+bob)],'#d9d5bc')
+            polygon(d, [(18,11+bob),(21,10+bob),(24,12+bob),(27,10+bob),
+                        (30,12+bob),(28,17+bob),(20,17+bob)], red)
+            for x in [20,27]: d.point((x,12+bob), '#252934')
+            polygon(d, [(21,15+bob),(26,15+bob),(28,18+bob),(25,20+bob),
+                        (21,19+bob)], '#d6b5ac')
+            line(d, [(22,18+bob),(26,18+bob)], '#9b8887')
         else:
-            for y in [8,11,14]: line(d,[(19,y+bob),(24,y+1+bob),(28,y+bob)],'#8d9a8d')
-        if state in ['windup','dash']:
-            extent=0.3+t*0.7 if state=='windup' else 1
-            for sign in [-1,1]:
-                polygon(d,[(24+sign*10,22),(24+sign*(12+9*extent),22-11*extent),(24+sign*(12+8*extent),27),
-                           (24+sign*13,32)],'#3e5051')
-                for k in range(4): line(d,[(24+sign*12,24+k),(24+sign*(12+(8-k)*extent),22-6*extent+k*3)],'#839188')
-    if state=='dash':
-        # Small wing-tip feather variations communicate active powered rushing.
-        if index%2:
-            d=ImageDraw.Draw(im);line(d,[(8,18),(6,15)],'#9baba0');line(d,[(34,27),(39,22)],'#9baba0')
+            polygon(d, [(18,11+bob),(21,14+bob),(23,18+bob),(27,16+bob),
+                        (29,11+bob),(28,21+bob),(21,23+bob)], shade, None)
+            line(d, [(16,25+bob),(22,28+bob),(30,26+bob)], feather)
+    # Every windup/dash atlas row uses the same unmistakable side-on pounce.
+    # Up/down rows choose opposite side silhouettes; lockedDirX/Y still drives motion.
+    if direction == 'left' or (attack and direction == 'up'):
+        im = ImageOps.mirror(im)
     if state=='hit':
         # Local warm rim, not a fully baked white silhouette.
         d=ImageDraw.Draw(im); line(d,[(10,25),(9,30),(13,34)],'#e7c2a0' if index==0 else '#bc9c86')
@@ -232,131 +257,6 @@ def vortex(index, void=False, size=96):
                        (25+math.cos(a)*18,27+math.sin(a)*12)],'#e0c38a',None)
     return resize(im,(size,size))
 
-
-def first_boss(state,index,count,size=128):
-    im,d=canvas((64,64));t=index/max(1,count-1)
-    bob=round(math.sin(t*math.tau)*(2 if state=='walk' else 1)) if state in ['walk','idle'] else 0
-    rise=-round(t*4) if state=='windup' else round(math.sin(t*math.pi)*2) if state=='attack' else round((1-t)*2) if state=='recover' else 0
-    # A cracked laboratory dish grounds a rain-grown campus mushroom.
-    ellipse(d,(9,49,55,59),'#627c7c')
-    ellipse(d,(11,48,53,55),'#9eada0')
-    arc(d,(32,51),(20,4),0,math.pi,'#d4d0b5')
-    polygon(d,[(16,51),(20,47),(21,53),(28,51)],'#4d6565')
-    polygon(d,[(24,27+rise),(23,45),(19,51),(29,54),(43,52),
-               (39,45),(39,27+rise)],'#d9c49a')
-    polygon(d,[(32,30+rise),(30,49),(34,51),(38,48),(36,29+rise)],'#a58d73',None)
-    for x in [25,28,36]: line(d,[(x,33+rise),(x-1,46)],'#b6a17f')
-    polygon(d,[(7,29+rise+bob),(11,19+rise+bob),(20,10+rise+bob),(31,7+rise+bob),
-               (44,11+rise+bob),(53,20+rise+bob),(57,30+rise+bob),
-               (48,35+rise+bob),(16,35+rise+bob)],'#8b5156')
-    polygon(d,[(10,27+rise+bob),(19,16+rise+bob),(31,11+rise+bob),
-               (45,16+rise+bob),(53,27+rise+bob),(41,25+rise+bob),
-               (25,24+rise+bob)],'#b96e66',None)
-    line(d,[(12,29+rise+bob),(23,27+rise+bob),(42,28+rise+bob),(53,31+rise+bob)],'#e1ac8a',2)
-    for x,y,r in [(18,21,3),(29,15,3),(41,20,4),(48,27,2)]:
-        ellipse(d,(x-r,y-r+rise+bob,x+r,y+r+rise+bob),'#ebcf9f','#a38272')
-    for x in range(17,49,4): line(d,[(x,31+rise+bob),(31+(x-31)*.6,36+rise+bob)],'#745459')
-    for x in [27,35]:
-        ellipse(d,(x-2,37+rise,x+2,41+rise),'#303d43')
-        d.point((x,37+rise),'#f1d8a0')
-    line(d,[(29,45+rise),(32,46+rise),(35,44+rise)],'#7d5d59')
-    for x,y in [(12,45),(50,42)]:
-        ellipse(d,(x-3,y,x+4,y+4),'#91895d')
-        ellipse(d,(x-4,y-2,x+5,y+1),'#6f8b6b')
-    if state=='attack':
-        for sign in [-1,1]:line(d,[(32+sign*14,55),(32+sign*23,56),(32+sign*29,52)],GOLD,2)
-    if state=='hit':line(d,[(12,22),(10,26),(13,29)],'#f0c5a0' if index==0 else '#ca9382',2)
-    if state=='death': im=fade(im,1-t)
-    return resize(im,(size,size))
-
-
-def paper_wing(d,side,open_amount,y=28,frost=True):
-    root=(32,y);extent=round(13+15*open_amount)
-    for k in range(5):
-        x=32+side*(11+k*4)
-        yy=y-11+k*3
-        polygon(d,[root,(x,yy-extent*.5),(x+side*7,yy-extent*.35),
-                   (x+side*4,yy+8),(32+side*8,y+8)],'#c3d4d0' if frost else '#c9b3b1')
-        for row in range(3):line(d,[(x+side*1,yy+row*3),(x+side*5,yy+row*3+1)],'#76999d' if frost else '#8e7c91')
-        if frost:polygon(d,[(x+side*5,yy+5),(x+side*6,yy+13),(x+side*2,yy+8)],'#88bfc7')
-
-
-def frost_boss(action,index,count=16,size=128):
-    im,d=canvas((64,64));t=index/count
-    attacking=action=='attack'
-    wing=.65+math.sin(t*math.tau)*.25 if not attacking else .4+math.sin(t*math.pi)*.6
-    for side in [-1,1]:paper_wing(d,side,wing)
-    polygon(d,[(25,22),(39,22),(42,48),(35,56),(22,50)],'#688a99')
-    polygon(d,[(28,24),(34,24),(37,48),(31,51),(26,47)],'#d0ddd1')
-    line(d,[(29,30),(35,30)],'#7a959e');line(d,[(29,35),(35,35)],'#7a959e')
-    ellipse(d,(24,9,40,26),'#c8dbd3')
-    polygon(d,[(23,15),(27,6),(35,6),(41,14),(36,12),(33,10),(28,12)],'#627b8c')
-    polygon(d,[(23,19),(29,17),(35,17),(40,19),(35,24),(27,24)],'#577383')
-    line(d,[(26,19),(29,20)],'#d4f0db');line(d,[(35,20),(38,19)],'#d4f0db')
-    # A notebook-like spine and bookmark ribbon tie the birdlike silhouette to exams.
-    polygon(d,[(29,26),(35,26),(35,38),(32,35),(29,38)],'#6caeb6')
-    for side in [-1,1]:
-        line(d,[(32+side*7,36),(32+side*12,41)],'#bed8d3',2)
-        ellipse(d,(32+side*12-2,39,32+side*12+2,43),'#9fd2d6')
-    if attacking:
-        radius=round(9+12*t)
-        for k in range(8):
-            a=k*math.tau/8+t*.3
-            px,py=32+math.cos(a)*radius,33+math.sin(a)*radius*.7
-            polygon(d,[(px,py-2),(px+2,py),(px,py+2),(px-2,py)],'#bbefe1',None)
-    return resize(im,(size,size))
-
-
-def final_boss(action,index,count=16,size=128):
-    im,d=canvas((64,64));t=index/count
-    # Broken clock halo and orbiting ruled exam pages, rather than leg-like limbs.
-    for segment in range(3):
-        a=segment*math.tau/3+t*.4
-        arc(d,(32,32),(25,25),a,a+1.6,'#877389')
-    for k in range(12):
-        a=k*math.tau/12+t*.15
-        line(d,[(32+math.cos(a)*23,32+math.sin(a)*23),
-                (32+math.cos(a)*25,32+math.sin(a)*25)],'#b59b9f')
-    for k in range(5):
-        a=k*math.tau/5+t*.65
-        x=32+math.cos(a)*25;y=32+math.sin(a)*23
-        polygon(d,[(x-4,y-6),(x+4,y-5),(x+4,y+5),(x-4,y+6)],'#c4b2b0')
-        polygon(d,[(x+1,y-5),(x+4,y-5),(x+4,y-2)],'#e5d2b5',None)
-        for row in range(3):line(d,[(x-2,y-2+row*2),(x+2,y-2+row*2)],'#7f7189')
-    # Exactly two human sleeves and two open palms retain the student silhouette.
-    for side in [-1,1]:
-        polygon(d,[(32+side*8,24),(32+side*14,29),(32+side*18,38),
-                   (32+side*14,42),(32+side*9,32)],'#48465f')
-        ellipse(d,(32+side*16-3,38,32+side*16+3,43),'#8d8195')
-    polygon(d,[(24,21),(39,21),(45,48),(42,56),(36,54),(32,58),
-               (28,54),(21,56),(18,48)],'#34364d')
-    polygon(d,[(23,25),(28,24),(26,48),(24,52),(21,49)],'#55516b',None)
-    polygon(d,[(35,25),(40,29),(42,48),(37,51),(33,44)],'#4b4961',None)
-    ellipse(d,(23,6,41,25),'#292e41')
-    polygon(d,[(23,12),(24,6),(30,3),(39,5),(43,12),(36,9),
-               (33,13),(29,10),(26,15)],'#53506b')
-    line(d,[(25,17),(29,18)],'#d5b9d0',2);line(d,[(35,18),(39,17)],'#d5b9d0',2)
-    ellipse(d,(23,26,41,44),'#a79094','#d7b99f')
-    ellipse(d,(26,29,38,41),'#393c53','#5d5a72')
-    for k in range(8):
-        a=k*math.pi/4
-        d.point((round(32+math.sin(a)*5),round(35-math.cos(a)*5)),PAPER)
-    hand=t*math.tau*(2 if action=='attack' else .2)
-    line(d,[(32,35),(32+math.sin(hand)*4,35-math.cos(hand)*4)],GOLD)
-    line(d,[(32,35),(29,33)],'#e8ceb0')
-    line(d,[(38,27),(35,32),(38,35),(35,39),(36,43)],'#e2c59b')
-    if action=='walk':
-        for k in range(5):
-            x=19+k*6
-            line(d,[(x,54),(x-2+math.sin(t*math.tau+k)*2,58)],'#84748e')
-    if action in ['attack','poison']:
-        color='#b3a4cc' if action=='attack' else '#8daa97'
-        for k in range(7):
-            a=k*math.tau/7+t*2
-            px,py=32+math.cos(a)*(15+9*t),35+math.sin(a)*(14+8*t)
-            polygon(d,[(px-2,py-3),(px+3,py-2),(px+2,py+4),(px-3,py+2)],color)
-            line(d,[(px-1,py),(px+1,py+1)],'#4e5666')
-    return resize(im,(size,size))
 
 
 def all_frames(states, draw, **kwargs):

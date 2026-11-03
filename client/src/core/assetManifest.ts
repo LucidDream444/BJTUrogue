@@ -204,28 +204,11 @@ export const BOSS_FIRST_ART = {
   },
 } as const
 
-export const STORY_ART = {
-  intro: {
-    study: 'ui_story_intro_study', sleep: 'ui_story_intro_sleep', nightmare: 'ui_story_intro_nightmare',
-    discover: { student: 'ui_story_intro_discover_student', goose: 'ui_story_intro_discover_goose', berry: 'ui_story_intro_discover_berry' },
-    enter: { student: 'ui_story_intro_enter_student', goose: 'ui_story_intro_enter_goose', berry: 'ui_story_intro_enter_berry' },
-  },
-  ending: {
-    wake: 'ui_story_ending_wake', confidence: 'ui_story_ending_confidence',
-    student: 'ui_story_ending_student', goose: 'ui_story_ending_goose', berry: 'ui_story_ending_berry',
-  },
-} as const
-
 function dreamAssets(): AssetEntry[] {
   const sheet = (key: string, path: string, frameSize: number): AssetEntry => ({
     key, path, placeholder: false, kind: 'spritesheet', width: frameSize, height: frameSize,
     frameWidth: frameSize, frameHeight: frameSize,
   })
-  const storyKeys = [
-    STORY_ART.intro.study, STORY_ART.intro.sleep, STORY_ART.intro.nightmare,
-    ...Object.values(STORY_ART.intro.discover), ...Object.values(STORY_ART.intro.enter),
-    ...Object.values(STORY_ART.ending),
-  ]
   return [
     sheet(RED_BERRY_ART.texture, 'sprites/player/red_berry/player_red_berry_body.png', RED_BERRY_ART.frameSize),
     { key: RED_BERRY_ART.portrait, path: 'sprites/player/red_berry/player_red_berry_portrait.png', placeholder: false, kind: 'image' },
@@ -237,7 +220,6 @@ function dreamAssets(): AssetEntry[] {
     sheet(NIGHTMARE_CAT_ART.vortex, 'sprites/fx/fx_nightmare_cat_vortex.png', NIGHTMARE_CAT_ART.frameSize),
     sheet(NIGHTMARE_CAT_ART.void, 'sprites/fx/fx_nightmare_cat_void.png', NIGHTMARE_CAT_ART.frameSize),
     sheet(BOSS_FIRST_ART.texture, 'sprites/enemies/boss_first_body.png', BOSS_FIRST_ART.frameSize),
-    ...storyKeys.map((key): AssetEntry => ({ key, path: `ui/story/${key}.png`, placeholder: false, kind: 'image', width: 1280, height: 720 })),
   ]
 }
 

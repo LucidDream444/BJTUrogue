@@ -2,15 +2,10 @@ import { readFileSync } from 'node:fs'
 import { describe, expect, it } from 'vitest'
 import {
   ANIMS, BOSS_FIRST_ART, FINAL_BOSS_ART, MUSCOVY_ART, NIGHTMARE_CAT_ART,
-  PUBLIC_WEAPON_ART, RED_BERRY_ART, STAGE2_BOSS_ART, STORY_ART, findAsset,
+  PUBLIC_WEAPON_ART, RED_BERRY_ART, STAGE2_BOSS_ART, findAsset,
 } from '@/core/assetManifest'
 
 const file = (path: string) => readFileSync(new URL('../../../public/assets/' + path, import.meta.url))
-const storyKeys = [
-  STORY_ART.intro.study, STORY_ART.intro.sleep, STORY_ART.intro.nightmare,
-  ...Object.values(STORY_ART.intro.discover), ...Object.values(STORY_ART.intro.enter),
-  ...Object.values(STORY_ART.ending),
-]
 const sheets = [RED_BERRY_ART.texture, MUSCOVY_ART.texture, NIGHTMARE_CAT_ART.texture,
   NIGHTMARE_CAT_ART.vortex, NIGHTMARE_CAT_ART.void, BOSS_FIRST_ART.texture,
   ...Object.values(STAGE2_BOSS_ART), ...Object.values(FINAL_BOSS_ART)]
@@ -34,19 +29,6 @@ describe('校园梦境正式资源交付', () => {
         expect(anim.frames.every((frame) => frame >= 0 && frame < frameCount), anim.animKey).toBe(true)
       }
     }
-  })
-
-  it('14张独立16:9剧情画面与各角色分支均有正式文件', () => {
-    expect(storyKeys).toHaveLength(14)
-    expect(new Set(storyKeys).size).toBe(14)
-    const contents = storyKeys.map((key) => {
-      const asset = findAsset(key)!
-      expect(asset.placeholder, key).toBe(false)
-      const png = file(asset.path)
-      expect([png.readUInt32BE(16), png.readUInt32BE(20)], key).toEqual([1280, 720])
-      return png.toString('base64')
-    })
-    expect(new Set(contents).size).toBe(14)
   })
 
   it('六把公共枪保持既有单图像素与握点/枪口，不产生按红果复制的武器变体', () => {

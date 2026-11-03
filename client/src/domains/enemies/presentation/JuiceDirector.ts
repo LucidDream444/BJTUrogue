@@ -569,8 +569,10 @@ export class JuiceDirector {
         const moving = view.body.velocity.lengthSq() > 1
         const hit = this.visuals.get(model.id)
         const hitAge = hit ? this.clock.realNowMs - hit.lastHitRealMs : Infinity
-        const state = hitAge < HIT_GLOW_MS ? 'hit' : model.state === 'windup' ? 'windup' : model.state === 'recover' ? 'recover' : model.state === 'dash' ? 'dash' : model.state === 'spin' ? 'spin' : moving ? 'walk' : 'idle'
         const isDuck = model.enemyKind === 'muscovy'
+        // The committed side-on lunge remains readable through hits; tint/squash still shows damage.
+        const duckAttack = isDuck && (model.state === 'windup' || model.state === 'dash')
+        const state = duckAttack ? model.state as 'windup' | 'dash' : hitAge < HIT_GLOW_MS ? 'hit' : model.state === 'windup' ? 'windup' : model.state === 'recover' ? 'recover' : model.state === 'dash' ? 'dash' : model.state === 'spin' ? 'spin' : moving ? 'walk' : 'idle'
         key = isDuck ? MUSCOVY_ART.texture : NIGHTMARE_CAT_ART.texture
         const frames = isDuck ? MUSCOVY_ART.states[state === 'spin' ? 'idle' : state] : NIGHTMARE_CAT_ART.states[state === 'dash' ? 'idle' : state]
         const age = state === 'hit' ? hitAge : model.stateAgeMs(this.clock.nowMs)

@@ -3,7 +3,7 @@ import { BattleScene, type BattleSceneData } from '@/domains/combat/BattleScene'
 import type { CombatSession } from '@/domains/combat/CombatSession'
 import type { CombatConfig } from '@/domains/combat/config'
 import type { DungeonStages } from '@/domains/combat/DungeonStages'
-import { RunFlow } from '@/domains/combat/RunFlow'
+import type { RunFlow } from '@/domains/combat/RunFlow'
 import { MENU_SCENE_KEY } from '../../arenaCatalog'
 
 const CHARACTERS = [['student', '新生'], ['athlete', '大鹅'], ['scholar', '小红果']] as const
@@ -12,7 +12,7 @@ type TestAction = 'boss' | 'player' | 'boss-player' | 'player-boss'
 /**
  * Test-only seam: the product scene has no test hooks or dependency on this file.
  * skillLab is forced during construction to guarantee MemoryProfileStorage. The
- * same adapter/session are then exercised through the normal story and death events.
+ * same adapter/session are then exercised through the normal result and death events.
  */
 interface FinaleTestSeam {
   session: CombatSession
@@ -22,7 +22,7 @@ interface FinaleTestSeam {
   floor: number
   dungeon: DungeonStages
   roomOrder: number
-  storyAdapter: { readonly storyOpen: boolean; readonly settlementOpen: boolean } | null
+  settlementAdapter: { readonly settlementOpen: boolean } | null
   store: { readonly profile: { currency: { coins: number }; stats: { runs: number; wins: number; deaths: number } } }
   goToFloor(target: number): void
 }
@@ -31,16 +31,14 @@ class DreamFinaleArena extends BattleScene {
   private testCharacterId = 'student'
   private testPanel: HTMLDivElement | null = null
   private testStatus: HTMLDivElement | null = null
-  private jumpPending = false
   private testAction: TestAction | null = null
   private testGodMode = true
-  private testMessage = '每次出发先看5幕开场；完成或跳过后直接进入8F心魔房。'
+  private testMessage = '每次出发直接进入8F最终首领房；胜利或死亡后直接结算。'
 
   constructor() { super('') }
 
   override init(data: BattleSceneData = {}): void {
     this.testCharacterId = data.characterId ?? data.skillLabCharacterId ?? this.testCharacterId
-    this.jumpPending = false
     this.testAction = null
     this.testGodMode = true
     super.init({ ...data, characterId: this.testCharacterId, skillLabCharacterId: this.testCharacterId, skillLab: true })
@@ -51,17 +49,11 @@ class DreamFinaleArena extends BattleScene {
   override create(): void {
     super.create()
     const seam = this.testSeam
-    if (!seam.session || !seam.flow || !seam.storyAdapter) return
-    // super.create() already built an isolated memory profile. Restore only its
-    // intro state here; never switch the profile backend or create a second runId.
+    if (!seam.session || !seam.flow || !seam.settlementAdapter) return
+    // super.create() already built an isolated memory profile and a playing flow.
+    // Keep its profile backend and runId, then enable normal battle/result behavior.
     seam.skillLab = false
-    seam.flow = new RunFlow({ ...seam.flow.context })
-    seam.session.pause('story')
-    const request = seam.flow.activeStory
-    if (request) seam.session.bus.emit('story_requested', request)
-    const offStory = seam.session.bus.on('story_finished', (event) => {
-      if (event.runId === seam.session.runId && event.kind === 'intro') this.jumpPending = true
-    })
+    this.enterFinaleRoom()
     const offSettlement = seam.session.bus.on('settlement_action_requested', (event) => {
       if (event.runId === seam.session.runId && event.action !== 'restart') this.returnToTestMenu()
     })
@@ -73,7 +65,6 @@ class DreamFinaleArena extends BattleScene {
     this.input.keyboard?.on('keydown-G', () => this.toggleTestGodMode())
     this.input.keyboard?.addCapture(['B', 'K', 'T', 'Y', 'G'])
     this.events.once(Phaser.Scenes.Events.SHUTDOWN, () => {
-      offStory()
       offSettlement()
       this.testPanel?.remove()
       this.testPanel = null
@@ -84,10 +75,6 @@ class DreamFinaleArena extends BattleScene {
   override update(time: number, delta: number): void {
     const seam = this.testSeam
     if (seam.session && seam.flow) {
-      if (this.jumpPending && seam.flow.phase === 'playing') {
-        this.jumpPending = false
-        this.enterFinaleRoom()
-      }
       if (seam.flow.phase === 'playing') {
         seam.session.player.model.protectedUntilMs = this.testGodMode ? Infinity : seam.session.player.model.protectedUntilMs
         if (!seam.session.clock.paused && !seam.session.clock.frozen) {
@@ -113,12 +100,12 @@ class DreamFinaleArena extends BattleScene {
     }
     seam.session.player.body.reset(point.x, point.y)
     seam.roomOrder = -1
-    this.testMessage = '已到8F心魔房；可正常战斗，或B快速胜利。T/Y应直接死亡结算且无结局。'
+    this.testMessage = '已到8F最终首领房；可正常战斗，或B快速胜利结算。T/Y应直接死亡结算。'
   }
 
   private queueTestAction(action: TestAction): void {
     if (this.testSeam.flow?.phase !== 'playing') {
-      this.testMessage = '先完成或跳过当前故事；结束后的结果不能改写，选角色按钮可开新局。'
+      this.testMessage = '本局结果已确定；选角色按钮可直接进入8F开始新局。'
       return
     }
     this.testSeam.session.resume('hidden')
@@ -154,9 +141,9 @@ class DreamFinaleArena extends BattleScene {
     if (action === 'boss' || action === 'boss-player') killBoss()
     if (action === 'player' || action === 'boss-player' || action === 'player-boss') killPlayer()
     if (action === 'player-boss') killBoss()
-    this.testMessage = action === 'boss' ? '已通过正式伤害入口击败心魔：应先结局，跳过后结算。'
+    this.testMessage = action === 'boss' ? '已通过正式伤害入口击败最终首领：应直接胜利结算。'
       : action === 'player' ? '已通过正式伤害入口击败玩家：应直接死亡结算。'
-        : `同帧${action === 'boss-player' ? '心魔→玩家' : '玩家→心魔'}死亡：应为dead，不能播放胜利结局。`
+        : `同帧${action === 'boss-player' ? '首领→玩家' : '玩家→首领'}死亡：应为dead，直接死亡结算。`
   }
 
   private toggleTestGodMode(): void {
@@ -186,7 +173,7 @@ class DreamFinaleArena extends BattleScene {
     title.textContent = '梦境8F · 正式流程联调'
     root.append(title)
     const note = document.createElement('p')
-    note.textContent = '独立内存档；不读写真实存档。角色按钮会新开一局并清零收益。开场后直接到心魔房。'
+    note.textContent = '独立内存档；不读写真实存档。角色按钮会新开一局并清零收益，直接进入8F最终首领房。'
     root.append(note)
     this.testStatus = document.createElement('div')
     this.testStatus.style.cssText = 'white-space:pre-wrap;color:#b5e2ff;margin:8px 0'
@@ -200,15 +187,15 @@ class DreamFinaleArena extends BattleScene {
       root.append(button)
     }
     for (const [id, name] of CHARACTERS) add(`${name}开新局`, () => this.restartTestCharacter(id))
-    add('B 击败心魔→结局', () => this.queueTestAction('boss'))
+    add('B 击败首领→胜利结算', () => this.queueTestAction('boss'))
     add('K 玩家死亡', () => this.queueTestAction('player'))
-    add('T 同帧心魔→玩家死', () => this.queueTestAction('boss-player'))
-    add('Y 同帧玩家→心魔死', () => this.queueTestAction('player-boss'))
+    add('T 同帧首领→玩家死', () => this.queueTestAction('boss-player'))
+    add('Y 同帧玩家→首领死', () => this.queueTestAction('player-boss'))
     add('G 切换测试保护', () => this.toggleTestGodMode())
-    add('重播当前角色 / 清零', () => this.restartTestCharacter(this.testCharacterId))
+    add('当前角色重新开局 / 清零', () => this.restartTestCharacter(this.testCharacterId))
     add('返回测试菜单', () => this.returnToTestMenu())
     const help = document.createElement('p')
-    help.textContent = '故事：Enter/空格/→下一张，Esc跳过；也可点画面按钮。战斗：WASD移动、鼠标射击、空格技能。结局中收益已提交一次，结束或跳过后只展示结算。'
+    help.textContent = '战斗：WASD移动、鼠标射击、空格技能。胜利或死亡后直接展示结算；本局收益只提交一次，角色按钮可直接开新局。'
     root.append(help)
     root.addEventListener('keydown', (event) => event.stopPropagation())
     document.body.append(root)
@@ -227,7 +214,7 @@ class DreamFinaleArena extends BattleScene {
 }
 
 export const arena = {
-  displayName: '联调 梦境8F：三角色开场→心魔→结局',
-  description: '正式战斗与剧情联调，内存档隔离；角色按钮开新局，B心魔死、K玩家死、T/Y同帧两种顺序、G测试保护。',
+  displayName: '联调 梦境8F：三角色首领战→结算',
+  description: '8F首领战与结算联调，内存档隔离；角色按钮直接开新局，B胜利、K死亡、T/Y同帧两种顺序、G测试保护。',
   scene: DreamFinaleArena,
 }

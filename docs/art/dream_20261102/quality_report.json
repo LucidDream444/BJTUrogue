@@ -7,7 +7,7 @@
         256,
         448
       ],
-      "bytes": 9436,
+      "bytes": 8765,
       "frameCount": 26,
       "uniqueFrames": 13,
       "transparentCorners": true
@@ -18,7 +18,7 @@
         128,
         128
       ],
-      "bytes": 1116
+      "bytes": 1046
     },
     {
       "key": "weapon_pencil_base",
@@ -74,9 +74,9 @@
         768,
         1536
       ],
-      "bytes": 37387,
+      "bytes": 42306,
       "frameCount": 128,
-      "uniqueFrames": 77,
+      "uniqueFrames": 57,
       "transparentCorners": true
     },
     {
@@ -118,10 +118,12 @@
         1024,
         512
       ],
-      "bytes": 14507,
+      "bytes": 19035,
       "frameCount": 32,
-      "uniqueFrames": 20,
-      "transparentCorners": true
+      "uniqueFrames": 25,
+      "transparentCorners": true,
+      "transparentPerimeter": true,
+      "nativePixelScale": 2
     },
     {
       "key": "enemy_stage2_idle",
@@ -129,10 +131,12 @@
         512,
         512
       ],
-      "bytes": 9139,
+      "bytes": 14559,
       "frameCount": 16,
-      "uniqueFrames": 7,
-      "transparentCorners": true
+      "uniqueFrames": 6,
+      "transparentCorners": true,
+      "transparentPerimeter": true,
+      "nativePixelScale": 2
     },
     {
       "key": "enemy_stage2_attack",
@@ -140,10 +144,12 @@
         512,
         512
       ],
-      "bytes": 12190,
+      "bytes": 16034,
       "frameCount": 16,
-      "uniqueFrames": 16,
-      "transparentCorners": true
+      "uniqueFrames": 15,
+      "transparentCorners": true,
+      "transparentPerimeter": true,
+      "nativePixelScale": 2
     },
     {
       "key": "boss_final_idle",
@@ -151,10 +157,12 @@
         512,
         512
       ],
-      "bytes": 13634,
+      "bytes": 16692,
       "frameCount": 16,
       "uniqueFrames": 16,
-      "transparentCorners": true
+      "transparentCorners": true,
+      "transparentPerimeter": true,
+      "nativePixelScale": 2
     },
     {
       "key": "boss_final_walk",
@@ -162,10 +170,12 @@
         512,
         512
       ],
-      "bytes": 14238,
+      "bytes": 17454,
       "frameCount": 16,
       "uniqueFrames": 16,
-      "transparentCorners": true
+      "transparentCorners": true,
+      "transparentPerimeter": true,
+      "nativePixelScale": 2
     },
     {
       "key": "boss_final_attack",
@@ -173,10 +183,12 @@
         512,
         512
       ],
-      "bytes": 18115,
+      "bytes": 18240,
       "frameCount": 16,
       "uniqueFrames": 16,
-      "transparentCorners": true
+      "transparentCorners": true,
+      "transparentPerimeter": true,
+      "nativePixelScale": 2
     },
     {
       "key": "boss_final_poison",
@@ -184,125 +196,13 @@
         512,
         512
       ],
-      "bytes": 17858,
+      "bytes": 18230,
       "frameCount": 16,
       "uniqueFrames": 16,
-      "transparentCorners": true
-    },
-    {
-      "key": "ui_story_intro_study",
-      "size": [
-        1280,
-        720
-      ],
-      "bytes": 9936
-    },
-    {
-      "key": "ui_story_intro_sleep",
-      "size": [
-        1280,
-        720
-      ],
-      "bytes": 8824
-    },
-    {
-      "key": "ui_story_intro_nightmare",
-      "size": [
-        1280,
-        720
-      ],
-      "bytes": 15658
-    },
-    {
-      "key": "ui_story_intro_discover_student",
-      "size": [
-        1280,
-        720
-      ],
-      "bytes": 10317
-    },
-    {
-      "key": "ui_story_intro_discover_goose",
-      "size": [
-        1280,
-        720
-      ],
-      "bytes": 7901
-    },
-    {
-      "key": "ui_story_intro_discover_berry",
-      "size": [
-        1280,
-        720
-      ],
-      "bytes": 8493
-    },
-    {
-      "key": "ui_story_intro_enter_student",
-      "size": [
-        1280,
-        720
-      ],
-      "bytes": 10901
-    },
-    {
-      "key": "ui_story_intro_enter_goose",
-      "size": [
-        1280,
-        720
-      ],
-      "bytes": 10555
-    },
-    {
-      "key": "ui_story_intro_enter_berry",
-      "size": [
-        1280,
-        720
-      ],
-      "bytes": 10803
-    },
-    {
-      "key": "ui_story_ending_wake",
-      "size": [
-        1280,
-        720
-      ],
-      "bytes": 10389
-    },
-    {
-      "key": "ui_story_ending_student",
-      "size": [
-        1280,
-        720
-      ],
-      "bytes": 11268
-    },
-    {
-      "key": "ui_story_ending_goose",
-      "size": [
-        1280,
-        720
-      ],
-      "bytes": 8929
-    },
-    {
-      "key": "ui_story_ending_berry",
-      "size": [
-        1280,
-        720
-      ],
-      "bytes": 11646
-    },
-    {
-      "key": "ui_story_ending_confidence",
-      "size": [
-        1280,
-        720
-      ],
-      "bytes": 10665
+      "transparentCorners": true,
+      "transparentPerimeter": true,
+      "nativePixelScale": 2
     }
   ],
-  "storyCount": 14,
-  "storyImagesDistinct": true,
-  "totalBytes": 320863
+  "totalBytes": 199319
 }

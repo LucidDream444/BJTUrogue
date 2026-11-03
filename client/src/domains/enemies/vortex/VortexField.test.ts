@@ -8,6 +8,24 @@ const cfg = { ...validateEnemies(JSON.parse(readFileSync('public/config/enemies.
 const unit = (id: number, x = 1): VortexTarget => ({ id, spawnSeq: id, x, y: 0, radius: 2, alive: true })
 const start = (fields: VortexField, id = 2, owner = 1) => fields.start(id, id + 100, owner, 0, 0, 0, cfg, 5)!
 describe('锚定旋风场', () => {
+  it('移动猫时事件引用同步圆心，伤害随场移动且保留既有节拍与只读描述', () => {
+    const fields = new VortexField(2)
+    const started = start(fields)
+    const other = start(fields, 3, 5)
+    expect(Object.isFrozen(started)).toBe(true)
+    const hit: VortexDamage[] = []
+    fields.step(0, 0, [unit(6)], (request) => hit.push(request))
+    fields.moveOwner(1, cfg.damageRadius * 4, 15)
+    expect(fields.snapshots[0]).toBe(started)
+    expect([started.x, started.y]).toEqual([cfg.damageRadius * 4, 15])
+    expect([other.x, other.y]).toEqual([0, 0])
+    fields.step(100, 1, [unit(6), { ...unit(7, started.x), y: started.y }], (request) => hit.push(request))
+    expect(hit.filter((request) => request.sourceId === started.sourceId).map((request) => request.targetId)).toEqual([6, 7])
+    expect(started.startedAtMs).toBe(0)
+    expect(started.endsAtMs).toBe(cfg.durationMs)
+    expect(fields.removeOwner(1)).toEqual([started])
+    expect(fields.snapshots).toEqual([other])
+  })
   it('30/60/144Hz同样刻度数量，不受8跳上限或接触TTL截断', () => {
     const counts = [30, 60, 144].map((hz) => {
       const fields = new VortexField(4); start(fields)

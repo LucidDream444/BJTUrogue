@@ -286,7 +286,7 @@ class DreamCombatArena extends Phaser.Scene {
       spawn('sprayer', 0.79, 0.83)
     }
     const summary = scenario === 'muscovy' ? '番鸭＋课本：站在课本后方引导直冲，观察互伤、固定方向与墙前停下。'
-      : scenario === 'cats' ? '双猫＋课本：靠近触发旋风，观察轻吸、互伤和真实子弹弯曲；击杀猫看正常猫遁入虚空。'
+      : scenario === 'cats' ? '双猫＋课本：靠近触发旋风，观察所有单位被牵引、互伤和大圈内真实子弹弯曲；击杀猫看正常猫遁入虚空。'
         : '混合对照：左侧番鸭与课本，右侧双猫与课本，下方纸团和喷灌器；中央墙保留宽通路。'
     this.notice.setText(summary)
   }

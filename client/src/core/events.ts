@@ -96,11 +96,6 @@ export interface RunResultSnapshot extends RunContext {
   readonly finalRewardId?: string
 }
 
-export interface StoryRequest extends RunContext {
-  readonly requestId: string
-  readonly kind: 'intro' | 'ending'
-}
-
 export interface RunResultCommitted {
   readonly runId: string
   readonly snapshot: RunResultSnapshot
@@ -126,13 +121,6 @@ export interface GameEvents extends EventMap {
   enemy_vortex_ended: { fieldId: number; sourceId: number; ownerId: number }
   /** 新攻击只由玩家所属域同步落账，D3不再额外调用玩家模型。 */
   enemy_attack_requested: HitRequest & { targetId: number; targetSpawnSeq: number }
-  story_requested: StoryRequest
-  story_finished: {
-    runId: string
-    requestId: string
-    kind: 'intro' | 'ending'
-    result: 'completed' | 'skipped'
-  }
   run_result_ready: RunResultSnapshot
   run_result_committed: RunResultCommitted
   settlement_requested: { runId: string }

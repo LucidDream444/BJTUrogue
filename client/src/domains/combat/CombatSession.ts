@@ -37,7 +37,6 @@ export type PauseReason =
   | 'death'
   | 'intermission'
   | 'victory'
-  | 'story'
   /**
    * **抓取怪抓住了玩家**：世界冻结、镜头特写、只留挣脱连点。
    *
@@ -364,10 +363,14 @@ export class CombatSession {
     const pointer = this.scene.input.activePointer
     this.scene.cameras.main.getWorldPoint(pointer.x, pointer.y, this.aim)
     const fields = [...this.vortices.values()]
+    const pull = vortexPullVelocity({ x: this.player.x, y: this.player.y }, fields)
+    this.skill?.setExternalVelocity(pull)
     if (!this.skill?.isDashing()) {
-      const pull = vortexPullVelocity({ x: this.player.x, y: this.player.y }, fields)
       this.player.move(this.clock.nowMs - before, true, pull)
-    } else this.player.clearMovementInertia()
+    } else {
+      this.player.clearMovementInertia()
+      this.player.body.stop()
+    }
     this.weapons.applyVortices(fields, (this.clock.nowMs - before) / 1000)
     this.player.aim(this.aim.x, this.aim.y, this.weapons.firing)
     this.player.advanceStamina(this.clock.nowMs - before, this.weapons.firing)
@@ -547,7 +550,10 @@ export class CombatSession {
         clock: this.clock,
         player: this.player,
         enemies: this.enemies,
-        terrain: this.terrain,
+        crossesSolid: (from, to, radius) => earliestObstacleHit(
+          this.terrain.solidHitTime(from, to, radius),
+          this.stageColliders.barrierHitTime(from, to, radius),
+        ) !== null,
         setTemporaryAttackSpeed: (pct) => {
           this.temporaryAttackSpeedPct = pct
           this.recompute()
