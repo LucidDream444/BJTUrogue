@@ -313,14 +313,7 @@ function characterVoiceAssets(): AssetEntry[] {
   return CHARACTER_VOICE_PROFILES.flatMap(({ characterId }) =>
     CHARACTER_VOICE_CUES.map((cue) => {
       const key = characterVoiceKey(characterId, cue)
-      // 新生的受伤短呼目前是浏览器原生支持的 PCM WAV；其余语音仍按 ogg + mp3 交付。
-      const codecs = key === 'voice_player_student_hurt' ? ['wav'] : undefined
-      return audio(
-        key,
-        `audio/voice/player/${key}`,
-        !CHARACTER_VOICE_READY_KEYS.has(key),
-        codecs,
-      )
+      return audio(key, `audio/voice/player/${key}`, !CHARACTER_VOICE_READY_KEYS.has(key))
     }),
   )
 }
@@ -1676,13 +1669,8 @@ export const ASSETS: readonly AssetEntry[] = BASE_ASSETS.map((asset) =>
     : asset,
 )
 
-function audio(
-  key: string,
-  path: string,
-  placeholder = true,
-  codecs: readonly string[] = ['ogg', 'mp3'],
-): AssetEntry {
-  return { key, path, placeholder, kind: 'audio', codecs }
+function audio(key: string, path: string, placeholder = true): AssetEntry {
+  return { key, path, placeholder, kind: 'audio', codecs: ['ogg', 'mp3'] }
 }
 
 /**

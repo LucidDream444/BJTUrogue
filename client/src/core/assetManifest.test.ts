@@ -26,7 +26,7 @@ describe('character voice manifest', () => {
           path: `audio/voice/player/${key}`,
           placeholder: !studentHurt,
           kind: 'audio',
-          codecs: studentHurt ? ['wav'] : ['ogg', 'mp3'],
+          codecs: ['ogg', 'mp3'],
         })
       }
     }
