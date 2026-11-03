@@ -80,6 +80,7 @@ describe('默认档', () => {
     expect(p.selected.difficulty).toBe('normal')
     expect(p.selected.characterId).toBe(STARTER_CHARACTER_ID)
     expect(p.unlocks.characters).toContain(STARTER_CHARACTER_ID)
+    expect(p.onboarding.tutorialSeen).toBe(false)
     // 计数值一起归零，否则"新档"和"老档"的区别只剩一个字段
     expect(p.currency.coins).toBe(0)
     expect(p.stats).toEqual({ runs: 0, wins: 0, deaths: 0, bestDepth: 0 })
@@ -254,7 +255,7 @@ describe('迁移链', () => {
     if (!result.ok) expect(result.reason).toContain('超限')
   })
 
-  it('真实 v1 → v4 迁移旧成长退款、清空旧技能并建立同步版本号', () => {
+  it('真实 v1 → v5 迁移旧成长退款、清空旧技能、建立同步版本号并跳过旧玩家引导', () => {
     const real = migrateProfile({
       schemaVersion: 1,
       upgrades: {
@@ -265,7 +266,11 @@ describe('迁移链', () => {
       unlocks: { characters: ['student', 'leader'], skills: ['rapid_fire'] },
       selected: { characterId: 'leader', difficulty: 'normal' },
     })
-    expect(real.outcome).toEqual({ status: 'migrated', from: 1, to: 4 })
+    expect(real.outcome).toEqual({
+      status: 'migrated',
+      from: 1,
+      to: PROFILE_SCHEMA_VERSION,
+    })
     expect(real.profile.upgrades['student:armor']).toBeUndefined()
     expect(real.profile.upgrades['student:magic']).toBeUndefined()
     expect(real.profile.upgrades).toEqual({})
@@ -274,6 +279,30 @@ describe('迁移链', () => {
     expect(real.profile.unlocks.skills).toEqual([])
     expect(real.profile.selected.characterId).toBe('student')
     expect(real.profile.revision).toBe(0)
+    expect(real.profile.onboarding.tutorialSeen).toBe(true)
+  })
+
+  it('v4 → v5 保留玩家进度，只把旧玩家标成已经看过引导', () => {
+    const migrated = migrateProfile({
+      schemaVersion: 4,
+      revision: 17,
+      currency: { coins: 321 },
+      unlocks: { characters: ['student', 'athlete'], skills: [] },
+      selected: { characterId: 'athlete', difficulty: 'hard' },
+    })
+
+    expect(migrated.outcome).toEqual({
+      status: 'migrated',
+      from: 4,
+      to: PROFILE_SCHEMA_VERSION,
+    })
+    expect(migrated.profile.revision).toBe(17)
+    expect(migrated.profile.currency.coins).toBe(321)
+    expect(migrated.profile.selected).toEqual({
+      characterId: 'athlete',
+      difficulty: 'hard',
+    })
+    expect(migrated.profile.onboarding.tutorialSeen).toBe(true)
   })
 })
 
@@ -349,6 +378,7 @@ describe('形状收敛', () => {
       currency: { coins: -50 },
       stats: { runs: -1, wins: 2.7, deaths: 'x', bestDepth: Number.NaN },
       selected: { characterId: '', difficulty: 'normal ' },
+      onboarding: { tutorialSeen: 'yes' },
     })
     expect(p.settings.bgmVolume).toBe(1)
     expect(p.settings.sfxVolume).toBe(0)
@@ -357,6 +387,7 @@ describe('形状收敛', () => {
     expect(p.stats).toEqual({ runs: 0, wins: 3, deaths: 0, bestDepth: 0 })
     expect(p.selected.characterId).toBe(STARTER_CHARACTER_ID)
     expect(p.selected.difficulty).toBe('normal')
+    expect(p.onboarding.tutorialSeen).toBe(false)
   })
 
   it('缺字段一律补默认，不报错', () => {
@@ -374,6 +405,34 @@ describe('形状收敛', () => {
 
   it('收敛一定把版本盖成当前版本号（改动不可能悄悄降级）', () => {
     expect(normalizeProfile({ schemaVersion: 1 }).schemaVersion).toBe(PROFILE_SCHEMA_VERSION)
+  })
+})
+
+describe('首次引导', () => {
+  it('结束引导会落盘；重复结束不推进 revision', () => {
+    const storage = new MemoryProfileStorage()
+    const store = storeWith(storage)
+    store.load()
+
+    expect(store.profile.onboarding.tutorialSeen).toBe(false)
+    expect(store.markTutorialSeen()).toBe(true)
+    expect(store.profile.onboarding.tutorialSeen).toBe(true)
+    expect(store.profile.revision).toBe(1)
+    expect(JSON.parse(storage.read(PROFILE_STORAGE_KEY)!).onboarding.tutorialSeen).toBe(true)
+
+    expect(store.markTutorialSeen()).toBe(true)
+    expect(store.profile.revision).toBe(1)
+  })
+
+  it('写盘失败时本次会话仍不会重复拦截，但保留可见错误供重试', () => {
+    const quiet = vi.spyOn(console, 'warn').mockImplementation(() => {})
+    const store = storeWith(new ThrowingStorage('write'))
+    store.load()
+
+    expect(store.markTutorialSeen()).toBe(false)
+    expect(store.profile.onboarding.tutorialSeen).toBe(true)
+    expect(store.lastError).toContain('配额满了')
+    quiet.mockRestore()
   })
 })
 

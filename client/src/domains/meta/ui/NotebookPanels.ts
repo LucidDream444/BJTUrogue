@@ -25,6 +25,54 @@ function chapter(
   ui.label(130, 592, description, A.size.small, ui.muted, 320)
 }
 
+/**
+ * 新档的首次操作引导。内容刻意只覆盖「移动 / 攻击 / 交互 / 暂停 / 死亡规则」，
+ * 完整键位仍由冒险手册承载。右上角关闭与主按钮都会结束引导并写档。
+ */
+export function buildNotebookFirstRun(ui: ArchiveUI, onStart: () => void): void {
+  ui.label(116, 222, 'FIRST DEPARTURE  /  00', A.size.micro, ui.muted)
+  ui.image(ARCHIVE_ART.book, 292, 404, 136, 148)
+  ui.label(292, 535, '第一次出发', A.size.heading, ui.textColor, undefined, true).setOrigin(0.5)
+  ui.label(
+    130,
+    592,
+    '记住最基本的操作。\n剩下的，交给校园另一面的冒险。',
+    A.size.small,
+    ui.muted,
+    320,
+  )
+
+  ui.label(592, 190, '在校园醒来之前', A.size.heading, ui.textColor, undefined, true)
+  ui.label(592, 236, '首次冒险速查  /  你可以随时跳过', A.size.micro, ui.muted)
+  const rows = [
+    ['WASD', '移动角色'],
+    ['鼠标', '瞄准；按住左键连续攻击'],
+    ['Space', '释放当前角色技能'],
+    ['E / F', 'E 开宝箱或拾取；F 在楼梯口上下楼'],
+    ['Esc', '暂停游戏；暂停菜单可查看完整说明'],
+    ['死亡', '本局结束；金币、角色解锁与技能升级保留'],
+  ] as const
+  rows.forEach(([key, description], index) => {
+    const y = 292 + index * 61
+    ui.panel(592, y - 9, 140, 43, 0.7)
+    ui.label(662, y + 12, key, A.size.small, ui.textColor, undefined, true).setOrigin(0.5)
+    ui.label(760, y, description, A.size.small, ui.muted, 690)
+    ui.rule(760, y + 45, 690)
+  })
+
+  ui.panel(592, 678, 858, 98, 0.62)
+  ui.label(620, 696, '小提示', A.size.small, A.energy, undefined, true)
+  ui.label(
+    620,
+    728,
+    '之后可从校园地图的「说明」再次查看完整键位；首次引导不会重复出现。',
+    A.size.micro,
+    ui.muted,
+    790,
+  )
+  ui.button(1275, 824, 354, 76, '开始冒险  →', onStart, true)
+}
+
 export function buildNotebookAchievements(ui: ArchiveUI, profile: ProfileData): void {
   chapter(
     ui,
