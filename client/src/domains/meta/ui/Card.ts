@@ -1,11 +1,13 @@
 import Phaser from 'phaser'
-import { GOOSE_ART } from '@/core/assetManifest'
+import { CAMPUS_MENU_ART } from '@/core/assetManifest'
 import type { CharacterDef } from '../catalog'
 import { THEME, fontPx } from './theme'
 
 export interface CardOptions {
   width?: number
   height?: number
+  /** 窄屏：缩小字号并收紧文字；卡片本身仍按传入尺寸绘制。 */
+  compact?: boolean
 }
 
 /** A campus ID card, with real student art and clear locked-character crests. */
@@ -20,6 +22,7 @@ export class Card {
   private readonly portrait: Phaser.GameObjects.Image | null
   private readonly width: number
   private readonly height: number
+  private readonly compact: boolean
   private selected = false
   private locked = false
   private hovered = false
@@ -35,38 +38,40 @@ export class Card {
     this.id = def.id
     this.width = options.width ?? THEME.card.width
     this.height = options.height ?? THEME.card.height
+    this.compact = options.compact ?? false
+
     this.bg = scene.add.rectangle(x, y, this.width, this.height, THEME.color.panel)
     this.frame = scene.add.graphics()
-    const art: Record<string, string> = {
-      student: 'player_student_idle_s',
-      athlete: GOOSE_ART.portrait,
-      scholar: 'ui_campus_book',
-    }
+    const art = CAMPUS_MENU_ART.characterCards as Readonly<Record<string, string>>
     const key = art[def.id]
-    this.portrait = key && scene.textures.exists(key) ? scene.add.image(x, y - 14, key, 0) : null
+    this.portrait =
+      key && scene.textures.exists(key) ? scene.add.image(x, this.portraitCenterY, key, 0) : null
     if (this.portrait) {
-      const size = def.id === GOOSE_ART.characterId ? GOOSE_ART.portraitSize : def.id === 'student' ? 118 : 65
+      const size = Math.min(this.portraitRadius * 1.6, this.compact ? this.height * 0.32 : 92)
       this.portrait.setScale(size / Math.max(this.portrait.width, this.portrait.height))
       this.portrait.texture.setFilter(Phaser.Textures.FilterMode.NEAREST)
     }
+
     this.nameText = scene.add
-      .text(x, y + this.height / 2 - 57, def.name, {
+      .text(x, y + this.height / 2 - (this.compact ? 46 : 57), def.name, {
         fontFamily: THEME.font.family,
-        fontSize: fontPx(17),
+        fontSize: fontPx(this.compact ? 14 : 17),
         color: THEME.text.body,
       })
       .setOrigin(0.5)
     this.blurbText = scene.add
-      .text(x, y + this.height / 2 - 30, def.blurb, {
+      .text(x, y + this.height / 2 - (this.compact ? 27 : 36), def.blurb, {
         fontFamily: THEME.font.family,
-        fontSize: fontPx(11),
+        fontSize: fontPx(this.compact ? 10 : 11),
         color: THEME.text.dim,
+        align: 'center',
+        wordWrap: { width: Math.max(40, this.width - 14), useAdvancedWrap: true },
       })
-      .setOrigin(0.5)
+      .setOrigin(0.5, 0)
     this.badge = scene.add
-      .text(x, y - this.height / 2 + 22, '', {
+      .text(x, y - this.height / 2 + (this.compact ? 16 : 22), '', {
         fontFamily: THEME.font.family,
-        fontSize: fontPx(11),
+        fontSize: fontPx(this.compact ? 10 : 11),
         color: THEME.text.accent,
       })
       .setOrigin(0.5)
@@ -104,6 +109,14 @@ export class Card {
     this.hit.destroy()
   }
 
+  private get portraitRadius(): number {
+    return Math.min(51, this.width * 0.32, this.height * 0.22)
+  }
+
+  private get portraitCenterY(): number {
+    return this.y - this.height * 0.16
+  }
+
   private paint(): void {
     const accent = this.selected || this.hovered
     this.bg.setFillStyle(
@@ -122,9 +135,11 @@ export class Card {
     this.badge.setText(this.locked ? '◇  尚未解锁' : this.selected ? '✓  今日出战' : '可选择')
     this.badge.setColor(this.locked ? THEME.text.dim : THEME.text.accent)
     this.portrait?.setAlpha(this.locked ? 0.34 : 1)
-    const g = this.frame.clear(),
-      x = this.x - this.width / 2,
-      y = this.y - this.height / 2
+
+    const g = this.frame.clear()
+    const x = this.x - this.width / 2
+    const y = this.y - this.height / 2
+    const radius = this.portraitRadius
     g.lineStyle(1, THEME.color.accent, this.locked ? 0.12 : 0.3).strokeRect(
       x + 6,
       y + 6,
@@ -133,15 +148,16 @@ export class Card {
     )
     g.fillStyle(0x97a478, this.locked ? 0.035 : 0.09).fillCircle(
       this.x,
-      this.y - 14,
-      Math.min(51, this.width * 0.34),
+      this.portraitCenterY,
+      radius,
     )
     g.lineStyle(1, 0xbca06a, this.locked ? 0.14 : 0.35).strokeCircle(
       this.x,
-      this.y - 14,
-      Math.min(51, this.width * 0.34),
+      this.portraitCenterY,
+      radius,
     )
-    g.lineBetween(x + 18, y + this.height - 78, x + this.width - 18, y + this.height - 78)
+    const dividerY = this.y + this.height / 2 - (this.compact ? 62 : 78)
+    g.lineBetween(x + 18, dividerY, x + this.width - 18, dividerY)
     if (this.selected)
       g.fillStyle(THEME.color.accent).fillRect(x + 18, y + this.height - 3, this.width - 36, 3)
   }

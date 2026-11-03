@@ -1,5 +1,4 @@
-import { readFileSync, existsSync } from 'node:fs'
-import { fileURLToPath } from 'node:url'
+import { readFileSync } from 'node:fs'
 import { describe, expect, it } from 'vitest'
 import {
   ANIMS,
@@ -7,6 +6,7 @@ import {
   PAPER_DEATH_ANIMS,
   findAsset,
   resolveTextureKey,
+  BOSS_FIRST_ART,
 } from '@/core/assetManifest'
 import { bossArt } from './bossArt'
 
@@ -37,19 +37,21 @@ describe('校园敌人资源交付', () => {
     expect(PAPER_DEATH_ANIMS).toHaveLength(3)
   })
 
-  it('首领身份与攻击资源 key 保留，占位不再要求旧图片存在', () => {
+  it('首领身份独立并使用真实资源，第一首领不再借用最终毒场槽位', () => {
     const variants = [bossArt(1, false), bossArt(2, false), bossArt(3, true)]
     expect(new Set(variants.map((variant) => variant.key)).size).toBe(3)
-    expect(variants.map((variant) => variant.tint)).toEqual([0xffffff, 0x4da6ff, 0xa855f7])
-    const retired = ASSETS.filter((entry) =>
+    expect(variants[0]?.key).toBe(BOSS_FIRST_ART.texture)
+    expect(variants.map((variant) => variant.tint)).toEqual([0xffffff, 0xffffff, 0xffffff])
+    const delivered = ASSETS.filter((entry) =>
       /sprites\/enemies\/(stage2_boss|final_boss)\//.test(entry.path),
     )
-    expect(retired).toHaveLength(6)
-    for (const entry of retired) {
-      expect(findAsset(entry.key)?.placeholder).toBe(true)
-      expect(resolveTextureKey(entry.key)).not.toBe(entry.key)
-      expect(entry.width).not.toBe(entry.height)
-      expect(existsSync(fileURLToPath(new URL(entry.path, assetRoot)))).toBe(false)
+    expect(delivered).toHaveLength(6)
+    for (const entry of delivered) {
+      expect(findAsset(entry.key)?.placeholder).toBe(false)
+      expect(resolveTextureKey(entry.key)).toBe(entry.key)
+      const png = readFileSync(new URL(entry.path, assetRoot))
+      expect(png.readUInt32BE(16)).toBe(entry.frameWidth! * 4)
+      expect(png.readUInt32BE(20)).toBe(entry.frameHeight! * 4)
     }
   })
 })

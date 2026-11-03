@@ -1,0 +1,29 @@
+Use case: stylized-concept
+Asset type: a pixel-art material tile sheet for the same photographed Chinese university campus as the furniture and architecture sheets.
+Primary request: translate the supplied material reference photographs into carefully drawn pixel-art tiles. Preserve the real low-saturation material identities. Reference numbers below are the numeric suffixes in filenames 20261023-220619.789-N.jpg, not the chat attachment order.
+
+Input image roles: use the material-study board for close-up material identity, and the original photographs as construction references. Photos 12/14/15 show the pale warm-gray glazed classroom floor; 6/10/11 the gray-beige corridor floor; 2/21 the matte worn gray-green concrete lecture-hall aisles; 7/18/19 the dark fine-grained polished stone lobby floor and muted red brick; 5/8/16/17/23 the light gray stair treads, fine anti-slip grooves and stainless rails. Never turn all floors into the same ceramic material. Exposure and evening light are not different intrinsic paint finishes.
+
+Style: deliberate native pixel art with square hard pixels, compact coherent pixel clusters, restrained 4-6 shade material ramps. No photo pixelation filter, soft gradients, antialiasing, bloom, text, labels, grid overlays, perspective, people or invented props. For floor cells the camera is directly overhead and square grout lines remain horizontal and vertical. For wall cells use a flat frontal material swatch. Tile geometry is rectilinear, never a diamond isometric grid. Lighting is neutral and diffuse; do not bake a big reflected light blob or cast shadow into a repeating tile.
+
+Sheet geometry: exactly 1024 by 1024 pixels; FOUR columns and FOUR rows, sixteen square 256 by 256 material cells. Imagine a 256 by 256 native sheet enlarged exactly four times with nearest-neighbor; native cells are 64 by 64. Each material fills its entire cell all the way to all four edges. NO padding or magenta gutters on this material sheet. Do not draw borders between cells beyond their own material seams. No transparent or chroma background. All repeated textures have quiet compatible opposing edges; distribute texture without obvious central emblems.
+
+Cell contents in ZERO-BASED row and column:
+row 0, col 0: tile_classroom_ceramic_clean — one pale warm-gray/light beige square ceramic floor tile, fine gray grout on bottom and right edges, subtle glaze, no strong reflection; photos 12/14.
+row 0, col 1: tile_classroom_ceramic_worn — the same tile scale and base color with a few subdued scuffs, same grout alignment, no large cracks; photos 12/15.
+row 0, col 2: tile_corridor_ceramic_neutral — gray-beige square corridor tile, slightly darker than classroom tile, fine matching grout and restrained polish; photos 6/10/11.
+row 0, col 3: tile_corridor_ceramic_worn — a quiet alternate of the corridor tile, same grout and value range, a few low-contrast wear marks; photos 6/10/11.
+row 1, col 0: tile_lecture_concrete_base — matte gray with a subdued gray-green undertone, worn concrete; low-contrast clustered speckling, no ceramic grid, no glossy highlight; photos 2/21.
+row 1, col 1: tile_lecture_concrete_scuffed — same concrete with irregular pale gray abrasion and dark patches, avoid a single conspicuous central mark; photos 2/21.
+row 1, col 2: tile_lobby_stone_base — deep charcoal-gray very fine-grained stone, slightly green-gray in undertone, small muted stone flecks, subtle bottom/right slab joint; photos 7/18/19.
+row 1, col 3: tile_lobby_stone_variant — same dark stone with a quieter alternate grain distribution and matching joint placement, no lamp reflections; photos 7/18/19.
+row 2, col 0: tile_wall_plaster_warm — warm off-white painted plaster, almost smooth, sparse subdued wear pixels, not yellow wall paint; photos 12/14.
+row 2, col 1: tile_wall_plaster_cool — neutral light gray-white corridor plaster, sparse low-contrast marks; photos 6/10/11.
+row 2, col 2: tile_wall_brick_base — muted rusty red rectangular bricks with thin gray-beige mortar, horizontal running bond, eight brick courses in this cell, every alternate course offset half a brick; photos 7/18.
+row 2, col 3: tile_wall_brick_weathered — identical brick dimensions and mortar alignment with chalky pale bloom and subtle weathering as on the daylit stairwell wall, never a blanket white wash; photos 8/17.
+row 3, col 0: tile_stair_tread_grooved — pale gray-white ceramic stair tread, a horizontal band of four fine parallel darker anti-slip grooves near the bottom edge, sparse joint lines, no rails; photos 5/16/17.
+row 3, col 1: tile_stair_riser_plain — frontal pale gray stair riser, a dark one-native-pixel edge at the very top and a subtle lower value than tread, repeat horizontally only; photos 5/8.
+row 3, col 2: tile_wall_skirt_charcoal — mostly light neutral plaster with a narrow near-black charcoal skirting band along the bottom quarter, slightly worn top edge; straight horizontal strip for the north wall; photos 6/10/11.
+row 3, col 3: tile_door_threshold_metal — silver-gray wide metal threshold strip horizontally across the middle of gray-beige tile, sparse tiny scratches and two small screw marks, side-to-side continuity; photos 6/10/11.
+
+Material color anchors are visual estimates only, not calibrated measurements: pale classroom ceramic #C5C1B4, corridor ceramic #B6B3A8, concrete #7D807A, dark stone #444B48, wall #D4D2C6, brick #A96149, charcoal skirting #303638. Keep restrained photo-faithful material colors instead of a candy-colored fantasy campus. Exact repeatability and the pixel grid will be inspected after generation.

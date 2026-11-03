@@ -160,13 +160,15 @@ export const FLOOR_PLAN_YF2_NAME = 'floor-plan-yf2.json'
  * 所以那两份 JSON 是 `floor-plan.json`（6F）的**逐格副本**，只换了房号前缀。
  */
 /**
- * 逸夫楼 7F —— 一局的**第 7 层（最后一层）**（10-30 加）。
+ * 逸夫楼 7F —— 一局的第 7 层，保留无首领的准备与过渡用途。
  *
  * 用户：「根据图片做 YF7 的地图，YF7 不做首领房，中间那部分是可活动区域」。
- * ⚠️ **它暂时没有首领房**：用户说「首领房暂时不做……之后会安排你做额外空间在七层作为最终关卡」——
- * 那个「额外空间」接进来之前，一局打到 7F 不会结束（`floors.test.ts` 里那条判据暂时放宽了）。
+ * 梦境最终关独立放在第八层，不改变这份按照片制作的7F布局。
  */
 export const FLOOR_PLAN_YF7_NAME = 'floor-plan-yf7.json'
+
+/** 梦境8F沿用6F几何，房号YF8xx，YF804是心魔房；不是现实建筑测绘。 */
+export const FLOOR_PLAN_YF8_NAME = 'floor-plan-yf8.json'
 
 export const FLOOR_PLAN_YF4_NAME = 'floor-plan-yf4.json'
 export const FLOOR_PLAN_YF5_NAME = 'floor-plan-yf5.json'
@@ -212,8 +214,9 @@ export const FLOOR_PLAN_FILES: readonly string[] = [
   FLOOR_PLAN_YF3_NAME,
   FLOOR_PLAN_YF4_NAME,
   FLOOR_PLAN_YF5_NAME,
-  FLOOR_PLAN_YF7_NAME,
   FLOOR_PLAN_NAME,
+  FLOOR_PLAN_YF7_NAME,
+  FLOOR_PLAN_YF8_NAME,
 ]
 
 // ---------------------------------------------------------------- 取值

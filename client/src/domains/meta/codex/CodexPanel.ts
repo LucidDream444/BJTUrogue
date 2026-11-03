@@ -1,363 +1,227 @@
-/**
- * 主菜单里的怪物图鉴面板。
- *
- * 这里只负责画图和把点击换成选择；条目与数值由 `codexCatalog.ts` 生成。
- * 图鉴使用公共 `Button` / `THEME` / 弹层外框，保持与升级页、设置页同一套视觉语言。
- *
- * 动画规则：
- * - 真美术到位时播放资源清单 `ANIMS` 里的循环待机动画；
- * - 首领占位期不伪造动画，在同一个预览位明确写「形象占位」；
- * - 重新选择条目只替换预览与文字，不重建整块面板，避免动画闪一下。
- */
-
-import type Phaser from 'phaser'
-import { textureKeyFor } from '@/core/assets'
-import { ANIMS, PLACEHOLDER_MISSING_KEY, findAsset } from '@/core/assetManifest'
-import { Button } from '../ui/Button'
-import { dashRect } from '../ui/dashed'
-import type { OverlayFrame, OverlaySink } from '../ui/overlayFrame'
-import { THEME, fontPx } from '../ui/theme'
+import { ANIMS } from '@/core/assetManifest'
+import { ArchiveUI } from '../ui/ArchiveUI'
+import { ARCHIVE_THEME as A } from '../ui/theme'
 import { codexAnimationKey, moveCodexIndex, type CodexEntry } from './codexCatalog'
 
 export interface CodexPanelOptions {
   entries: readonly CodexEntry[]
   selectedId?: string
   difficultyLabel: string
+  detail?: boolean
   onSelect?: (entry: CodexEntry) => void
+  onDetail?: (detail: boolean) => void
 }
 
-interface StatParts {
-  bg: Phaser.GameObjects.Rectangle
-  label: Phaser.GameObjects.Text
-  value: Phaser.GameObjects.Text
-}
-
+/** A pale illustrated field notebook, backed by the actual enemy catalogue. */
 export class CodexPanel {
-  private readonly entries: readonly CodexEntry[]
-  private readonly scene: Phaser.Scene
-  private readonly sink: OverlaySink
-  private readonly frame: OverlayFrame
-  private readonly options: CodexPanelOptions
-  private readonly navButtons: Button[] = []
-  private readonly statParts: StatParts[] = []
-
-  private currentSelectedId: string | undefined
-  private detailWidth = 0
-  private previewHeight = 0
-  private nameText!: Phaser.GameObjects.Text
-  private variantText!: Phaser.GameObjects.Text
-  private roleText!: Phaser.GameObjects.Text
-  private threatText!: Phaser.GameObjects.Text
-  private previewArt!: Phaser.GameObjects.Sprite
-  private previewShadow!: Phaser.GameObjects.Ellipse
-  private previewNote!: Phaser.GameObjects.Text
-  private animationText!: Phaser.GameObjects.Text
-  private loreText!: Phaser.GameObjects.Text
-
+  private selected = 0
+  private filter: '全部' | '普通敌人' | '首领' = '全部'
+  private detail = false
+  private readonly start: number
   constructor(
-    scene: Phaser.Scene,
-    sink: OverlaySink,
-    frame: OverlayFrame,
-    options: CodexPanelOptions,
+    private readonly ui: ArchiveUI,
+    private readonly options: CodexPanelOptions,
   ) {
-    this.scene = scene
-    this.sink = sink
-    this.frame = frame
-    this.options = options
-    this.entries = options.entries
-    this.currentSelectedId = options.selectedId
-
-    if (this.entries.length === 0) {
-      sink.track(
-        scene.add
-          .text(frame.cx, frame.cy, '图鉴配置为空：没有可展示的怪物档案。', {
-            fontFamily: THEME.font.family,
-            fontSize: fontPx(THEME.font.body),
-            color: THEME.text.danger,
-          })
-          .setOrigin(0.5),
-      )
-      return
-    }
-
-    const top = frame.contentTop
-    const left = frame.contentLeft
-    const navWidth = Math.max(172, Math.min(224, frame.panelWidth * 0.27))
-    const detailX = left + navWidth + THEME.space.md
-    const detailW = frame.panelWidth - (detailX - left) - THEME.space.lg
-
-    this.buildList(left, top, navWidth)
-    this.buildDetail(detailX, top, detailW)
-
-    const requested = options.selectedId
-      ? this.entries.findIndex((entry) => entry.id === options.selectedId)
-      : 0
-    this.selectByIndex(requested >= 0 ? requested : 0, false)
-  }
-
-  /** 键盘上下选择档案；鼠标点击仍然走列表按钮。 */
-  moveSelection(delta: number): void {
-    this.selectByIndex(moveCodexIndex(this.selectedIndex(), delta, this.entries.length), true)
-  }
-
-  private buildList(left: number, top: number, width: number): void {
-    this.text(left, top, '档案目录', THEME.font.heading, THEME.text.accent)
-    this.text(
-      left,
-      top + 26,
-      `${String(this.entries.length).padStart(2, '0')} 份记录 · 配置自动同步`,
-      THEME.font.small,
-      THEME.text.dim,
-    )
-
-    const firstY = top + 58
-    const buttonH = this.frame.panelHeight < 570 ? 32 : 36
-    const gap = THEME.space.sm
-    this.entries.forEach((entry, index) => {
-      const label = `${String(index + 1).padStart(2, '0')}  ${entry.name} · ${entry.variant}`
-      const button = new Button(
-        this.scene,
-        left + width / 2,
-        firstY + index * (buttonH + gap),
-        label,
-        () => this.selectByIndex(index, true),
-        {
-          width,
-          height: buttonH,
-          fontSize: THEME.font.small,
-        },
-      )
-      this.navButtons.push(button)
-      this.sink.button(button)
-    })
-
-    const dividerY = this.frame.cy + this.frame.panelHeight / 2 - 92
-    const guide = this.scene.add.graphics()
-    guide.lineStyle(1, THEME.color.border, 0.4).lineBetween(left, dividerY, left + width, dividerY)
-    this.sink.track(guide)
-    this.text(
-      left,
-      dividerY + THEME.space.sm,
-      '选择档案后，右侧会实时播放待机动画。',
-      THEME.font.small,
-      THEME.text.dim,
-    )
-  }
-
-  private buildDetail(left: number, top: number, width: number): void {
-    const narrow = width < 520
-    this.detailWidth = width
-    this.nameText = this.text(left, top, '', THEME.font.heading, THEME.text.body)
-    this.variantText = this.text(left, top + 27, '', THEME.font.small, THEME.text.dim)
-    this.roleText = this.text(left, top + 48, '', THEME.font.body, THEME.text.dim)
-    this.threatText = this.text(left + width, top, '', THEME.font.small, THEME.text.accent)
-    this.threatText.setOrigin(1, 0)
-
-    const previewTop = top + 76
-    const previewH = narrow ? 126 : 158
-    this.previewHeight = previewH
-    const preview = this.scene.add.graphics()
-    preview
-      .fillStyle(THEME.color.disabled, 0.82)
-      .fillRoundedRect(left, previewTop, width, previewH, 8)
-      .lineStyle(1, THEME.color.border, 0.65)
-      .strokeRoundedRect(left, previewTop, width, previewH, 8)
-      .lineStyle(1, THEME.color.border, 0.16)
-    for (let x = left + 32; x < left + width; x += 32) {
-      preview.lineBetween(x, previewTop + 1, x, previewTop + previewH - 1)
-    }
-    for (let y = previewTop + 32; y < previewTop + previewH; y += 32) {
-      preview.lineBetween(left + 1, y, left + width - 1, y)
-    }
-    this.sink.track(preview)
-
-    const firstArt = textureKeyFor(this.scene, this.entries[0]!.textureKey)
-    this.previewShadow = this.scene.add.ellipse(
-      left + width / 2,
-      previewTop + previewH - 28,
-      Math.min(150, width * 0.42),
-      18,
-      THEME.color.dim,
-      0.38,
-    )
-    this.sink.track(this.previewShadow)
-    this.previewArt = this.scene.add.sprite(left + width / 2, previewTop + previewH / 2, firstArt)
-    this.sink.track(this.previewArt)
-    this.previewNote = this.text(
-      left + width / 2,
-      previewTop + previewH / 2 - 8,
-      '首领形象待补',
-      THEME.font.body,
-      THEME.text.disabled,
-    ).setOrigin(0.5)
-    this.animationText = this.text(
-      left + THEME.space.md,
-      previewTop + previewH - THEME.space.sm,
-      '',
-      THEME.font.small,
-      THEME.text.accent,
-    ).setOrigin(0, 1)
-
-    const statsTitleY = previewTop + previewH + 18
-    this.text(left, statsTitleY, '战斗数值', THEME.font.body, THEME.text.accent)
-    const cols = narrow ? 2 : 3
-    const cardGap = THEME.space.sm
-    const cardW = (width - cardGap * (cols - 1)) / cols
-    const cardH = 40
-    const cardsTop = statsTitleY + 26
-    for (let i = 0; i < 5; i++) {
-      const col = i % cols
-      const row = Math.floor(i / cols)
-      const x = left + col * (cardW + cardGap)
-      const y = cardsTop + row * (cardH + cardGap)
-      const bg = this.scene.add.rectangle(x, y, cardW, cardH, THEME.color.panel).setOrigin(0)
-      bg.setStrokeStyle(1, THEME.color.border)
-      this.sink.track(bg)
-      const label = this.text(x + THEME.space.sm, y + 5, '', THEME.font.small, THEME.text.dim)
-      const value = this.text(
-        x + cardW - THEME.space.sm,
-        y + 19,
-        '',
-        THEME.font.body,
-        THEME.text.body,
-      ).setOrigin(1, 0)
-      this.statParts.push({ bg, label, value })
-    }
-
-    const rows = Math.ceil(5 / cols)
-    const cardsBottom = cardsTop + rows * (cardH + cardGap)
-    const panelBottom = this.frame.cy + this.frame.panelHeight / 2 - 74
-    const loreTop = cardsBottom + 8
-    const loreH = Math.max(70, panelBottom - loreTop)
-    const lore = this.scene.add.graphics()
-    lore.fillStyle(THEME.color.panel, 0.42).fillRoundedRect(left, loreTop, width, loreH, 6)
-    lore.lineStyle(1, THEME.color.border, 0.55)
-    dashRect(lore, left + 1, loreTop + 1, width - 2, loreH - 2, 7, 5)
-    this.sink.track(lore)
-    this.text(
-      left + THEME.space.sm,
-      loreTop + THEME.space.sm,
-      '怪物档案文案',
-      THEME.font.small,
-      THEME.text.accent,
-    )
-    this.loreText = this.scene.add.text(left + THEME.space.sm, loreTop + 30, '', {
-      fontFamily: THEME.font.family,
-      fontSize: fontPx(THEME.font.small),
-      color: THEME.text.dim,
-      lineSpacing: 4,
-      wordWrap: { width: width - THEME.space.md },
-    })
-    this.sink.track(this.loreText)
-  }
-
-  private selectByIndex(index: number, notify: boolean): void {
-    if (this.entries.length === 0) return
-    const entry = this.entries[index]!
-    this.currentSelectedId = entry.id
-
-    this.navButtons.forEach((button, i) => button.setSelected(i === index))
-    this.nameText?.setText(entry.name)
-    this.variantText?.setText(`${entry.category} · ${entry.variant}`)
-    this.roleText?.setText(entry.role)
-    this.threatText?.setText(
-      `威胁 ${entry.threatLevel} / 5    当前难度 · ${this.options.difficultyLabel}`,
-    )
-    this.loreText?.setText(entry.lorePlaceholder)
-
-    this.statParts.forEach((parts, i) => {
-      const stat = entry.stats[i]
-      const visible = stat !== undefined
-      parts.bg.setVisible(visible)
-      parts.label.setVisible(visible)
-      parts.value.setVisible(visible)
-      if (!stat) return
-      parts.label.setText(stat.label)
-      parts.value.setText(stat.value)
-    })
-
-    this.refreshPreview(entry)
-    if (notify) this.options.onSelect?.(entry)
-  }
-
-  private selectedIndex(): number {
-    return Math.max(
+    this.start = ui.root.list.length
+    this.selected = Math.max(
       0,
-      this.entries.findIndex((entry) => entry.id === this.currentSelectedId),
+      options.entries.findIndex((e) => e.id === options.selectedId),
     )
+    this.detail = options.detail ?? false
+    this.render()
   }
-
-  private refreshPreview(entry: CodexEntry): void {
-    this.animationText.setText('')
-    this.previewNote.setVisible(false)
-    this.previewArt.setVisible(entry.hasArt)
-    this.previewShadow.setVisible(entry.hasArt)
-
-    if (!entry.hasArt) {
-      this.previewNote.setVisible(true)
-      this.animationText.setText('形象占位 · 动画待美术接入')
-      return
-    }
-
-    const textureKey = textureKeyFor(this.scene, entry.textureKey)
-    this.previewArt.setTexture(textureKey)
-    this.previewArt.stop()
-    this.previewArt.setFrame(0)
-
-    if (textureKey === PLACEHOLDER_MISSING_KEY) {
-      this.animationText.setText('资源缺失 · 已显示洋红兜底方块')
-      return
-    }
-
-    const asset = findAsset(entry.textureKey)
-    const frameWidth = asset?.frameWidth ?? asset?.width ?? 64
-    const frameHeight = asset?.frameHeight ?? asset?.height ?? 64
-    const fit = Math.min(
-      (this.detailWidth - 40) / frameWidth,
-      (this.previewHeight - 30) / frameHeight,
-    )
-    this.previewArt.setScale(Math.max(0.35, fit * entry.visualScale))
-
-    const animKey = codexAnimationKey(entry.textureKey)
-    if (animKey && this.ensureAnimation(entry.textureKey, animKey)) {
-      this.previewArt.play(animKey)
-      this.animationText.setText('动画预览 · 待机循环')
-    } else {
-      this.animationText.setText('静态形象 · 尚无待机动画')
-    }
+  private get entries(): readonly CodexEntry[] {
+    return this.options.entries.filter((e) => this.filter === '全部' || e.category === this.filter)
   }
-
-  private ensureAnimation(textureKey: string, animKey: string): boolean {
-    if (this.scene.anims.exists(animKey)) return true
-    const anim = ANIMS.find((item) => item.animKey === animKey)
-    const asset = findAsset(textureKey)
-    if (!anim || !asset || asset.placeholder) return false
-
-    const texture = this.scene.textures.get(textureKey)
-    if (!anim.frames.every((frame) => texture.has(String(frame)))) return false
-    this.scene.anims.create({
-      key: anim.animKey,
-      frames: anim.frames.map((frame) => ({ key: textureKey, frame })),
-      frameRate: anim.frameRate,
-      repeat: anim.repeat,
-      yoyo: anim.yoyo ?? false,
-    })
+  moveSelection(delta: number): void {
+    if (!this.entries.length) return
+    this.selected = moveCodexIndex(this.selected, delta, this.entries.length)
+    this.options.onSelect?.(this.entries[this.selected]!)
+    this.render()
+  }
+  activate(): void {
+    this.detail = !this.detail
+    this.options.onDetail?.(this.detail)
+    this.render()
+  }
+  back(): boolean {
+    if (!this.detail) return false
+    this.detail = false
+    this.options.onDetail?.(false)
+    this.render()
     return true
   }
-
-  private text(
-    x: number,
-    y: number,
-    value: string,
-    size: number,
-    color: string,
-  ): Phaser.GameObjects.Text {
-    const obj = this.scene.add.text(x, y, value, {
-      fontFamily: THEME.font.family,
-      fontSize: fontPx(size),
-      color,
+  private render(): void {
+    const ui = this.ui
+    ui.root.list.slice(this.start).forEach((obj) => obj.destroy())
+    const entry = this.entries[this.selected]
+    if (!entry) {
+      ui.label(110, 240, '暂无怪物档案')
+      return
+    }
+    if (this.detail) this.buildNotes(entry)
+    else this.buildRoster()
+    this.buildPortrait(entry)
+    ui.label(111, 839, `可查阅档案  ${this.options.entries.length} 条`, A.size.micro, A.pageMuted)
+    ui.label(1460, 837, '方向键切换 · Enter 详情 · Esc 返回', A.size.micro, A.pageMuted).setOrigin(
+      1,
+      0,
+    )
+  }
+  private buildRoster(): void {
+    const ui = this.ui
+    ;(['全部', '普通敌人', '首领'] as const).forEach((category, i) => {
+      const x = 157 + i * 133
+      ui.button(x, 195, 119, 43, category, () => {
+        this.filter = category
+        this.selected = 0
+        this.options.onSelect?.(this.entries[0]!)
+        this.render()
+      })
+      if (this.filter === category)
+        ui.add(ui.scene.add.graphics())
+          .lineStyle(3, A.cyan)
+          .lineBetween(x - 50, 217, x + 50, 217)
     })
-    this.sink.track(obj)
-    return obj
+    const page = Math.floor(this.selected / 6)
+    this.entries.slice(page * 6, page * 6 + 6).forEach((entry, i) => {
+      const x = 100 + (i % 2) * 199,
+        y = 238 + Math.floor(i / 2) * 174,
+        selected = page * 6 + i === this.selected
+      const g = ui.add(ui.scene.add.graphics())
+      g.fillStyle(A.ink, selected ? 0.95 : 0.86).fillRoundedRect(x, y, 181, 158, 5)
+      if (selected) g.lineStyle(8, A.cyan, 0.16).strokeRoundedRect(x, y, 181, 158, 5)
+      g.lineStyle(selected ? 2 : 1, selected ? A.cyan : A.brass).strokeRoundedRect(
+        x,
+        y,
+        181,
+        158,
+        5,
+      )
+      ui.label(x + 12, y + 8, String(page * 6 + i + 1).padStart(2, '0'), A.size.micro, A.muted)
+      this.portrait(entry, x + 90, y + 67, 91, false)
+      ui.label(x + 90, y + 116, entry.name, A.size.small, A.paper, undefined, true).setOrigin(0.5)
+      ui.label(x + 90, y + 142, entry.variant, A.size.micro, A.muted).setOrigin(0.5)
+      ui.add(
+        ui.scene.add
+          .rectangle(x + 90, y + 79, 181, 158, A.ink, 0.001)
+          .setInteractive({ useHandCursor: true }),
+      ).on('pointerup', () => {
+        this.selected = page * 6 + i
+        this.options.onSelect?.(entry)
+        this.render()
+      })
+    })
+    const pages = Math.ceil(this.entries.length / 6)
+    ui.label(288, 789, `${page + 1} / ${pages}`, A.size.small, A.pageText).setOrigin(0.5)
+    ui.button(
+      159,
+      789,
+      115,
+      38,
+      '← 上页',
+      () => {
+        this.selected = (page - 1) * 6
+        this.options.onSelect?.(this.entries[this.selected]!)
+        this.render()
+      },
+      false,
+      page === 0,
+    )
+    ui.button(
+      420,
+      789,
+      115,
+      38,
+      '下页 →',
+      () => {
+        this.selected = (page + 1) * 6
+        this.options.onSelect?.(this.entries[this.selected]!)
+        this.render()
+      },
+      false,
+      page + 1 >= pages,
+    )
+  }
+  private buildNotes(entry: CodexEntry): void {
+    const ui = this.ui
+    ui.button(288, 197, 365, 44, '← 返回档案目录', () => this.back())
+    ui.label(115, 259, '异界观察笔记', A.size.heading, A.pageText, undefined, true)
+    ui.rule(115, 307, 350)
+    const lore = entry.lorePlaceholder.startsWith('档案文案尚未')
+      ? '档案整理中。右页战斗数值随当前难度显示。'
+      : entry.lorePlaceholder
+    ui.label(115, 338, lore, A.size.body, A.pageMuted, 350)
+    ui.rule(115, 650, 350)
+    ui.label(
+      115,
+      677,
+      `分类：${entry.category}\n阶段：${entry.variant}\n难度：${this.options.difficultyLabel}`,
+      A.size.small,
+      A.pageText,
+      350,
+    )
+    ui.button(195, 786, 160, 43, '← 上一条', () => this.moveSelection(-1))
+    ui.button(390, 786, 160, 43, '下一条 →', () => this.moveSelection(1))
+  }
+  private buildPortrait(entry: CodexEntry): void {
+    const ui = this.ui
+    ui.label(575, 177, entry.name, 40, A.pageText, undefined, true)
+    ui.label(577, 232, `${entry.category}  /  ${entry.variant}`, A.size.small, A.pageMuted)
+    ui.rule(575, 273, 890)
+    const halo = ui.add(ui.scene.add.graphics())
+    for (let i = 7; i > 0; i--) halo.fillStyle(A.cyan, 0.025).fillCircle(810, 437, 90 + i * 11)
+    ui.orbit(810, 536, 157, A.cyan)
+    this.portrait(entry, 810, 421, 287, true)
+    ui.label(
+      810,
+      582,
+      `威胁  ${'◆'.repeat(entry.threatLevel)}${'◇'.repeat(5 - entry.threatLevel)}`,
+      A.size.small,
+      A.pageBlue,
+    ).setOrigin(0.5)
+    ui.label(575, 637, '战斗观察', A.size.body, A.pageText, undefined, true)
+    ui.label(575, 681, entry.role, A.size.small, A.pageMuted, 475)
+
+    ui.label(1110, 301, '战斗档案', A.size.heading, A.pageText, undefined, true)
+    ui.label(1110, 344, `当前难度 · ${this.options.difficultyLabel}`, A.size.micro, A.pageMuted)
+    const stats = this.detail ? entry.stats : entry.stats.slice(0, 5)
+    if (!stats.length) ui.label(1110, 400, '数值尚未收录', A.size.small, A.pageMuted)
+    stats.forEach((stat, i) => {
+      const y = 393 + i * 48
+      ui.label(1110, y, stat.label, A.size.micro, A.pageMuted)
+      const value = ui.label(1460, y, stat.value, A.size.small, A.pageText).setOrigin(1, 0)
+      if (value.width > 215) value.setScale(215 / value.width)
+      ui.rule(1110, y + 33, 350)
+    })
+    if (!this.detail) {
+      if (entry.stats.length > 5)
+        ui.label(1110, 653, `另有 ${entry.stats.length - 5} 项战斗记录`, A.size.micro, A.pageMuted)
+      ui.button(1285, 743, 350, 82, '查看完整档案', () => this.activate(), true)
+    } else
+      ui.label(1285, 786, '—  课后勇者 · 异界档案  —', A.size.micro, A.pageMuted).setOrigin(0.5)
+  }
+  private portrait(entry: CodexEntry, x: number, y: number, size: number, animated: boolean): void {
+    if (!entry.hasArt) {
+      this.ui.label(x, y, '形象待补', A.size.body, A.pageMuted).setOrigin(0.5)
+      return
+    }
+    const sprite = this.ui.portrait(entry.textureKey, x, y, size)
+    if (!animated) return
+    const key = codexAnimationKey(entry.textureKey),
+      scene = this.ui.scene
+    if (!key) return
+    if (!scene.anims.exists(key)) {
+      const anim = ANIMS.find((a) => a.animKey === key)
+      if (anim && anim.frames.every((f) => sprite.texture.has(String(f))))
+        scene.anims.create({
+          key,
+          frames: anim.frames.map((frame) => ({ key: entry.textureKey, frame })),
+          frameRate: anim.frameRate,
+          repeat: anim.repeat,
+          yoyo: anim.yoyo ?? false,
+        })
+    }
+    if (scene.anims.exists(key)) sprite.play(key)
   }
 }

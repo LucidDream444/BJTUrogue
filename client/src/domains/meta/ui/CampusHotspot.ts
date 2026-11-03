@@ -35,7 +35,7 @@ export class CampusHotspot {
     this.label = scene.add
       .text(center.x, center.y, def.buttonLabel, {
         fontFamily: THEME.font.family,
-        fontSize: fontPx(15),
+        fontSize: fontPx(13),
         fontStyle: 'bold',
         color: THEME.text.body,
       })

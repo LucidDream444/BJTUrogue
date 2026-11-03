@@ -77,6 +77,12 @@ export class DummyPlayer implements TickTarget {
    */
   private readonly body: Phaser.Physics.Arcade.Body
   private readonly speed: number
+  private movementMultiplier = 1
+
+  setMovementMultiplier(multiplier: number): void {
+    this.movementMultiplier = multiplier
+    this.body.setMaxVelocity(this.speed * multiplier * 2)
+  }
   private readonly worldWidth: number
   private readonly worldHeight: number
   /** 按键对象**抓一次**。`addKey` 对同一个 keyCode 是幂等的（源码已核实：
@@ -207,9 +213,9 @@ export class DummyPlayer implements TickTarget {
     }
 
     const v = Math.hypot(this.vx, this.vy)
-    if (v > this.speed) {
-      this.vx = (this.vx / v) * this.speed
-      this.vy = (this.vy / v) * this.speed
+    if (v > this.speed * this.movementMultiplier) {
+      this.vx = (this.vx / v) * this.speed * this.movementMultiplier
+      this.vy = (this.vy / v) * this.speed * this.movementMultiplier
     }
 
     this.body.setVelocity(this.vx, this.vy)

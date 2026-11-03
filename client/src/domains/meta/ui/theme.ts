@@ -21,6 +21,30 @@
  * 那是首屏体积的直接开销（《技术选型》§8 第 6 条）。
  */
 
+export const ARCHIVE_THEME = {
+  font: "'STKaiti', 'KaiTi', 'SimSun', serif",
+  size: { title: 48, heading: 30, body: 24, small: 20, micro: 17 },
+  ink: 0x171d30,
+  glass: 0x222c43,
+  gold: 0xb9b3a4,
+  light: 0xe7edff,
+  brass: 0x636d87,
+  cyan: 0x7bcfff,
+  violet: 0x9699dc,
+  locked: 0x414858,
+  page: 0xe8e9ef,
+  pageText: '#303a51',
+  pageMuted: '#59637a',
+  pageBlue: '#2164a8',
+  paper: '#edf2ff',
+  muted: '#b0bdd4',
+  dim: '#7f8ba6',
+  energy: '#8adeff',
+  darkText: '#eef7ff',
+  warning: '#ffc1cf',
+  white: '#ebeef7',
+} as const
+
 export const THEME = {
   color: {
     /** 整块背景。与 `index.html` / `main.ts` 的底色调一致 */

@@ -76,12 +76,17 @@ import {
   type GrabberDef,
   type SplitterGenerationDef,
   type TankDef,
+  type SprayerDef,
+  type MuscovyDef,
+  type NightmareCatDef,
 } from '@/core/config'
 import {
   EnemyModel,
   specFromGrabber,
   specFromSplitter,
   specFromTank,
+  specFromSprayer,
+  specFromCampusAnimal,
   type EnemySpec,
   type EnemyState,
 } from './model/EnemyModel'
@@ -100,6 +105,14 @@ import { targetsInBlast } from './grab/blast'
 import { makeRadialBossBrain } from './brains/RadialBossBrain'
 import { RadialProjectiles } from './projectiles/RadialProjectiles'
 import { bossArt } from './presentation/bossArt'
+import { LiquidField } from './liquid/LiquidField'
+import { makeSprayerBrain, type SprayAttack } from './brains/SprayerBrain'
+import { LiquidFx } from './presentation/LiquidFx'
+import { makeMuscovyBrain, finishMuscovyAttack } from './brains/MuscovyBrain'
+import { makeVortexCatBrain } from './brains/VortexCatBrain'
+import { ChargeSweep, type ChargeTarget, type SolidHitTime } from './charge/ChargeSweep'
+import { VortexField, type VortexTarget } from './vortex/VortexField'
+import { enemyVortexPull } from './vortex/VortexForces'
 
 type EnemyActor = Actor<EnemyState>
 export type Entry = PooledEnemy<EnemyActor>
@@ -194,6 +207,8 @@ export interface EnemySystemNavOptions {
   safeSpawn?: (x: number, y: number, radius: number) => { x: number; y: number }
   /** Projectile geometry is narrower than enemy navigation clearance. */
   projectileBlocked?: (x0: number, y0: number, x1: number, y1: number, radius: number) => boolean
+  /** First blocker, not only a boolean: high-speed charges must clip the real segment. */
+  solidHitTime?: SolidHitTime
 }
 
 export interface EnemySystemOptions {
@@ -262,6 +277,11 @@ export const GRAB_PRESS_SOURCE_ID = -11
 const SEP_QUERY_MARGIN = 120
 
 export class EnemySystem implements ActorEventSink {
+  readonly liquid: LiquidField
+  private readonly liquidFx: LiquidFx
+  private liquidPlayerId = 0
+  private readonly pendingPlayerContacts = new Set<number>()
+  private liquidDeathUnsub: (() => void) | null = null
   private readonly scene: Phaser.Scene
   private readonly bus: TypedBus<GameEvents>
   private readonly clock: GameClock
@@ -271,10 +291,13 @@ export class EnemySystem implements ActorEventSink {
   private readonly patrolOrigins = new Map<number, { x: number; y: number }>()
   private readonly safeSpawn?: EnemySystemNavOptions['safeSpawn']
   private readonly projectileBlocked?: EnemySystemNavOptions['projectileBlocked']
+  private solidHitTime?: SolidHitTime
   private readonly hooks: EnemySystemHooks
   private readonly rng: Rng
 
   readonly radialShots: RadialProjectiles
+  readonly vortex: VortexField
+  private readonly chargeRuns = new Map<number, ChargeSweep>()
   readonly ledger: DamageLedger
   readonly spawns: SpawnQueue
   readonly pool: EnemyPool<EnemyActor>
@@ -359,11 +382,23 @@ export class EnemySystem implements ActorEventSink {
     this.bus = opts.bus
     this.clock = opts.clock
     this.bundle = opts.bundle
+    this.liquid = new LiquidField(opts.bundle.enemies.enemies.sprayer)
+    this.liquidFx = new LiquidFx(opts.scene, opts.clock, this.liquid, opts.player, () =>
+      this.liveEnemies
+        .filter((e) => e.model.enemyKind === 'sprayer' && e.model.state === 'windup')
+        .map((e) => ({
+          x: e.model.sprayX,
+          y: e.model.sprayY,
+          progress: e.model.stateAgeMs(opts.clock.nowMs) / this.liquid.cfg.spray.windupMs,
+        })),
+    )
     this.radialShots = new RadialProjectiles(opts.bundle.enemies.stage2Boss.projectile)
     this.diffMods = opts.bundle.difficulty.difficulties[opts.difficulty]
     this.playerOf = opts.player
     this.safeSpawn = opts.nav?.safeSpawn
     this.projectileBlocked = opts.nav?.projectileBlocked
+    this.solidHitTime = opts.nav?.solidHitTime
+    this.vortex = new VortexField(opts.bundle.enemies.enemies.nightmare_cat.vortex.maxFields)
     this.hooks = opts.hooks ?? {}
     this.rng = new Rng(opts.rngSeed ?? 0x5eed)
 
@@ -390,6 +425,8 @@ export class EnemySystem implements ActorEventSink {
       // ⚠️ 账本配对（不变式 ④）。池的 `release()` 一定会调到这里，所以
       // 「怪回池了但账本还记着它」在结构上就不可能发生 —— 不需要任何调用方记得。
       onRelease: (model) => {
+        this.stopAnimalAttack(model)
+        this.liquid.releaseEnemy(model)
         this.radialShots.removeOwner(model.id)
         this.ledger.releaseTarget(model)
         this.brains.delete(model)
@@ -405,7 +442,10 @@ export class EnemySystem implements ActorEventSink {
     // 不传 defaults：Arcade Group 的 add 回调会把 defaults 里每一项往 body 上打一遍，
     // 而默认值包含 maxVelocity(10000,10000) —— 见 `createActor`。
     this.group = opts.scene.physics.add.group({ runChildUpdate: false })
-    this.crowdCollider = opts.scene.physics.add.collider(this.group, this.group)
+    this.crowdCollider = opts.scene.physics.add.collider(
+      this.group, this.group, undefined,
+      (a, b) => this.collidesWithUnits((a as EnemyActor).model.id) && this.collidesWithUnits((b as EnemyActor).model.id),
+    )
 
     this.nav = opts.nav
       ? new FlowField({
@@ -452,7 +492,11 @@ export class EnemySystem implements ActorEventSink {
 
   /** 挂到物理世界的 step 事件上。**在场景的 `create()` 里调一次。** */
   create(): void {
+    if (this.wired) return
     this.wired = true
+    this.liquidDeathUnsub = this.bus.on('entity_killed', (e) => {
+      if (e.kind === 'player' && e.id === this.liquidPlayerId) this.clearLiquid()
+    })
     this.scene.physics.world.on(Phaser.Physics.Arcade.Events.WORLD_STEP, this.onWorldStep, this)
   }
 
@@ -509,6 +553,11 @@ export class EnemySystem implements ActorEventSink {
   shutdown(): void {
     if (this.disposed) return
     this.disposed = true
+    this.liquidDeathUnsub?.()
+    this.liquidDeathUnsub = null
+    this.clearLiquid()
+    this.clearVortices()
+    this.liquidFx.destroy()
 
     // `?.` 两层都要：`physics` 是场景插件本身（关了也还在），被置 null 的是 `.world`
     const world = this.scene.physics?.world
@@ -542,24 +591,44 @@ export class EnemySystem implements ActorEventSink {
   }
 
   /** 世界步回调。挂在 WORLD_STEP 上，掉帧时一帧会被调 N 次（N 次共用同一个 frameId）。 */
-  private onWorldStep(): void {
+  private onWorldStep(dtSec: number): void {
     if (this.disposed) return
+    if (this.clock.paused || this.clock.frozen) return
     this.worldStepCount++
 
     const nowMs = this.clock.nowMs
     const frameId = this.clock.frameId
+    const newFrame = frameId !== this.lastFrameId
 
-    if (frameId !== this.lastFrameId) {
+    if (newFrame) {
       this.lastFrameId = frameId
       // 每渲染帧一次。空间哈希、流向场、AI、刷怪、分裂都是「整帧共用」的东西，
       // 按物理步重跑纯属浪费（掉帧时是 N 倍浪费）。
       this.frameEntries.length = 0
       for (const e of this.pool.activeEntries()) this.frameEntries.push(e)
-
+    }
+    // A charge has already moved during this physical step, even on catch-up steps.
+    const target = this.playerOf()
+    this.stepCharges(target, nowMs, dtSec)
+    // Follow resolved body travel, including other cats' pull and wall separation.
+    // Ignore center changes caused solely by squash/frame dimensions.
+    for (const entry of this.frameEntries) {
+      const model = entry.model
+      if (!model.alive || model.state !== 'spin') continue
+      const body = entry.view.body
+      model.spinX += body.position.x - body.prev.x
+      model.spinY += body.position.y - body.prev.y
+      body.position.x += model.spinX - body.center.x
+      body.position.y += model.spinY - body.center.y
+      body.updateCenter()
+      this.vortex.moveOwner(model.id, model.spinX, model.spinY)
+    }
+    if (newFrame) {
       this.refreshSnaps()
-      const target = this.playerOf()
+      this.stepLiquid(target, nowMs, frameId)
       this.nav?.update(target?.x ?? 0, target?.y ?? 0, nowMs)
       this.runAi(target, nowMs)
+      this.stepVortices(target, nowMs, frameId)
       this.stepRadialShots(target, nowMs)
       // 先让到点的尸体分裂（要用它的当前坐标），再刷怪 —— 这样新生的孩子
       // 当帧就能被 `drainSpawns` 取走（受单帧限额约束，多余的顺延）。
@@ -572,6 +641,14 @@ export class EnemySystem implements ActorEventSink {
     // 掉帧时一帧内跑 N 次是正确的：物理步多了，接触次数本来就该多，
     // 而「每个配对单帧最多结算一次」由账本的 lastSettledFrameId 闸门守着。
     this.touchContact(nowMs)
+    const player = this.playerOf()
+    if (player?.alive)
+      for (const id of this.pendingPlayerContacts) {
+        const entry = this.byId.get(id)
+        if (entry) this.registerPlayerContact(entry.model, player, nowMs)
+      }
+    this.pendingPlayerContacts.clear()
+    this.liquid.stepContact(nowMs, frameId)
     this.ledger.step(nowMs, frameId)
 
     // **把 brain 写好的速度意图落到物理体上。这是它唯一的写入点。**
@@ -591,10 +668,18 @@ export class EnemySystem implements ActorEventSink {
     // `reapDead` 之后正是拿 `entry.view.x/y` 去算孩子出生的坐标。
     // 这里再写一次速度（哪怕写 0）都不是「没效果」，而是「多了一个改尸体位置的路径」。
     let moving = 0
+    const vortexFields = this.vortex.snapshots
     for (let i = 0; i < this.frameEntries.length; i++) {
       const entry = this.frameEntries[i]!
       if (!entry.model.alive) continue
+      const model = entry.model
+      const baseX = model.velIntent.x, baseY = model.velIntent.y
+      const pull = vortexFields.length ? enemyVortexPull(model.id, entry.view.body.center, vortexFields) : null
+      model.velIntent.x += pull?.x ?? 0
+      model.velIntent.y += pull?.y ?? 0
       entry.view.applyVelocityIntent()
+      model.velIntent.x = baseX
+      model.velIntent.y = baseY
       // 读数从**物理体**上取，不是从 `velIntent` 上取 —— 这两者不同才是问题本身：
       // 上面那行的缺失会让意图算得好好的而 body 一动不动。从意图取数就永远读不出这个 bug。
       if (this.isMovingBody(entry)) moving++
@@ -615,6 +700,208 @@ export class EnemySystem implements ActorEventSink {
       }
       entry.view.writeSnapshot(snap)
     }
+  }
+
+  private stepLiquid(target: PlayerView | null, nowMs: number, frameId: number): void {
+    const oldActive = this.liquid.active
+    const oldStill = this.liquid.stillMs
+    const drainSourceId = this.liquid.sourceId
+    const amount = this.liquid.step(
+      nowMs,
+      frameId,
+      target ? { ...target, id: target.model.id } : null,
+    )
+    if (target) this.liquidPlayerId = target.model.id
+    if (oldActive !== this.liquid.active || oldStill !== this.liquid.stillMs) this.publishLiquid()
+    if (amount > 0 && target?.alive)
+      this.bus.emit('player_liquid_drain', {
+        playerId: target.model.id,
+        sourceId: drainSourceId,
+        amount,
+        frameId,
+        nowMs,
+      })
+  }
+
+  private publishLiquid(): void {
+    this.bus.emit('player_liquid_changed', {
+      playerId: this.liquidPlayerId,
+      active: this.liquid.active,
+      speedMultiplier: this.liquid.active ? this.liquid.cfg.coating.speedMultiplier : 1,
+      stillMs: this.liquid.stillMs,
+      cleanseMs: this.liquid.cfg.coating.cleanseStillMs,
+    })
+  }
+
+  /** 换楼层时旧坐标的液滩与身上效果一起清除。 */
+  clearLiquid(): void {
+    this.liquid.clear()
+    this.publishLiquid()
+    this.pendingPlayerContacts.clear()
+  }
+
+  /** Host uses the same predicate for player × enemy collision composition. */
+  collidesWithUnits(id: number): boolean {
+    return this.byId.get(id)?.model.state !== 'dash'
+  }
+
+  /** Map composition can replace geometry queries without rebuilding the enemy system. */
+  setChargeGeometryQuery(query: SolidHitTime): void { this.solidHitTime = query }
+
+  /** Stops attack effects without generating additional kills or loot. */
+  clearVortices(): void {
+    for (const field of this.vortex.clear()) this.bus.emit('enemy_vortex_ended', field)
+    this.chargeRuns.clear()
+    for (const entry of this.pool.activeEntries()) {
+      const model = entry.model
+      if (model.enemyKind !== 'muscovy' && model.enemyKind !== 'nightmare_cat') continue
+      if (entry.view.body) {
+        entry.view.body.setImmovable(false)
+        entry.view.body.pushable = true
+      }
+      model.attackSourceId = model.vortexFieldId = 0
+      if (model.alive) {
+        model.velIntent.x = model.velIntent.y = 0
+        if (model.state === 'windup' || model.state === 'dash' || model.state === 'spin') {
+          const cooldown = model.enemyKind === 'muscovy' ? this.bundle.enemies.enemies.muscovy.charge.cooldownMs : this.bundle.enemies.enemies.nightmare_cat.vortex.cooldownMs
+          model.attackReadyAtMs = this.clock.nowMs + cooldown
+          model.setState('recover', this.clock.nowMs)
+        }
+      }
+    }
+  }
+
+  /** A final victory/floor teardown is despawn, not a simulated kill. */
+  despawnAll(): void {
+    this.clearVortices()
+    this.radialShots.clear()
+    this.spawns.clear()
+    this.pendingDeaths.length = 0
+    this.pool.releaseAll()
+    this.contacts.clear()
+    this.ledger.clear()
+    this.frameEntries.length = 0
+    this.clearLiquid()
+  }
+
+  private stopAnimalAttack(model: EnemyModel): void {
+    this.chargeRuns.delete(model.id)
+    for (const field of this.vortex.removeOwner(model.id)) this.bus.emit('enemy_vortex_ended', field)
+    const body = this.byId.get(model.id)?.view.body
+    if (body) { body.setImmovable(false); body.pushable = true }
+    model.attackSourceId = model.vortexFieldId = 0
+  }
+
+  private animalStateChanged(entry: Entry, previous: EnemyState, nowMs: number): void {
+    const model = entry.model
+    if (model.enemyKind === 'muscovy') {
+      if (previous === 'dash') this.stopAnimalAttack(model)
+      if (model.state === 'dash') {
+        model.attackSourceId = allocActorId()
+        this.chargeRuns.set(model.id, new ChargeSweep(model.attackSourceId, model.id))
+      }
+    }
+    if (model.enemyKind === 'nightmare_cat') {
+      if (previous === 'spin') this.stopAnimalAttack(model)
+      if (model.state === 'spin') {
+        const cfg = this.bundle.enemies.enemies.nightmare_cat.vortex
+        model.attackSourceId = allocActorId()
+        model.vortexFieldId = allocActorId()
+        const field = this.vortex.start(model.vortexFieldId, model.attackSourceId, model.id, model.spinX, model.spinY, nowMs, cfg, Math.round(cfg.damage * this.diffMods.enemyDamage))
+        // A spinning cat can be pulled by other cats and must still resolve walls.
+        entry.view.body.setImmovable(false)
+        entry.view.body.pushable = true
+        if (field) this.bus.emit('enemy_vortex_started', field)
+      }
+    }
+  }
+
+  private animalTargets(player: PlayerView | null): VortexTarget[] {
+    const targets: VortexTarget[] = []
+    for (const entry of this.frameEntries) {
+      if (!entry.model.alive || !entry.view.body.enable) continue
+      const center = entry.view.body.center
+      targets.push({ id: entry.model.id, spawnSeq: entry.model.spawnSeq, x: center.x, y: center.y, radius: entry.model.stats.radius, alive: true })
+    }
+    if (player?.alive) targets.push({ id: player.model.id, spawnSeq: player.model.spawnSeq, x: player.x, y: player.y, radius: player.radius, alive: true })
+    return targets
+  }
+
+  /** Correct this step's real body before applying any swept attack damage. */
+  private stepCharges(player: PlayerView | null, nowMs: number, dtSec: number): void {
+    const targets: ChargeTarget[] = this.animalTargets(player)
+    const cfg = this.bundle.enemies.enemies.muscovy.charge
+    for (const entry of this.frameEntries) {
+      const model = entry.model
+      const run = this.chargeRuns.get(model.id)
+      if (!model.alive || model.state !== 'dash' || !run) continue
+      const from = { x: model.dashLastX, y: model.dashLastY }
+      const intendedDistance = cfg.dashSpeed * Math.max(0, dtSec)
+      const pull = enemyVortexPull(model.id, from, this.vortex.snapshots)
+      const to = {
+        x: from.x + model.lockedDirX * intendedDistance + pull.x * Math.max(0, dtSec),
+        y: from.y + model.lockedDirY * intendedDistance + pull.y * Math.max(0, dtSec),
+      }
+      const sweep = run.sweep(from, to, model.stats.radius, cfg.dashDistance - model.dashTravelled, targets, this.chargeBlockTime)
+      // body.position is the single position authority; sync sprite only for this explicit correction.
+      const center = entry.view.body.center
+      const correctionX = sweep.endpoint.x - center.x, correctionY = sweep.endpoint.y - center.y
+      entry.view.body.position.x += correctionX
+      entry.view.body.position.y += correctionY
+      entry.view.body.updateCenter()
+      model.dashTravelled += sweep.distance
+      model.dashLastX = sweep.endpoint.x
+      model.dashLastY = sweep.endpoint.y
+      for (const target of sweep.targets) {
+        if (!model.alive || !this.chargeRuns.has(model.id)) break
+        const request = { sourceId: run.sourceId, hitKey: `charge:${run.sourceId}`, mode: 'instant' as const, sourceKind: 'aoe' as const, amount: Math.round(cfg.damage * this.diffMods.enemyDamage), frameId: this.clock.frameId, nowMs }
+        if (target.id === player?.model.id) this.bus.emit('enemy_attack_requested', { ...request, targetId: target.id, targetSpawnSeq: target.spawnSeq })
+        else {
+          const victim = this.byId.get(target.id)?.model
+          if (victim?.spawnSeq === target.spawnSeq) victim.takeHit(request)
+        }
+      }
+      if (sweep.stopped || model.dashTravelled >= cfg.dashDistance) {
+        finishMuscovyAttack(model, cfg, nowMs)
+        this.stopAnimalAttack(model)
+      }
+    }
+  }
+
+  private readonly chargeBlockTime: SolidHitTime = (x0, y0, x1, y1, radius) => {
+    const bounds = this.scene.physics.world.bounds
+    let boundary: number | null = null
+    const dx = x1 - x0, dy = y1 - y0
+    if (dx > 0 && x1 > bounds.right - radius) boundary = (bounds.right - radius - x0) / dx
+    if (dx < 0 && x1 < bounds.left + radius) boundary = (bounds.left + radius - x0) / dx
+    if (dy > 0 && y1 > bounds.bottom - radius) boundary = Math.min(boundary ?? 1, (bounds.bottom - radius - y0) / dy)
+    if (dy < 0 && y1 < bounds.top + radius) boundary = Math.min(boundary ?? 1, (bounds.top + radius - y0) / dy)
+    if (boundary !== null) boundary = Math.max(0, boundary)
+    if (this.solidHitTime) {
+      const solid = this.solidHitTime(x0, y0, x1, y1, radius)
+      return solid === null ? boundary : Math.min(boundary ?? 1, solid)
+    }
+    const blocked = (x: number, y: number): boolean => this.projectileBlocked
+      ? this.projectileBlocked(x0, y0, x, y, radius)
+      : this.nav !== null && !this.nav.hasLineOfSight(x0, y0, x, y)
+    if (!blocked(x1, y1)) return boundary
+    let low = 0, high = 1
+    for (let i = 0; i < 16; i++) {
+      const middle = (low + high) / 2
+      if (blocked(x0 + (x1 - x0) * middle, y0 + (y1 - y0) * middle)) high = middle
+      else low = middle
+    }
+    return Math.min(boundary ?? 1, low)
+  }
+
+  private stepVortices(player: PlayerView | null, nowMs: number, frameId: number): void {
+    this.vortex.step(nowMs, frameId, this.animalTargets(player), (request) => {
+      if (request.targetId === player?.model.id) this.bus.emit('enemy_attack_requested', request)
+      else {
+        const target = this.byId.get(request.targetId)?.model
+        if (target?.spawnSeq === request.targetSpawnSeq) target.takeHit(request)
+      }
+    })
   }
 
   private rebuildHash(): void {
@@ -673,7 +960,9 @@ export class EnemySystem implements ActorEventSink {
       if (!brain || !self) continue
 
       const due = this.nextAiAt.get(model) ?? 0
-      if (nowMs < due) continue
+      const animal = model.enemyKind === 'muscovy' || model.enemyKind === 'nightmare_cat'
+      // Active animal stages run every physics frame, including after loss of aggro.
+      if (!animal && nowMs < due) continue
 
       const actor = entry.view
       const origin = this.patrolOrigins.get(model.id)
@@ -724,7 +1013,8 @@ export class EnemySystem implements ActorEventSink {
       // 而 `graceMs: 0` 的怪（第三代分裂怪、肉盾）出生就是 `chase`、
       // **从头到尾没切换过状态**，于是速度一次都没写过 —— 原地不动。
       // 唯一的写入点是 `onWorldStep` 末尾那个循环，见那里的注释。
-      if (!alertTarget && origin) {
+      const committed = animal && (model.state === 'windup' || model.state === 'dash' || model.state === 'spin' || model.state === 'recover')
+      if (!alertTarget && origin && !committed) {
         // Smooth circular patrol. It does not chase the player and does not add the old target-point zigzag.
         const patrolRadius = Math.min(activityRadius * 0.45, alertRadius * 0.65)
         const phase = nowMs / 2600 + model.id * 0.73
@@ -746,7 +1036,9 @@ export class EnemySystem implements ActorEventSink {
       }
       const next = out.nextState
       if (next !== undefined && next !== model.state) {
+        const previous = model.state
         model.setState(next as EnemyState, nowMs)
+        this.animalStateChanged(entry, previous, nowMs)
       }
       if (out.attack) this.resolveAttack(entry, out.attack)
 
@@ -788,6 +1080,7 @@ export class EnemySystem implements ActorEventSink {
           nowMs,
           sourceKind: 'bullet',
         }),
+      this.vortex.snapshots,
     )
   }
 
@@ -1031,6 +1324,19 @@ export class EnemySystem implements ActorEventSink {
   }
 
   private resolveAttack(entry: Entry, attack: BrainAttack): void {
+    if (attack.kind === 'spray') {
+      const spray = attack as SprayAttack
+      const from = entry.view.body.center
+      this.liquid.spray(
+        entry.model.id,
+        spray.x,
+        spray.y,
+        this.clock.nowMs,
+        (x, y, radius) => !this.projectileBlocked?.(from.x, from.y, x, y, radius),
+      )
+      this.liquidFx.spray()
+      return
+    }
     if (attack.kind === 'grab') {
       // ⚠️ **不重新量距离。** 肉盾的下砸要在这一帧重量一次（前摇的意义就是「跑得掉」），
       //    抓取相反：预警到点就锁死、必定扑中。躲的窗口是那 2 秒预警本身，
@@ -1099,11 +1405,19 @@ export class EnemySystem implements ActorEventSink {
     const model = actor.model as EnemyModel | undefined
     if (!model || this.byId.get(model.id)?.view !== actor) return
     const target = this.playerOf()
-    if (target?.alive) this.registerPlayerContact(model, target, this.clock.nowMs)
+    if (target?.alive) this.pendingPlayerContacts.add(model.id)
   }
 
   private registerPlayerContact(model: EnemyModel, target: PlayerView, nowMs: number): void {
-    if (!model.alive || model.state === 'spawning') return
+    if (!model.alive) return
+    this.liquid.touchContact(target.model.id, model, nowMs)
+    if (this.liquid.active) {
+      // 穿怪时保留重叠帧伤，移除敌人旧接触伤害配对，不让穿梭被受击硬直打断。
+      this.ledger.releaseSource(model.id)
+      return
+    }
+    // 出生宽限只限制敌人伤害玩家，不应让新分裂的纸团免疫沾液攻击。
+    if (model.state === 'spawning') return
     const amountPerTick = this.contactDamagePerTick(model)
     if (amountPerTick <= 0) return
     this.ledger.touch(
@@ -1292,6 +1606,12 @@ export class EnemySystem implements ActorEventSink {
         return this.bundle.enemies.enemies.tank
       case 'grabber':
         return this.bundle.enemies.enemies.grabber
+      case 'sprayer':
+        return this.bundle.enemies.enemies.sprayer
+      case 'muscovy':
+        return this.bundle.enemies.enemies.muscovy
+      case 'nightmare_cat':
+        return this.bundle.enemies.enemies.nightmare_cat
       default: {
         const never: never = kind
         throw new Error(`未处理的敌人模板：${String(never)}`)
@@ -1306,10 +1626,8 @@ export class EnemySystem implements ActorEventSink {
    * （`generations[]`），拿不到一个平坦值 —— 所以它的那几处永远走「按代际」的支路。
    * 这个类型收窄不是洁癖：它让「以后再加模板时忘了补支路」变成编译错误。
    */
-  private unitDefFor(kind: 'tank' | 'grabber'): TankDef | GrabberDef {
-    return kind === 'tank'
-      ? this.bundle.enemies.enemies.tank
-      : this.bundle.enemies.enemies.grabber
+  private unitDefFor(kind: Exclude<EnemyKind, 'splitter'>): TankDef | GrabberDef | SprayerDef | MuscovyDef | NightmareCatDef {
+    return this.bundle.enemies.enemies[kind]
   }
 
   /** **配置 → 模型参数的唯一入口。** 派生结果按 (代际, 难度) 缓存。 */
@@ -1329,6 +1647,15 @@ export class EnemySystem implements ActorEventSink {
         const def = this.bundle.enemies.enemies.grabber
         return specFromGrabber(this.derivedGrabber(def), def)
       }
+      case 'sprayer':
+        return specFromSprayer(
+          this.bundle.enemies.enemies.sprayer,
+          this.diffMods,
+          this.bundle.balance,
+        )
+      case 'muscovy':
+      case 'nightmare_cat':
+        return specFromCampusAnimal(this.bundle.enemies.enemies[kind], this.diffMods, this.bundle.balance)
       default: {
         const never: never = kind
         throw new Error(`未处理的敌人模板：${String(never)}`)
@@ -1397,10 +1724,14 @@ export class EnemySystem implements ActorEventSink {
             : this.visualScaleFor(model.enemyKind, model.gen),
         // 速度上限：Arcade 默认 maxVelocity 是 (10000,10000)，分离力 + 击退叠起来
         // 能把怪甩出房间。这只是兜底，不参与正常移动。
-        speedCap: model.stats.speed * 3,
+        speedCap: model.enemyKind === 'muscovy'
+          ? Math.max(model.stats.speed * 3, this.bundle.enemies.enemies.muscovy.charge.dashSpeed)
+          : model.stats.speed * 3,
       })
       // Bosses and textbooks share pool buckets. Never carry a boss tint into a normal enemy.
       entry.view.clearTint().setTint(portrait?.tint ?? 0xffffff)
+      entry.view.body.setImmovable(false)
+      entry.view.body.pushable = true
 
       this.byId.set(model.id, entry)
       if (req.bossStage !== undefined) this.bossStages.set(model.id, req.bossStage)
@@ -1413,6 +1744,7 @@ export class EnemySystem implements ActorEventSink {
 
       this.bus.emit('entity_spawned', {
         bossStage: req.bossStage,
+        finalBoss: req.finalBoss ?? false,
         id: model.id,
         kind: 'enemy',
         enemyKind: model.enemyKind,
@@ -1462,6 +1794,10 @@ export class EnemySystem implements ActorEventSink {
   }
 
   private makeBrain(model: EnemyModel): Brain {
+    if (model.enemyKind === 'muscovy') return makeMuscovyBrain(model, this.bundle.enemies.enemies.muscovy)
+    if (model.enemyKind === 'nightmare_cat') return makeVortexCatBrain(model, this.bundle.enemies.enemies.nightmare_cat)
+    if (model.enemyKind === 'sprayer')
+      return makeSprayerBrain(model, this.bundle.enemies.enemies.sprayer)
     if (this.isStage2Boss(model.id)) {
       const cfg = this.bundle.enemies.stage2Boss
       return makeRadialBossBrain(
@@ -1612,12 +1948,14 @@ export class EnemySystem implements ActorEventSink {
     this.radialShots.removeOwner(info.targetId)
 
     const model = entry.model
+    this.stopAnimalAttack(model)
     const nowMs = this.clock.nowMs
-    const x = entry.view.x
-    const y = entry.view.y
+    const x = entry.view.body.center.x
+    const y = entry.view.body.center.y
 
     this.bus.emit('entity_killed', {
       bossStage: this.bossStages.get(model.id),
+      finalBoss: this.finalBosses.has(model.id),
       id: model.id,
       kind: 'enemy',
       enemyKind: model.enemyKind,

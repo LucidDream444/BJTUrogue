@@ -61,7 +61,11 @@ import { GrabAlertFx } from './GrabAlertFx'
 import { PaperDeathFx } from './PaperDeathFx'
 import { EmpBlastFx } from './EmpBlastFx'
 import { GrabImpactFx } from './GrabImpactFx'
-import { ASSETS, ANIMS, GRABBER_ART, TANK_ART } from '@/core/assetManifest'
+import { CatPurificationFx } from './CatPurificationFx'
+import { AnimalAttackFx } from './AnimalAttackFx'
+import { FrameExitFx } from './FrameExitFx'
+import { DeferredHitstop } from './DeferredHitstop'
+import { ASSETS, ANIMS, GRABBER_ART, TANK_ART, SPRAYER_ART, MUSCOVY_ART, NIGHTMARE_CAT_ART, BOSS_FIRST_ART, FINAL_BOSS_ART, STAGE2_BOSS_ART } from '@/core/assetManifest'
 import { textureKeyFor } from '@/core/assets'
 
 /** 受击冲击淡出用多久。**小于肉盾的 `damageEventBatchMs` 才不会糊成一片常亮** */
@@ -119,11 +123,15 @@ export class JuiceDirector {
   private readonly bundle: ConfigBundle
   private readonly enemies: EnemySystem
   private readonly policy: JuicePolicy
+  private readonly hitstop: DeferredHitstop
   private readonly radialFx: RadialBurstFx
   private readonly healthBars: EnemyHealthBars
   /** 抓取怪头顶的「!」与红色咬人倒计时（抓取期间世界是冻的，这两样是唯一还在动的东西） */
   private readonly grabAlerts: GrabAlertFx
   private readonly paperDeaths: PaperDeathFx
+  private readonly catExits: CatPurificationFx
+  private readonly animalAttacks: AnimalAttackFx
+  private readonly frameExits: FrameExitFx
   private readonly grabImpact: GrabImpactFx
   private readonly empBlast: EmpBlastFx
   private readonly sfx: SfxPool
@@ -146,6 +154,7 @@ export class JuiceDirector {
     this.scene = opts.scene
     this.bus = opts.bus
     this.clock = opts.clock
+    this.hitstop = new DeferredHitstop(opts.clock)
     this.bundle = opts.bundle
     this.enemies = opts.enemies
     this.radialFx = new RadialBurstFx(
@@ -161,6 +170,9 @@ export class JuiceDirector {
       opts.clock,
       opts.bundle.balance.spawn.maxAliveHard,
     )
+    this.catExits = new CatPurificationFx(opts.scene, opts.clock, opts.bundle.balance.spawn.maxAliveHard)
+    this.animalAttacks = new AnimalAttackFx(opts.scene, opts.clock, opts.enemies, opts.bundle)
+    this.frameExits = new FrameExitFx(opts.scene, opts.clock, opts.bundle.balance.spawn.maxAliveHard)
     this.grabImpact = new GrabImpactFx(opts.scene)
     this.empBlast = new EmpBlastFx(opts.scene)
 
@@ -192,6 +204,7 @@ export class JuiceDirector {
     // `scene.cache.audio` 要等 preload 结束才有内容，所以池子在这里建
     // （构造函数里建会把所有 key 判成「静默」，然后永久不出声）。
     this.sfx.create()
+    this.scene.events.on('postupdate', this.flushHitstop, this)
 
     this.unsubs.push(
       this.bus.on('entity_damaged', (e) => this.onDamaged(e)),
@@ -199,7 +212,7 @@ export class JuiceDirector {
       this.bus.on('entity_spawned', (e) => this.onSpawned(e)),
       // 暂停时把所有在播的音停掉。不停的话：菜单开着，肉盾的研磨音继续磨，
       // 玩家切回来时听到的是一段和画面无关的声音。
-      this.bus.on('app_paused', () => this.sfx.stopAll()),
+      this.bus.on('app_paused', () => { this.sfx.stopAll(); this.hitstop.clear() }),
       // 恢复时重置策略：暂停期间的「真实时间」走了很长一截，
       // 连击窗口、震屏间隔、顿帧预算的记账全是过期的。
       this.bus.on('app_resumed', () => {
@@ -232,6 +245,9 @@ export class JuiceDirector {
     this.updateAnimations()
     this.updateVisuals(this.clock.realNowMs)
     this.paperDeaths.update()
+    this.catExits.update()
+    this.animalAttacks.update()
+    this.frameExits.update()
     this.grabImpact.update(this.clock.realNowMs)
     this.empBlast.update(this.clock.realNowMs)
     this.healthBars.update()
@@ -244,6 +260,8 @@ export class JuiceDirector {
   shutdown(): void {
     if (this.disposed) return
     this.disposed = true
+    this.scene.events.off('postupdate', this.flushHitstop, this)
+    this.hitstop.clear()
 
     for (const unsub of this.unsubs) unsub()
     this.unsubs.length = 0
@@ -252,6 +270,9 @@ export class JuiceDirector {
     this.healthBars.destroy()
     this.grabAlerts.destroy()
     this.paperDeaths.destroy()
+    this.catExits.destroy()
+    this.animalAttacks.destroy()
+    this.frameExits.destroy()
     this.grabImpact.destroy()
     this.empBlast.destroy()
     this.radialFx.destroy()
@@ -286,6 +307,12 @@ export class JuiceDirector {
       // 不该被我们恢复 —— 否则暂停菜单一开，世界照常跑。
       world.resume()
     }
+  }
+
+  private flushHitstop(): void {
+    if (this.disposed) return
+    this.hitstop.flush()
+    this.syncPhysicsPause()
   }
 
   // ------------------------------------------------------------ 读数（测试场 HUD 用）
@@ -338,7 +365,7 @@ export class JuiceDirector {
     } else if (entry.model.enemyKind === 'grabber') {
       // 预警阶段的普通攻击仍有放大反馈，但不冒充 QTE 的砍击音。
       this.grabImpact.play(entry.view.x, entry.view.y, realNowMs)
-    } else {
+    } else if (entry.model.enemyKind === 'splitter') {
       // 分裂怪一击必杀，所以「受击」和「死亡」几乎总是同一帧发生，
       // 受击音和爆裂音会叠在一起 —— 这正是想要的：闷响 + 脆响。
       this.sfx.play('sfx_enemy_splitter_hit', 0, 0.7)
@@ -351,9 +378,26 @@ export class JuiceDirector {
     if (e.kind !== 'enemy') return
 
     const kind: EnemyKind = e.enemyKind ?? 'splitter'
+    if (kind === 'nightmare_cat' || kind === 'muscovy') {
+      if (kind === 'nightmare_cat') {
+        const def = this.bundle.enemies.enemies.nightmare_cat
+        this.catExits.play(e.x, e.y, def.visualScale, def.vortex.purificationMs)
+      } else {
+        const model = this.enemies.entryOf(e.id)?.model
+        const dx = model?.lockedDirX ?? 1, dy = model?.lockedDirY ?? 0
+        const direction = Math.abs(dx) >= Math.abs(dy) ? dx < 0 ? 'left' : 'right' : dy < 0 ? 'up' : 'down'
+        this.frameExits.play(e.x, e.y, this.bundle.enemies.enemies.muscovy.visualScale, MUSCOVY_ART.texture, MUSCOVY_ART.states.death, MUSCOVY_ART.directions[direction])
+      }
+      this.visuals.delete(e.id)
+      return
+    }
     const gen = e.gen ?? 0
     const realNowMs = this.clock.realNowMs
     const juice = this.bundle.enemies.enemies
+    if (e.bossStage !== undefined && e.bossStage !== 2 && !e.finalBoss) {
+      const scale = this.enemies.entryOf(e.id)?.view.visualScale ?? juice.tank.visualScale
+      this.frameExits.play(e.x, e.y, scale, BOSS_FIRST_ART.texture, BOSS_FIRST_ART.states.death)
+    }
 
     // 每个表现量都从配置里取，没有一个是写在这里的常数：
     // 顿帧与创伤是**按代际递减**的（gen0 45ms/0.2 → gen2 0/0.05），
@@ -374,7 +418,7 @@ export class JuiceDirector {
       realNowMs,
     )
 
-    if (feedback.hitstopMs > 0) this.clock.freeze(feedback.hitstopMs)
+    if (feedback.hitstopMs > 0) this.hitstop.request(feedback.hitstopMs)
     this.policy.addTrauma(feedback.trauma)
 
     if (kind === 'tank') {
@@ -443,7 +487,7 @@ export class JuiceDirector {
 
     // 走**同一份**预算：否则一场混战里「连杀不给顿帧」而「下砸给顿帧」，降档逻辑等于没写。
     const granted = this.policy.requestHitstop(hitstopMs, this.clock.realNowMs)
-    if (granted > 0) this.clock.freeze(granted)
+    if (granted > 0) this.hitstop.request(granted)
 
     this.sfx.play('sfx_enemy_tank_slam', 0, 1)
     // 范围越大震得越狠。系数取自配置的 `traumaCap`，不另立常数。
@@ -478,13 +522,67 @@ export class JuiceDirector {
   /** Logical time freezes animation during pause and hitstop, including paper death copies. */
   private updateAnimations(): void {
     for (const { model, view } of this.enemies.liveEnemies) {
-      if (!model.alive || this.enemies.isBoss(model.id)) continue
+      if (!model.alive) continue
       // Artwork uses a fixed overhead view: mirroring a textbook would reverse its title.
       view.setFlipX(false)
       let key = view.texture.key
       let index = 0
       let directFrame: number | null = null
-      if (model.enemyKind === 'tank') {
+      if (this.enemies.isBoss(model.id)) {
+        const age = model.stateAgeMs(this.clock.nowMs)
+        if (this.enemies.isFinalBoss(model.id)) {
+          key = model.state === 'windup' || model.state === 'recover' ? FINAL_BOSS_ART.attack
+            : view.body.velocity.lengthSq() > 1 ? FINAL_BOSS_ART.walk : FINAL_BOSS_ART.idle
+          const anim = ANIMS.find((item) => item.textureKey === key)
+          if (anim) {
+            const half = Math.floor(anim.frames.length / 2)
+            const slam = this.bundle.enemies.enemies.tank.slam
+            const frame = model.state === 'windup' ? Math.min(half - 1, Math.floor(age / slam.windupMs * half))
+              : model.state === 'recover' ? half + Math.min(anim.frames.length - half - 1, Math.floor(age / slam.recoverMs * (anim.frames.length - half)))
+                : Math.floor(this.clock.nowMs * anim.frameRate / 1000) % anim.frames.length
+            directFrame = anim.frames[frame]!
+          }
+        } else if (this.enemies.isStage2Boss(model.id)) {
+          key = model.state === 'windup' || model.state === 'recover' ? STAGE2_BOSS_ART.attack : STAGE2_BOSS_ART.idle
+          const anim = ANIMS.find((item) => item.textureKey === key)
+          if (anim) {
+            const half = Math.floor(anim.frames.length / 2)
+            const attack = this.bundle.enemies.stage2Boss
+            const frame = model.state === 'windup' ? Math.min(half - 1, Math.floor(age / attack.windupMs * half))
+              : model.state === 'recover' ? half + Math.min(anim.frames.length - half - 1, Math.floor(age / attack.recoverMs * (anim.frames.length - half)))
+                : Math.floor(this.clock.nowMs * anim.frameRate / 1000) % anim.frames.length
+            directFrame = anim.frames[frame]!
+          }
+        } else {
+          key = BOSS_FIRST_ART.texture
+          const state = model.state === 'windup' ? 'windup' : model.state === 'recover' ? 'recover' : view.body.velocity.lengthSq() > 1 ? 'walk' : 'idle'
+          const frames = BOSS_FIRST_ART.states[state]
+          if (state === 'windup') directFrame = frames.start + Math.min(frames.count - 1, Math.floor(age / this.bundle.enemies.enemies.tank.slam.windupMs * frames.count))
+          else if (state === 'recover') {
+            const attack = BOSS_FIRST_ART.states.attack
+            const total = attack.count + frames.count
+            const frame = Math.min(total - 1, Math.floor(age / this.bundle.enemies.enemies.tank.slam.recoverMs * total))
+            directFrame = frame < attack.count ? attack.start + frame : frames.start + frame - attack.count
+          } else directFrame = frames.start + Math.floor(this.clock.nowMs * frames.frameRate / 1000) % frames.count
+        }
+      } else if (model.enemyKind === 'muscovy' || model.enemyKind === 'nightmare_cat') {
+        const moving = view.body.velocity.lengthSq() > 1
+        const hit = this.visuals.get(model.id)
+        const hitAge = hit ? this.clock.realNowMs - hit.lastHitRealMs : Infinity
+        const isDuck = model.enemyKind === 'muscovy'
+        // The committed side-on lunge remains readable through hits; tint/squash still shows damage.
+        const duckAttack = isDuck && (model.state === 'windup' || model.state === 'dash')
+        const state = duckAttack ? model.state as 'windup' | 'dash' : hitAge < HIT_GLOW_MS ? 'hit' : model.state === 'windup' ? 'windup' : model.state === 'recover' ? 'recover' : model.state === 'dash' ? 'dash' : model.state === 'spin' ? 'spin' : moving ? 'walk' : 'idle'
+        key = isDuck ? MUSCOVY_ART.texture : NIGHTMARE_CAT_ART.texture
+        const frames = isDuck ? MUSCOVY_ART.states[state === 'spin' ? 'idle' : state] : NIGHTMARE_CAT_ART.states[state === 'dash' ? 'idle' : state]
+        const age = state === 'hit' ? hitAge : model.stateAgeMs(this.clock.nowMs)
+        let frameIndex = Math.floor(age * frames.frameRate / 1000)
+        frameIndex = frames.loop ? frameIndex % frames.count : Math.min(frames.count - 1, frameIndex)
+        const dx = model.state === 'windup' || model.state === 'dash' ? model.lockedDirX : model.velIntent.x
+        const dy = model.state === 'windup' || model.state === 'dash' ? model.lockedDirY : model.velIntent.y
+        const direction = Math.abs(dx) >= Math.abs(dy) ? dx < 0 ? 'left' : 'right' : dy < 0 ? 'up' : 'down'
+        directFrame = frames.start + frameIndex + (isDuck ? MUSCOVY_ART.directions[direction] : 0)
+      } else if (model.enemyKind === 'tank') {
         const slam = this.bundle.enemies.enemies.tank.slam
         const attacking =
           this.enemies.isPlayerInRange(model.id, slam.range) &&
@@ -507,6 +605,14 @@ export class JuiceDirector {
           index =
             (Math.floor((this.clock.nowMs * anim.frameRate) / 1000) + model.id) % anim.frames.length
         }
+      } else if (model.enemyKind === 'sprayer') {
+        key = SPRAYER_ART.texture
+        directFrame =
+          model.state === 'windup'
+            ? SPRAYER_ART.windupFrame
+            : model.state === 'recover'
+              ? SPRAYER_ART.sprayFrame
+              : Math.floor((this.clock.nowMs * 6) / 1000) % 4
       } else if (model.enemyKind === 'grabber') {
         key = GRABBER_ART.texture
         const hit = this.visuals.get(model.id)

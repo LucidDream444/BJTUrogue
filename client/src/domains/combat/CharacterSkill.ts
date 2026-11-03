@@ -6,8 +6,8 @@ import type { GameClock } from '@/core/time'
 import type { CharacterSkillConfig } from './config'
 import type { EnemyBridge } from './EnemyBridge'
 import type { Player } from './Player'
-import type { TerrainMap } from './TerrainMap'
 import { segmentHit, type WeaponTarget } from './WeaponMechanics'
+import { advanceDashMovement, type MovementVector } from './MovementForces'
 
 export interface SkillStatus {
   name: string
@@ -25,8 +25,6 @@ interface SkillBook {
 }
 
 interface DashState {
-  startX: number
-  startY: number
   dirX: number
   dirY: number
   distance: number
@@ -34,6 +32,8 @@ interface DashState {
   hitIds: Set<number>
   lastX: number
   lastY: number
+  travelled: number
+  updatedAt: number
 }
 
 interface SkillDeps {
@@ -41,7 +41,7 @@ interface SkillDeps {
   clock: GameClock
   player: Player
   enemies: EnemyBridge
-  terrain: TerrainMap
+  crossesSolid: (from: MovementVector, to: MovementVector, radius: number) => boolean
   setTemporaryAttackSpeed: (pct: number) => void
 }
 
@@ -58,6 +58,11 @@ export class CharacterSkill {
   private rechargeAt = Infinity
   private readonly books: SkillBook[] = []
   private dash: DashState | null = null
+  private externalVelocity: MovementVector = { x: 0, y: 0 }
+
+  setExternalVelocity(velocity: MovementVector): void {
+    this.externalVelocity = velocity
+  }
 
   constructor(
     private readonly deps: SkillDeps,
@@ -193,12 +198,10 @@ export class CharacterSkill {
         x: start.x + dirX * distance,
         y: start.y + dirY * distance,
       }
-      if (this.deps.terrain.crossesSolid(start, candidate, player.model.stats.radius)) break
+      if (this.deps.crossesSolid(start, candidate, player.model.stats.radius)) break
       safeDistance = distance
     }
     this.dash = {
-      startX: start.x,
-      startY: start.y,
       dirX,
       dirY,
       distance: safeDistance,
@@ -206,6 +209,8 @@ export class CharacterSkill {
       hitIds: new Set(),
       lastX: start.x,
       lastY: start.y,
+      travelled: 0,
+      updatedAt: now,
     }
     player.body.stop()
     player.model.protectedUntilMs = Math.max(
@@ -225,20 +230,27 @@ export class CharacterSkill {
     if (!dash) return
     const t = Phaser.Math.Clamp((now - dash.startedAt) / this.cfg.dashMs, 0, 1)
     const travelled = dash.distance * t
-    const x = dash.startX + dash.dirX * travelled
-    const y = dash.startY + dash.dirY * travelled
     const from = { x: dash.lastX, y: dash.lastY }
-    const to = { x, y }
+    const step = advanceDashMovement(
+      from,
+      { x: dash.dirX * (travelled - dash.travelled), y: dash.dirY * (travelled - dash.travelled) },
+      this.externalVelocity,
+      Math.max(0, Math.min(now, dash.startedAt + this.cfg.dashMs) - dash.updatedAt) / 1000,
+      (start, end) => this.deps.crossesSolid(start, end, this.deps.player.model.stats.radius),
+    )
+    const to = step.position
     for (const target of this.deps.enemies.targets()) {
       if (dash.hitIds.has(target.id)) continue
       if (segmentHit(from, to, target, this.deps.player.model.stats.radius) === null) continue
       dash.hitIds.add(target.id)
       this.deps.enemies.hit(target.id, allocActorId(), this.cfg.dashDamage, null)
     }
-    this.deps.player.body.reset(x, y)
-    dash.lastX = x
-    dash.lastY = y
-    if (t < 1) return
+    this.deps.player.body.reset(to.x, to.y)
+    dash.lastX = to.x
+    dash.lastY = to.y
+    dash.travelled = travelled
+    dash.updatedAt = now
+    if (t < 1 && !step.blocked) return
 
     this.dash = null
     if (this.cfg.level >= 4 && dash.hitIds.size > 0) {

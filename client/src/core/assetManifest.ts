@@ -1,4 +1,11 @@
 import { STUDENT_SKIN_SOURCES } from './studentSkinManifest'
+import {
+  CAMPUS_PIXEL_FURNITURE_KEYS,
+  CAMPUS_PIXEL_PROP_KEYS,
+  CAMPUS_PIXEL_TILE_KEYS,
+} from './campusPixelManifest'
+export { CAMPUS_PIXEL_ART, CAMPUS_PIXEL_SPRITES } from './campusPixelManifest'
+export type { CampusPixelSpriteGeometry } from './campusPixelManifest'
 
 /**
  * 资源清单 —— **纯数据，零依赖**。
@@ -73,6 +80,12 @@ export const STATUS_HUD_ART = {
 export const STATUS_BAR_FILL_BOUNDS = { left: 31, rightInset: 32 } as const
 
 export const TANK_ART = { walk: 'enemy_tank_walk', attack: 'enemy_tank_idle' } as const
+export const SPRAYER_ART = { texture: 'enemy_sprayer_idle', windupFrame: 4, sprayFrame: 5 } as const
+export const LIQUID_SFX = {
+  spray: 'sfx_liquid_spray',
+  pickup: 'sfx_liquid_pickup',
+  cleanse: 'sfx_liquid_cleanse',
+} as const
 
 /** 抓取怪的笔记本电脑动作图集。帧由 D3 的抓取状态驱动，不把玩家画进敌人图。 */
 export const GRABBER_ART = {
@@ -126,6 +139,107 @@ export const GOOSE_ART = {
   muzzle: [44, 16],
 } as const
 
+/** 小红果只改变第三角色表现，scholar仍是存档身份。 */
+export const RED_BERRY_ART = {
+  characterId: 'scholar', texture: 'player_red_berry_body', portrait: 'player_red_berry_portrait',
+  frameSize: 64, foot: [32, 56], center: [32, 35], visualScale: 0.65,
+  hopHeight: 8, socketRadius: 14, recoilDistance: 3,
+  states: {
+    idle: { start: 0, count: 4, frameRate: 4, loop: true },
+    run: { start: 4, count: 8, frameRate: 10, loop: true },
+    shoot: { start: 12, count: 4, frameRate: 16, loop: false },
+    hurt: { start: 16, count: 4, frameRate: 10, loop: false },
+    death: { start: 20, count: 6, frameRate: 8, loop: false },
+  },
+} as const
+
+export const PUBLIC_WEAPON_ART = {
+  pencil: { texture: 'weapon_pencil_base', size: [48, 32], grip: [12, 16], muzzle: [44, 16], visualScale: 1 },
+  pulse: { texture: 'weapon_pulse_base', size: [48, 32], grip: [12, 16], muzzle: [44, 16], visualScale: 1 },
+  venom: { texture: 'weapon_venom_base', size: [48, 32], grip: [12, 16], muzzle: [44, 16], visualScale: 1 },
+  flare: { texture: 'weapon_flare_base', size: [48, 32], grip: [12, 16], muzzle: [44, 16], visualScale: 1 },
+  rail: { texture: 'weapon_rail_base', size: [48, 32], grip: [12, 16], muzzle: [44, 16], visualScale: 1 },
+  smg: { texture: 'weapon_smg_base', size: [48, 32], grip: [12, 16], muzzle: [44, 16], visualScale: 1 },
+} as const
+
+export const MUSCOVY_ART = {
+  texture: 'enemy_muscovy_body', frameSize: 96, foot: [48, 82],
+  directions: { right: 0, down: 32, left: 64, up: 96 },
+  states: {
+    idle: { start: 0, count: 4, frameRate: 4, loop: true },
+    walk: { start: 4, count: 6, frameRate: 8, loop: true },
+    windup: { start: 10, count: 6, frameRate: 8, loop: false },
+    dash: { start: 16, count: 4, frameRate: 16, loop: true },
+    recover: { start: 20, count: 4, frameRate: 8, loop: false },
+    hit: { start: 24, count: 2, frameRate: 12, loop: false },
+    death: { start: 26, count: 6, frameRate: 10, loop: false },
+  },
+} as const
+
+export const NIGHTMARE_CAT_ART = {
+  texture: 'enemy_nightmare_cat_body', vortex: 'fx_nightmare_cat_vortex', void: 'fx_nightmare_cat_void',
+  frameSize: 96, foot: [48, 82], fxFrameCount: 8, fxFrameRate: 12,
+  states: {
+    idle: { start: 0, count: 4, frameRate: 4, loop: true },
+    walk: { start: 4, count: 6, frameRate: 8, loop: true },
+    windup: { start: 10, count: 6, frameRate: 8, loop: false },
+    spin: { start: 16, count: 8, frameRate: 14, loop: true },
+    recover: { start: 24, count: 4, frameRate: 8, loop: false },
+    hit: { start: 28, count: 2, frameRate: 12, loop: false },
+    purify: { start: 30, count: 6, frameRate: 8, loop: false },
+    vanish: { start: 36, count: 6, frameRate: 8, loop: false },
+  },
+} as const
+
+export const BOSS_FIRST_ART = {
+  texture: 'boss_first_body', frameSize: 128,
+  states: {
+    idle: { start: 0, count: 4, frameRate: 4, loop: true },
+    walk: { start: 4, count: 6, frameRate: 7, loop: true },
+    windup: { start: 10, count: 6, frameRate: 8, loop: false },
+    attack: { start: 16, count: 4, frameRate: 12, loop: false },
+    recover: { start: 20, count: 4, frameRate: 8, loop: false },
+    hit: { start: 24, count: 2, frameRate: 12, loop: false },
+    death: { start: 26, count: 6, frameRate: 8, loop: false },
+  },
+} as const
+
+function dreamAssets(): AssetEntry[] {
+  const sheet = (key: string, path: string, frameSize: number): AssetEntry => ({
+    key, path, placeholder: false, kind: 'spritesheet', width: frameSize, height: frameSize,
+    frameWidth: frameSize, frameHeight: frameSize,
+  })
+  return [
+    sheet(RED_BERRY_ART.texture, 'sprites/player/red_berry/player_red_berry_body.png', RED_BERRY_ART.frameSize),
+    { key: RED_BERRY_ART.portrait, path: 'sprites/player/red_berry/player_red_berry_portrait.png', placeholder: false, kind: 'image' },
+    ...Object.values(PUBLIC_WEAPON_ART).map((a): AssetEntry => ({
+      key: a.texture, path: `sprites/weapons/${a.texture}.png`, placeholder: false, kind: 'image',
+    })),
+    sheet(MUSCOVY_ART.texture, 'sprites/enemies/enemy_muscovy_body.png', MUSCOVY_ART.frameSize),
+    sheet(NIGHTMARE_CAT_ART.texture, 'sprites/enemies/enemy_nightmare_cat_body.png', NIGHTMARE_CAT_ART.frameSize),
+    sheet(NIGHTMARE_CAT_ART.vortex, 'sprites/fx/fx_nightmare_cat_vortex.png', NIGHTMARE_CAT_ART.frameSize),
+    sheet(NIGHTMARE_CAT_ART.void, 'sprites/fx/fx_nightmare_cat_void.png', NIGHTMARE_CAT_ART.frameSize),
+    sheet(BOSS_FIRST_ART.texture, 'sprites/enemies/boss_first_body.png', BOSS_FIRST_ART.frameSize),
+  ]
+}
+
+function campusPixelAssets(): AssetEntry[] {
+  return [
+    ...CAMPUS_PIXEL_TILE_KEYS.map((key) => ({
+      key, path: `maps/campus_20261023/tiles/${key}.png`, placeholder: false,
+      kind: 'image' as const, width: 64, height: 64,
+    })),
+    ...CAMPUS_PIXEL_FURNITURE_KEYS.map((key) => ({
+      key, path: `sprites/furniture/campus_20261023/${key}.png`, placeholder: false,
+      kind: 'image' as const, width: 128, height: 128,
+    })),
+    ...CAMPUS_PIXEL_PROP_KEYS.map((key) => ({
+      key, path: `sprites/props/campus_20261023/${key}.png`, placeholder: false,
+      kind: 'image' as const, width: 128, height: 128,
+    })),
+  ]
+}
+
 function gooseAssets(): AssetEntry[] {
   return [
     ...[...Object.values(GOOSE_ART.directions).map((d) => d.body), GOOSE_ART.neck.texture].map((key) => ({
@@ -176,8 +290,41 @@ export const CAMPAIGN_ART = {
 } as const
 
 /** D4 主菜单的校园地图底图。交互热区与建筑名在 `meta/menu/campusMenuModel.ts`。 */
+/** D4 图鉴运行时装饰切片；文字、费用与等级由界面实时绘制。 */
+export const REWARD_ART = {
+  header: 'ui_reward_header',
+  survival: 'ui_reward_survival',
+  utility: 'ui_reward_utility',
+  firepower: 'ui_reward_firepower',
+  growth: 'ui_reward_growth',
+  speed: 'ui_reward_speed',
+} as const
+
+export const ARCHIVE_ART = {
+  dark: 'ui_notebook_dark',
+  light: 'ui_notebook_light',
+  grimoire: 'ui_notebook_grimoire',
+  crystal: 'ui_notebook_crystal',
+  book: 'ui_notebook_book',
+  orb: 'ui_notebook_orb',
+  paper: 'ui_notebook_paper',
+  sakura: 'ui_notebook_sakura',
+  stone: 'ui_notebook_stone',
+  seal: 'ui_notebook_seal',
+  button: 'ui_notebook_button',
+} as const
+
 export const CAMPUS_MENU_ART = {
   map: 'ui_campus_main_menu_map',
+  /**
+   * 出发准备页的角色卡立绘。角色 id 与 `meta/catalog.ts` 的目录一致；
+   * 新生用现有待机图集的第一帧，大鹅与图书委员复用已交付的立绘 / 书本图。
+   */
+  characterCards: {
+    student: 'player_student_idle_s',
+    athlete: GOOSE_ART.portrait,
+    scholar: RED_BERRY_ART.portrait,
+  },
 } as const
 
 /** 校园场景美术：教室现役资源与走廊/电子屏备用资源统一从清单取用。 */
@@ -240,6 +387,23 @@ function playerLayerAssets(): AssetEntry[] {
 }
 
 const BASE_ASSETS: readonly AssetEntry[] = [
+  {
+    key: SPRAYER_ART.texture,
+    path: 'sprites/enemies/enemy_sprayer_idle.png',
+    kind: 'spritesheet',
+    placeholder: false,
+    width: 64,
+    height: 64,
+    frameWidth: 64,
+    frameHeight: 64,
+  },
+  ...Object.values(LIQUID_SFX).map((key): AssetEntry => ({
+    key,
+    path: `audio/sfx/enemies/${key}`,
+    kind: 'audio',
+    placeholder: false,
+    codecs: ['ogg', 'mp3'],
+  })),
   ...['pencil', 'pulse', 'venom', 'flare', 'rail', 'smg'].flatMap((weapon) =>
     ['up', 'down'].flatMap((direction) =>
       ['run', 'stand'].map((state): AssetEntry => ({
@@ -279,7 +443,7 @@ const BASE_ASSETS: readonly AssetEntry[] = [
   {
     key: 'enemy_stage2_idle',
     path: 'sprites/enemies/stage2_boss/enemy_stage2_idle.png',
-    placeholder: true,
+    placeholder: false,
     kind: 'spritesheet',
     width: 96,
     height: 128,
@@ -289,7 +453,7 @@ const BASE_ASSETS: readonly AssetEntry[] = [
   {
     key: 'enemy_stage2_attack',
     path: 'sprites/enemies/stage2_boss/enemy_stage2_attack.png',
-    placeholder: true,
+    placeholder: false,
     kind: 'spritesheet',
     width: 96,
     height: 128,
@@ -397,7 +561,7 @@ const BASE_ASSETS: readonly AssetEntry[] = [
   {
     key: 'boss_final_poison',
     path: 'sprites/enemies/final_boss/boss_final_poison.png',
-    placeholder: true,
+    placeholder: false,
     kind: 'spritesheet',
     width: 96,
     height: 128,
@@ -408,7 +572,7 @@ const BASE_ASSETS: readonly AssetEntry[] = [
   {
     key: 'boss_final_walk',
     path: 'sprites/enemies/final_boss/boss_final_walk.png',
-    placeholder: true,
+    placeholder: false,
     kind: 'spritesheet',
     width: 96,
     height: 128,
@@ -418,7 +582,7 @@ const BASE_ASSETS: readonly AssetEntry[] = [
   {
     key: 'boss_final_attack',
     path: 'sprites/enemies/final_boss/boss_final_attack.png',
-    placeholder: true,
+    placeholder: false,
     kind: 'spritesheet',
     width: 96,
     height: 128,
@@ -428,7 +592,7 @@ const BASE_ASSETS: readonly AssetEntry[] = [
   {
     key: 'boss_final_idle',
     path: 'sprites/enemies/final_boss/boss_final_idle.png',
-    placeholder: true,
+    placeholder: false,
     kind: 'spritesheet',
     width: 96,
     height: 128,
@@ -1436,8 +1600,16 @@ const BASE_ASSETS: readonly AssetEntry[] = [
   audio('sfx_kill_flourish', 'audio/sfx/ui/sfx_kill_flourish'),
 
   // ---- 玩家分层：身体层 / 手臂+枪层（由 PLAYER_LAYER_BASES 展开，见上）----
+  ...Object.values(REWARD_ART).map((key): AssetEntry => ({
+    key, path: 'ui/rewards/' + key + '.png', placeholder: false, kind: 'image',
+  })),
+  ...Object.values(ARCHIVE_ART).map((key): AssetEntry => ({
+    key, path: 'ui/codex/' + key + '.png', placeholder: false, kind: 'image',
+  })),
   ...playerLayerAssets(),
   ...gooseAssets(),
+  ...dreamAssets(),
+  ...campusPixelAssets(),
 ]
 
 /** Apply the outfit in the asset manifest, leaving animation keys and timing untouched. */
@@ -1508,6 +1680,39 @@ export const PAPER_DEATH_ANIMS: readonly AnimDef[] = [
 ]
 
 export const ANIMS: readonly AnimDef[] = [
+  ...Object.entries(RED_BERRY_ART.states).map(([state, a]): AnimDef => ({
+    animKey: `${RED_BERRY_ART.texture}_${state}`, textureKey: RED_BERRY_ART.texture,
+    frames: Array.from({ length: a.count }, (_, i) => a.start + i), frameRate: a.frameRate,
+    repeat: a.loop ? -1 : 0,
+  })),
+  ...Object.entries(MUSCOVY_ART.directions).flatMap(([direction, offset]) =>
+    Object.entries(MUSCOVY_ART.states).map(([state, a]): AnimDef => ({
+      animKey: `${MUSCOVY_ART.texture}_${direction}_${state}`, textureKey: MUSCOVY_ART.texture,
+      frames: Array.from({ length: a.count }, (_, i) => offset + a.start + i), frameRate: a.frameRate,
+      repeat: a.loop ? -1 : 0,
+    }))),
+  ...Object.entries(NIGHTMARE_CAT_ART.states).map(([state, a]): AnimDef => ({
+    animKey: `${NIGHTMARE_CAT_ART.texture}_${state}`, textureKey: NIGHTMARE_CAT_ART.texture,
+    frames: Array.from({ length: a.count }, (_, i) => a.start + i), frameRate: a.frameRate,
+    repeat: a.loop ? -1 : 0,
+  })),
+  ...[NIGHTMARE_CAT_ART.vortex, NIGHTMARE_CAT_ART.void].map((textureKey): AnimDef => ({
+    animKey: `${textureKey}_loop`, textureKey,
+    frames: Array.from({ length: NIGHTMARE_CAT_ART.fxFrameCount }, (_, i) => i),
+    frameRate: NIGHTMARE_CAT_ART.fxFrameRate, repeat: -1,
+  })),
+  ...Object.entries(BOSS_FIRST_ART.states).map(([state, a]): AnimDef => ({
+    animKey: `${BOSS_FIRST_ART.texture}_${state}`, textureKey: BOSS_FIRST_ART.texture,
+    frames: Array.from({ length: a.count }, (_, i) => a.start + i), frameRate: a.frameRate,
+    repeat: a.loop ? -1 : 0,
+  })),
+  {
+    animKey: 'enemy_sprayer_idle_loop',
+    textureKey: SPRAYER_ART.texture,
+    frames: [0, 1, 2, 3],
+    frameRate: 6,
+    repeat: -1,
+  },
   ...GOOSE_ANIMS,
   ...PAPER_DEATH_ANIMS,
   {

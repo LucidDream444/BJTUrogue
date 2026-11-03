@@ -1,0 +1,11 @@
+{
+  "schemaVersion": 1,
+  "method": "Pillow export validation and visual review",
+  "checks": [
+    "50 native sprites: exact IDs, 128x128, binary alpha, 16 px safe margins, no chroma pixels; folding states differ in all four directions.",
+    "16 opaque 64x64 material tiles; 3x3 surface and 1x3 strip repeat previews; 4 atlases exported without padding changes.",
+    "6 opaque 768x432 scenes; all 1536x864 previews are exact nearest-neighbor 2x copies."
+  ],
+  "totalPng": 77,
+  "runtimeCodeChanged": false
+}
