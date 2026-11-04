@@ -6,6 +6,11 @@ export interface FloorRow {
   readonly floor: number
   readonly here: boolean
   readonly unlocked: boolean
+  /**
+   * 这一行**写什么**（默认「第 N 层」）。★ 2026-11-04：末层不叫「第 8 层」，
+   * 叫「异常」—— 它不是这栋楼的第八层。文案由调用方给，面板不自己拼。
+   */
+  readonly title: string
 }
 
 export class ElevatorPanel {
@@ -146,7 +151,7 @@ export class ElevatorPanel {
         const disabled = row.here || !row.unlocked
         return (
           `<button type="button" class="d1-elevator-row" data-floor="${row.floor}" data-here="${row.here}" data-unlocked="${row.unlocked}"${disabled ? ' disabled' : ''}${row.here ? ' aria-current="location"' : ''} aria-label="第 ${row.floor} 层，${row.here ? '当前楼层' : row.unlocked ? '可前往' : '未解锁'}">` +
-          `<span class="d1-elevator-name"><span class="d1-elevator-number" aria-hidden="true">${String(row.floor).padStart(2, '0')}</span>第 ${row.floor} 层</span>` +
+          `<span class="d1-elevator-name"><span class="d1-elevator-number" aria-hidden="true">${String(row.floor).padStart(2, '0')}</span>${row.title}</span>` +
           `<span class="d1-elevator-tag">${row.here ? '◆ 当前' : row.unlocked ? '前往 ↗' : '未解锁'}</span></button>`
         )
       })

@@ -49,6 +49,7 @@ import {
   type FloorPlan,
 } from './floorPlan'
 import { generateDungeon } from './generate'
+import { containsPoint } from '../model/rect'
 import { validateContract } from '../validate/contract'
 import { assertReachable } from '../validate/reachability'
 
@@ -138,7 +139,9 @@ describe('一局的楼层表（floors.json）', () => {
     // ★ 2026-10-30：用户「左边少了个电梯间」之后，7F 也是**三个**电梯间了
     //（西半两间 + 东半一间）：西半 7 + 东半 8 + 3 电梯 + 楼梯间 = 19。
     expect(plans[6]!.roomTotal).toBe(19)
-    expect(plans[7]!.roomTotal).toBe(19) // 梦境8F沿用6F结构
+    // ★ 改了（2026-11-04，用户：「第八层只有一个首领房，没有其他房间」）：
+    // 「异常」层只剩 1 间首领房 + 楼梯间 = **2**。
+    expect(plans[7]!.roomTotal).toBe(2)
     expect(new Set(plans.map((p) => p.roomTotal)).size).toBeGreaterThanOrEqual(4)
 
     // 反向证据①：层数对不上时先说「两个文件」，不是闷头往下取。
@@ -194,8 +197,9 @@ describe('一局的楼层表（floors.json）', () => {
       expect(p.rows).toBe(plans[0]!.rows)
     }
     expect([plans[0]!.cols, plans[0]!.rows]).toEqual([263, 73]) // 楼的尺寸（格）
-    // 反向证据①：这条判据今天**不是**恒真的 —— 四张图的房间数就不一样。
-    expect(new Set(plans.map((p) => p.rooms.length)).size).toBe(4)
+    // 反向证据①：这条判据今天**不是**恒真的 —— 八张图的房间数就不一样
+    //（1 / 12 / 16 / 17 / 18 五种：★ 2026-11-04 之后「异常」层只有 1 间）。
+    expect(new Set(plans.map((p) => p.rooms.length)).size).toBe(5)
     // 反向证据②（★ 新增）：外框也不再恒等于「房间的并集」—— 1F 的**房间**
     // 从 y25 起，另外两层从 y0 起。所以这条用例守的确实是那个声明值，
     // 而不是顺手又验了一遍推导。
@@ -207,7 +211,8 @@ describe('一局的楼层表（floors.json）', () => {
     // 2F 的 YF201 也从 y25 起（它是西头那一整块竖长的房）；
     // 4F / 5F / 6F 都有首领房从 y0 起。所以是 [25, 25, 0, 0, 0, 0]。
     // 7F 的东半**上移过**（与 6F 东翼同构：北排从 y5 起），而它没有首领房 ⇒ 最北一间是 y5。
-    expect(plans.map(minRoomY)).toEqual([25, 25, 0, 0, 0, 0, 5, 0])
+    // ★ 2026-11-04：8F（「异常」层）只有一间首领房，它在南排（y51）—— 所以最北一间是 31（楼梯间）。
+    expect(plans.map(minRoomY)).toEqual([25, 25, 0, 0, 0, 0, 5, 31])
   })
 
   it('三层都生成得出来、且过契约校验 —— 楼层表里的每一层真的能玩', () => {
@@ -239,21 +244,45 @@ describe('一局的楼层表（floors.json）', () => {
     expect(first.rooms.filter((r) => r.kind === 'boss')).toHaveLength(0)
   })
 
-  it('梦境8F仅改6F房号，楼梯、电梯、门洞及房间几何不变', () => {
-    const six = plans[5]!, eight = plans[7]!
-    const renumber = (id: string): string => id.replace(/^YF6/, 'YF8')
-    expect(eight.stairwell).toEqual(six.stairwell)
-    expect(eight.corridors).toEqual(six.corridors)
-    expect(eight.rooms).toEqual(six.rooms.map((room) => ({ ...room, id: renumber(room.id) })))
-    const doors = six.doors.map((door) => {
-      const [a, b] = [renumber(door.a), renumber(door.b)].sort()
-      return { ...door, a, b }
-    })
-    expect(eight.doors).toEqual(doors)
-    expect(eight.rooms.filter((room) => room.fixed === 'elevator').map((room) => room.id).sort())
-      .toEqual(['E_A', 'E_B', 'E_C'])
-    expect(eight.rooms.filter((room) => room.id.startsWith('YF')).every((room) => /^YF8\d\d$/.test(room.id)))
-      .toBe(true)
+  it('★ 「异常」层（8F）**只有一间首领房** —— 用户：「只有一个首领房，没有其他房间」', () => {
+    const eight = plans[7]!
+    // 房间：只剩 YF804，且它是首领
+    expect(eight.rooms.map((room) => room.id)).toEqual(['YF804'])
+    expect(eight.rooms[0]!.fixed).toBe('boss')
+    // 没有电梯间（那一层是「异常」，电梯到不了）、没有商店 / 教休室 / 空房
+    expect(eight.rooms.some((room) => room.fixed === 'elevator')).toBe(false)
+    // 楼梯间照旧（落点），走廊只有一条
+    expect(eight.stairwell.id).toBe('STAIR')
+    expect(eight.corridors.map((c) => c.id)).toEqual(['C_MAIN'])
+    // 生成出来也确实只有一场仗：首领一个，别的关别一个没有
+    const map = generateDungeon(1, cfg, eight)
+    expect(map.rooms.map((room) => room.kind).sort()).toEqual(['boss', 'start'])
+  })
+
+  it('★ 8F 的两间房**正对**，中间只有一小段走廊 —— 用户：「搞两个房间对立就行」', () => {
+    const eight = plans[7]!
+    const stair = eight.stairwell.cells
+    const boss = eight.rooms[0]!.cells
+    // 两间房的中线在同一条竖线上，两扇门也在同一条竖线上：走过去是**直着**过去的。
+    expect(stair.x + stair.width / 2, '落点房与首领房的中线对不上').toBe(
+      boss.x + boss.width / 2,
+    )
+    expect(boss.y, '首领房应该在落点房的**对面**（南边）').toBeGreaterThan(
+      stair.y + stair.height,
+    )
+    // 走廊只有一小段：25 格宽（1000px），上一版是 263 格（10520px）。
+    const hall = eight.corridors[0]!
+    expect(hall.cells.width).toBeLessThanOrEqual(30)
+    // 而且它正好包住两扇门（两扇都在 x42..44），玩家不用横着走很远。
+    const door = eight.doors[0]!
+    expect(hall.cells.x, '走廊没包住门').toBeLessThanOrEqual(door.cells.x)
+    expect(hall.cells.x + hall.cells.width).toBeGreaterThanOrEqual(door.cells.x + door.cells.width)
+    // 传送阵在**小落点房里面**（用户：「小房间是来的房间，放传送阵就行」），不是走廊里。
+    expect(eight.anomalyGate).not.toBeNull()
+    expect(
+      containsPoint(eight.stairwell.rect, eight.anomalyGate!.x, eight.anomalyGate!.y),
+      `传送阵 (${eight.anomalyGate!.x}, ${eight.anomalyGate!.y}) 不在小落点房里`,
+    ).toBe(true)
   })
 
   it('三层的房号**只在楼梯间上重合** —— 顺手证明第 3 层不再是 6F 的复制品', () => {

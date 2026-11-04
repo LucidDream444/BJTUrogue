@@ -36,6 +36,16 @@ const LABEL_FONT = 20
  */
 const LABEL_LIFT = 72
 
+/**
+ * **楼梯间**的房号那一行字从中心往上抬多少。
+ *
+ * ★ 2026-11-04：楼梯间里的两段楼梯改成**横着并排**、互动点压到楼梯下方之后，
+ * 楼梯图占的是「中心 −141 .. 中心 +32」那一条，常规的 `LABEL_LIFT = 72`
+ * 正好落在楼梯中间（截图里字压在白扶手上）。抬到 190 = 房顶下 50px 那条空带，
+ * 楼梯图（顶边在中心 −141）上面还有 49px，两边都碰不着。
+ */
+const STAIR_LABEL_LIFT = 190
+
 /** 挡板本来就有厚度，描边再往外这点像素才看得出来。**只用在观感上**，与物理无关。 */
 const DOOR_INSET = 3
 
@@ -76,11 +86,17 @@ export class StageBackground {
      * `DungeonStages` 造 id 时按种类加了前缀，那正是为了这里能分开上色。
      */
     solids: readonly SolidRect[],
+    /**
+     * 「异常」层（8F）的两处差别（用户 2026-11-04：「小房间是来的房间，放传送阵就行」）：
+     * - `drawStairs: false` —— 那间 `start` 房是传送阵的落点，不画楼梯；
+     * - `arrivalRoom: true` —— 房号那行字写「落点 · 传送阵」，不再写「楼梯间 · 中转站」。
+     */
+    private readonly opts: { drawStairs?: boolean; arrivalRoom?: boolean } = {},
   ) {
     const b = map.bounds
     this.floor = scene.add.graphics().setDepth(-120)
     this.floor.fillStyle(COLORS.outside, 1).fillRect(left(b), top(b), b.width, b.height)
-    this.art = new CampusMapArt(scene, map, solids)
+    this.art = new CampusMapArt(scene, map, solids, this.opts.drawStairs !== false)
     this.doors = scene.add.graphics().setDepth(-101)
     this.makeLabels()
     this.refresh()
@@ -90,14 +106,19 @@ export class StageBackground {
     for (const unit of this.rooms) {
       const r = unit.room.rect
       const label = this.scene.add
-        .text(r.x, r.y - LABEL_LIFT, '', {
-          fontFamily: 'Microsoft YaHei, sans-serif',
-          fontSize: `${LABEL_FONT}px`,
-          color: '#e9f2ff',
-          stroke: '#0b0b10',
-          strokeThickness: 5,
-          align: 'center',
-        })
+        .text(
+          r.x,
+          r.y - (unit.room.kind === 'start' ? STAIR_LABEL_LIFT : LABEL_LIFT),
+          '',
+          {
+            fontFamily: 'Microsoft YaHei, sans-serif',
+            fontSize: `${LABEL_FONT}px`,
+            color: '#e9f2ff',
+            stroke: '#0b0b10',
+            strokeThickness: 5,
+            align: 'center',
+          },
+        )
         .setOrigin(0.5)
         // Room annotations stay above world-y-sorted furniture and actors.
         .setDepth(4000)
@@ -123,7 +144,8 @@ export class StageBackground {
     // 楼梯间：**它不打架，也不会「清」**（`BattleScene.enterRoom()` 不让它进 `cleared`），
     // 所以给它一句自己的话。用户 2026-10-21 说的是「楼梯间不算起点，应该是每层之间的
     // 中转站」—— 而这行字正是玩家在走廊上挑门时读的那一行，它得说这个。
-    if (unit.room.kind === 'start') return `${unit.room.id} ${kind} · 中转站`
+    if (unit.room.kind === 'start')
+      return this.opts.arrivalRoom ? '落点 · 传送阵' : `${unit.room.id} ${kind} · 中转站`
     if (!unit.needsFight) return `${unit.room.id} ${kind} · 不用打`
     return `${unit.room.id} ${kind}`
   }

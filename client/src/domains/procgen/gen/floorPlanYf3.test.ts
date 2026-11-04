@@ -15,7 +15,8 @@
  * | ③ | 删掉 `C_W`↔`YF601` / `C_W`↔`YF615` 两扇门，在 SHOP 与 C_W 的共享墙上开一扇标准宽的门 | 门跟着房间走 |
  *
  * ⚠️ ★ 2026-10-22 晚另有一处**两份一起改**的（所以不算「两份的差别」）：
- * 楼梯间从下排（x28 y51 11×22）挪到北排（x38 y25 11×18），门跟着从 y50 挪到 y43，
+ * 楼梯间从下排（x28 y51 11×22）挪到北排（当时是 x38 y25 11×18；2026-11-04 起
+ * 收到 x38 y31 11×12，南界 y42 与门 y43 不动），门跟着从 y50 挪到 y43，
  * 用户「应该保留的是 YF101/301/601 左边那个楼梯间（地图上面），三层的楼梯间都改」。
  * 三份平面图逐格同改 —— 所以下面那份「6F + 三处编辑」的推导把楼梯间**原样继承**
  * （它照抄的就是改过之后的 6F），而 ① 的让位锚点因此跟着换了，见 `deriveYf3`。
@@ -308,8 +309,10 @@ describe('真的那份 floor-plan-yf3.json', () => {
     const shop = yf3.rooms.find((r) => r.id === SHOP)!
     const stair = yf3.stairwell.cells
     expect(stair.x - (shop.cells.x + shop.cells.width)).toBe(11)
-    // 同一排（都在北带 y25..42），所以这个差就是横着那一整段的宽度。
-    expect(stair.y).toBe(shop.cells.y)
+    // 楼梯间 2026-11-04 起从上往下缩短（11×18 → 11×12，南界仍是 y42），
+    // 它还在北带里、仍与 SHOP 左右相邻 —— 上面那个 11 格的差就是横着的那一段。
+    expect(stair.y + stair.height).toBe(43)
+    expect(stair.y).toBeGreaterThan(shop.cells.y)
     // 对照：1F / 6F 同一处楼梯间、同一个间距 —— 三层这一块是照抄的。
     expect(yf3.stairwell.cells).toEqual(six.stairwell.cells)
   })
