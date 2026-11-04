@@ -135,7 +135,13 @@ export interface CombatConfig {
    * 这两个数只在**没有档的宿主**里兜底 —— 个别测试场直接 `new CombatSession`，
    * 没人调 `setAudioVolumes()`，那就用配置里的基准。
    */
-  audio: { bgmVolume: number; shotVolume: number; shotVoices: number }
+  audio: {
+    bgmVolume: number
+    shotVolume: number
+    shotVoices: number
+    /** 两次受击短呼之间的最小间隔；语音缺失时不影响触发。 */
+    voiceHurtCooldownMs: number
+  }
   projectiles: { capacity: number; radius: number }
   feedback: {
     hurtFlashMs: number
@@ -375,9 +381,13 @@ export function parseCombatConfig(raw: unknown): CombatConfig {
     ![c.audio.bgmVolume, c.audio.shotVolume].every((v) => Number.isFinite(v) && v >= 0 && v <= 1) ||
     !Number.isInteger(c.audio.shotVoices) ||
     c.audio.shotVoices < 1 ||
-    c.audio.shotVoices > 32
+    c.audio.shotVoices > 32 ||
+    !Number.isFinite(c.audio.voiceHurtCooldownMs) ||
+    c.audio.voiceHurtCooldownMs < 0
   )
-    throw new Error('audio: 音量必须在 0—1 之间，枪声池容量必须为 1—32 的整数')
+    throw new Error(
+      'audio: 音量必须在 0—1 之间，枪声池容量必须为 1—32 的整数，受击语音冷却必须为非负数',
+    )
   numeric(c.player, 'player')
   numeric(c.drops, 'drops')
   const dropFields = [

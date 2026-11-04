@@ -3,7 +3,8 @@
   "audio": {
     "bgmVolume": 0.32,
     "shotVolume": 0.55,
-    "shotVoices": 8
+    "shotVoices": 8,
+    "voiceHurtCooldownMs": 700
   },
   "player": {
     "acceleration": 1500,

@@ -15,6 +15,7 @@ import { EnemyBridge } from './EnemyBridge'
 import { Weapons } from './Weapons'
 import { CombatFeedback } from './CombatFeedback'
 import { CombatAudio } from './CombatAudio'
+import { CharacterVoice } from './CharacterVoice'
 import { RewardRun } from './RewardRun'
 import { RecoveryDrops } from './RecoveryDrops'
 import {
@@ -59,6 +60,7 @@ export class CombatSession {
   readonly rewards: RewardRun
   readonly feedback: CombatFeedback
   private readonly audio: CombatAudio
+  private readonly voice: CharacterVoice
   readonly reasons = new Set<PauseReason>()
   private readonly unsubs: Unsubscribe[] = []
   private readonly waterZones: Phaser.GameObjects.Zone[] = []
@@ -204,6 +206,10 @@ export class CombatSession {
         this.enemies.collidesWithUnits(enemy as Phaser.GameObjects.GameObject),
     )
     this.audio = new CombatAudio(scene, this.bus, cfg.audio)
+    this.voice = new CharacterVoice(scene, {
+      volume: cfg.audio.shotVolume,
+      hurtCooldownMs: cfg.audio.voiceHurtCooldownMs,
+    })
     this.weapons = new Weapons(
       scene,
       this.clock,
@@ -235,6 +241,9 @@ export class CombatSession {
           return
         this.player.model.takeHit(request)
       }),
+      this.bus.on('player_hurt', () => {
+        this.voice.play('hurt')
+      }),
       this.bus.on('room_cleared', (e) => {
         if (e.runId !== this.runId || !this.player.model.alive) return
         const options = this.rewards.offer(
@@ -253,7 +262,11 @@ export class CombatSession {
         if (e.kind === 'enemy') {
           this.kills++
           this.drops.enemyDefeated(e.id, e.x, e.y)
-        } else this.dead = true
+          if (e.bossStage !== undefined) this.voice.play('boss_kill')
+        } else {
+          this.dead = true
+          this.voice.play('death')
+        }
       }),
     )
     scene.events.on(Phaser.Scenes.Events.PRE_UPDATE, this.beforePhysics, this)
@@ -402,6 +415,12 @@ export class CombatSession {
 
   setAudioVolumes(bgm: number, sfx: number): void {
     this.audio.setVolumes(bgm, sfx)
+    this.voice.setVolume(sfx)
+  }
+
+  /** 当前出战角色决定语音资源前缀；尚未接入语音的角色会静默。 */
+  setCharacterVoice(characterId: string): void {
+    this.voice.setCharacter(characterId)
   }
 
   pause(reason: PauseReason): void {
@@ -563,7 +582,9 @@ export class CombatSession {
     )
   }
   activateSkill(aim: { x: number; y: number }): boolean {
-    return this.skill?.activate(aim) ?? false
+    const activated = this.skill?.activate(aim) ?? false
+    if (activated) this.voice.play('skill')
+    return activated
   }
   clearRoomSkillObjects(): void {
     this.skill?.clearRoom()
@@ -598,6 +619,7 @@ export class CombatSession {
     })
     this.resume('reward')
     this.bus.emit('reward_finished', { runId: this.runId, roomId, reason: 'selected' })
+    this.voice.play('reward')
     return true
   }
   rewardChanges(r: RewardDef): { label: string; before: string; after: string }[] {
@@ -655,6 +677,7 @@ export class CombatSession {
     this.stageColliders.destroy()
     for (const collider of this.waterColliders) collider.destroy()
     for (const zone of this.waterZones) zone.destroy()
+    this.voice.destroy()
     this.audio.destroy()
     this.weapons.destroy()
     this.drops.destroy()
