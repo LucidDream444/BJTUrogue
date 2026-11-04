@@ -50,6 +50,7 @@ import {
   createMenuState,
   focusOn,
   focusedAction,
+  initialMenuScreen,
   moveFocus,
   openScreen,
   trySelectCharacter,
@@ -68,6 +69,7 @@ import { CampusTooltip } from '../ui/CampusTooltip'
 import type { OverlaySink } from '../ui/overlayFrame'
 import {
   buildNotebookAchievements,
+  buildNotebookFirstRun,
   buildNotebookHelp,
   buildNotebookRunSetup,
   buildNotebookSettings,
@@ -99,6 +101,7 @@ export class MainMenuScene extends Phaser.Scene {
   private store!: ProfileStore
   private state: MenuState = createMenuState()
   private onExit: (() => void) | undefined
+  private requestedInitialScreen: 'main' | 'upgrade' = 'main'
 
   private objects: Phaser.GameObjects.GameObject[] = []
   private hotspots = new Map<MenuAction, CampusHotspot>()
@@ -122,6 +125,7 @@ export class MainMenuScene extends Phaser.Scene {
 
   /** 弹层的标题。键就是 `MenuScreen` 里除 `main` 之外的全部屏。 */
   private static readonly OVERLAY_TITLES = {
+    'first-run': '初次冒险',
     'run-setup': '出发准备',
     help: '冒险手册',
     settings: '校园设置',
@@ -150,7 +154,8 @@ export class MainMenuScene extends Phaser.Scene {
     } else {
       this.store = new ProfileStore({ storage: new LocalStorageProfileStorage() })
     }
-    this.state = createMenuState(data.initialScreen)
+    this.requestedInitialScreen = data.initialScreen ?? 'main'
+    this.state = createMenuState()
     // 每次进入场景都从当前出战角色重新开始；页面内切换保存在下面这个字段里。
     this.upgradeCharacterId = null
   }
@@ -207,6 +212,7 @@ export class MainMenuScene extends Phaser.Scene {
 
   create(): void {
     const outcome = this.store.load()
+    this.state = createMenuState(initialMenuScreen(this.store.profile, this.requestedInitialScreen))
 
     // 成长表读不出来**不该把主菜单整个弄死**：菜单本身还能用，
     // 只是「查看升级」进去会告诉你原因。
@@ -348,6 +354,10 @@ export class MainMenuScene extends Phaser.Scene {
   }
 
   private escape(): void {
+    if (this.state.screen === 'first-run') {
+      this.finishFirstRunTutorial(false)
+      return
+    }
     if (this.state.screen === 'codex' && this.codexPanel?.back()) return
     const closed = closeScreen(this.state)
     if (closed) {
@@ -402,6 +412,20 @@ export class MainMenuScene extends Phaser.Scene {
         this.rebuild()
         break
     }
+  }
+
+  /** 首次引导的两个出口；两个出口都先落档，避免刷新后再次拦人。 */
+  private finishFirstRunTutorial(startImmediately: boolean): void {
+    this.store.markTutorialSeen()
+    if (startImmediately) {
+      this.inputGuardUntil = this.game.loop.time + 250
+      this.state = openScreen(createMenuState(), 'run-setup')
+      this.rebuild()
+      return
+    }
+    this.inputGuardUntil = this.game.loop.time + 250
+    this.state = createMenuState()
+    this.rebuild()
   }
 
   /** 出发准备页的「开始闯关」。真正进战斗前才检查场景是否注册。 */
@@ -618,20 +642,29 @@ export class MainMenuScene extends Phaser.Scene {
         for (const part of button.parts) this.track(part)
       },
     }
-    const light = screen === 'codex' || screen === 'help' || screen === 'achievements'
+    const light =
+      screen === 'codex' || screen === 'help' || screen === 'achievements' || screen === 'first-run'
     const ui = new ArchiveUI(
       this,
       sink,
       MainMenuScene.OVERLAY_TITLES[screen],
       () => {
+        if (screen === 'first-run') {
+          this.finishFirstRunTutorial(false)
+          return
+        }
         this.codexDetail = false
         this.state = closeScreen(this.state) ?? this.state
         this.rebuild()
       },
       light,
+      screen === 'first-run' ? '跳过引导  ×' : undefined,
     )
     this.noticeText = ui.label(800, 882, '', THEME.font.heading).setOrigin(0.5, 1)
     switch (screen) {
+      case 'first-run':
+        buildNotebookFirstRun(ui, () => this.finishFirstRunTutorial(true))
+        break
       case 'upgrade':
         buildUpgradePanel(
           ui,
