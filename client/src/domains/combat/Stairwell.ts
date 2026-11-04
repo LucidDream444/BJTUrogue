@@ -27,38 +27,60 @@ import type { Point, Rect } from '@/domains/procgen/model/types'
  */
 
 /**
- * 上下两个入口离**楼梯间中心**多远（世界像素）。
+ * 两个互动点离**楼梯间正中线**多远（水平，世界像素）。
  *
- * 4.25 格。挑这个数的两个约束：
+ * 4.25 格 → 两个点相距 8.5 格 = 210px。挑这个数的两个约束：
  *
- * - **比一个方框宽**：`FloorExit.SIZE = 92`，于是两个方框之间还留着 78px 的净空 ——
- *   站在正中间时离两边的方框边缘各有 124px，而「够得着」的门槛只有 50
+ * - **比一个方框宽**：`FloorExit.SIZE = 92`，于是两个方框之间还留着 118px 的净空 ——
+ *   站在正中间时离两边的方框边缘各有 105 − 46 = 59px，而「够得着」的门槛只有 50
  *   （`BattleScene.EXIT_REACH`）。**不会出现「站一下同时够到上下楼」**。
- * - **放得进这一间**：楼梯间是平面图上那间 11×18 格的房（440×720），
- *   170 + 半个方框（46） = 216 < 220（半宽）。
- *   ⚠️ 卡的是**半宽**（220），不是高度 —— ★ 2026-10-22 晚这间房从 11×22 改成 11×18
- *   （三层统一到北排那一处楼梯间），高度从 880 掉到 720，**这个约束一个字没变**。
- *   高度那一侧余量还很足：360（半高）≥ 216。
+ * - **放得进这一间**：楼梯间是平面图上那间 11×12 格的房（440×480），
+ *   105 + 半个方框（46） = 151 < 220（半宽）。
  *
  * ⚠️ 它**不是**「摆哪儿好看」，是上面这两条推出来的。改它之前先看
- * `stairPadSpots()` 的钳制，以及 `Stairwell.test.ts` 里那三条断言。
+ * `stairPadSpots()` 的钳制，以及 `Stairwell.test.ts` 里那几条断言。
+ *
+ * ★ 2026-11-04 从「竖向偏移 170」改成「横向半距 105」：用户要求**下一层在左、
+ * 上一层在右**，而且互动点不再压在楼梯图上、要摆到楼梯**下方** —— 竖着分的那套
+ * （上边一个、下边一个）随之作废。
  */
-export const STAIR_PAD_OFFSET = 170
+export const STAIR_PAD_SPREAD = 105
+
+/**
+ * 两个互动点比**楼梯间中心**低多少（世界像素）。
+ *
+ * 用户 2026-11-04：「互动点不要放在楼梯上面，放在楼梯下方」。90 让
+ * 「楼梯图（约 173 高）+ 12px 间隙 + 方框（92）」这一组在 11×12 的房里
+ * 上下留白接近：上边约 99、下边约 104（`CampusMapArt.paintStairs()` 按它摆楼梯图）。
+ */
+export const STAIR_PAD_DROP = 90
+
+/**
+ * 两段楼梯图之间的水平间隙（世界像素）。
+ *
+ * `CampusMapArt.paintStairs()` 用它把两段楼梯并排塞进楼梯间：
+ * 中间留 20、两边各留半格（20），于是两段楼梯的中心正好落在两个互动点上方。
+ */
+export const STAIR_FLIGHT_GAP = 20
 
 export interface StairPads {
-  /** 上**上**一层（★ 2026-10-22 晚起 = 前进方向）。`y` 比中心**小** —— 画面坐标里 y 向下增长。 */
+  /** 上**上**一层（= 前进方向）。**右边**，且在楼梯图下方。 */
   readonly up: Point
-  /** 下**下**一层（= 回去的路）。`y` 比中心**大**。 */
+  /** 下**下**一层（= 回去的路）。**左边**，且在楼梯图下方。 */
   readonly down: Point
 }
 
 /**
- * 两个入口在楼梯间里的位置。**以楼梯间中心为原点、沿着 y 轴分开**。
+ * 两个互动点在楼梯间里的位置。**以楼梯间中心为原点，左右分开、同时下移**：
  *
- * 为什么是竖着分而不是横着分：平面图上这间房是**竖长**的（11×18 格），
- * 竖着分两边都还有余量；横着分的话 220px 的半宽里塞不下「170 + 46」。
- * （`Stairwell.test.ts` 钉着「这间恒为竖长」—— 哪天平面图把它改成横长的，
- * 该改的是这个函数，那条断言会在那之前先红。）
+ * | | x | y |
+ * |---|---|---|
+ * | `down`（下一层） | 中心 **−** 半个间距（左） | 中心 **+** `STAIR_PAD_DROP`（下） |
+ * | `up`（上一层） | 中心 **+** 半个间距（右） | 同上 |
+ *
+ * 左右与楼梯图同序：左边那组楼梯向下、右边那组向上（用户 2026-11-04）。
+ * 两点同一行，所以「上」与「下」不再靠 y 区分，而是靠**左 / 右** ——
+ * 区分它们的颜色与箭头留在 `FloorExit`（青绿朝下 = 左、暖黄朝上 = 右）。
  *
  * ⚠️ **返回值只保证「在房间里」，不保证「站得上去」**：调用方（`BattleScene`）
  * 摆之前还要过一次 `TerrainMap.safeSpawn()` —— 门口那一带、以及将来楼梯间里
@@ -66,9 +88,10 @@ export interface StairPads {
  *
  * ## 钳制：**尽量分开，但绝不出去**
  *
- * `reach` 取「`STAIR_PAD_OFFSET`」与「房间还放得下多少」里小的那个。
- * 于是这间房只要比一个方框大，两个入口**整个**（含方框的四条边）都在房里；
- * 小到连一个方框都放不下时，两个点都退回中心（`reach = 0`）——
+ * `spread` 取「`STAIR_PAD_SPREAD`」与「房间半宽还放得下多少」里小的那个；
+ * `drop` 同理，取「`STAIR_PAD_DROP`」与「房间半高还放得下多少」里小的那个。
+ * 于是这间房只要放得下两个方框，它们**整个**（含方框的四条边）都在房里；
+ * 小到连一个方框都放不下时，两个点都退回中心（`spread = drop = 0`）——
  * **房子再小也不会把入口摆到墙外去**（摆到墙外的入口玩家够不着，
  * 而画面上那个方框还在呼吸）。
  *
@@ -77,12 +100,12 @@ export interface StairPads {
  */
 export function stairPadSpots(stairwell: Rect, padSize: number): StairPads {
   const halfPad = padSize / 2
-  // 只受**高**约束：两个点都在中线上（x 不动），方框横着放不放得下与偏移无关 ——
-  // 那是 `width >= padSize` 的事，往上下挪多远都改不了它。
-  const reach = Math.min(STAIR_PAD_OFFSET, Math.max(0, stairwell.height / 2 - halfPad))
+  const spread = Math.min(STAIR_PAD_SPREAD, Math.max(0, stairwell.width / 2 - halfPad))
+  const drop = Math.min(STAIR_PAD_DROP, Math.max(0, stairwell.height / 2 - halfPad))
+  const y = stairwell.y + drop
   return {
-    up: { x: stairwell.x, y: stairwell.y - reach },
-    down: { x: stairwell.x, y: stairwell.y + reach },
+    down: { x: stairwell.x - spread, y },
+    up: { x: stairwell.x + spread, y },
   }
 }
 

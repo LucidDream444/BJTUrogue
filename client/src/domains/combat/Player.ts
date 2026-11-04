@@ -332,6 +332,16 @@ export class Player {
   }
   draw(): void {
     this.model.syncState(this.moving)
+    // ★ 新增（2026-11-04，用户「角色一/三走路还是卡」）：**视觉位置与相机同一个像素栅格**。
+    //
+    // 相机是 `startFollow(..., roundPixels = true, …)` + 整数缩放（`fitCamera()`）：
+    // 它的取景位置每帧被取整到**整数世界像素**，而角色原先画在 `body.center` 的**亚像素**位置上。
+    // 两者错开 ⇒ 屏幕上的角色相对地面每帧来回摆 ±0.5px（实测：新生 260px/s 时
+    // −0.43 / +0.58 交替；大鹅因为 +20% 速度恰好是 2.08px/帧，反而几乎不动 = 看起来不卡）。
+    // 这里只把**画的那个位置**取整（物理、命中、枪口全都不动），于是角色和世界落在同一个
+    // 1px 栅格上：不再来回摆，代价是角色自身以 1/2px 的整台阶前进（像素游戏的常规做法）。
+    const vx = Math.round(this.x)
+    const vy = Math.round(this.feetY)
     const hurt = this.model.alive && this.clock.nowMs < this.model.hurtUntilMs
     if (this.redBerry) {
       const attack = this.clock.nowMs < this.model.attackUntilMs
@@ -341,12 +351,12 @@ export class Player {
         : attack ? this.clock.nowMs - (this.model.attackUntilMs - this.cfg.player.attackPoseMs)
         : this.moving ? this.runAnimationMs : this.clock.nowMs
       const duration = hurt ? this.cfg.player.hurtMs : attack ? this.cfg.player.attackPoseMs : undefined
-      const pose = this.redBerryPose()
+      const pose = this.redBerryPose({ x: vx, y: vy })
       this.berryAimAngle = pose.angle
       this.redBerry.draw(pose, redBerryFrame(action, elapsed, duration),
         this.cfg.player.visualScale * RED_BERRY_ART.visualScale, this.weaponIdValue, this.model.alive,
         hurt && this.clock.nowMs - this.model.hurtAtMs < this.cfg.feedback.hurtFlashMs)
-      this.shadow.setPosition(this.x, this.feetY).setDepth(this.feetY - 1)
+      this.shadow.setPosition(vx, vy).setDepth(this.feetY - 1)
       return
     }
     if (this.goose) {
@@ -358,11 +368,11 @@ export class Player {
         : attack ? this.clock.nowMs - (this.model.attackUntilMs - this.cfg.player.attackPoseMs)
         : this.moving ? this.runAnimationMs : this.clock.nowMs
       const duration = hurt ? this.cfg.player.hurtMs : attack ? this.cfg.player.attackPoseMs : undefined
-      this.goose.draw({ x: this.x, y: this.feetY }, this.gooseFacing, gooseFrame(action, elapsed, duration),
+      this.goose.draw({ x: vx, y: vy }, this.gooseFacing, gooseFrame(action, elapsed, duration),
         this.cfg.player.visualScale * GOOSE_ART.visualScale, { x: this.aimX, y: this.aimY },
         this.weaponIdValue, this.model.alive,
         hurt && this.clock.nowMs - this.model.hurtAtMs < this.cfg.feedback.hurtFlashMs)
-      this.shadow.setPosition(this.x, this.feetY).setDepth(this.feetY - 1)
+      this.shadow.setPosition(vx, vy).setDepth(this.feetY - 1)
       return
     }
     const pose = this.visualPose(),
@@ -371,7 +381,7 @@ export class Player {
     const anchorY =
       (art.anchor[1] * art.frameHeight + art.render.offset[1]) / art.render.frameHeight
     this.sprite
-      .setPosition(pose.position.x, pose.position.y)
+      .setPosition(Math.round(pose.position.x), Math.round(pose.position.y))
       .setDepth(this.feetY)
       .setTexture(textureKeyFor(this.sprite.scene, pose.key), pose.frame)
       .setFlipX(this.facingLeft)
@@ -390,7 +400,7 @@ export class Player {
         1,
       )
       const frame = frames[Math.min(frames.length - 1, Math.floor(progress * frames.length))]!
-      this.sprite.setPosition(this.x, this.feetY)
+      this.sprite.setPosition(vx, vy)
       displayArt(
         this.sprite,
         hurtArt,
@@ -407,7 +417,7 @@ export class Player {
     if (hurt && this.clock.nowMs - this.model.hurtAtMs < this.cfg.feedback.hurtFlashMs)
       this.sprite.setTint(0xffb5b5)
     else this.sprite.clearTint()
-    this.shadow.setPosition(this.x, this.feetY).setDepth(this.feetY - 1)
+    this.shadow.setPosition(vx, vy).setDepth(this.feetY - 1)
   }
   clearMovementInertia(): void {
     this.controlVelocity = { x: 0, y: 0 }
@@ -421,10 +431,10 @@ export class Player {
     return goosePose({ x: this.x, y: this.feetY }, this.gooseFacing,
       this.cfg.player.visualScale * GOOSE_ART.visualScale, { x: this.aimX, y: this.aimY })
   }
-  private redBerryPose() {
+  private redBerryPose(feet: { x: number; y: number } = { x: this.x, y: this.feetY }) {
     const attack = this.model.alive && this.clock.nowMs < this.model.attackUntilMs
     return redBerryPose({
-      feet: { x: this.x, y: this.feetY }, aim: { x: this.aimX, y: this.aimY },
+      feet, aim: { x: this.aimX, y: this.aimY },
       scale: this.cfg.player.visualScale * RED_BERRY_ART.visualScale,
       weapon: this.weaponIdValue, moving: this.moving && this.model.alive,
       runElapsedMs: this.runAnimationMs,

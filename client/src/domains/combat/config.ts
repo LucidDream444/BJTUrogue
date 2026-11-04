@@ -237,7 +237,14 @@ export interface CombatConfig {
     initialNightmareCats: number
     muscovyMinFloor: number
     nightmareCatMinFloor: number
-    finale: { floor: number; displayName: string; finalRewardId: string }
+    /**
+     * 末层（「异常」层）那一场的配置。
+     *
+     * `gateRooms`（★ 2026-11-04）是**传送阵的解锁门槛**：在末层的前一层（第 7 层）
+     * 走过这么多间**房间**（楼梯间不算）之后，那块六芒星传送阵才能按 F。
+     * 它是玩法旋钮 → 进配置（红线 2），不写死在 `BattleScene` 里。
+     */
+    finale: { floor: number; displayName: string; finalRewardId: string; gateRooms: number }
     /**
      * ⚠️ **这个字段今天没有消费方**（2026-10-21 整层连续之后）。
      *
@@ -499,6 +506,9 @@ export function parseCombatConfig(raw: unknown): CombatConfig {
   if (!c.arena.finale || c.arena.finale.floor !== c.arena.maxStages ||
     !c.arena.finale.displayName?.trim() || !c.arena.finale.finalRewardId?.trim())
     throw new Error('arena.finale: 必须明确末层首领名称与最终收益ID')
+  // ★ 2026-11-04：传送阵的解锁门槛。至少 1 间（0 就等于没有门槛，那和直接放行没区别）。
+  if (!Number.isInteger(c.arena.finale.gateRooms) || c.arena.finale.gateRooms < 1)
+    throw new Error('arena.finale.gateRooms: 传送阵的解锁门槛必须是不小于 1 的整数')
   // 一局几层 = `maxStages`（第 1..N 层的首领按层的序号挑），一层几间 = 下面这两个数。
   // 层与间都进配置：红线 2 说数值不许写死在代码里，而这两个数直接决定一局有多长。
   if (!Number.isInteger(c.arena.roomsPerFloor) || c.arena.roomsPerFloor < 4)

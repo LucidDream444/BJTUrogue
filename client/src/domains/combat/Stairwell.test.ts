@@ -11,6 +11,10 @@
  * 中间那句与最后那句在这里被钉住。第一句（不摆宝箱）是关别的判据，
  * 钉在 `procgen/config.ts` 的 `roomHasChest()` 上。
  *
+ * ★ 2026-11-04 用户的摆法要求：「向下的楼梯在左边，向上的楼梯放右边，互动点不要
+ * 放在楼梯上面，放在楼梯下方，楼梯间长度改小一点」—— 于是这一份的第一组断言
+ * 从「上一层在上、下一层在下」换成了「下一层在左、上一层在右，两点都在中心下方」。
+ *
  * 这一份挡的是三类**不报错、只看画面**才发现的错：
  *
  * 1. **两个方框叠在一起** —— 站在楼梯间正中按一下 `F`，上下楼谁都说不清；
@@ -33,7 +37,8 @@ import { parseFloorPlan, type FloorPlan } from '@/domains/procgen/gen/floorPlan'
 import { containsPoint } from '@/domains/procgen/model/rect'
 import {
   FloorProgress,
-  STAIR_PAD_OFFSET,
+  STAIR_PAD_DROP,
+  STAIR_PAD_SPREAD,
   padsFitInside,
   stairPadSpots,
   type FloorSnapshot,
@@ -71,26 +76,18 @@ const EXIT_REACH = ((): number => {
   return Number(m[1])
 })()
 
-describe('楼梯间的两个入口摆在哪儿（2026-10-21：上下楼都在楼梯间里）', () => {
+describe('楼梯间的两个入口摆在哪儿（2026-11-04：左下楼、右上楼，互动点在楼梯下方）', () => {
   const stairwell = plan.stairwell.rect
   const pads = stairPadSpots(stairwell, FLOOR_EXIT_SIZE)
 
-  it('平面图上这一间是竖长的 —— 两个入口就是靠它分开的', () => {
-    // `stairPadSpots()` 竖着分（沿 y 轴）：「上下」两个字本来就是竖的。
-    // 哪一天平面图把它改成一间横长的房子，这条会红 —— 那时该改的是摆法，不是这条断言。
-    expect(
-      stairwell.height,
-      `楼梯间 ${JSON.stringify(stairwell)} 不再是竖长的了：两个入口竖着分就分不开`,
-    ).toBeGreaterThan(stairwell.width)
-  })
-
-  it('**上一层在上面、下一层在下面**，而且两个方框离得开', () => {
-    expect(pads.up.y, '上一层那个入口跑到中心下面去了 —— 画面上会和「下一层」反过来').toBeLessThan(
-      pads.down.y,
+  it('**下一层在左、上一层在右**，而且两个方框离得开', () => {
+    // 用户 2026-11-04：「向下的楼梯在左边，向上的楼梯放右边」。
+    // 画面坐标里 x 向右增长，所以 down 的 x 必须比 up 小。
+    expect(pads.down.x, '下一层那个入口跑到右边去了 —— 画面上会和「上一层」反过来').toBeLessThan(
+      pads.up.x,
     )
-    expect(pads.up.x).toBe(stairwell.x)
-    expect(pads.down.x).toBe(stairwell.x)
-    const gap = pads.down.y - pads.up.y
+    expect(pads.up.y).toBe(pads.down.y)
+    const gap = pads.up.x - pads.down.x
     expect(
       gap,
       `两个方框只隔 ${gap}px，比一个方框（${FLOOR_EXIT_SIZE}）还近 —— 它们会盖在一起`,
@@ -105,21 +102,33 @@ describe('楼梯间的两个入口摆在哪儿（2026-10-21：上下楼都在楼
     ).toBeGreaterThan(EXIT_REACH)
   })
 
+  it('两个入口都在楼梯间中心**下方** —— 楼梯图在上、互动点在下', () => {
+    // 用户 2026-11-04：「互动点不要放在楼梯上面，放在楼梯下方」。
+    expect(pads.up.y).toBeGreaterThan(stairwell.y)
+    expect(pads.down.y).toBeGreaterThan(stairwell.y)
+    // 90px 的下移量在真平面图上没有被房高钳制掉（半高 240 − 半个方框 46 > 90）。
+    expect(pads.up.y - stairwell.y).toBe(STAIR_PAD_DROP)
+  })
+
   it('**两个方框都整个落在楼梯间里** —— 摆到墙外的入口玩家够不着', () => {
     expect(
       padsFitInside(stairwell, pads, FLOOR_EXIT_SIZE),
       `入口出墙了：楼梯间 ${JSON.stringify(stairwell)}、两个入口 ${JSON.stringify(pads)}（方框边长 ${FLOOR_EXIT_SIZE}）`,
     ).toBe(true)
-    // 半个方框 + 偏移，就是它离中心最远的那条边 —— 顺着 room 的半高看，余量应该还不少。
-    expect(stairwell.height / 2).toBeGreaterThan(STAIR_PAD_OFFSET + FLOOR_EXIT_SIZE / 2)
+    // 半个方框 + 偏移，就是它离中心最远的那条边 —— 顺着这一间的半宽/半高看，余量应该还不少。
+    expect(stairwell.width / 2).toBeGreaterThan(STAIR_PAD_SPREAD + FLOOR_EXIT_SIZE / 2)
+    expect(stairwell.height / 2).toBeGreaterThan(STAIR_PAD_DROP + FLOOR_EXIT_SIZE / 2)
   })
 
   it('**偏移量的钳制**：方框往外挪、挪到房间放不下为止，绝不出去', () => {
     // 真平面图那一间是够大的（最上面那条已经量过），这里量的是**兜底**。
-    // 一间恰好放得下两个方框的房子：往两头挪满，整个框仍贴着上下两条边、在房里。
-    const snug = { x: 300, y: 300, width: FLOOR_EXIT_SIZE, height: FLOOR_EXIT_SIZE * 2 }
+    // 一间恰好放得下两个方框的房子（横着刚够）：往两头挪满，整个框仍贴着左右两条边、在房里。
+    const snug = { x: 300, y: 300, width: FLOOR_EXIT_SIZE * 2, height: FLOOR_EXIT_SIZE }
     const snugPads = stairPadSpots(snug, FLOOR_EXIT_SIZE)
-    expect(snugPads.up.y, '贴边的这一间里，上一层那个入口应该确实往上挪了').toBeLessThan(snug.y)
+    expect(snugPads.down.x, '贴边的这一间里，下一层那个入口应该确实往左挪了').toBeLessThan(snug.x)
+    expect(snugPads.up.x).toBeGreaterThan(snug.x)
+    // 房高只够一个方框，所以下移量被钳成 0：两个点留在中线上，**不**往墙外钻。
+    expect(snugPads.up.y).toBe(snug.y)
     expect(
       padsFitInside(snug, snugPads, FLOOR_EXIT_SIZE),
       `贴边的这一间摆出墙了：${JSON.stringify(snugPads)}`,
