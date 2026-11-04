@@ -32,9 +32,9 @@
 
 import { ConfigError } from '@/core/config'
 import { floorsConfigFromCache, need, needArray, needNumber, needObject } from '../config'
-import type { RoomKind, Rect } from '../model/types'
+import type { Point, RoomKind, Rect } from '../model/types'
 import { ROOM_KINDS } from '../model/types'
-import { rectFromTopLeft } from '../model/rect'
+import { containsPoint, rectFromTopLeft } from '../model/rect'
 
 // ---------------------------------------------------------------- 形状
 
@@ -123,6 +123,16 @@ export interface FloorPlan {
   readonly cols: number
   readonly rows: number
   readonly stairwell: FloorPlanRoom
+  /**
+   * ★ 新增（2026-11-04）：**「异常」层的传送阵**在哪儿（px、中心点），没有就是 `null`。
+   *
+   * 配置表里写的是一个**格点**（`anomalyGate: { x, y }`，格中心），这里换算成 px。
+   * 它必须落在**任何可走空间里**（走廊或房间 —— 玩家要站得上去），校验器当场核。
+   *
+   * 两块：**7F**（`floor-plan-yf7.json`，中段大厅里，通往「异常」层的唯一入口）与
+   * **8F**（`floor-plan-yf8.json`，小落点房里，按 F 回 7F）。其余六层是 `null`。
+   */
+  readonly anomalyGate: Point | null
   readonly rooms: readonly FloorPlanRoom[]
   readonly corridors: readonly FloorPlanCorridor[]
   readonly doors: readonly FloorPlanDoor[]
@@ -513,6 +523,16 @@ export function parseFloorPlan(raw: unknown, metrics: FloorPlanMetrics): FloorPl
 
   const stairwell = readRoom(need(root.stairwell, 'floorPlan.stairwell'), 'floorPlan.stairwell')
 
+  // ★ 新增（2026-11-04）：传送阵。**格点**（格中心）→ px。存在性由平面图决定：
+  // 只有第七层有，别的层没有这个键。
+  let anomalyGate: Point | null = null
+  if (root.anomalyGate !== undefined) {
+    const g = needObject(root.anomalyGate, 'floorPlan.anomalyGate')
+    const gx = needNumber(g.x, 'floorPlan.anomalyGate.x', { integer: true })
+    const gy = needNumber(g.y, 'floorPlan.anomalyGate.y', { integer: true })
+    anomalyGate = { x: (gx + 0.5) * cellSize, y: (gy + 0.5) * cellSize }
+  }
+
   const roomArr = needArray(root.rooms, 'floorPlan.rooms', 1)
   const rooms = roomArr.map((r, i) => readRoom(r, `floorPlan.rooms[${i}]`))
 
@@ -612,6 +632,7 @@ export function parseFloorPlan(raw: unknown, metrics: FloorPlanMetrics): FloorPl
     cols,
     rows,
     stairwell,
+    anomalyGate,
     rooms,
     corridors,
     doors,
@@ -619,6 +640,19 @@ export function parseFloorPlan(raw: unknown, metrics: FloorPlanMetrics): FloorPl
 
   // 局部 → 全局
   checkFootprint(footprint, allSpaces)
+  if (anomalyGate !== null) {
+    // ★ 改了（2026-11-04）：「异常」层（8F）的小落点房里也摆了一块传送阵 ——
+    // 所以判据从「必须在走廊里」放宽成「必须在任何可走空间里（走廊或房间）」。
+    // 仍然要校验：摆在墙里的传送阵玩家够不着，而画面上它照样在呼吸。
+    const inSpace = allSpaces.some((s) => containsPoint(s.rect, anomalyGate!.x, anomalyGate!.y))
+    if (!inSpace) {
+      throw new ConfigError(
+        'floorPlan.anomalyGate',
+        `传送阵 (${anomalyGate.x}, ${anomalyGate.y})px 不在任何可走空间里 —— ` +
+          `它得是玩家**站得上去**的地方（这一层的空间：[${allSpaces.map((s) => s.id).join(', ')}]）`,
+      )
+    }
+  }
   checkSpacesSeparated(allSpaces, corridors)
   checkDoors(doors, allSpaces, metrics)
   checkRoomCount(rooms, roomTotal)

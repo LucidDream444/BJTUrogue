@@ -5,7 +5,7 @@ import { doorRect, left, right, top } from '@/domains/procgen/model/rect'
 import type { DungeonMap, Rect, Room } from '@/domains/procgen/model/types'
 import type { SolidRect } from './StageGeometry'
 import { furnitureArtPlacement } from './CampusArtLayout'
-import { stairPadSpots } from './Stairwell'
+import { STAIR_FLIGHT_GAP, stairPadSpots } from './Stairwell'
 import { FloorExit } from './FloorExit'
 
 const FLOOR_DEPTH = -119
@@ -13,6 +13,8 @@ const WALL_DEPTH = -115
 const TRIM_DEPTH = -113
 const DECOR_DEPTH = -111
 const CROPPED_FRAME = 'campus-visible'
+/** 楼梯图底边与互动点方框顶边之间的间隙（世界像素）。 */
+const STAIR_ART_GAP = 12
 /** Limit each TileSprite canvas, including the Canvas renderer fallback. */
 const TILE_CHUNK = 1024
 
@@ -32,6 +34,11 @@ export class CampusMapArt {
     private readonly scene: Phaser.Scene,
     private readonly map: DungeonMap,
     private readonly solids: readonly SolidRect[],
+    /**
+     * 画不画楼梯间那两段楼梯图。**「异常」层（8F）传 `false`** ——
+     * 那一层的小房间是传送阵的落点，不是楼梯间（用户 2026-11-04）。
+     */
+    private readonly drawStairs = true,
   ) {
     this.walls = solids.filter((solid) => solid.id.startsWith('wall'))
     this.trim = scene.add.graphics().setDepth(TRIM_DEPTH).setName('campus-wall-trim')
@@ -216,7 +223,7 @@ export class CampusMapArt {
           { id: 'stair-brick', x: left(r), y: top(r) - cell, width: r.width, height: cell },
           ART.tiles.brick,
         )
-        this.paintStairs(room)
+        if (this.drawStairs) this.paintStairs(room)
         this.wallProp(ART.props.exitSign, r.x, y, cell * 1.6)
       } else if (room.kind === 'elevator') {
         this.wallProp(ART.props.fireDoor, r.x, y, cell * 2)
@@ -257,14 +264,21 @@ export class CampusMapArt {
   private paintStairs(room: Room): void {
     const cell = this.map.navCellSize
     const pads = stairPadSpots(room.rect, FloorExit.SIZE)
+    // 两段楼梯**横着并排**，中心分别对准自己的互动点：
+    // 下一层在左（`pads.down`）、上一层在右（`pads.up`）—— 与用户 2026-11-04 的摆法一致。
+    // 宽度：左右各留半格、中间留 `STAIR_FLIGHT_GAP`，再按整块上限（5 格）收一收。
+    const width = Math.min((room.rect.width - cell - STAIR_FLIGHT_GAP) / 2, cell * 5)
+    // 高度：按原图比例，但**不能顶到互动点** —— 底边停在方框上方 `STAIR_ART_GAP` 处。
+    const padTop = pads.up.y - FloorExit.SIZE / 2
+    const available = Math.max(0, padTop - STAIR_ART_GAP - top(room.rect))
     for (const [key, pad] of [
-      [ART.props.stairsUp, pads.up],
       [ART.props.stairsDown, pads.down],
+      [ART.props.stairsUp, pads.up],
     ] as const) {
       const b = CAMPUS_PIXEL_SPRITES[key]!.bounds
-      const width = Math.min(room.rect.width - cell * 2, cell * 5)
-      const height = Math.min((width * b.height) / b.width, room.rect.height / 3)
-      this.croppedImage(key, pad.x, pad.y)
+      const height = Math.min((width * b.height) / b.width, available)
+      if (height <= 1) continue
+      this.croppedImage(key, pad.x, padTop - STAIR_ART_GAP - height / 2)
         .setDisplaySize(width, height)
         .setDepth(FLOOR_DEPTH + 1)
         .setName('campus-stair-flight')
