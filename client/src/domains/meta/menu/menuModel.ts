@@ -56,6 +56,7 @@ export const MENU_ACTION_LABELS: Readonly<Record<MenuAction, string>> = {
  */
 export type MenuScreen =
   | 'main'
+  | 'first-run'
   | 'run-setup'
   | 'help'
   | 'settings'
@@ -72,8 +73,24 @@ export interface MenuState {
   notice: string
 }
 
-export function createMenuState(initialScreen: 'main' | 'upgrade' = 'main'): MenuState {
+export type MenuInitialScreen = 'main' | 'first-run' | 'upgrade'
+
+export function createMenuState(initialScreen: MenuInitialScreen = 'main'): MenuState {
   return { screen: initialScreen, focusIndex: 0, notice: '' }
+}
+
+/**
+ * 进入 D4 主菜单时先开哪一屏。
+ *
+ * 首次引导只拦截普通的「回主菜单」入口；结算页的「去升级」有明确目标，
+ * 不应被教学改道。正常新档还走不到结算，所以这两个入口不会互相冲突。
+ */
+export function initialMenuScreen(
+  profile: ProfileData,
+  requested: 'main' | 'upgrade' = 'main',
+): MenuInitialScreen {
+  if (requested === 'main' && !profile.onboarding.tutorialSeen) return 'first-run'
+  return requested
 }
 
 /** 焦点上下移动，**到头绕回**。越界不报错是因为按住方向键连按到底很常见。 */

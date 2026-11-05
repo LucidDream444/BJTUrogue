@@ -3,7 +3,7 @@
  *
  * ## 迁移是**显式的一步一步**，不是"尽力修补"
  *
- * 迁移表是 `旧版本号 → 一步函数`。从 v1 到 v4 就是走三步，每一步只负责
+ * 迁移表是 `旧版本号 → 一步函数`。从 v1 到 v6 就是走五步，每一步只负责
  * 「加 / 改这一版引入的东西」。
  *
  * 为什么不用「读到什么字段就补什么字段」那种宽容式修补：那样**没有中间状态**，
@@ -46,6 +46,7 @@ export const MIGRATIONS: MigrationRegistry = {
   2: migrateV2ToV3,
   3: migrateV3ToV4,
   4: migrateV4ToV5,
+  5: migrateV5ToV6,
 }
 
 /**
@@ -156,6 +157,7 @@ export function normalizeProfile(raw: unknown): ProfileData {
   const currency = asRecord(root.currency)
   const stats = asRecord(root.stats)
   const selected = asRecord(root.selected)
+  const onboarding = asRecord(root.onboarding)
   const selectedId = id(selected.characterId, fallback.selected.characterId)
 
   return {
@@ -186,6 +188,9 @@ export function normalizeProfile(raw: unknown): ProfileData {
       characterId: selectedId === 'leader' ? fallback.selected.characterId : selectedId,
       difficulty: asDifficulty(selected.difficulty, fallback.selected.difficulty),
     },
+    onboarding: {
+      tutorialSeen: onboarding.tutorialSeen === true,
+    },
     encounteredEnemyKinds: [...new Set(idList(root.encounteredEnemyKinds, []))],
   }
 }
@@ -212,11 +217,7 @@ function recovered(reason: string): ProfileLoadResult {
 function migrateV1ToV2(data: Record<string, unknown>): Record<string, unknown> {
   const upgrades = { ...asRecord(data.upgrades) }
   for (const [key, value] of Object.entries(upgrades)) {
-    const suffix = key.endsWith(':armor')
-      ? ':armor'
-      : key.endsWith(':magic')
-        ? ':magic'
-        : null
+    const suffix = key.endsWith(':armor') ? ':armor' : key.endsWith(':magic') ? ':magic' : null
     if (suffix === null) continue
     const nextKey =
       key.slice(0, -suffix.length) + (suffix === ':armor' ? ':maxShield' : ':maxEnergy')
@@ -283,9 +284,36 @@ function migrateV3ToV4(data: Record<string, unknown>): Record<string, unknown> {
   return { ...data, schemaVersion: 4, revision: 0 }
 }
 
-/** v5 加入首次遭遇标记；旧档没有可还原的遭遇记录，其他进度原样保留。 */
+/**
+ * v5 记录第一次进入引导是否已经结束。
+ *
+ * 旧档来自已经运行过游戏的版本，不能让升级动作突然把老玩家拦在一次教学里，
+ * 所以迁移结果固定为“已经看过”。全新档由 `createDefaultProfile()` 写成 `false`。
+ */
 function migrateV4ToV5(data: Record<string, unknown>): Record<string, unknown> {
-  return { ...data, schemaVersion: 5, encounteredEnemyKinds: [] }
+  const onboarding = asRecord(data.onboarding)
+  return {
+    ...data,
+    schemaVersion: 5,
+    onboarding: { ...onboarding, tutorialSeen: true },
+  }
+}
+
+/**
+ * v6 合并两条 v5 支线：主干已有引导字段，首次遭遇支线已有怪物标记。
+ * 两边已有数据都保留；没有引导字段的已存在档视为老玩家，避免重新强制引导。
+ */
+function migrateV5ToV6(data: Record<string, unknown>): Record<string, unknown> {
+  const onboarding = asRecord(data.onboarding)
+  return {
+    ...data,
+    schemaVersion: 6,
+    onboarding: {
+      ...onboarding,
+      tutorialSeen: typeof onboarding.tutorialSeen === 'boolean' ? onboarding.tutorialSeen : true,
+    },
+    encounteredEnemyKinds: data.encounteredEnemyKinds ?? [],
+  }
 }
 
 const LEGACY_TRACK_COSTS: Readonly<

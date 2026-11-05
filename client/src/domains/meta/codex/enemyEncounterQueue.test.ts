@@ -85,10 +85,38 @@ describe('首次遭遇存档兼容', () => {
     previous.stats.runs = 9
     previous.selected.characterId = 'scholar'
     previous.revision = 25
+    previous.onboarding.tutorialSeen = true
     const { encounteredEnemyKinds: _oldMissing, ...oldShape } = previous
     const result = migrateProfile({ ...oldShape, schemaVersion: 4 })
     expect(result.outcome).toEqual({ status: 'migrated', from: 4, to: PROFILE_SCHEMA_VERSION })
     expect(result.profile).toEqual(previous)
+  })
+
+  it('主干v5引导档保留已看/未看状态，并补空遭遇记录', () => {
+    for (const tutorialSeen of [false, true]) {
+      const original = createDefaultProfile()
+      original.onboarding.tutorialSeen = tutorialSeen
+      original.currency.coins = 321
+      original.revision = 17
+      const { encounteredEnemyKinds: _missing, ...v5 } = original
+      const result = migrateProfile({ ...v5, schemaVersion: 5 })
+      expect(result.outcome).toEqual({ status: 'migrated', from: 5, to: 6 })
+      expect(result.profile).toEqual(original)
+    }
+  })
+
+  it('首次遭遇支线v5档保留所有种类和成长，缺失引导字段按老玩家处理', () => {
+    const original = createDefaultProfile()
+    original.encounteredEnemyKinds = ['splitter', 'heart-demon']
+    original.onboarding.tutorialSeen = true
+    original.currency.coins = 876
+    original.stats.runs = 10
+    original.upgrades['scholar:skill'] = 2
+    original.revision = 31
+    const { onboarding: _missing, ...v5 } = original
+    const result = migrateProfile({ ...v5, schemaVersion: 5 })
+    expect(result.outcome).toEqual({ status: 'migrated', from: 5, to: 6 })
+    expect(result.profile).toEqual(original)
   })
 
   it('首次标记随现有ProfileStore落盘重载，重复生成不改revision', () => {
@@ -125,7 +153,7 @@ describe('首次遭遇存档兼容', () => {
     store.load()
     expect(store.recordEnemyEncounter('tank')).toBe(false)
     expect(store.profile.encounteredEnemyKinds).toEqual(['tank'])
-    expect(store.recordEnemyEncounter('tank')).toBe(true)
+    expect(store.recordEnemyEncounter('tank')).toBe(false)
     expect(store.profile.revision).toBe(1)
     quiet.mockRestore()
   })

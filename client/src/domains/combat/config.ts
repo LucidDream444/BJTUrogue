@@ -136,7 +136,13 @@ export interface CombatConfig {
    * 这两个数只在**没有档的宿主**里兜底 —— 个别测试场直接 `new CombatSession`，
    * 没人调 `setAudioVolumes()`，那就用配置里的基准。
    */
-  audio: { bgmVolume: number; shotVolume: number; shotVoices: number }
+  audio: {
+    bgmVolume: number
+    shotVolume: number
+    shotVoices: number
+    /** 两次受击短呼之间的最小间隔；语音缺失时不影响触发。 */
+    voiceHurtCooldownMs: number
+  }
   projectiles: { capacity: number; radius: number }
   feedback: {
     hurtFlashMs: number
@@ -240,7 +246,14 @@ export interface CombatConfig {
     initialNightmareCats: number
     muscovyMinFloor: number
     nightmareCatMinFloor: number
-    finale: { floor: number; displayName: string; finalRewardId: string }
+    /**
+     * 末层（「异常」层）那一场的配置。
+     *
+     * `gateRooms`（★ 2026-11-04）是**传送阵的解锁门槛**：在末层的前一层（第 7 层）
+     * 走过这么多间**房间**（楼梯间不算）之后，那块六芒星传送阵才能按 F。
+     * 它是玩法旋钮 → 进配置（红线 2），不写死在 `BattleScene` 里。
+     */
+    finale: { floor: number; displayName: string; finalRewardId: string; gateRooms: number }
     /**
      * ⚠️ **这个字段今天没有消费方**（2026-10-21 整层连续之后）。
      *
@@ -371,9 +384,13 @@ export function parseCombatConfig(raw: unknown): CombatConfig {
     ![c.audio.bgmVolume, c.audio.shotVolume].every((v) => Number.isFinite(v) && v >= 0 && v <= 1) ||
     !Number.isInteger(c.audio.shotVoices) ||
     c.audio.shotVoices < 1 ||
-    c.audio.shotVoices > 32
+    c.audio.shotVoices > 32 ||
+    !Number.isFinite(c.audio.voiceHurtCooldownMs) ||
+    c.audio.voiceHurtCooldownMs < 0
   )
-    throw new Error('audio: 音量必须在 0—1 之间，枪声池容量必须为 1—32 的整数')
+    throw new Error(
+      'audio: 音量必须在 0—1 之间，枪声池容量必须为 1—32 的整数，受击语音冷却必须为非负数',
+    )
   numeric(c.player, 'player')
   numeric(c.drops, 'drops')
   const dropFields = [
@@ -502,6 +519,9 @@ export function parseCombatConfig(raw: unknown): CombatConfig {
   if (!c.arena.finale || c.arena.finale.floor !== c.arena.maxStages ||
     !c.arena.finale.displayName?.trim() || !c.arena.finale.finalRewardId?.trim())
     throw new Error('arena.finale: 必须明确末层首领名称与最终收益ID')
+  // ★ 2026-11-04：传送阵的解锁门槛。至少 1 间（0 就等于没有门槛，那和直接放行没区别）。
+  if (!Number.isInteger(c.arena.finale.gateRooms) || c.arena.finale.gateRooms < 1)
+    throw new Error('arena.finale.gateRooms: 传送阵的解锁门槛必须是不小于 1 的整数')
   // 一局几层 = `maxStages`（第 1..N 层的首领按层的序号挑），一层几间 = 下面这两个数。
   // 层与间都进配置：红线 2 说数值不许写死在代码里，而这两个数直接决定一局有多长。
   if (!Number.isInteger(c.arena.roomsPerFloor) || c.arena.roomsPerFloor < 4)
