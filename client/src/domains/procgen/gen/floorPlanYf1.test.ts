@@ -71,8 +71,8 @@ const six: FloorPlan = parseFloorPlan(readJson(FLOOR_PLAN_NAME), cfg)
 const yf3: FloorPlan = parseFloorPlan(readJson(FLOOR_PLAN_YF3_NAME), cfg)
 
 /** 两块之间那条空档占的列（闭区间），见 `_source.the_gap`。 */
-const GAP_X0 = 119
-const GAP_X1 = 143
+const GAP_X0 = 91
+const GAP_X1 = 104
 
 /** 主横廊那一行（`C_W` / `C_E` 开在这一行上；`C_J` / `C_EH` / `C_HALL` 都顶到它的上沿）。 */
 const row = yf1.corridors.find((c) => c.id === 'C_W')!.cells
@@ -137,7 +137,7 @@ describe('真的那份 floor-plan-yf1.json', () => {
     // 各层逐格相同这条**没变**（上一版也相同，只是相同的是另一处楼梯间）。
     expect(yf1.stairwell.cells).toEqual(six.stairwell.cells)
     expect(yf1.stairwell.cells).toEqual(yf3.stairwell.cells)
-    expect(yf1.stairwell.cells).toEqual({ x: 38, y: 31, width: 11, height: 12 })
+    expect(yf1.stairwell.cells).toEqual({ x: 27, y: 25, width: 11, height: 12 })
     // 它必须**贴在北排**（和 YF101 同一带、在主横廊以北），不是下排 —— 这一条
     // 才是「上面那个楼梯间」这句话的可验形式：光比坐标的话，三层一起挪到下排
     // 也照样三个相等。
@@ -161,8 +161,8 @@ describe('真的那份 floor-plan-yf1.json', () => {
     // 放的是中段首领房与东块北排），按房间推出来的外框会矮 25 格，而外框三层必须一样。
     const roomSpaces = [yf1.stairwell, ...yf1.rooms]
     const minRoomY = Math.min(...roomSpaces.map((s) => s.cells.y))
-    expect(minRoomY, '1F 最北的一间**房**在 y25').toBe(25)
-    expect(yf1.rows - minRoomY, '按房间推出来的话就只有这么高').toBe(48)
+    expect(minRoomY, '1F 最北的一间**房**在 y25').toBe(20)
+    expect(yf1.rows - minRoomY, '按房间推出来的话就只有这么高').toBe(40)
     // ★ 晚·六补一句：最北那条带现在**有一小块是走廊**（大厅的北端 `C_HALL` 与
     // `C_N`，y0 起）—— 于是「空间并集」今天恰好又等于外框了。**这不是理由**：
     // 靠哪一边撑住 y0（房间 / 走廊）是**内容**，而外框是**楼**。哪天一版把大厅
@@ -194,45 +194,45 @@ describe('真的那份 floor-plan-yf1.json', () => {
     //    ★ 2026-10-22 晚·八：**电梯间不在这条判据里** —— 它们只有教休室那么大
     //    （8×8），贴着北带的**下沿**（y35..42），下面单列一条。
     for (const r of yf1.rooms.filter((x) => !x.id.startsWith('E_'))) {
-      const band = r.cells.y < ROW_Y0 ? [25, 18] : [51, 22]
+      const band = r.cells.y < ROW_Y0 ? [20, 17] : [44, 16]
       expect([r.cells.y, r.cells.height], `${r.id} 不在 ${band.join(' / ')} 那条带上`).toEqual(band)
     }
     // 电梯间：8×8、贴着北带下沿（门开在 y43 那一行墙上，房间必须顶到它）。
     for (const id of ['E_A', 'E_B', 'E_C']) {
       expect(box(id), `${id} 不是 8×8 或没贴住 y42`).toEqual([
         at(yf1, id).cells.x,
-        35,
+        29,
         8,
         8,
       ])
-      expect(at(yf1, id).cells.y + at(yf1, id).cells.height).toBe(43)
+      expect(at(yf1, id).cells.y + at(yf1, id).cells.height).toBe(37)
     }
 
     // ② 「113 调小」+「112 左靠贴近并调小」：112 与 113 之间只隔 1 格墙
-    expect(box('YF113')).toEqual([0, 51, 18, 22])
-    expect(box('YF112')).toEqual([19, 51, 10, 22])
+    expect(box('YF113')).toEqual([0, 44, 7, 16])
+    expect(box('YF112')).toEqual([8, 44, 10, 16])
 
     // ③ 「111 左靠」+「楼梯间正对 111」：111 的 x 跨度必须**包住**楼梯间那一列
     const stair = yf1.stairwell.cells
     const yf111 = at(yf1, 'YF111').cells
-    expect(box('YF111')).toEqual([38, 51, 23, 22])
+    expect(box('YF111')).toEqual([27, 44, 20, 16])
     expect(yf111.x, '111 的西界要 ≤ 楼梯间的西界').toBeLessThanOrEqual(stair.x)
     expect(yf111.x + yf111.width, '111 的东界要 ≥ 楼梯间的东界').toBeGreaterThanOrEqual(
       stair.x + stair.width,
     )
 
     // ④ 「110 调大」：从 19 宽变成夹在 111 与 109 之间的那一整段
-    expect(box('YF110')).toEqual([62, 51, 37, 22])
+    expect(box('YF110')).toEqual([48, 44, 26, 16])
     // ⑤ 「101 调大」+「102 占据配电室位置（大小大概适当）」
-    expect(box('YF101')).toEqual([50, 25, 21, 18])
-    expect(box('YF102')).toEqual([72, 25, 23, 18])
+    expect(box('YF101')).toEqual([39, 20, 14, 17])
+    expect(box('YF102')).toEqual([54, 20, 16, 17])
     // ⑥ 「107 调窄」+「103 调窄」
-    expect(box('YF107')).toEqual([174, 51, 15, 22])
-    expect(box('YF103')).toEqual([181, 25, 12, 18])
+    expect(box('YF107')).toEqual([128, 44, 13, 16])
+    expect(box('YF103')).toEqual([133, 20, 12, 17])
     // ⑦ 没点名的那几间照旧：113/109/108/105 与 6F 同位置（或上一版）逐格相同
-    expect(box('YF109')).toEqual([100, 51, 19, 22])
-    expect(box('YF108')).toEqual([145, 51, 28, 22])
-    expect(box('YF105')).toEqual([234, 51, 29, 22])
+    expect(box('YF109')).toEqual([75, 44, 16, 16])
+    expect(box('YF108')).toEqual([106, 44, 21, 16])
+    expect(box('YF105')).toEqual([171, 44, 19, 16])
 
     // ⑧ 面积上界：任何一间都不许比 6F 的首领房（YF604，45×24）还大 ——
     //    「调大」不是「想多大就多大」，这一条挡的是下一次手滑。
@@ -358,9 +358,9 @@ describe('真的那份 floor-plan-yf1.json', () => {
     //    只是玩家得绕另外半层楼 —— 屏幕上只是「怎么这么远」。
     const at = (x: number, y: number) => yf1.doors.find((d) => d.cells.x === x && d.cells.y === y)
     for (const [x, y, w, h, axis, pair, what] of [
-      [113, 24, 3, 1, 'h', ['C_J', 'C_N'], '西块上面那扇（↑ = 往北走，横门）'],
-      [119, 45, 1, 3, 'v', ['C_HALL', 'C_W'], '西块下面那扇（→ = 往东走，竖门）'],
-      [144, 45, 1, 3, 'v', ['C_E', 'C_HALL'], '东块那扇（← = 往西走，竖门）'],
+      [86, 19, 3, 1, 'h', ['C_J', 'C_N'], '西块上面那扇（↑ = 往北走，横门）'],
+      [91, 39, 1, 3, 'v', ['C_HALL', 'C_W'], '西块下面那扇（→ = 往东走，竖门）'],
+      [105, 39, 1, 3, 'v', ['C_E', 'C_HALL'], '东块那扇（← = 往西走，竖门）'],
     ] as const) {
       const d = at(x, y)
       expect(d, `${what}：x${x} y${y} 上没有门`).toBeDefined()

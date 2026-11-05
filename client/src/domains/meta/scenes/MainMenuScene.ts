@@ -41,7 +41,8 @@ import {
   type Difficulty,
 } from '@/core/config'
 import { CodexPanel } from '../codex/CodexPanel'
-import { buildCodexEntries, type CodexEntry } from '../codex/codexCatalog'
+import { codexBossSkillConfig } from '../codex/bossCodexNotes'
+import { buildCodexEntries, codexEncounterConfig, type CodexEntry } from '../codex/codexCatalog'
 import { CHARACTERS, DIFFICULTY_LABELS, characterById } from '../catalog'
 import { CAMPUS_HOTSPOTS, CAMPUS_MAP_SIZE, hotspotForAction } from '../menu/campusMenuModel'
 import {
@@ -164,6 +165,8 @@ export class MainMenuScene extends Phaser.Scene {
     // 配置表必须走 Phaser 的 loader，**不能 import** —— `public/` 下的文件不参与
     // 打包，Vite 遇到指向它的 import 会静默换成空模块（见 `ArenaBase.preload`）。
     this.load.json(META_CONFIG_NAME, META_CONFIG_URL)
+    if (!this.cache.json.exists('combat.json')) this.load.json('combat.json', 'config/combat.json')
+    if (!this.cache.json.exists('boss-skills.json')) this.load.json('boss-skills.json', 'config/boss-skills.json')
     for (const name of CONFIG_FILE_NAMES) {
       if (!this.cache.json.exists(name)) this.load.json(name, configUrl(name))
     }
@@ -737,7 +740,11 @@ export class MainMenuScene extends Phaser.Scene {
 
   private codexEntries(): readonly CodexEntry[] {
     if (!this.codexConfig) return []
-    return buildCodexEntries(this.codexConfig, this.store.profile.selected.difficulty)
+    return buildCodexEntries(
+      this.codexConfig, this.store.profile.selected.difficulty,
+      codexEncounterConfig(this.cache.json.get('combat.json')),
+      codexBossSkillConfig(this.cache.json.get('boss-skills.json')),
+    )
   }
 
   /**

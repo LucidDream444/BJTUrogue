@@ -12,6 +12,21 @@ export interface RadialShot {
   damage: number
   bornAtMs: number
   updatedAtMs: number
+  radius: number
+  speed: number
+  lifetimeMs: number
+  color?: number
+}
+
+export interface BossVolley {
+  count: number
+  speed: number
+  radius: number
+  damage: number
+  lifetimeMs: number
+  color?: number
+  angleRad?: number
+  spreadRad?: number
 }
 
 export interface ProjectileTarget {
@@ -39,17 +54,29 @@ export class RadialProjectiles {
       damage: 0,
       bornAtMs: 0,
       updatedAtMs: 0,
+      radius: cfg.radius,
+      speed: cfg.speed,
+      lifetimeMs: cfg.lifetimeMs,
     }))
   }
 
   emit(ownerId: number, x: number, y: number, nowMs: number, damage: number): number {
+    return this.emitCustom(ownerId, x, y, nowMs, { ...this.cfg, damage })
+  }
+
+  emitCustom(ownerId: number, x: number, y: number, nowMs: number, volley: BossVolley): number {
+    if (!Number.isInteger(volley.count) || volley.count <= 0 ||
+      ![volley.speed, volley.radius, volley.lifetimeMs].every((value) => Number.isFinite(value) && value > 0) ||
+      !Number.isFinite(volley.damage) || volley.damage < 0) return 0
     // Drop the whole volley on saturation so the ring never has arbitrary missing directions.
-    if (this.shots.reduce((free, shot) => free + Number(!shot.active), 0) < this.cfg.count) return 0
+    if (this.shots.reduce((free, shot) => free + Number(!shot.active), 0) < volley.count) return 0
     const offset = (this.volley++ * this.cfg.volleyOffsetDeg * Math.PI) / 180
     let emitted = 0
     for (const shot of this.shots) {
       if (shot.active) continue
-      const angle = offset + (emitted / this.cfg.count) * Math.PI * 2
+      const angle = volley.angleRad === undefined
+        ? offset + (emitted / volley.count) * Math.PI * 2
+        : volley.angleRad + (emitted - (volley.count - 1) / 2) * (volley.spreadRad ?? 0)
       const dx = Math.cos(angle),
         dy = Math.sin(angle)
       Object.assign(shot, {
@@ -58,13 +85,17 @@ export class RadialProjectiles {
         ownerId,
         x: x + dx * this.cfg.spawnRadius,
         y: y + dy * this.cfg.spawnRadius,
-        vx: dx * this.cfg.speed,
-        vy: dy * this.cfg.speed,
-        damage,
+        vx: dx * volley.speed,
+        vy: dy * volley.speed,
+        damage: volley.damage,
+        radius: volley.radius,
+        speed: volley.speed,
+        lifetimeMs: volley.lifetimeMs,
+        color: volley.color,
         bornAtMs: nowMs,
         updatedAtMs: nowMs,
       })
-      if (++emitted === this.cfg.count) break
+      if (++emitted === volley.count) break
     }
     return emitted
   }
@@ -73,7 +104,7 @@ export class RadialProjectiles {
     nowMs: number,
     target: ProjectileTarget | null,
     ownerAlive: (id: number) => boolean,
-    canTravel: (x0: number, y0: number, x1: number, y1: number) => boolean,
+    canTravel: (x0: number, y0: number, x1: number, y1: number, radius: number) => boolean,
     hit: (shot: RadialShot) => void,
     fields: readonly VortexSnapshot[] = [],
   ): void {
@@ -83,7 +114,7 @@ export class RadialProjectiles {
         shot.active = false
         continue
       }
-      const expiresAt = shot.bornAtMs + this.cfg.lifetimeMs
+      const expiresAt = shot.bornAtMs + shot.lifetimeMs
       const nextAt = Math.min(nowMs, expiresAt)
       if (nextAt <= shot.updatedAtMs) continue
       const dt = (nextAt - shot.updatedAtMs) / 1000
@@ -95,11 +126,11 @@ export class RadialProjectiles {
       shot.x += shot.vx * dt
       shot.y += shot.vy * dt
       shot.updatedAtMs = nextAt
-      if (!canTravel(x0, y0, shot.x, shot.y)) {
+      if (!canTravel(x0, y0, shot.x, shot.y, shot.radius)) {
         shot.active = false
         continue
       }
-      if (target?.alive && intersectsTarget(x0, y0, shot.x, shot.y, target, this.cfg.radius)) {
+      if (target?.alive && intersectsTarget(x0, y0, shot.x, shot.y, target, shot.radius)) {
         shot.active = false
         hit(shot)
       }

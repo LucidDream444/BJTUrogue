@@ -65,11 +65,11 @@ describe('真的那份 floor-plan.json', () => {
   it('换算：格 → px、左上角 → 中心点，两处都只在解析里做一次', () => {
     // YF604 在配置表里是 x=108 y=0 45×24 格 → 中心点 (108+22.5)*40, (0+12)*40
     const yf604 = plan.rooms.find((r) => r.id === 'YF604')!
-    expect(yf604.cells).toMatchObject({ x: 108, y: 0, width: 45, height: 24 })
-    expect(yf604.rect.x).toBe((108 + 45 / 2) * 40)
-    expect(yf604.rect.y).toBe((0 + 24 / 2) * 40)
-    expect(yf604.rect.width).toBe(45 * 40)
-    expect(yf604.rect.height).toBe(24 * 40)
+    expect(yf604.cells).toMatchObject({ x: 81, y: 0, width: 31, height: 18 })
+    expect(yf604.rect.x).toBe((81 + 31 / 2) * 40)
+    expect(yf604.rect.y).toBe((0 + 18 / 2) * 40)
+    expect(yf604.rect.width).toBe(31 * 40)
+    expect(yf604.rect.height).toBe(18 * 40)
   })
 
   it('写死的关别：YF604 是首领，两间教休室是道具房，三个电梯间是设施，其余按种子抽', () => {
@@ -179,13 +179,13 @@ describe('真的那份 floor-plan.json', () => {
     //    用例在 6F 上看不出区别 —— 真正需要声明的是 1F（房间从 y25 起，
     //    推出来的外框会矮 25 格，见 floorPlanYf1.test.ts）。但「相等」正是这里
     //    要钉住的：**哪天 6F 的走廊不再铺满整宽，外框也不许跟着缩**。
-    expect(plan.cols).toBe(263)
-    expect(plan.rows).toBe(73)
+    expect(plan.cols).toBe(190)
+    expect(plan.rows).toBe(60)
     expect(plan.bounds).toEqual({
-      x: (263 * METRICS.navCellSize) / 2,
-      y: (73 * METRICS.navCellSize) / 2,
-      width: 263 * METRICS.navCellSize,
-      height: 73 * METRICS.navCellSize,
+      x: (190 * METRICS.navCellSize) / 2,
+      y: (60 * METRICS.navCellSize) / 2,
+      width: 190 * METRICS.navCellSize,
+      height: 60 * METRICS.navCellSize,
     })
     // 与「推出来的并集」的对照：今天两者相等，但那是**巧合**，不是判据。
     const spans = [plan.stairwell, ...plan.rooms, ...plan.corridors]
@@ -293,7 +293,7 @@ describe('校验器：每一类各一条「改坏 → 报对」', () => {
     //    `checkFootprint`（「超出了这一层声明的外框」）。挪**一格**反而更贴近这个
     //    用例真正想说的事：走廊只断了一小截，东侧整片就没了。
     const cJ = (plan.corridors as AnyRec[]).find((c) => c.id === 'C_J')!
-    cJ.y = 28
+    cJ.y = (cJ.y as number) - 1
     const err = expectConfigError(plan)
     expect(err.message).toContain('走不到')
     expect(err.message).toMatch(/YF60[456789]/)

@@ -33,18 +33,18 @@ export class RadialBurstFx {
         g.fillCircle(x + Math.cos(angle) * radius, y + Math.sin(angle) * radius, 2)
       }
     }
-    const radius = this.cfg.projectile.radius
     for (const shot of this.enemies.radialShots.shots) {
       if (!shot.active) continue
-      const dx = shot.vx / this.cfg.projectile.speed,
-        dy = shot.vy / this.cfg.projectile.speed
+      const radius = shot.radius
+      const dx = shot.vx / shot.speed,
+        dy = shot.vy / shot.speed
       const age = now - shot.bornAtMs
-      const fade = Math.min(1, (this.cfg.projectile.lifetimeMs - age) / 220)
-      const tail = Math.min(24, (age * this.cfg.projectile.speed) / 1000)
-      g.lineStyle(radius * 1.2, 0x60cfff, 0.25 * fade)
+      const fade = Math.min(1, (shot.lifetimeMs - age) / 220)
+      const tail = Math.min(24, (age * shot.speed) / 1000)
+      g.lineStyle(radius * 1.2, shot.color ?? 0x60cfff, 0.25 * fade)
       g.lineBetween(shot.x - dx * tail, shot.y - dy * tail, shot.x, shot.y)
       g.fillStyle(0x4fb9ff, 0.18 * fade).fillCircle(shot.x, shot.y, radius * 1.8)
-      g.fillStyle(0x7fddff, 0.9 * fade).fillCircle(shot.x, shot.y, radius)
+      g.fillStyle(shot.color ?? 0x7fddff, 0.9 * fade).fillCircle(shot.x, shot.y, radius)
       g.fillStyle(0xf0ffff, fade).fillCircle(shot.x, shot.y, radius * 0.5)
       g.fillStyle(0xb6f5ff, 0.5 * fade)
       g.fillCircle(shot.x - dx * tail * 1.6, shot.y - dy * tail * 1.6, 1.5)

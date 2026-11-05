@@ -47,6 +47,9 @@ export interface SpawnRequest {
   bossStage?: number
   finalBoss?: boolean
   bossDamageMultiplier?: number
+  skillCapExempt?: boolean
+  initialHpRatio?: number
+  cloneBossStage?: number
   reason: SpawnReason
   /** 来源怪的 id（分裂时是父亲）。只为调试时能回答「这只为什么刷出来了」 */
   fromId?: number
@@ -105,7 +108,7 @@ export class SpawnQueue {
   limitMinions(maxQueued: number): void {
     let kept = 0
     this.queue = this.queue.filter((request) =>
-      request.bossStage !== undefined || kept++ < Math.max(0, maxQueued),
+      request.bossStage !== undefined || request.skillCapExempt || kept++ < Math.max(0, maxQueued),
     )
   }
 

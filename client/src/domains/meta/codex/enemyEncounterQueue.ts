@@ -1,7 +1,7 @@
 /** 首次生成 → 物种去重 → 顺序待阅。纯逻辑，不依赖 Phaser 或存储。 */
 import type { EnemyKind, GameEvents } from '@/core/events'
 
-export type EncounterKind = EnemyKind | 'first-boss' | 'stage2-boss' | 'heart-demon'
+export type EncounterKind = EnemyKind | 'first-boss' | 'stage2-boss' | 'acid-boss' | 'sports-boss' | 'rollcall-boss' | 'nailong-boss' | 'heart-demon'
 
 export interface EnemyEncounter {
   /** 跨代际去重的物种身份。 */
@@ -17,7 +17,11 @@ export function identifyEnemyEncounter(
   if (event.kind !== 'enemy') return null
   if (event.finalBoss) return { kind: 'heart-demon', entryId: 'heart-demon' }
   if (event.bossStage !== undefined) {
-    const kind = event.bossStage === 2 ? 'stage2-boss' : 'first-boss'
+    const byFloor: Record<number, EncounterKind> = {
+      2: 'first-boss', 3: 'stage2-boss', 4: 'acid-boss', 5: 'sports-boss',
+      6: 'rollcall-boss', 7: 'nailong-boss', 8: 'heart-demon',
+    }
+    const kind = byFloor[event.bossStage] ?? 'first-boss'
     return { kind, entryId: kind }
   }
   if (!event.enemyKind) return null

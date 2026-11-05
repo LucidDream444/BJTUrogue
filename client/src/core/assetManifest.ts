@@ -210,12 +210,23 @@ export const BOSS_FIRST_ART = {
   },
 } as const
 
+export const NAILONG_ART = {
+  texture: 'enemy_nailong_reference',
+  laugh: 'enemy_nailong_laugh',
+  laughAnim: 'enemy_nailong_laugh_anim',
+  frameSize: 256,
+  laughFrames: 8,
+  laughFrameRate: 8,
+} as const
+
 function dreamAssets(): AssetEntry[] {
   const sheet = (key: string, path: string, frameSize: number): AssetEntry => ({
     key, path, placeholder: false, kind: 'spritesheet', width: frameSize, height: frameSize,
     frameWidth: frameSize, frameHeight: frameSize,
   })
   return [
+    { key: NAILONG_ART.texture, path: 'sprites/enemies/enemy_nailong_reference.png', placeholder: false, kind: 'image' },
+    sheet(NAILONG_ART.laugh, 'sprites/enemies/enemy_nailong_laugh.png', NAILONG_ART.frameSize),
     sheet(RED_BERRY_ART.texture, 'sprites/player/red_berry/player_red_berry_body.png', RED_BERRY_ART.frameSize),
     { key: RED_BERRY_ART.portrait, path: 'sprites/player/red_berry/player_red_berry_portrait.png', placeholder: false, kind: 'image' },
     ...Object.values(PUBLIC_WEAPON_ART).map((a): AssetEntry => ({
@@ -1767,6 +1778,13 @@ export const PAPER_DEATH_ANIMS: readonly AnimDef[] = [
 ]
 
 export const ANIMS: readonly AnimDef[] = [
+  {
+    animKey: NAILONG_ART.laughAnim,
+    textureKey: NAILONG_ART.laugh,
+    frames: Array.from({ length: NAILONG_ART.laughFrames }, (_, i) => i),
+    frameRate: NAILONG_ART.laughFrameRate,
+    repeat: -1,
+  },
   ...Object.entries(RED_BERRY_ART.states).map(([state, a]): AnimDef => ({
     animKey: `${RED_BERRY_ART.texture}_${state}`, textureKey: RED_BERRY_ART.texture,
     frames: Array.from({ length: a.count }, (_, i) => a.start + i), frameRate: a.frameRate,

@@ -37,6 +37,15 @@ function req(over: Partial<SpawnRequest> = {}): SpawnRequest {
 }
 
 describe('SpawnQueue — 基本节流', () => {
+  it('keeps skill summons and bosses while trimming ordinary reinforcements', () => {
+    const q = new SpawnQueue(CFG)
+    q.push(req({ fromId: 1 }))
+    q.push(req({ fromId: 2, skillCapExempt: true }))
+    q.push(req({ fromId: 3, bossStage: 6 }))
+    q.push(req({ fromId: 4 }))
+    q.limitMinions(0)
+    expect(q.peek().map((request) => request.fromId)).toEqual([2, 3])
+  })
   it('单帧最多刷 maxSpawnsPerFrame 只，剩下的留到下一帧', () => {
     const q = new SpawnQueue(CFG)
     for (let i = 0; i < 20; i++) q.push(req({ atMs: 0 }))

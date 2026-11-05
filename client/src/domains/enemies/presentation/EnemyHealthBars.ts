@@ -1,6 +1,7 @@
 import type Phaser from 'phaser'
 import type { EnemySystem } from '../EnemySystem'
 import { bossHealthBarLayout } from './BossHealthBarLayout'
+import { bossDisplayName } from './bossArt'
 
 interface BossLabel {
   name: Phaser.GameObjects.Text
@@ -95,7 +96,7 @@ export class EnemyHealthBars {
         this.bossRoot.add([label.name, label.value])
         this.bossLabels.set(boss.id, label)
       }
-      const name = boss.finalBoss ? '心魔' : boss.stage === 2 ? this.stage2Name : '课业重压'
+      const name = boss.finalBoss ? '心魔' : bossDisplayName(boss.stage, this.stage2Name)
       label.name.setPosition(0, y).setText(`第 ${boss.stage} 层 · ${name}`)
       label.value.setPosition(width, y).setText(`${Math.ceil(boss.hp)} / ${Math.ceil(boss.maxHp)}`)
     }
