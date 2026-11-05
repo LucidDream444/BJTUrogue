@@ -1,0 +1,10 @@
+{
+  "schemaVersion": 1,
+  "basePrices": {
+    "health": 1,
+    "energy": 1,
+    "upgrade": 1,
+    "weapon": 1
+  },
+  "itemOverrides": {}
+}

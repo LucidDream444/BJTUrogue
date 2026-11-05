@@ -104,6 +104,12 @@ export const GRABBER_ART = {
 
 export const WEAPON_ART = { chest: 'chest', pistol: 'weapon_pistol' } as const
 
+/** 商店消耗品：像素图保持 32×32，由商店世界层按 1:1 显示。 */
+export const SHOP_ITEM_ART = {
+  healthPotion: 'ui_shop_health_potion_base',
+  energyPotion: 'ui_shop_energy_potion_base',
+} as const
+
 /** D1 主动技能表现。参考书复用校园 UI 中已交付的书本图。 */
 export const SKILL_ART = { referenceBook: 'ui_campus_book' } as const
 
@@ -1165,6 +1171,22 @@ const BASE_ASSETS: readonly AssetEntry[] = [
       kind: 'image',
       width: 225,
       height: 222,
+    },
+    {
+      key: SHOP_ITEM_ART.healthPotion,
+      path: 'ui/shop/ui_shop_health_potion_base.png',
+      placeholder: false,
+      kind: 'image',
+      width: 32,
+      height: 32,
+    },
+    {
+      key: SHOP_ITEM_ART.energyPotion,
+      path: 'ui/shop/ui_shop_energy_potion_base.png',
+      placeholder: false,
+      kind: 'image',
+      width: 32,
+      height: 32,
     },
     {
       key: 'ui_campus_icon_map',

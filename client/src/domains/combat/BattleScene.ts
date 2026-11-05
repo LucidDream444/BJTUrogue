@@ -1,5 +1,10 @@
 import Phaser from 'phaser'
-import { preloadAssets, ensurePlaceholderTextures, registerAnimations } from '@/core/assets'
+import {
+  preloadAssets,
+  ensurePlaceholderTextures,
+  registerAnimations,
+  textureKeyFor,
+} from '@/core/assets'
 import { parseConfigBundle, type ConfigBundle, type Difficulty } from '@/core/config'
 import type { EnemyKind } from '@/core/events'
 import { Rng } from '@/core/rng'
@@ -15,6 +20,7 @@ import { roomPlan } from '@/domains/combat/balance'
 import { AssetGallery } from './AssetGallery'
 import { StatusHud } from '@/domains/combat/StatusHud'
 import { GameCursor } from '@/domains/combat/GameCursor'
+import { campusKey } from '@/domains/combat/uiSkin'
 import { StageBackground } from './StageBackground'
 import {
   parseStageCollisions,
@@ -54,6 +60,7 @@ import { AnomalyGate } from './AnomalyGate'
 import { ElevatorPanel, type FloorRow } from './ElevatorPanel'
 import { FloorProgress, stairPadSpots } from './Stairwell'
 import { FirstBossLoot } from '@/domains/combat/FirstBossLoot'
+import { ShopWorld } from '@/domains/combat/ShopWorld'
 import { LoadoutHud } from '@/domains/combat/LoadoutHud'
 import { SkillHud } from '@/domains/combat/SkillHud'
 // —— 局外成长（D4）的两个界面组件：暂停菜单、结算界面 ——
@@ -86,6 +93,13 @@ import {
   type RunInput,
 } from '@/domains/meta/progress/progress'
 import { RunLedger } from '@/domains/meta/run/RunLedger'
+import { ShopRun } from '@/domains/meta/shop/ShopRun'
+import {
+  SHOP_PRICES_CONFIG_NAME,
+  SHOP_PRICES_CONFIG_URL,
+  parseShopPrices,
+  type ShopPricesConfig,
+} from '@/domains/meta/shop/shopConfig'
 import { D4SettlementAdapter } from '@/domains/meta/settlement/D4SettlementAdapter'
 import { RunFlow } from './RunFlow'
 import { BossReinforcements } from './BossReinforcements'
@@ -164,6 +178,9 @@ export interface SkillLabState {
 export class BattleScene extends Phaser.Scene {
   private scenery!: StageBackground
   private loot!: FirstBossLoot
+  private shopWorld!: ShopWorld
+  private shopRun!: ShopRun
+  private shopPrices!: ShopPricesConfig
   private loadout!: LoadoutHud
   private skillHud!: SkillHud
   private difficulty: Difficulty = 'normal'
@@ -181,6 +198,8 @@ export class BattleScene extends Phaser.Scene {
   private statusHud!: StatusHud
   private notice!: Phaser.GameObjects.Text
   private deathNotice!: Phaser.GameObjects.Text
+  private runCoinHud!: Phaser.GameObjects.Container
+  private runCoinText!: Phaser.GameObjects.Text
   private gameWon = false
   /**
    * 玩家**现在在哪一间**（`Room.order`）。`-1` = **在走廊里**。
@@ -494,6 +513,7 @@ export class BattleScene extends Phaser.Scene {
       FLOORS_CONFIG_NAME,
     ])
       this.load.json(n, `config/${n}`)
+    this.load.json(SHOP_PRICES_CONFIG_NAME, SHOP_PRICES_CONFIG_URL)
     // 文件名与路径走 D4 的常量，别在这里再写一遍字面量（`metaConfig.ts` 是唯一真值）
     this.load.json(META_CONFIG_NAME, META_CONFIG_URL)
   }
@@ -509,6 +529,7 @@ export class BattleScene extends Phaser.Scene {
       })
       this.cfg = parseCombatConfig(this.cache.json.get('combat.json'))
       this.rewardDefs = parseRewards(this.cache.json.get('rewards.json'))
+      this.shopPrices = parseShopPrices(this.cache.json.get(SHOP_PRICES_CONFIG_NAME))
       // 关卡几何来自 **D2 的生成器**：整层一张连续地图（房间 + 走廊 + 门），一局**多层楼**。
       // ⚠️ **v5 起房间数不由这里决定了。** 原来走 `roomsConfigWithRoomCount()` 把
       //    `totalRooms` / `mainRoomMin` / `mainRoomMax` 三个数一起改，是因为几何
@@ -530,6 +551,7 @@ export class BattleScene extends Phaser.Scene {
       //    「少一层就用上一层凑」会让这一局的几何与配置表说的不是一回事。
       this.plans = floorPlansForRun(this.cache.json, this.rooms, this.floors)
       this.runSeed = (Math.random() * 0x7fffffff) | 0
+      this.shopRun = new ShopRun(this.shopPrices, new Rng((this.runSeed ^ 0x5a17) >>> 0))
       this.reinforcementRng = new Rng(this.runSeed)
       this.bossReinforcements = new BossReinforcements(this.cfg.encounter.bossReinforcements)
       // **整局的每一层种子先抽好**（不是每下一层现抽一个）：这样报出 `runSeed`
@@ -672,6 +694,18 @@ export class BattleScene extends Phaser.Scene {
       }
       this.applyProfileToRun()
       this.ledger = new RunLedger(this.session.bus)
+      this.shopWorld = new ShopWorld({
+        scene: this,
+        session: this.session,
+        shopRun: this.shopRun,
+        wallet: {
+          remaining: () => (this.meta && this.ledger ? this.ledger.remaining(this.meta) : 0),
+          spend: (amount) =>
+            this.meta !== null && this.ledger !== undefined && this.ledger.spend(this.meta, amount),
+          refund: (amount) => this.ledger?.refund(amount),
+        },
+        notice: (message) => this.notice.setText(message),
+      })
       if (this.meta) {
         this.settlementAdapter = new D4SettlementAdapter({
           scene: this, bus: this.session.bus, store: this.store, meta: this.meta,
@@ -943,7 +977,9 @@ export class BattleScene extends Phaser.Scene {
         py = this.session.player.y
       // ★ 改了（2026-10-23）：**电梯不再用 `F`** —— 走进电梯间弹的是楼层面板，
       // 点一下 / 按数字键就走（`ElevatorPanel`）。`F` 只剩楼梯间那两个方框。
-      if (this.exitUp.visible && this.exitUp.near(px, py)) this.goUp()
+      if (this.shopWorld.tryPurchase()) {
+        // 商品桌优先消费 F；失败也消费，避免同一下误触楼梯入口。
+      } else if (this.exitUp.visible && this.exitUp.near(px, py)) this.goUp()
       else if (this.exitDown.visible && this.exitDown.near(px, py)) this.goDown()
       else if (this.anomalyGate.visible && this.anomalyGate.near(px, py)) {
         // ★ 2026-11-04：传送阵 —— 7F 那一块是「异常」层的唯一入口；8F 小落点房里
@@ -966,6 +1002,7 @@ export class BattleScene extends Phaser.Scene {
     this.anomalyGate.update(this.time.now)
     this.syncAnomalyGateState()
     this.trackChestOpened()
+    this.shopWorld.update()
     // 门一开就换成亮绿 + 呼吸 —— 打完一间找不到门出不去是这一层最容易卡人的地方。
     // 用场景时间（`this.time.now`）而不是 `performance.now()`：暂停时场景时间会停，
     // 画面才是静的。
@@ -1024,6 +1061,7 @@ export class BattleScene extends Phaser.Scene {
     this.roomOrder = order
     // 走到走廊里：把「现在在哪一间」清掉（小地图上的箭头本来就在那儿，见 `setPlayer`）。
     if (unit === null) {
+      this.shopWorld.leaveRoom()
       this.syncElevatorPanel(null)
       this.syncRoomState()
       return
@@ -1039,6 +1077,7 @@ export class BattleScene extends Phaser.Scene {
     // ⚠️ **离开这一间之前先把宝箱结账**（见 `settleChest()`）：出了这道门，
     //    下面任何一条分支都可能 `loot.reset()` 把它连同「开过没有」一起抹掉。
     this.settleChest()
+    this.shopWorld.leaveRoom()
     // ★ 2026-10-23：电梯面板**跟着「人现在在哪一间」开关** —— 走进电梯间弹、
     //    走进别的房（或走廊）关。放在最前面：后面每条分支都会 return。
     this.syncElevatorPanel(unit.room.kind)
@@ -1124,7 +1163,12 @@ export class BattleScene extends Phaser.Scene {
         this.notice.setText(this.elevatorBrief(unit))
         return
       }
-      // 其余「不用打又没宝箱」的房：空房 / 商店。门一直开着，里面什么都没有。
+      if (unit.room.kind === 'shop') {
+        this.shopWorld.showRoom(this.floor, unit)
+        this.syncRoomState()
+        return
+      }
+      // 其余「不用打又没宝箱」的房：空房。门一直开着，里面什么都没有。
       this.syncRoomState()
       this.notice.setText(
         `${unit.room.id} ${this.kindLabel(unit)} · 这间不用打 · 门一直开着`,
@@ -1684,7 +1728,9 @@ export class BattleScene extends Phaser.Scene {
     //    的注释（`downLit=false`）—— 那次的症状与今天的形状一样，只是触发条件
     //    从「房号相同」变成「上楼又下楼回到同一间」。
     this.session.rewards.forgetFloor()
+    this.shopWorld.leaveRoom()
     this.session.loadFloor(this.stageConfig)
+    this.ledger?.setDepth(this.floor)
     // ★ 2026-10-23（用户：「从电梯去其它层应该是出现在对应电梯前，而不是楼梯间前」）：
     // `session.loadFloor()` 的落脚点恒是**楼梯间门口**（`dungeon.spawn`）——
     // 坐电梯上来的人却被扔在楼梯间，等于「电梯白坐了」。所以落地之后**再挪一次**：
@@ -2221,6 +2267,8 @@ export class BattleScene extends Phaser.Scene {
   private layoutHud(): void {
     const camera = this.cameras.main
     this.minimap.layout(camera)
+    const coinAnchor = this.minimap.belowPanel(camera)
+    this.runCoinHud.setPosition(coinAnchor.x, coinAnchor.y).setScale(1 / camera.zoom)
     // 小地图上的「你在这儿」箭头：**每帧**跟着玩家走、跟着枪口转
     // （用户 2026-11-04：「加一个小地图玩家的实时位置，小箭头，箭头方向代表指向」）。
     // 它只改标记的位置/角度，不重画面板 —— `Minimap.setPlayer()` 的设计就是这样的。
@@ -2288,6 +2336,26 @@ export class BattleScene extends Phaser.Scene {
   }
   private makeHud(): void {
     this.statusHud = new StatusHud(this)
+    const coinIcon = this.add
+      .image(16, 16, textureKeyFor(this, campusKey('coin')))
+      .setDisplaySize(22, 22)
+    this.runCoinText = this.add
+      .text(32, 16, '局内 0', {
+        fontFamily: 'Microsoft YaHei, sans-serif',
+        fontSize: '14px',
+        color: '#f7e3aa',
+        stroke: '#091323',
+        strokeThickness: 3,
+      })
+      .setOrigin(0, 0.5)
+    const hudBackground = this.add
+      .rectangle(0, 0, 126, 32, 0x101923, 0.82)
+      .setOrigin(0)
+      .setStrokeStyle(1, 0xb89a61, 0.8)
+    this.runCoinHud = this.add
+      .container(0, 0, [hudBackground, coinIcon, this.runCoinText])
+      .setScrollFactor(0)
+      .setDepth(4601)
     this.deathNotice = this.add
       .text(0, 0, '', {
         fontFamily: 'Microsoft YaHei, sans-serif',
@@ -2324,6 +2392,8 @@ export class BattleScene extends Phaser.Scene {
       p.model.shield,
       p.model.maxShield,
     )
+    const remaining = this.meta && this.ledger ? this.ledger.remaining(this.meta) : 0
+    this.runCoinText.setText(`局内 ${remaining}`)
   }
   /**
    * 暂停面板「装备技能」那一行要显示的名字。
@@ -2379,13 +2449,25 @@ export class BattleScene extends Phaser.Scene {
       this.restartRun()
     })
     k?.on('keydown-E', () => {
-      if (!this.encounterCodex?.isOpen && this.flow?.phase === 'playing') this.loot.interact()
+      if (this.encounterCodex?.isOpen || this.flow?.phase !== 'playing') return
+      if (this.loot.replacementPending) {
+        this.loot.interact()
+        return
+      }
+      if (this.shopWorld.interact()) return
+      this.loot.interact()
     })
     k?.on('keydown-ONE', () =>
-      this.encounterCodex?.isOpen || this.flow?.phase !== 'playing' ? undefined : this.loot.replacementPending ? this.loot.chooseReplacement(0) : this.session.equipSlot(0),
+      this.encounterCodex?.isOpen || this.flow?.phase !== 'playing' ? undefined :
+        this.loot.replacementPending ? this.loot.chooseReplacement(0) :
+          this.shopWorld.exchangePending ? this.shopWorld.chooseReplacement(0) :
+            this.session.equipSlot(0),
     )
     k?.on('keydown-TWO', () =>
-      this.encounterCodex?.isOpen || this.flow?.phase !== 'playing' ? undefined : this.loot.replacementPending ? this.loot.chooseReplacement(1) : this.session.equipSlot(1),
+      this.encounterCodex?.isOpen || this.flow?.phase !== 'playing' ? undefined :
+        this.loot.replacementPending ? this.loot.chooseReplacement(1) :
+          this.shopWorld.exchangePending ? this.shopWorld.chooseReplacement(1) :
+            this.session.equipSlot(1),
     )
     k?.on('keydown-X', () => {
       if (!this.encounterCodex?.isOpen && this.flow?.phase === 'playing') this.session.cycleWeapon()
@@ -2403,6 +2485,7 @@ export class BattleScene extends Phaser.Scene {
         if (this.encounterCodex?.handleEscape()) return
         if (this.grabbing || this.flow?.phase !== 'playing') return
         if (this.loot.replacementPending) this.loot.cancelReplacement()
+        else if (this.shopWorld.cancelReplacement()) return
         else this.togglePauseMenu()
       })
       k.on('keydown-SPACE', () => {
@@ -2436,6 +2519,7 @@ export class BattleScene extends Phaser.Scene {
       this.cursor?.destroy()
       this.skillHud?.destroy()
       this.loot?.destroy()
+      this.shopWorld?.destroy()
       this.gallery?.destroy()
       this.bossSkills?.destroy()
       this.bossSkills = null
@@ -2486,6 +2570,12 @@ export class BattleScene extends Phaser.Scene {
     this.ledger.setDepth(this.floor)
     const snapshot = {
       ...this.flow!.context, ...this.ledger.input(outcome), elapsedMs: this.session.clock.nowMs,
+      ...(this.meta
+        ? {
+            runCoinsEarned: this.ledger.earned(this.meta),
+            runCoinsSpent: this.ledger.spent,
+          }
+        : {}),
       ...(outcome === 'cleared' ? { finalRewardId: this.cfg.arena.finale.finalRewardId } : {}),
     }
     this.flow?.commit(snapshot)

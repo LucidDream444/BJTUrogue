@@ -24,7 +24,10 @@ describe('按 runId 唯一提交结果', () => {
     const profile = store()
     const committer = new RunResultCommitter(profile, meta)
     const result = committer.commit(snapshot())
-    expect(result.coinsEarned).toBe(30 + 12 * 5 + 8 * 20 + 120)
+    expect(result.coinsEarned).toBe(Math.floor((30 + 12 * 5 + 8 * 20) * 0.5) + 120)
+    expect(result.runCoinsEarned).toBe(30 + 12 * 5 + 8 * 20)
+    expect(result.runCoinsSpent).toBe(0)
+    expect(result.runCoinsConverted).toBe(125)
     const revision = profile.profile.revision
     expect(committer.commit(snapshot({ kills: 999, outcome: 'dead' }))).toBe(result)
     expect(committer.get('run-1')).toBe(result)
@@ -35,8 +38,19 @@ describe('按 runId 唯一提交结果', () => {
   it('死亡快照不发最终奖励或增加 wins', () => {
     const profile = store()
     const result = new RunResultCommitter(profile, meta).commit(snapshot({ outcome: 'dead' }))
-    expect(result.coinsEarned).toBe(30 + 12 * 5 + 8 * 20)
+    expect(result.coinsEarned).toBe(Math.floor((30 + 12 * 5 + 8 * 20) * 0.5))
     expect(profile.profile.stats).toMatchObject({ runs: 1, wins: 0, deaths: 1 })
+  })
+
+  it('商店消费从局内余额扣除后再按 50% 折算，最终奖励另算', () => {
+    const profile = store()
+    const result = new RunResultCommitter(profile, meta).commit(
+      snapshot({ runCoinsEarned: 101, runCoinsSpent: 40 }),
+    )
+    expect(result.runCoinsEarned).toBe(101)
+    expect(result.runCoinsSpent).toBe(40)
+    expect(result.runCoinsConverted).toBe(30)
+    expect(result.coinsEarned).toBe(150)
   })
 
   it('落盘失败后的保存重试不重新发币或增加统计', () => {
