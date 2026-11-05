@@ -1,0 +1,33 @@
+{
+  "checks": [
+    "click node then buy: exact configured cost, notice survives redraw",
+    "four-rank cap and disabled max-level action",
+    "locked-character preview/unlock preserves outgoing character",
+    "boss category, card selection and dossier navigation",
+    "800x600 resize preserves dossier state; Esc returns one level",
+    "repeated open/close keeps display object count stable",
+    "actual battle reward: keyboard selection applies once and closes paused reward",
+    "actual battle reward: mouse selection of movement upgrade",
+    "1280x720 reward text fits parchment",
+    "390px stacked reward cards, no horizontal overflow, keyboard focus retained"
+  ],
+  "errors": [],
+  "failed": [],
+  "boxes": [
+    {
+      "height": 157,
+      "scroll": 157,
+      "children": true
+    },
+    {
+      "height": 157,
+      "scroll": 157,
+      "children": true
+    },
+    {
+      "height": 157,
+      "scroll": 157,
+      "children": true
+    }
+  ]
+}

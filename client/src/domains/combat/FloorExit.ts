@@ -33,9 +33,9 @@ import Phaser from 'phaser'
  * 一个会呼吸的方框 + 一行字 + 一个箭头。
  *
  * ⚠️ **两个方向的颜色必须不一样**（青绿 = 下、暖黄 = 上）：它们**就摆在同一个房间里**，
- * 中间只隔 340px。同色的话玩家要走到跟前读那行小字才知道按下去是上楼还是下楼 ——
- * 而按错了是**整个人被送到另一层**，不是走错一步。
- * 这两个色也刻意避开门（亮绿）与宝箱（蓝）。
+ * 左右并排（中心相距 210px，见 `Stairwell.STAIR_PAD_SPREAD`）。同色的话玩家要走到
+ * 跟前读那行小字才知道按下去是上楼还是下楼 —— 而按错了是**整个人被送到另一层**，
+ * 不是走错一步。这两个色也刻意避开门（亮绿）与宝箱（蓝）。
  */
 export type FloorExitDir = 'down' | 'up'
 
@@ -92,7 +92,9 @@ export class FloorExit {
   /** 在第 `(x, y)` 处亮出入口（竞技场坐标。**调用方要先 `safeSpawn()`**，别摆进墙里）。 */
   show(x: number, y: number): void {
     this.at = { x, y }
-    this.label.setPosition(x, y - FloorExit.SIZE / 2 - 16).setVisible(true)
+    // 那行字写在方框**下方**：方框上面现在是楼梯图（用户 2026-11-04 把互动点
+    // 挪到楼梯下方），字放在上面会压在画好的楼梯上。
+    this.label.setPosition(x, y + FloorExit.SIZE / 2 + 14).setVisible(true)
   }
 
   hide(): void {

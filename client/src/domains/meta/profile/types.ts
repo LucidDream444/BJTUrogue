@@ -32,7 +32,7 @@
 import type { Difficulty } from '@/core/config'
 
 /** 当前 schema 版本。**改字段语义时加一**，并在 `migrate.ts` 里补一步迁移。 */
-export const PROFILE_SCHEMA_VERSION = 5
+export const PROFILE_SCHEMA_VERSION = 6
 
 /** 存储 key。**只有一个，且版本不在 key 里**（理由见文件头）。 */
 export const PROFILE_STORAGE_KEY = 'bjtu-rogue:profile'
@@ -97,6 +97,16 @@ export interface ProfileSelection {
   difficulty: Difficulty
 }
 
+/**
+ * 一次性体验状态。
+ *
+ * `tutorialSeen` 属于局外进度而不是设备设置：换浏览器登录同一份云档时，
+ * 不应在已经看过教学后重新被教学拦一次。新档默认 `false`，旧档迁移为 `true`。
+ */
+export interface ProfileOnboarding {
+  tutorialSeen: boolean
+}
+
 export interface ProfileData {
   schemaVersion: number
   /**
@@ -114,7 +124,8 @@ export interface ProfileData {
   upgrades: ProfileUpgrades
   stats: ProfileStats
   selected: ProfileSelection
-  /** 已首次生成过的怪物种类；分裂怪各代共享一个标记，三种首领各有独立身份。 */
+  onboarding: ProfileOnboarding
+  /** 分裂怪各代共享一个标记，三种首领各有独立身份。 */
   encounteredEnemyKinds: string[]
 }
 

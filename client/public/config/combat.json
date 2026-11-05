@@ -3,7 +3,8 @@
   "audio": {
     "bgmVolume": 0.32,
     "shotVolume": 0.55,
-    "shotVoices": 8
+    "shotVoices": 8,
+    "voiceHurtCooldownMs": 700
   },
   "player": {
     "acceleration": 1500,
@@ -210,7 +211,12 @@
     "initialNightmareCats": 0.4,
     "muscovyMinFloor": 2,
     "nightmareCatMinFloor": 3,
-    "finale": { "floor": 8, "displayName": "心魔", "finalRewardId": "heart_demon" },
+    "finale": {
+      "floor": 8,
+      "displayName": "心魔",
+      "finalRewardId": "heart_demon",
+      "gateRooms": 3
+    },
     "initialSprayers": 0.75,
     "stageGrowth": 0.3,
     "phaseBaseMs": 1800,

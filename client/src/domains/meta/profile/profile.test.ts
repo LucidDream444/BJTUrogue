@@ -80,6 +80,7 @@ describe('默认档', () => {
     expect(p.selected.difficulty).toBe('normal')
     expect(p.selected.characterId).toBe(STARTER_CHARACTER_ID)
     expect(p.unlocks.characters).toContain(STARTER_CHARACTER_ID)
+    expect(p.onboarding.tutorialSeen).toBe(false)
     // 计数值一起归零，否则"新档"和"老档"的区别只剩一个字段
     expect(p.currency.coins).toBe(0)
     expect(p.stats).toEqual({ runs: 0, wins: 0, deaths: 0, bestDepth: 0 })
@@ -254,7 +255,7 @@ describe('迁移链', () => {
     if (!result.ok) expect(result.reason).toContain('超限')
   })
 
-  it('真实旧档迁移会退款、清空旧技能并建立同步版本号和遭遇记录', () => {
+  it('真实旧档迁移会退款、清空旧技能、建立同步版本号并跳过旧玩家引导', () => {
     const real = migrateProfile({
       schemaVersion: 1,
       upgrades: {
@@ -265,7 +266,11 @@ describe('迁移链', () => {
       unlocks: { characters: ['student', 'leader'], skills: ['rapid_fire'] },
       selected: { characterId: 'leader', difficulty: 'normal' },
     })
-    expect(real.outcome).toEqual({ status: 'migrated', from: 1, to: PROFILE_SCHEMA_VERSION })
+    expect(real.outcome).toEqual({
+      status: 'migrated',
+      from: 1,
+      to: PROFILE_SCHEMA_VERSION,
+    })
     expect(real.profile.upgrades['student:armor']).toBeUndefined()
     expect(real.profile.upgrades['student:magic']).toBeUndefined()
     expect(real.profile.upgrades).toEqual({})
@@ -274,6 +279,30 @@ describe('迁移链', () => {
     expect(real.profile.unlocks.skills).toEqual([])
     expect(real.profile.selected.characterId).toBe('student')
     expect(real.profile.revision).toBe(0)
+    expect(real.profile.onboarding.tutorialSeen).toBe(true)
+  })
+
+  it('v4 迁移保留玩家进度、跳过旧玩家引导并补充遭遇记录', () => {
+    const migrated = migrateProfile({
+      schemaVersion: 4,
+      revision: 17,
+      currency: { coins: 321 },
+      unlocks: { characters: ['student', 'athlete'], skills: [] },
+      selected: { characterId: 'athlete', difficulty: 'hard' },
+    })
+
+    expect(migrated.outcome).toEqual({
+      status: 'migrated',
+      from: 4,
+      to: PROFILE_SCHEMA_VERSION,
+    })
+    expect(migrated.profile.revision).toBe(17)
+    expect(migrated.profile.currency.coins).toBe(321)
+    expect(migrated.profile.selected).toEqual({
+      characterId: 'athlete',
+      difficulty: 'hard',
+    })
+    expect(migrated.profile.onboarding.tutorialSeen).toBe(true)
   })
 })
 
@@ -325,6 +354,54 @@ describe('云同步准备', () => {
     expect(store.profile.unlocks.characters).not.toContain('外部乱改')
   })
 
+  it('下载云档会应用进度但保留本机设置，revision 不额外自增', () => {
+    const storage = new MemoryProfileStorage()
+    const store = storeWith(storage)
+    store.load()
+    store.setSettings({ bgmVolume: 0.2, displayMode: 'windowed' })
+    const events: string[] = []
+    store.subscribe((_p, event) => events.push(event))
+
+    const remote = createDefaultProfile()
+    remote.revision = 8
+    remote.currency.coins = 300
+    remote.stats = { runs: 4, wins: 2, deaths: 2, bestDepth: 6 }
+    remote.settings = { bgmVolume: 1, sfxVolume: 0, displayMode: 'fullscreen' }
+    remote.unlocks.characters.push('athlete')
+
+    expect(store.applyCloudProfile(remote)).toBe(true)
+    expect(store.profile.currency.coins).toBe(300)
+    expect(store.profile.unlocks.characters).toContain('athlete')
+    expect(store.profile.revision).toBe(8)
+    expect(store.profile.settings).toEqual({
+      bgmVolume: 0.2,
+      sfxVolume: 0.8,
+      displayMode: 'windowed',
+    })
+    expect(events).toEqual(['cloud-loaded'])
+    expect(JSON.parse(storage.read(PROFILE_STORAGE_KEY)!).currency.coins).toBe(300)
+  })
+
+  it('更高版本的云档整体拒绝，本机档完全不动', () => {
+    const store = storeWith(new MemoryProfileStorage())
+    store.load()
+    const before = store.snapshot()
+    let rejected = 0
+    store.subscribe((_p, event) => {
+      if (event === 'cloud-rejected') rejected++
+    })
+
+    expect(
+      store.applyCloudProfile({
+        ...createDefaultProfile(),
+        schemaVersion: PROFILE_SCHEMA_VERSION + 1,
+        currency: { coins: 999 },
+      }),
+    ).toBe(false)
+    expect(store.snapshot()).toEqual(before)
+    expect(rejected).toBe(1)
+  })
+
   it('手动重试会发出成功/失败事件，界面可据此刷新而不轮询', () => {
     const quiet = vi.spyOn(console, 'warn').mockImplementation(() => {})
     const storage = new FlakyStorage()
@@ -349,6 +426,7 @@ describe('形状收敛', () => {
       currency: { coins: -50 },
       stats: { runs: -1, wins: 2.7, deaths: 'x', bestDepth: Number.NaN },
       selected: { characterId: '', difficulty: 'normal ' },
+      onboarding: { tutorialSeen: 'yes' },
     })
     expect(p.settings.bgmVolume).toBe(1)
     expect(p.settings.sfxVolume).toBe(0)
@@ -357,6 +435,7 @@ describe('形状收敛', () => {
     expect(p.stats).toEqual({ runs: 0, wins: 3, deaths: 0, bestDepth: 0 })
     expect(p.selected.characterId).toBe(STARTER_CHARACTER_ID)
     expect(p.selected.difficulty).toBe('normal')
+    expect(p.onboarding.tutorialSeen).toBe(false)
   })
 
   it('缺字段一律补默认，不报错', () => {
@@ -374,6 +453,34 @@ describe('形状收敛', () => {
 
   it('收敛一定把版本盖成当前版本号（改动不可能悄悄降级）', () => {
     expect(normalizeProfile({ schemaVersion: 1 }).schemaVersion).toBe(PROFILE_SCHEMA_VERSION)
+  })
+})
+
+describe('首次引导', () => {
+  it('结束引导会落盘；重复结束不推进 revision', () => {
+    const storage = new MemoryProfileStorage()
+    const store = storeWith(storage)
+    store.load()
+
+    expect(store.profile.onboarding.tutorialSeen).toBe(false)
+    expect(store.markTutorialSeen()).toBe(true)
+    expect(store.profile.onboarding.tutorialSeen).toBe(true)
+    expect(store.profile.revision).toBe(1)
+    expect(JSON.parse(storage.read(PROFILE_STORAGE_KEY)!).onboarding.tutorialSeen).toBe(true)
+
+    expect(store.markTutorialSeen()).toBe(true)
+    expect(store.profile.revision).toBe(1)
+  })
+
+  it('写盘失败时本次会话仍不会重复拦截，但保留可见错误供重试', () => {
+    const quiet = vi.spyOn(console, 'warn').mockImplementation(() => {})
+    const store = storeWith(new ThrowingStorage('write'))
+    store.load()
+
+    expect(store.markTutorialSeen()).toBe(false)
+    expect(store.profile.onboarding.tutorialSeen).toBe(true)
+    expect(store.lastError).toContain('配额满了')
+    quiet.mockRestore()
   })
 })
 

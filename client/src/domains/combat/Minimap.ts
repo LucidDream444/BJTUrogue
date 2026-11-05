@@ -202,24 +202,34 @@ export class Minimap {
   private floor = 1
   private floors = 1
   /**
+   * 这一层的 `start` 房是不是**传送阵落点**而不是楼梯间（8F「异常」层）。
+   * 是的话：格子标号写「落」、标题写「落点 · 传送阵」（与 `StageBackground` 同步）。
+   */
+  private arrivalRoom = false
+  /**
    * 「走过」的房间 `Room.id`。**只存引用、不拷一份** ——
    * 宿主每帧都可能改它，拷一次就等于这份小地图从第 N 帧起就在说假话。
    */
   private visited: ReadonlySet<string> = NO_VISITED
   /**
-   * 「你在这儿」的那个点。
+   * 「你在这儿、朝哪边」的那个小箭头。
    *
-   * ★ 新增（2026-10-21，整层连续）。**上一版不需要它**：那时一层被拆成 16 屏，
-   * 屏幕上限死了只有一间房，而面板上高亮的那一格就是这一间 —— 位置这件事不用画。
+   * ★ 新增（2026-10-21，整层连续；2026-11-04 由白点改成箭头）。**上一版不需要它**：
+   * 那时一层被拆成 16 屏，屏幕上限死了只有一间房，而面板上高亮的那一格就是这一间 ——
+   * 位置这件事不用画。
    *
    * 整层连续之后**必须画**：整层 10520×2920，相机只看得见其中约 1/8，
-   * 而面板上唯一说得出「这 1/8 是整层的哪一块」的就是这个点。
+   * 而面板上唯一说得出「这 1/8 是整层的哪一块」的就是这个标记。
    * 没有它，整张缩略图退化成「一张好看的图」，玩家在里面照样迷路。
    *
+   * ★ 2026-11-04（用户：「加一个小地图玩家的实时位置，小箭头，箭头方向代表指向」）：
+   * 白色圆点换成**箭头**，方向 = `Player.angle`（枪口指向 / 鼠标方向）。地图是等比
+   * 缩放的，世界坐标的 x/y 与面板同向，所以角度**直接**拿来转箭头，不用再换算。
+   *
    * ⚠️ **不进 `gfx`**：`gfx` 只在 `redraw()` 里重画（换层 / 状态变了），
-   * 而这个点**每帧都在动**。混在一起就得每帧重画整张面板。
+   * 而这个标记**每帧都在动**。混在一起就得每帧重画整张面板。
    */
-  private readonly marker: Phaser.GameObjects.Arc
+  private readonly marker: Phaser.GameObjects.Graphics
   /**
    * 上一次 `redraw()` 用的**地图 → 面板**换算。
    *
@@ -253,12 +263,22 @@ export class Minimap {
     // ⚠️ 位置只在构造里设一次 —— 它是容器子对象，`layout()` 只搬容器，标题跟着走。
     //    （改成每帧在 `layout()` 里算也行，但那样就得记着"谁该加 padding、谁不该"。）
     this.title.setPosition(PANEL.padding, PANEL.height - 14)
-    // 半径 3.5：面板只有 320×130，而整层缩到面板里是**约 0.029 倍** ——
-    // 一格地板（40px）在上面只有 1.16px。再大的话这个点会盖住它所在的那间房，
-    // 而"在哪一间"正是它要说的事。
-    this.marker = scene.add
-      .circle(0, 0, 3.5, 0xffffff, 1)
-      .setStrokeStyle(1.5, 0x11161f, 1)
+    // 箭头长 12px：整层缩到面板里约 **0.0365 倍**，一格地板（40px）只有 1.46px ——
+    // 这个尺寸差不多是一个 8×8 电梯间在面板上的大小，够看清，又不至于盖住它所在的房间。
+    // 形状是「尾端凹进去」的镖形：尖端 (7,0)，两翼 (±5)，尾部回收成 (−2,0)。
+    // 凹口让它在缩到只有十几像素时仍然读得出**哪头是尖的**（等腰三角形容易看成圆点）。
+    this.marker = scene.add.graphics()
+    this.marker
+      .fillStyle(0xffffff, 1)
+      .lineStyle(1.5, 0x11161f, 1)
+      .beginPath()
+      .moveTo(7, 0)
+      .lineTo(-5, 5)
+      .lineTo(-2, 0)
+      .lineTo(-5, -5)
+      .closePath()
+      .fillPath()
+      .strokePath()
       .setVisible(false)
     // 容器内的绘制顺序 = **加进去的顺序**（`setDepth` 在容器里不起作用），
     // 所以先背景、再标题、最后标号 —— 标号要压在格子和门上面。点在**最后**：
@@ -295,12 +315,13 @@ export class Minimap {
    * 换层时地图**整个换掉**（`BattleScene.loadFloor()`）、房间数也可能不同，
    * 所以标号全部重建 —— 复用旧的会剩下一堆对不上任何房间的 `Text`。
    */
-  setFloor(map: DungeonMap, floor: number, floors: number): void {
+  setFloor(map: DungeonMap, floor: number, floors: number, arrivalRoom = false): void {
     for (const label of this.labels) label.destroy()
     this.labels.length = 0
     this.map = map
     this.floor = floor
     this.floors = floors
+    this.arrivalRoom = arrivalRoom
     this.buildLabels(this.root.scene)
     this.currentId = null
     this.visited = NO_VISITED
@@ -415,7 +436,12 @@ export class Minimap {
     this.drawLabels(at, scale)
 
     const here = this.currentRoom()
-    const label = here === null ? '走廊' : `${here.id} ${ROOM_KIND_LABELS[here.kind]}`
+    const label =
+      here === null
+        ? '走廊'
+        : this.arrivalRoom && here.kind === 'start'
+          ? '落点 · 传送阵'
+          : `${here.id} ${ROOM_KIND_LABELS[here.kind]}`
     const gone = this.countVisited()
     this.title.setText(
       `第 ${this.floor} / ${this.floors} 层 · ${label} · 走过 ${gone} / ${this.map.rooms.length} 间`,
@@ -466,7 +492,8 @@ export class Minimap {
       // 两位号在同一层里是唯一的（1F `01`—`13`、3F `01`—`13`、6F `01`—`15`），
       // 而「这是第几层」小地图标题上一直写着 —— 少一位不会认错房间。
       // 四级都放不下（比如 8×8 的电梯间）才藏起来：那几间靠**填色**认（`roomFillColor`）。
-      const full = shortId(room.id)
+      // ★ 8F「异常」层：那间 `start` 房是传送阵落点，标号写「落」，不写「梯」。
+      const full = this.arrivalRoom && room.kind === 'start' ? '落' : shortId(room.id)
       const compact = /^\d{3,}$/.test(full) ? full.slice(-2) : full
       // `-4` 是给描边留的两侧余量（描边画在矩形边上，不占宽度，
       // 但字贴着边看起来就像被框切了一半）。宽度是**面板单位** —— 标号和格子
@@ -506,22 +533,31 @@ export class Minimap {
   }
 
   /**
-   * 把「你在这儿」那个点挪到世界坐标 `(x, y)` 对应的面板位置上。**每帧调一次**。
+   * 把「你在这儿、朝哪边」那个箭头挪到世界坐标 `(x, y)` 对应的面板位置上，
+   * 并转到 `angle`（弧度，0 = 朝右、正方向 = 画面里向下）。**每帧调一次**。
    *
    * 世界坐标 = 地图坐标（整层连续里两者恒等，见 `DungeonStages.ts` 文件头），
    * 所以这里**不需要再换算一层** —— 直接喂 `this.view` 那三个数。
    *
-   * 出界时**藏起来**而不是画在面板外面：`Arc` 没有裁剪，画在容器外会飘到
-   * 屏幕别处去（看着像又多了一个 UI 元素），而「点不在图上」的正确读法是
+   * ⚠️ **角度不用取反**：小地图是**等比**缩放、没有翻面，所以世界坐标里的
+   * 「右 / 下」就是面板里的「右 / 下」，和 Phaser 的 `setRotation` 同一个方向。
+   * 哪天有人把地图左右翻过来画，这里要跟着取反 —— 那时箭头会**反着指**，
+   * 而画面上一时看不出来（箭头本身是对称的）。
+   *
+   * 出界时**藏起来**而不是画在面板外面：`Graphics` 没有裁剪，画在容器外会飘到
+   * 屏幕别处去（看着像又多了一个 UI 元素），而「标记不在图上」的正确读法是
    * 「这一帧玩家不在这一层的地图里」—— 换层的那一帧会短暂地是这样。
    */
-  setPlayer(x: number, y: number): void {
+  setPlayer(x: number, y: number, angle: number): void {
     const b = this.map.bounds
     if (x < left(b) || x > right(b) || y < top(b) || y > bottom(b)) {
       this.marker.setVisible(false)
       return
     }
-    this.marker.setVisible(true).setPosition(this.view.ox + x * this.view.scale, this.view.oy + y * this.view.scale)
+    this.marker
+      .setVisible(true)
+      .setPosition(this.view.ox + x * this.view.scale, this.view.oy + y * this.view.scale)
+      .setRotation(angle)
   }
 
   /**

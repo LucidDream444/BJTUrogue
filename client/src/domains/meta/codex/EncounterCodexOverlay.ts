@@ -4,8 +4,9 @@ import type { ConfigBundle, Difficulty } from '@/core/config'
 import type { GameEvents } from '@/core/events'
 import { DIFFICULTY_LABELS } from '../catalog'
 import type { ProfileStore } from '../profile/ProfileStore'
+import { ArchiveUI } from '../ui/ArchiveUI'
 import { Button } from '../ui/Button'
-import { buildOverlayFrame, type OverlaySink } from '../ui/overlayFrame'
+import type { OverlaySink } from '../ui/overlayFrame'
 import { OverlayLayer } from '../ui/overlayLayer'
 import { SaveStatusBanner } from '../ui/SaveStatusBanner'
 import { THEME, fontPx } from '../ui/theme'
@@ -188,20 +189,17 @@ export class EncounterCodexOverlay {
         this.parts.push(...button.parts)
       },
     }
-    const frame = buildOverlayFrame(this.scene, sink, {
-      screenWidth: this.scene.scale.width,
-      screenHeight: this.scene.scale.height,
-      title: '怪物图鉴 · 首次遭遇',
-      panelWidth: Math.min(this.scene.scale.width - THEME.space.xl, 980),
-      panelHeight: Math.min(this.scene.scale.height - THEME.space.xl, 660),
-    }, () => this.handleEscape())
-    this.panel = new CodexPanel(this.scene, sink, frame, {
+    const ui = new ArchiveUI(
+      this.scene, sink, '怪物图鉴 · 首次遭遇', () => this.handleEscape(), true, '继续战斗  ×',
+    )
+    this.panel = new CodexPanel(ui, {
       entries: this.entries,
       selectedId: this.selectedId,
+      detail: true,
       difficultyLabel: DIFFICULTY_LABELS[this.difficulty],
+      footerHint: '战斗已暂停 · ↑↓ 切换档案 · Tab / Esc 关闭并继续',
       onSelect: (entry) => { this.selectedId = entry.id },
     })
-    frame.notice.setText('战斗已暂停 · ↑↓ 切换档案 · Tab / Esc 关闭并继续')
     this.saveBanner = new SaveStatusBanner(
       this.scene, this.store, this.scene.scale.width / 2, 44, this.scene.scale.width,
     )

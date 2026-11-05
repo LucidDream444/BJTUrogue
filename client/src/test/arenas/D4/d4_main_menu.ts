@@ -82,6 +82,6 @@ class D4MainMenuArena extends ArenaBase {
 export const arena: ArenaDefinition = {
   displayName: 'D4 主菜单',
   description:
-    '产品场景 MainMenuScene 在跑（不是白箱画的）。看：校园地图七座建筑热区、悬停功能卡、西操场升级入口、校史馆成就记录，以及设置 / 操作说明 / 怪物图鉴弹层。点击逸夫楼进入出发准备页：三角色卡与难度三选一，未解锁角色不能选，点「开始闯关」才进战斗。Esc 关弹层，主菜单上再按 Esc 回测试场菜单。',
+    '产品场景 MainMenuScene 在跑（不是白箱画的）。新档首次进入先看到一页操作引导，可跳过或直接开始冒险；结束一次后刷新不再重复。之后可看校园地图、出发准备、升级、设置、冒险手册与怪物图鉴。点击逸夫楼进入出发准备页，三角色卡与难度三选一，未解锁角色不能选，点「开始闯关」才进战斗。Esc 关弹层，主菜单上再按 Esc 回测试场菜单。',
   scene: D4MainMenuArena,
 }
