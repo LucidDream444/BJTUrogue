@@ -29,14 +29,14 @@
   "doorWidth": 120,
   "doorClearance": 60,
 
-  "_obstacles_comment": "桌椅组（一张 deskWidthCells ~ deskWidthCellsMax 宽、deskHeightCells 高的课桌 —— 桌宽**每组各抽一次**，配表里是 2~4 —— 正下方紧贴一把 1 格的椅子；照 D1 三张手绘关里的家具关系，见 gen/obstacles.ts）。★ 改了（schemaVersion 4 → 5）：**deskRowsMin / deskRowsMax 从 3—4 提到 5—9。** 它们数的是**摆几组**，而 v5 的房间是平面图上量出来的、比 v4 那几档（800×1040×1280 × 600，内部还要各让半堵墙）大了约一到两倍，且房间矩形现在**就是**可走区域（v4 的矩形含墙）。数量是照「地板面积涨了多少」同比抬的，**第一次试玩之后要重新调**。摆不下的房间自然只摆下几组（每个位置试 32 次），真正的硬上限始终是 obstacleDensityMax。",
+  "_obstacles_comment": "2026-11-05：教室面积压缩约四成，桌椅组数同步由5—9降至3—5，尺寸和密度上限不变。以下为此前尺寸调整的历史说明。桌椅组（一张 deskWidthCells ~ deskWidthCellsMax 宽、deskHeightCells 高的课桌 —— 桌宽**每组各抽一次**，配表里是 2~4 —— 正下方紧贴一把 1 格的椅子；照 D1 三张手绘关里的家具关系，见 gen/obstacles.ts）。★ 改了（schemaVersion 4 → 5）：**deskRowsMin / deskRowsMax 从 3—4 提到 5—9。** 它们数的是**摆几组**，而 v5 的房间是平面图上量出来的、比 v4 那几档（800×1040×1280 × 600，内部还要各让半堵墙）大了约一到两倍，且房间矩形现在**就是**可走区域（v4 的矩形含墙）。数量是照「地板面积涨了多少」同比抬的，**第一次试玩之后要重新调**。摆不下的房间自然只摆下几组（每个位置试 32 次），真正的硬上限始终是 obstacleDensityMax。",
   "deskWidthCells": 2,
   "deskWidthCellsMax": 4,
   "deskHeightCells": 1,
   "deskGapCells": 1,
   "deskRowGapCells": 1,
-  "deskRowsMin": 5,
-  "deskRowsMax": 9,
+  "deskRowsMin": 3,
+  "deskRowsMax": 5,
 
   "_density_comment": "障碍物总面积 ÷ **房间矩形**面积的上限。★ 重算过（schemaVersion 5）：v4 的分母是含墙的矩形，v5 的是纯可走区域，所以同一个数含义变严了。按**最小的那间教室**（YF612 教休室，9×8 格 = 360×320px，115200px²）反推：上限 0.22 → 25344px²；一组按**最大桌长**保守算（deskWidthCellsMax × deskHeightCells + 1 = 5 格 = 8000px²）→ 那间房摆得下 3 组 ≈ 12.5%，还有余量。中档教室（YF601 25×18 格）的容量上限是 19 组，而 deskRowsMax 只有 9，所以**卡住大房间的是组数、卡住小房间的是密度** —— 两条各自都在管一个具体的坏结局（大房间变迷宫 / 小教室被塞满）。",
   "obstacleDensityMax": 0.22,

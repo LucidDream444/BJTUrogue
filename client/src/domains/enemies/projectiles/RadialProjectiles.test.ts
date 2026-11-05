@@ -15,6 +15,31 @@ function ring() {
 }
 
 describe('360-degree radial projectiles', () => {
+  it('keeps custom volleys independent and supports aimed fans', () => {
+    const pool = new RadialProjectiles(cfg)
+    expect(pool.emitCustom(1, 0, 0, 0, { count: 3, speed: 300, radius: 12,
+      damage: 32, lifetimeMs: 800, color: 0xff0000, angleRad: Math.PI / 2, spreadRad: Math.PI / 6 })).toBe(3)
+    const aimed = pool.shots.filter((shot) => shot.active)
+    expect(Math.atan2(aimed[0]!.vy, aimed[0]!.vx)).toBeCloseTo(Math.PI / 3)
+    expect(Math.atan2(aimed[1]!.vy, aimed[1]!.vx)).toBeCloseTo(Math.PI / 2)
+    expect(Math.atan2(aimed[2]!.vy, aimed[2]!.vx)).toBeCloseTo(2 * Math.PI / 3)
+    expect(aimed[0]).toMatchObject({ radius: 12, speed: 300, damage: 32, lifetimeMs: 800, color: 0xff0000 })
+    pool.emit(2, 0, 0, 0, cfg.damage)
+    expect(pool.shots[3]).toMatchObject({ radius: cfg.radius, speed: cfg.speed, lifetimeMs: cfg.lifetimeMs })
+    pool.step(900, null, always, always, () => {})
+    expect(aimed.every((shot) => !shot.active)).toBe(true)
+    expect(pool.shots[3]!.active).toBe(true)
+  })
+
+  it('uses each custom shot radius for terrain and player collision', () => {
+    const pool = new RadialProjectiles(cfg)
+    pool.emitCustom(1, 0, 0, 0, { count: 1, speed: 100, radius: 20, damage: 7, lifetimeMs: 1000,
+      angleRad: 0 })
+    const hit = vi.fn(), travel = vi.fn((_x0: number, _y0: number, _x1: number, _y1: number, _radius: number) => true)
+    pool.step(500, { x: 60, y: 15, radius: 1, alive: true }, always, travel, hit)
+    expect(travel.mock.calls[0]?.[4]).toBe(20)
+    expect(hit).toHaveBeenCalledOnce()
+  })
   it('旋风改变敌弹方向但保持伤害、所有者、速率与出生寿命，偏转后仍扫掠地形', () => {
     const pool = ring()
     const shot = pool.shots[0]!

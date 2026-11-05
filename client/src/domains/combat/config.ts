@@ -176,6 +176,8 @@ export interface CombatConfig {
     bossHp: number
     bossHpPerStage: number
     bossDamageMultiplier: number
+    bossVisualScaleMultiplier: number
+    bossHitRadiusMultiplier: number
     bossReinforcements: BossReinforcementsConfig
     bossX: number
     bossY: number
@@ -571,6 +573,9 @@ export function parseCombatConfig(raw: unknown): CombatConfig {
     c.encounter.bossDamageMultiplier <= 0
   )
     throw new Error('encounter: Boss伤害倍率必须为正数')
+  for (const scale of [c.encounter.bossVisualScaleMultiplier, c.encounter.bossHitRadiusMultiplier])
+    if (!Number.isFinite(scale) || scale <= 0)
+      throw new Error('encounter: Boss display and hit radius multipliers must be positive')
   const reinforcements = c.encounter.bossReinforcements
   if (
     !reinforcements ||

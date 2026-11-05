@@ -103,6 +103,9 @@ import {
 import { D4SettlementAdapter } from '@/domains/meta/settlement/D4SettlementAdapter'
 import { RunFlow } from './RunFlow'
 import { BossReinforcements } from './BossReinforcements'
+import { BossEncounterController } from './BossEncounterController'
+import { bossArenaBoundsFromRect } from './BossArenaBounds'
+import { parseBossSkillsTable } from './BossSkillRuntime'
 
 /**
  * 「够得着」的距离门槛（世界像素）。**量的是到目标矩形的最短距离**，贴着它才是 0。
@@ -435,6 +438,7 @@ export class BattleScene extends Phaser.Scene {
   private pauseMenu!: PauseOverlay
   private encounterCodex: EncounterCodexOverlay | null = null
   private bossReinforcements!: BossReinforcements
+  private bossSkills: BossEncounterController | null = null
   private reinforcementRng!: Rng
   /**
    * 这一局结算过没有。
@@ -495,6 +499,7 @@ export class BattleScene extends Phaser.Scene {
       'difficulty.json',
       'enemies.json',
       'combat.json',
+      'boss-skills.json',
       'rewards.json',
       // D2 的地牢生成配置：**数值 + 几何 + 楼层表**。
       // **必须走 Phaser 的 loader，不能 fetch** ——
@@ -570,6 +575,19 @@ export class BattleScene extends Phaser.Scene {
         this.difficulty,
         this.stageConfig,
       )
+      this.bossSkills = new BossEncounterController(this, this.session,
+        parseBossSkillsTable(this.cache.json.get('boss-skills.json')), {
+          bounds: () => {
+            // The arena belongs to the floor's boss, even if the player-room tracker is
+            // temporarily unset during a floor transition or a scripted encounter.
+            const room = this.dungeon.rooms.find((unit) => unit.room.kind === 'boss')?.room.rect
+              ?? this.activeRoom?.room.rect
+            return room
+              ? bossArenaBoundsFromRect(room)
+              : { left: 0, top: 0, right: this.cfg.arena.width, bottom: this.cfg.arena.height }
+          },
+          sfxVolume: () => this.store?.profile.settings.sfxVolume ?? this.cfg.audio.shotVolume,
+        })
       this.fitCamera()
       this.scale.on('resize', this.fitCamera, this)
       this.events.once(Phaser.Scenes.Events.SHUTDOWN, () =>
@@ -990,6 +1008,7 @@ export class BattleScene extends Phaser.Scene {
     // 画面才是静的。
     this.scenery.update(this.time.now)
     this.session.update(delta)
+    this.bossSkills?.update(this.floor)
     // Scene.UPDATE在本帧物理事件和全部伤害生产者之后运行，不在单个死亡回调抢先暂停。
     const outcome = this.flow?.adjudicate(this.session.player.model.alive)
     if (outcome === 'cleared') this.finishRun()
@@ -1167,6 +1186,7 @@ export class BattleScene extends Phaser.Scene {
     this.clearEmitted = false
     this.clearRequested = false
     this.loot.reset()
+    this.bossSkills?.clear()
     this.bossReinforcements.reset()
     this.session.enemies.setMinionCap(
       unit.room.kind === 'boss' ? this.cfg.encounter.bossReinforcements.maxAlive : null,
@@ -1379,6 +1399,7 @@ export class BattleScene extends Phaser.Scene {
    *    键撞了的话，重进一间已清过的房会再发一次成长。
    */
   private onRoomCleared(unit: DungeonRoom): void {
+    this.bossSkills?.clear()
     this.bossReinforcements.reset()
     // 清房判定会忽略墙外残留怪；撤场而非击杀，避免它们占用下一间首领房的名额。
     this.session.enemies.despawnAll()
@@ -1667,6 +1688,7 @@ export class BattleScene extends Phaser.Scene {
    *   `order` 那一半照旧，所以两处都留着。
    */
   private loadFloor(fromElevator: string | null = null, fromAnomalyGate = false): void {
+    this.bossSkills?.clear()
     this.bossReinforcements.reset()
     this.session.enemies.despawnAll()
     this.dungeon = this.buildFloor(this.floor)
@@ -2155,8 +2177,7 @@ export class BattleScene extends Phaser.Scene {
    */
   private bossName(tier: number): string {
     if (tier === this.cfg.arena.finale.floor) return this.cfg.arena.finale.displayName
-    if (tier === 2) return this.bundle.enemies.stage2Boss.displayName
-    return '课业重压'
+    return this.bossSkills?.config.bosses[String(tier)]?.name ?? '课业重压'
   }
 
   /* ------------------------------------------------------------ 相机与观感层 */
@@ -2500,6 +2521,8 @@ export class BattleScene extends Phaser.Scene {
       this.loot?.destroy()
       this.shopWorld?.destroy()
       this.gallery?.destroy()
+      this.bossSkills?.destroy()
+      this.bossSkills = null
       this.session?.destroy()
     })
   }
@@ -2542,6 +2565,7 @@ export class BattleScene extends Phaser.Scene {
   private endRun(outcome: RunInput['outcome']): void {
     if (this.runEnded) return
     this.runEnded = true
+    this.bossSkills?.clear()
     this.bossReinforcements.reset()
     this.ledger.setDepth(this.floor)
     const snapshot = {
@@ -2585,12 +2609,16 @@ export class BattleScene extends Phaser.Scene {
    * 结算只有"这一局打完了"（死亡 / 通关）才发生。
    */
   private backToMenu(): void {
+    this.bossSkills?.destroy()
+    this.bossSkills = null
     this.session.destroy()
     if (this.scene.manager.keys['main-menu']) this.scene.start('main-menu')
   }
 
   /** 结算后的「去升级」：直接进入 D4 主菜单，并让升级弹层预先打开。 */
   private goToUpgrade(): void {
+    this.bossSkills?.destroy()
+    this.bossSkills = null
     this.session.destroy()
     if (this.scene.manager.keys['MainMenu']) {
       this.scene.start('MainMenu', { initialScreen: 'upgrade' })
@@ -2613,6 +2641,8 @@ export class BattleScene extends Phaser.Scene {
     })
   }
   private restartDifficulty(d: Difficulty): void {
+    this.bossSkills?.destroy()
+    this.bossSkills = null
     this.session.destroy()
     this.scene.restart({
       difficulty: d,

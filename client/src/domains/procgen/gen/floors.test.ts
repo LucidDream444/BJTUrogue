@@ -196,7 +196,7 @@ describe('一局的楼层表（floors.json）', () => {
       expect(p.cols).toBe(plans[0]!.cols)
       expect(p.rows).toBe(plans[0]!.rows)
     }
-    expect([plans[0]!.cols, plans[0]!.rows]).toEqual([263, 73]) // 楼的尺寸（格）
+    expect([plans[0]!.cols, plans[0]!.rows]).toEqual([190, 60]) // 楼的尺寸（格）
     // 反向证据①：这条判据今天**不是**恒真的 —— 八张图的房间数就不一样
     //（1 / 12 / 16 / 17 / 18 五种：★ 2026-11-04 之后「异常」层只有 1 间）。
     expect(new Set(plans.map((p) => p.rooms.length)).size).toBe(5)
@@ -212,7 +212,7 @@ describe('一局的楼层表（floors.json）', () => {
     // 4F / 5F / 6F 都有首领房从 y0 起。所以是 [25, 25, 0, 0, 0, 0]。
     // 7F 的东半**上移过**（与 6F 东翼同构：北排从 y5 起），而它没有首领房 ⇒ 最北一间是 y5。
     // ★ 2026-11-04：8F（「异常」层）只有一间首领房，它在南排（y51）—— 所以最北一间是 31（楼梯间）。
-    expect(plans.map(minRoomY)).toEqual([25, 25, 0, 0, 0, 0, 5, 31])
+    expect(plans.map(minRoomY)).toEqual([20, 20, 0, 0, 0, 0, 3, 25])
   })
 
   it('三层都生成得出来、且过契约校验 —— 楼层表里的每一层真的能玩', () => {

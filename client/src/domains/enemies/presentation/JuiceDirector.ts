@@ -65,7 +65,7 @@ import { CatPurificationFx } from './CatPurificationFx'
 import { AnimalAttackFx } from './AnimalAttackFx'
 import { FrameExitFx } from './FrameExitFx'
 import { DeferredHitstop } from './DeferredHitstop'
-import { ASSETS, ANIMS, GRABBER_ART, TANK_ART, SPRAYER_ART, MUSCOVY_ART, NIGHTMARE_CAT_ART, BOSS_FIRST_ART, FINAL_BOSS_ART, STAGE2_BOSS_ART } from '@/core/assetManifest'
+import { ASSETS, ANIMS, GRABBER_ART, TANK_ART, SPRAYER_ART, MUSCOVY_ART, NIGHTMARE_CAT_ART, BOSS_FIRST_ART, FINAL_BOSS_ART, STAGE2_BOSS_ART, NAILONG_ART } from '@/core/assetManifest'
 import { textureKeyFor } from '@/core/assets'
 
 /** 受击冲击淡出用多久。**小于肉盾的 `damageEventBatchMs` 才不会糊成一片常亮** */
@@ -398,7 +398,7 @@ export class JuiceDirector {
     const gen = e.gen ?? 0
     const realNowMs = this.clock.realNowMs
     const juice = this.bundle.enemies.enemies
-    if (e.bossStage !== undefined && e.bossStage !== 2 && !e.finalBoss) {
+    if (e.bossStage === 2 && !e.finalBoss) {
       const scale = this.enemies.entryOf(e.id)?.view.visualScale ?? juice.tank.visualScale
       this.frameExits.play(e.x, e.y, scale, BOSS_FIRST_ART.texture, BOSS_FIRST_ART.states.death)
     }
@@ -527,14 +527,33 @@ export class JuiceDirector {
   private updateAnimations(): void {
     for (const { model, view } of this.enemies.liveEnemies) {
       if (!model.alive) continue
+      if (model.skillAnimationPaused) continue
       // Artwork uses a fixed overhead view: mirroring a textbook would reverse its title.
       view.setFlipX(false)
       let key = view.texture.key
       let index = 0
       let directFrame: number | null = null
-      if (this.enemies.isBoss(model.id)) {
+      const appearance = this.enemies.bossAppearance(model.id)
+      const skinStage = this.enemies.bossSkinStage(model.id)
+      if (skinStage !== undefined) {
+        if (appearance?.hidden || appearance?.playerTextureKey) continue
+        if (skinStage === 7) {
+          if (this.clock.nowMs < model.skillLaughUntilMs) {
+            const anim = ANIMS.find((item) => item.textureKey === NAILONG_ART.laugh)
+            if (anim) {
+              const frame = anim.frames[Math.floor(this.clock.nowMs * anim.frameRate / 1000) % anim.frames.length]!
+              const texture = textureKeyFor(this.scene, NAILONG_ART.laugh)
+              if (view.texture.key !== texture) this.enemies.setPresentationTexture(model.id, NAILONG_ART.laugh, frame)
+              else view.setFrame(frame)
+            }
+          } else {
+            const texture = textureKeyFor(this.scene, NAILONG_ART.texture)
+            if (view.texture.key !== texture) this.enemies.setPresentationTexture(model.id, NAILONG_ART.texture)
+          }
+          continue
+        }
         const age = model.stateAgeMs(this.clock.nowMs)
-        if (this.enemies.isFinalBoss(model.id)) {
+        if (skinStage === 8) {
           key = model.state === 'windup' || model.state === 'recover' ? FINAL_BOSS_ART.attack
             : view.body.velocity.lengthSq() > 1 ? FINAL_BOSS_ART.walk : FINAL_BOSS_ART.idle
           const anim = ANIMS.find((item) => item.textureKey === key)
@@ -546,7 +565,7 @@ export class JuiceDirector {
                 : Math.floor(this.clock.nowMs * anim.frameRate / 1000) % anim.frames.length
             directFrame = anim.frames[frame]!
           }
-        } else if (this.enemies.isStage2Boss(model.id)) {
+        } else if (skinStage === 3) {
           key = model.state === 'windup' || model.state === 'recover' ? STAGE2_BOSS_ART.attack : STAGE2_BOSS_ART.idle
           const anim = ANIMS.find((item) => item.textureKey === key)
           if (anim) {
@@ -557,6 +576,19 @@ export class JuiceDirector {
                 : Math.floor(this.clock.nowMs * anim.frameRate / 1000) % anim.frames.length
             directFrame = anim.frames[frame]!
           }
+        } else if (skinStage === 4) {
+          key = SPRAYER_ART.texture
+          directFrame = model.state === 'windup' ? SPRAYER_ART.windupFrame
+            : model.state === 'recover' ? SPRAYER_ART.sprayFrame : Math.floor(this.clock.nowMs * 6 / 1000) % 4
+        } else if (skinStage === 5) {
+          key = MUSCOVY_ART.texture
+          const frames = MUSCOVY_ART.states[view.body.velocity.lengthSq() > 1 ? 'walk' : 'idle']
+          const dx = model.velIntent.x, dy = model.velIntent.y
+          const direction = Math.abs(dx) >= Math.abs(dy) ? dx < 0 ? 'left' : 'right' : dy < 0 ? 'up' : 'down'
+          directFrame = frames.start + Math.floor(this.clock.nowMs * frames.frameRate / 1000) % frames.count + MUSCOVY_ART.directions[direction]
+        } else if (skinStage === 6) {
+          key = GRABBER_ART.texture
+          directFrame = view.body.velocity.lengthSq() > 1 ? GRABBER_ART.frames.walkA : GRABBER_ART.frames.idle
         } else {
           key = BOSS_FIRST_ART.texture
           const state = model.state === 'windup' ? 'windup' : model.state === 'recover' ? 'recover' : view.body.velocity.lengthSq() > 1 ? 'walk' : 'idle'
@@ -690,6 +722,10 @@ export class JuiceDirector {
         continue
       }
       const view = entry.view
+      if (entry.model.skillAnimationPaused) {
+        view.setAlpha(1).setScale(view.visualScale).setRotation(0)
+        continue
+      }
       const ageMs = realNowMs - v.lastHitRealMs
 
       if (ageMs > tankTailMs) {

@@ -7,13 +7,15 @@ import {
   findAsset,
   resolveTextureKey,
   BOSS_FIRST_ART,
+  NAILONG_ART,
+  STAGE2_BOSS_ART,
 } from '@/core/assetManifest'
-import { bossArt } from './bossArt'
+import { bossArt, bossDisplayName } from './bossArt'
 
 const assetRoot = new URL('../../../../public/assets/', import.meta.url)
 
 describe('校园敌人资源交付', () => {
-  it('所有真实敌人图集存在、带透明通道，清单中的动画帧没有越界', () => {
+  it('所有真实敌人图像存在、带透明通道，图集动画帧没有越界', () => {
     const sheets = ASSETS.filter(
       (entry) => entry.path.startsWith('sprites/enemies/') && !entry.placeholder,
     )
@@ -24,6 +26,9 @@ describe('校园敌人资源交付', () => {
       expect(png[25], entry.path).toBe(6) // PNG RGBA
       const width = png.readUInt32BE(16)
       const height = png.readUInt32BE(20)
+      expect(width, entry.path).toBeGreaterThan(0)
+      expect(height, entry.path).toBeGreaterThan(0)
+      if (entry.kind === 'image') continue
       expect(width % entry.frameWidth!, entry.path).toBe(0)
       expect(height % entry.frameHeight!, entry.path).toBe(0)
       const count = (width / entry.frameWidth!) * (height / entry.frameHeight!)
@@ -37,11 +42,17 @@ describe('校园敌人资源交付', () => {
     expect(PAPER_DEATH_ANIMS).toHaveLength(3)
   })
 
-  it('首领身份独立并使用真实资源，第一首领不再借用最终毒场槽位', () => {
-    const variants = [bossArt(1, false), bossArt(2, false), bossArt(3, true)]
-    expect(new Set(variants.map((variant) => variant.key)).size).toBe(3)
+  it('第二至八层七位首领分别使用真实资源与独立名称', () => {
+    const variants = Array.from({ length: 7 }, (_, i) => bossArt(i + 2, i === 6))
+    expect(new Set(variants.map((variant) => variant.key)).size).toBe(7)
     expect(variants[0]?.key).toBe(BOSS_FIRST_ART.texture)
-    expect(variants.map((variant) => variant.tint)).toEqual([0xffffff, 0xffffff, 0xffffff])
+    expect(variants[1]?.key).toBe(STAGE2_BOSS_ART.idle)
+    expect(variants[5]?.key).toBe(NAILONG_ART.texture)
+    expect(variants.every((variant) => variant.tint === 0xffffff)).toBe(true)
+    expect(variants.every((variant) => findAsset(variant.key)?.placeholder === false)).toBe(true)
+    expect(Array.from({ length: 7 }, (_, i) => bossDisplayName(i + 2))).toEqual([
+      '课业重压', '考卷纸鸢', '酸蚀喷灌设备', '失控体育器材', '分身点名册', '奶龙', '心魔',
+    ])
     const delivered = ASSETS.filter((entry) =>
       /sprites\/enemies\/(stage2_boss|final_boss)\//.test(entry.path),
     )

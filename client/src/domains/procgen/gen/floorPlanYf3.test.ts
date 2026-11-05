@@ -162,7 +162,9 @@ function deriveYf3(sixRaw: unknown): PlanShape {
   const x1 = xEnd - 1 // SHOP 的**东界（不含）**，比自然东界少 1 格：那一格是墙
   // ★ 改了（2026-10-22 晚·七）：商店**只要上半**（用户：「商店调成原来的一半并偏上」）。
   // 合并块 y25..72 一共 48 格高，取上面那 24 格 = y25..48。
-  const halfH = Math.floor((y1 - y0) / 2)
+  // 压缩后保留商店北侧位置，南沿到走廊末端前一格，避免挤掉入口。
+  const shopCorridor = plan.corridors.find((c) => c.id === WEST)!
+  const halfH = shopCorridor.y + shopCorridor.height - y0 - 1
   plan.rooms.push({ id: SHOP, x: x0, y: y0, width: x1 - x0, height: halfH, fixed: 'shop' })
 
   // ⚠️ 新加的前提断言（上一版靠上面那句巧合顺带挡着）：楼梯间**不许**压到
@@ -285,7 +287,7 @@ describe('真的那份 floor-plan-yf3.json', () => {
   it('商店是西头那块**上半**（用户「调成原来的一半并偏上」），**与 C_W 隔着 1 格墙**', () => {
     const shop = yf3.rooms.find((r) => r.id === SHOP)!
     // ★ 改了（2026-10-22 晚·七）：27×48 → **27×24**，y 仍是 25（偏上）。
-    expect(shop.cells).toEqual({ x: 0, y: 25, width: 27, height: 24 })
+    expect(shop.cells).toEqual({ x: 0, y: 19, width: 16, height: 23 })
     expect(shop.fixed).toBe('shop')
     // 第 27 列是墙：SHOP 的右边（x + width = 27）与 C_W 的西端（x = 28）差 1 格。
     // 紧贴着写的话墙心会落在格边界上，一格中心都盖不住 —— 寻路认为两侧都通，
@@ -311,7 +313,7 @@ describe('真的那份 floor-plan-yf3.json', () => {
     expect(stair.x - (shop.cells.x + shop.cells.width)).toBe(11)
     // 楼梯间 2026-11-04 起从上往下缩短（11×18 → 11×12，南界仍是 y42），
     // 它还在北带里、仍与 SHOP 左右相邻 —— 上面那个 11 格的差就是横着的那一段。
-    expect(stair.y + stair.height).toBe(43)
+    expect(stair.y + stair.height).toBe(37)
     expect(stair.y).toBeGreaterThan(shop.cells.y)
     // 对照：1F / 6F 同一处楼梯间、同一个间距 —— 三层这一块是照抄的。
     expect(yf3.stairwell.cells).toEqual(six.stairwell.cells)
@@ -320,7 +322,7 @@ describe('真的那份 floor-plan-yf3.json', () => {
   it('那扇新门开在 SHOP 与 C_W 的共享墙上，且是标准宽（120px = 3 格）', () => {
     const door = yf3.doors.find((d) => [d.a, d.b].includes(SHOP))!
     expect([door.a, door.b].sort()).toEqual([WEST, SHOP])
-    expect(door.cells).toEqual({ x: 27, y: 45, width: 1, height: 3 })
+    expect(door.cells).toEqual({ x: 16, y: 39, width: 1, height: 3 })
     expect(door.axis).toBe('v') // 竖直墙上，人沿 x 穿过
     // ⚠️ 净宽是**长边**：竖门的 `rect.width` 是墙厚（1 格 = 40px），
     //    拿它去比 doorWidth 会得到「40 ≠ 120」而看着像门开窄了。

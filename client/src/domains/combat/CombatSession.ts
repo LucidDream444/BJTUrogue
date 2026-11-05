@@ -30,6 +30,7 @@ import {
 } from './config'
 import type { CombatEvents } from './events'
 import { CharacterSkill, type SkillStatus } from './CharacterSkill'
+import type { MovementVector } from './MovementForces'
 export type PauseReason =
   | 'user'
   | 'hidden'
@@ -81,6 +82,11 @@ export class CombatSession {
   private dead = false
   private disposed = false
   private readonly vortices = new Map<number, VortexSnapshot>()
+  /** 首领技能的临时移动控制，全部使用游戏时间；不会改写玩家成长数值。 */
+  bossSpeedMultiplier = 1
+  bossSlowUntilMs = 0
+  bossStunnedUntilMs = 0
+  bossForcedVelocity: MovementVector | null = null
   constructor(
     private readonly scene: Phaser.Scene,
     readonly bundle: ConfigBundle,
@@ -161,6 +167,7 @@ export class CombatSession {
           )
         },
       },
+      cfg.encounter,
     )
     for (const rect of this.terrain.water) {
       const zone = scene.add.zone(
@@ -320,6 +327,7 @@ export class CombatSession {
    * 而回走正是这一层想要的「地牢感」。
    */
   enterStage(stage: number, keepLoadout = false): void {
+    this.resetBossPlayerControl()
     const layout = stageGeometry(
       this.stageConfig,
       stage,
@@ -378,10 +386,21 @@ export class CombatSession {
     const pointer = this.scene.input.activePointer
     this.scene.cameras.main.getWorldPoint(pointer.x, pointer.y, this.aim)
     const fields = [...this.vortices.values()]
-    const pull = vortexPullVelocity({ x: this.player.x, y: this.player.y }, fields)
+    const movementLocked = this.bossMovementLocked()
+    const pull = movementLocked ? { x: 0, y: 0 } :
+      vortexPullVelocity({ x: this.player.x, y: this.player.y }, fields)
     this.skill?.setExternalVelocity(pull)
-    if (!this.skill?.isDashing()) {
-      this.player.move(this.clock.nowMs - before, true, pull)
+    // 冲刺直接重置位置：受控首帧先走现有的 blocked 收尾，避免晕眩结束后补冲刺。
+    if (movementLocked && this.skill?.isDashing()) this.skill.update(this.clock.nowMs)
+    const elapsed = this.clock.nowMs - before
+    if (this.clock.nowMs < this.bossStunnedUntilMs) {
+      this.player.move(elapsed, false)
+    } else if (this.bossForcedVelocity !== null) {
+      // 水滑控制独占这一帧速度，不能再叠输入惯性、旋风吸力或冲刺位移。
+      this.player.forceMovement(elapsed, this.bossForcedVelocity)
+    } else if (!this.skill?.isDashing()) {
+      const multiplier = this.clock.nowMs < this.bossSlowUntilMs ? this.bossSpeedMultiplier : 1
+      this.player.move(elapsed, true, pull, multiplier)
     } else {
       this.player.clearMovementInertia()
       this.player.body.stop()
@@ -638,7 +657,7 @@ export class CombatSession {
         clock: this.clock,
         player: this.player,
         enemies: this.enemies,
-        crossesSolid: (from, to, radius) => earliestObstacleHit(
+        crossesSolid: (from, to, radius) => this.bossMovementLocked() || earliestObstacleHit(
           this.terrain.solidHitTime(from, to, radius),
           this.stageColliders.barrierHitTime(from, to, radius),
         ) !== null,
@@ -651,6 +670,7 @@ export class CombatSession {
     )
   }
   activateSkill(aim: { x: number; y: number }): boolean {
+    if (this.bossMovementLocked()) return false
     const activated = this.skill?.activate(aim) ?? false
     if (activated) this.voice.play('skill')
     return activated
@@ -660,6 +680,17 @@ export class CombatSession {
   }
   skillStatus(): SkillStatus | null {
     return this.skill?.status() ?? null
+  }
+  /** 首领死亡、清房或换层时撤销全部临时控制，不调整角色基础速度。 */
+  resetBossPlayerControl(): void {
+    this.bossSpeedMultiplier = 1
+    this.bossSlowUntilMs = 0
+    this.bossStunnedUntilMs = 0
+    this.bossForcedVelocity = null
+    this.player.clearMovementInertia()
+  }
+  private bossMovementLocked(): boolean {
+    return this.clock.nowMs < this.bossStunnedUntilMs || this.bossForcedVelocity !== null
   }
   private recompute(): void {
     this.stats = deriveStats(

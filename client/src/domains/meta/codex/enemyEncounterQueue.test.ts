@@ -27,10 +27,20 @@ describe('首次遭遇识别与排队', () => {
 
   it('首领身份优先于复用的肉盾种类，心魔优先于bossStage', () => {
     expect(identifyEnemyEncounter(spawn('tank', { bossStage: 1 }))).toEqual({ kind: 'first-boss', entryId: 'first-boss' })
-    expect(identifyEnemyEncounter(spawn('tank', { bossStage: 2 }))).toEqual({ kind: 'stage2-boss', entryId: 'stage2-boss' })
+    expect(identifyEnemyEncounter(spawn('tank', { bossStage: 3 }))).toEqual({ kind: 'stage2-boss', entryId: 'stage2-boss' })
     expect(identifyEnemyEncounter(spawn('tank', { bossStage: 2, finalBoss: true }))).toEqual({ kind: 'heart-demon', entryId: 'heart-demon' })
     const queue = new EnemyEncounterQueue(['tank'])
     expect(queue.discover(spawn('tank', { bossStage: 1 }))?.kind).toBe('first-boss')
+  })
+
+  it('第二至八层七位首领分别提示，复用贴图与普通怪种类不影响身份', () => {
+    const queue = new EnemyEncounterQueue()
+    const ids = ['first-boss', 'stage2-boss', 'acid-boss', 'sports-boss', 'rollcall-boss', 'nailong-boss', 'heart-demon']
+    ids.forEach((id, index) => {
+      expect(queue.discover(spawn('tank', { bossStage: index + 2 }))?.entryId).toBe(id)
+      expect(queue.discover(spawn('tank', { bossStage: index + 2 }))).toBeNull()
+    })
+    expect(queue.pendingCount).toBe(7)
   })
 
   it('同帧重复实例与分裂后代都只提示一次，保留首次实际遇到的那一代', () => {
