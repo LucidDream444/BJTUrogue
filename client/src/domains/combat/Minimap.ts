@@ -634,6 +634,24 @@ export class Minimap {
       )
   }
 
+  /**
+   * 小地图正下方的相机空间锚点。
+   *
+   * D4 的局内货币 HUD 挂在这里；只由 Minimap 给出锚点，避免另一个文件把
+   * 面板尺寸 400×150 再抄一遍。调用方仍要按 `1 / camera.zoom` 缩放自身。
+   */
+  belowPanel(camera: Phaser.Cameras.Scene2D.Camera, gap = 8): { x: number; y: number } {
+    const z = camera.zoom
+    return {
+      x:
+        camera.width * camera.originX * (1 - 1 / z) +
+        (camera.width - PANEL.inset - PANEL.width) / z,
+      y:
+        camera.height * camera.originY * (1 - 1 / z) +
+        (PANEL.inset + PANEL.height + gap) / z,
+    }
+  }
+
   destroy(): void {
     // `true` = 连子对象一起销毁（gfx / 标题 / 标号都在里面）
     this.root.destroy(true)

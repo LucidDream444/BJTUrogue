@@ -94,6 +94,13 @@ export interface RunResultSnapshot extends RunContext {
   readonly clearedRooms: number
   readonly elapsedMs: number
   readonly finalRewardId?: string
+  /**
+   * 本局累计获得、可用于商店的局内货币。缺省时由 D4 按原经济公式重算，
+   * 兼容没有局内经济字段的旧宿主。
+   */
+  readonly runCoinsEarned?: number
+  /** 本局商店已经花掉的局内货币。 */
+  readonly runCoinsSpent?: number
 }
 
 export interface RunResultCommitted {
@@ -101,6 +108,9 @@ export interface RunResultCommitted {
   readonly snapshot: RunResultSnapshot
   readonly coinsEarned: number
   readonly coinsTotal: number
+  readonly runCoinsEarned: number
+  readonly runCoinsSpent: number
+  readonly runCoinsConverted: number
   readonly saved: boolean
 }
 

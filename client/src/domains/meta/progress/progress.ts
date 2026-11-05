@@ -164,6 +164,10 @@ export interface RunInput {
   depth: number
   kills: number
   clearedRooms: number
+  /** 宿主已有的局内货币实际累计值；缺省时退回 `coinsForRun()`。 */
+  runCoinsEarned?: number
+  /** 本局商店消费。 */
+  runCoinsSpent?: number
 }
 
 /**
@@ -180,6 +184,23 @@ export function coinsForRun(meta: MetaConfig, input: RunInput): number {
   )
 }
 
+/** 本局钱包累计获得数。未来怪物/宝箱掉币可以显式传 `runCoinsEarned`。 */
+export function earnedRunCoins(meta: MetaConfig, input: RunInput): number {
+  const value = input.runCoinsEarned ?? coinsForRun(meta, input)
+  return Number.isFinite(value) ? Math.max(0, Math.round(value)) : 0
+}
+
+export function spentRunCoins(meta: MetaConfig, input: RunInput): number {
+  const earned = earnedRunCoins(meta, input)
+  const value = input.runCoinsSpent ?? 0
+  return Number.isFinite(value) ? Math.min(earned, Math.max(0, Math.round(value))) : 0
+}
+
+/** 结算时把局内剩余货币按 50% 向下取整带入局外货币。 */
+export function convertedRunCoins(meta: MetaConfig, input: RunInput): number {
+  return Math.floor((earnedRunCoins(meta, input) - spentRunCoins(meta, input)) * 0.5)
+}
+
 export interface SettleOutcome {
   coinsEarned: number
   /** 结算之后档里一共多少币。界面要显示这个，好让人看到"攒下来了" */
@@ -193,7 +214,7 @@ export interface SettleOutcome {
  * 必须写在这里，而不是在结算界面里随手改：那样"结算不会扣币"就没有地方保证了。
  */
 export function settleRun(draft: ProfileData, meta: MetaConfig, input: RunInput): SettleOutcome {
-  const coinsEarned = coinsForRun(meta, input)
+  const coinsEarned = convertedRunCoins(meta, input)
   draft.currency.coins += coinsEarned
   draft.stats.runs += 1
   if (input.outcome === 'cleared') draft.stats.wins += 1
