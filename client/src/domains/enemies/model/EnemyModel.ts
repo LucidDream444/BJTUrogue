@@ -35,6 +35,7 @@ import type {
   NightmareCatDef,
 } from '@/core/config'
 import { deriveSprayer, type DifficultyModifiers, type BalanceConfig } from '@/core/config'
+import { skillHealth } from '../skills/SkillUnitState'
 
 export type EnemyState =
   /** 刚生成，生成宽限期内：会动但减速，且不打人 */
@@ -306,6 +307,16 @@ export class EnemyModel extends ActorModel<EnemyState> {
 
   weaponSlowMultiplier = 1
   weaponSlowUntilMs = 0
+  skillSpeedMultiplier = 1
+  skillSpeedUntilMs = 0
+  skillInvulnerableUntilMs = 0
+  skillStunnedUntilMs = 0
+  skillControlledUntilMs = 0
+  skillRallyUntilMs = 0
+  skillStationary = false
+  skillAnimationPaused = false
+  skillLaughUntilMs = 0
+  skillManualAttacks = false
   slowStacks = 0
   /** 整批一起到期的时刻（Arcade 风格：不逐层独立计时） */
   slowExpireAtMs = 0
@@ -361,6 +372,14 @@ export class EnemyModel extends ActorModel<EnemyState> {
     this.slowExpireAtMs = 0
     this.lastDecayAtMs = nowMs
     this.hitCount = 0
+    this.weaponSlowMultiplier = this.skillSpeedMultiplier = 1
+    this.weaponSlowUntilMs = this.skillSpeedUntilMs = 0
+    this.skillInvulnerableUntilMs = this.skillStunnedUntilMs = this.skillControlledUntilMs = 0
+    this.skillRallyUntilMs = 0
+    this.skillStationary = false
+    this.skillAnimationPaused = false
+    this.skillLaughUntilMs = 0
+    this.skillManualAttacks = false
   }
 
   // ---- 状态 ----
@@ -389,7 +408,9 @@ export class EnemyModel extends ActorModel<EnemyState> {
    * brain 只读这个值，不要自己再乘一遍 —— 否则调平衡时会有两个地方要改。
    */
   speedMult(nowMs: number): number {
+    if (nowMs < this.skillStunnedUntilMs || this.skillStationary) return 0
     let m = 1
+    if (nowMs < this.skillSpeedUntilMs) m *= this.skillSpeedMultiplier
     if (this.inGrace(nowMs)) m *= this.graceMoveMult
     if (this.slowStacks > 0) {
       if (nowMs >= this.slowExpireAtMs) this.slowStacks = 0
@@ -475,6 +496,18 @@ export class EnemyModel extends ActorModel<EnemyState> {
     })
   }
 
+  /** Scripted rewind/healing changes HP, while zero HP still follows the ordinary death lifecycle. */
+  setHealthFromSkill(hp: number, nowMs: number, frameId: number): boolean {
+    const next = skillHealth(this.hp, this.maxHp, this.alive, hp)
+    if (next === null) return false
+    this.hp = next
+    if (next === 0) this.onKilled({
+      sourceId: this.id, hitKey: 'skill-health', sourceKind: 'aoe',
+      mode: 'instant', amount: 0, nowMs, frameId,
+    })
+    return true
+  }
+
   // ---- ActorModel 钩子 ----
 
   /**
@@ -518,7 +551,8 @@ export class EnemyModel extends ActorModel<EnemyState> {
    *
    * 这是把「贪刀」变成有意义的选择：想打得快，就得贴着它、挑它砸完之后输出。
    */
-  protected override modifyIncomingDamage(amount: number, _req: HitRequest): number {
+  protected override modifyIncomingDamage(amount: number, req: HitRequest): number {
+    if (req.nowMs < this.skillInvulnerableUntilMs) return 0
     // ⚠️ **被甩飞的这段路上免疫一切伤害。** 挣脱那一刻它只剩 1 血（故意的：
     //    死了的实体会被立刻 park、尸体飞不起来），而玩家此刻正握着枪在连点 ——
     //    顺手一梭子就能在半空中把它打死，于是「落地才死 → 落地爆炸」这条链

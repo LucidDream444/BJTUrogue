@@ -19,6 +19,8 @@ export class CodexPanel {
   private selected = 0
   private filter: '全部' | '普通敌人' | '首领' = '全部'
   private detail = false
+  private note: 'lore' | 'combat' = 'combat'
+  private notePage = 0
   private readonly start: number
   constructor(
     private readonly ui: ArchiveUI,
@@ -38,6 +40,7 @@ export class CodexPanel {
   moveSelection(delta: number): void {
     if (!this.entries.length) return
     this.selected = moveCodexIndex(this.selected, delta, this.entries.length)
+    this.notePage = 0
     this.options.onSelect?.(this.entries[this.selected]!)
     this.render()
   }
@@ -148,23 +151,36 @@ export class CodexPanel {
   private buildNotes(entry: CodexEntry): void {
     const ui = this.ui
     ui.button(288, 197, 365, 44, '← 返回档案目录', () => this.back())
-    ui.label(115, 259, '异界观察笔记', A.size.heading, A.pageText, undefined, true)
-    ui.rule(115, 307, 350)
-    const lore = entry.lorePlaceholder.startsWith('档案文案尚未')
-      ? '档案整理中。右页战斗数值随当前难度显示。'
-      : entry.lorePlaceholder
-    ui.label(115, 338, lore, A.size.body, A.pageMuted, 350)
-    ui.rule(115, 650, 350)
-    ui.label(
-      115,
-      677,
-      `分类：${entry.category}\n阶段：${entry.variant}\n难度：${this.options.difficultyLabel}`,
-      A.size.small,
-      A.pageText,
-      350,
-    )
-    ui.button(195, 786, 160, 43, '← 上一条', () => this.moveSelection(-1))
-    ui.button(390, 786, 160, 43, '下一条 →', () => this.moveSelection(1))
+    const tabs = [{ id: 'lore', title: '异界观察笔记' }, { id: 'combat', title: '战斗笔记' }] as const
+    tabs.forEach((tab, i) => {
+      const x = 195 + i * 195
+      const button = ui.button(x, 270, 180, 48, tab.title, () => {
+        this.note = tab.id
+        this.notePage = 0
+        this.render()
+      })
+      if (this.note === tab.id) {
+        button.setStrokeStyle(2, A.cyan)
+        ui.add(ui.scene.add.graphics()).lineStyle(4, A.cyan).lineBetween(x - 78, 299, x + 78, 299)
+      }
+    })
+    const value = this.note === 'lore' ? entry.lorePlaceholder : entry.combatNotes.join('\n\n')
+    // 预先换行后分页；关闭二次换行，确保正文始终在页脚上方。
+    const text = ui.label(115, 327, '', A.size.body, A.pageText, 350)
+    const lines = text.getWrappedText(value)
+    const linesPerPage = 10
+    const pages = Math.max(1, Math.ceil(lines.length / linesPerPage))
+    this.notePage = Math.min(this.notePage, pages - 1)
+    text.setWordWrapWidth(0)
+    text.setText(lines.slice(this.notePage * linesPerPage, (this.notePage + 1) * linesPerPage).join('\n'))
+    ui.label(115, 713, this.note === 'combat' ? '机制与数值随当前难度读取' : '背景介绍 · 梦境中的校园见闻', A.size.micro, A.pageMuted)
+    if (pages > 1) {
+      ui.button(151, 755, 80, 34, '上一页', () => { this.notePage--; this.render() }, false, this.notePage === 0)
+      ui.label(288, 755, `${this.notePage + 1} / ${pages} 页`, A.size.micro, A.pageMuted).setOrigin(0.5)
+      ui.button(427, 755, 80, 34, '下一页', () => { this.notePage++; this.render() }, false, this.notePage === pages - 1)
+    }
+    ui.button(195, 801, 160, 40, '← 上一怪物', () => this.moveSelection(-1))
+    ui.button(390, 801, 160, 40, '下一怪物 →', () => this.moveSelection(1))
   }
   private buildPortrait(entry: CodexEntry): void {
     const ui = this.ui
@@ -182,8 +198,8 @@ export class CodexPanel {
       A.size.small,
       A.pageBlue,
     ).setOrigin(0.5)
-    ui.label(575, 637, '战斗观察', A.size.body, A.pageText, undefined, true)
-    ui.label(575, 681, entry.role, A.size.small, A.pageMuted, 475)
+    ui.label(575, 637, this.detail ? '阅读左页战斗笔记，了解完整机制' : '战斗定位', A.size.body, A.pageText, undefined, true)
+    if (!this.detail) ui.label(575, 681, entry.role, A.size.small, A.pageMuted, 475)
 
     ui.label(1110, 301, '战斗档案', A.size.heading, A.pageText, undefined, true)
     ui.label(1110, 344, `当前难度 · ${this.options.difficultyLabel}`, A.size.micro, A.pageMuted)

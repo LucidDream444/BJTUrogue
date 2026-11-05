@@ -192,7 +192,7 @@ export class Player {
       alive: this.model.alive,
     }
   }
-  move(dtMs: number, enabled: boolean, external: MovementVector = { x: 0, y: 0 }): void {
+  move(dtMs: number, enabled: boolean, external: MovementVector = { x: 0, y: 0 }, speedMultiplier = 1): void {
     if (!enabled || !this.model.alive) {
       this.body.stop()
       this.controlVelocity = { x: 0, y: 0 }
@@ -208,7 +208,8 @@ export class Player {
     const result = advancePlayerMovement(
       this.controlVelocity,
       { x: dx, y: dy },
-      this.model.stats.speed * this.model.liquidSpeedMultiplier,
+      this.model.stats.speed * this.model.liquidSpeedMultiplier *
+        (Number.isFinite(speedMultiplier) ? Math.max(0, speedMultiplier) : 1),
       this.cfg.player.acceleration,
       this.cfg.player.deceleration,
       dtMs / 1000,
@@ -220,6 +221,24 @@ export class Player {
     this.moving = speed > 1
     if (this.moving) this.runAnimationMs += (Math.max(0, dtMs) * speed) / this.model.stats.speed
     else this.runAnimationMs = 0
+  }
+  /** 地面技能独占移动，交给 Arcade 物理推进和碰撞；这里不手动积分坐标。 */
+  forceMovement(dtMs: number, velocity: MovementVector): void {
+    this.controlVelocity = { x: 0, y: 0 }
+    if (!this.model.alive) {
+      this.body.stop()
+      this.moving = false
+      this.runAnimationMs = 0
+      return
+    }
+    const vx = Number.isFinite(velocity.x) ? velocity.x : 0
+    const vy = Number.isFinite(velocity.y) ? velocity.y : 0
+    this.body.setVelocity(vx, vy)
+    this.gooseFacing = gooseDirection(vx, vy, this.gooseFacing)
+    if (vx !== 0) this.facingLeft = vx < 0
+    const speed = Math.hypot(vx, vy)
+    this.moving = speed > 1
+    this.runAnimationMs = this.moving ? this.runAnimationMs + Math.max(0, dtMs) * speed / this.model.stats.speed : 0
   }
   applyStaminaLimit(maximum: number): void {
     this.maxStamina = maximum
@@ -291,6 +310,10 @@ export class Player {
       worldY - (this.feetY - this.cfg.aimArt.aimOriginOffsetY * this.cfg.player.visualScale),
       this.aimBandValue,
     )
+  }
+  /** Body layers for a cosmetic boss snapshot; weapon stays a separately mounted asset. */
+  appearanceLayers(): readonly Phaser.GameObjects.Sprite[] {
+    return this.goose ? [this.sprite, this.goose.neck] : [this.sprite]
   }
   get angle(): number {
     // 鼠标在长脖子内侧时也保持枪管方向，不能从枪口反算后突然倒射。

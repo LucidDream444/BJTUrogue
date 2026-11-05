@@ -192,7 +192,7 @@ export class Weapons {
     if (this.clock.paused || this.clock.frozen || !this.player.model.alive) return
     const now = this.clock.nowMs
     const targets = this.bullets.some(
-      (b) => b.slot.active && !b.pending && b.weapon.id !== 'pencil',
+      (b) => b.slot.active && !b.pending,
     )
       ? this.port.targets()
       : []
@@ -201,7 +201,7 @@ export class Weapons {
       const to = b.body.center,
         from = b.previous,
         wall = this.terrain.solidHitTime(from, to, this.cfg.projectiles.radius)
-      if (b.weapon.id !== 'pencil') {
+      {
         const hits = targets
           .filter((t) => !b.hitIds.has(t.id))
           .map((t) => ({ target: t, t: segmentHit(from, to, t, this.cfg.projectiles.radius) }))
@@ -213,6 +213,17 @@ export class Weapons {
         for (const hit of hits) {
           const target = this.port.target(hit.target.id)
           if (!target) continue
+          if (b.weapon.id === 'pencil') {
+            // Swept player-hit circles include enlarged bosses; solid bodies keep their old size.
+            // ContactResolver deduplicates this against Arcade overlap and preserves armor ticks.
+            const result = this.port.bulletRayContact(b.slot.id, target.id, b.damage)
+            if (result.consumed) {
+              b.pending = true
+              b.body.stop()
+              break
+            }
+            continue
+          }
           const x = from.x + (to.x - from.x) * hit.t,
             y = from.y + (to.y - from.y) * hit.t
           // ⚠️ **射线命中走 `bulletRayContact()`，不要改回 `hit()`。**
@@ -261,7 +272,7 @@ export class Weapons {
             break
           }
         }
-        if (now >= b.nextTrailMs && !b.pending) {
+        if (b.weapon.id !== 'pencil' && now >= b.nextTrailMs && !b.pending) {
           this.fx.trail(b.weapon, to.x, to.y, b.angle)
           b.nextTrailMs = now + this.cfg.weaponEffects.trailIntervalMs
         }

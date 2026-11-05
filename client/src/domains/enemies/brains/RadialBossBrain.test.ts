@@ -15,6 +15,20 @@ const fixture = (x = 350) =>
   })
 
 describe('second-stage ranged boss', () => {
+  it('manual skill attacks preserve distance keeping and haste movement without a second volley', () => {
+    const f = fixture()
+    f.model.skillManualAttacks = true
+    f.model.skillSpeedMultiplier = 2
+    f.model.skillSpeedUntilMs = 10000
+    for (let frame = 0; frame < 30; frame++) {
+      const out = f.step()
+      expect(out.attack).toBeUndefined()
+      expect(out.nextState).toBe('chase')
+      expect(Math.hypot(out.vx, out.vy)).toBeGreaterThan(0)
+    }
+    f.model.skillManualAttacks = false
+    expect(f.step().nextState).toBe('windup')
+  })
   it('starts a stationary windup at range, releases once, and observes recovery/cooldown', () => {
     const f = fixture()
     expect(f.step().nextState).toBe('windup')

@@ -1,3 +1,4 @@
+import type { BossPresentationConfig } from '@/domains/enemies/presentation/BossFootprint'
 import type Phaser from 'phaser'
 import { EnemySystem, type EnemySystemNavOptions } from '@/domains/enemies/EnemySystem'
 import { JuiceDirector } from '@/domains/enemies/presentation/JuiceDirector'
@@ -57,6 +58,7 @@ export class EnemyBridge implements BulletContactPort {
     player: () => PlayerPort,
     seed: number,
     nav?: EnemySystemNavOptions,
+    bossPresentation?: BossPresentationConfig,
   ) {
     this.unsub = bus.on('player_hurt', (e) => {
       if (e.sourceKind === 'aoe' && e.hpDamage + e.shieldDamage > 0) this.damagedAtFrame = e.frameId
@@ -72,6 +74,7 @@ export class EnemyBridge implements BulletContactPort {
       player,
       rngSeed: seed,
       nav,
+      bossPresentation,
       hooks: {
         // 咬击打到玩家身上：D3 算规则，D1 落到自己的模型上（见 PlayerPort.bite）
         onGrabBite: (amount, sourceId, nowMs) => player().bite?.(amount, sourceId, nowMs),
@@ -157,6 +160,13 @@ export class EnemyBridge implements BulletContactPort {
    *
    * 走桥而不是总线：这条交互只有 D1 与 D3 两个当事方，加进 `GameEvents` 要全员同意。
    */
+  /** Explicit public enemy commands used by configured boss skills. */
+  get skills(): Pick<EnemySystem,
+    'skillUnits' | 'setUnitPosition' | 'setUnitHp' | 'setUnitSpeedBoost' |
+    'setBossInvulnerable' | 'setBossControlled' | 'setBossManualAttacks' | 'setUnitStunned' | 'setBossAppearance' |
+    'fireBossVolley' | 'skillDamage' | 'summonSkillEnemy' | 'spawnBossClone' | 'despawnSkillUnit' | 'transformMinions' | 'setUnitRally' | 'setUnitLaugh' | 'setUnitAnimationPaused'> {
+    return this.system
+  }
   grabStatus() {
     return this.system.grabStatus()
   }

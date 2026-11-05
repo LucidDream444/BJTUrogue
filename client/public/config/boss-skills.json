@@ -1,0 +1,232 @@
+{
+  "schemaVersion": 1,
+  "_comment": "七位楼层首领技能表。伤害为基础值，运行时统一乘当前难度与首领伤害倍率；所有毫秒、速度、半径、概率与数量均由本表维护。",
+  "bosses": {
+    "2": {
+      "id": "coursework",
+      "name": "课业重压",
+      "skillIntervalMs": 6500,
+      "skills": [
+        {
+          "id": "campus_slow",
+          "cooldownMs": 15000,
+          "initialDelayMs": 5000,
+          "durationMs": 4500,
+          "speedMultiplier": 0.55
+        },
+        {
+          "id": "paper_summon",
+          "cooldownMs": 14000,
+          "initialDelayMs": 10000,
+          "countMin": 8,
+          "countMax": 12,
+          "maxExisting": 16,
+          "spawnIntervalMs": 100,
+          "spawnRadius": 180,
+          "bypassMinionCap": true
+        }
+      ]
+    },
+    "3": {
+      "id": "paper_kite",
+      "name": "考卷纸鸢",
+      "skillIntervalMs": 6500,
+      "skills": [
+        {
+          "id": "radial",
+          "cooldownMs": 3400,
+          "initialDelayMs": 2500,
+          "windupMs": 875,
+          "recoverMs": 1125,
+          "count": 24,
+          "projectileSpeed": 190,
+          "projectileRadius": 6,
+          "damage": 14,
+          "lifetimeMs": 4600,
+          "volleyOffsetDeg": 7.5
+        },
+        {
+          "id": "triangle",
+          "cooldownMs": 16000,
+          "initialDelayMs": 7000,
+          "teleportCount": 3,
+          "teleportIntervalMs": 650,
+          "teleportDistance": 230,
+          "lineWidth": 20,
+          "damage": 18,
+          "damageTickMs": 400,
+          "lineDurationMs": 3500,
+          "warningMs": 650
+        },
+        {
+          "id": "haste",
+          "cooldownMs": 13000,
+          "initialDelayMs": 12000,
+          "durationMs": 2500,
+          "speedMultiplier": 3.2
+        }
+      ]
+    },
+    "4": {
+      "id": "acid_sprinkler",
+      "name": "酸蚀喷灌设备",
+      "skillIntervalMs": 6000,
+      "skills": [
+        {
+          "id": "acid_pools",
+          "cooldownMs": 6000,
+          "initialDelayMs": 3000,
+          "count": 4,
+          "radius": 90,
+          "warningMs": 900,
+          "lifetimeMs": 15000,
+          "damage": 6,
+          "damageTickMs": 500,
+          "maxActive": 16
+        },
+        {
+          "id": "water_pools",
+          "cooldownMs": 7500,
+          "initialDelayMs": 6500,
+          "count": 4,
+          "radius": 100,
+          "warningMs": 700,
+          "lifetimeMs": 16000,
+          "slideSpeed": 400,
+          "maxActive": 16
+        }
+      ]
+    },
+    "5": {
+      "id": "sports_gear",
+      "name": "失控体育器材",
+      "skillIntervalMs": 7500,
+      "skills": [
+        {
+          "id": "ricochet_charge",
+          "cooldownMs": 15000,
+          "initialDelayMs": 5000,
+          "warningMs": 1000,
+          "speed": 520,
+          "bounceCount": 3,
+          "maxDurationMs": 6500,
+          "damage": 24,
+          "hitRadius": 48,
+          "damageTickMs": 500,
+          "invulnerable": true
+        },
+        {
+          "id": "leap_slam",
+          "cooldownMs": 13000,
+          "initialDelayMs": 10000,
+          "warningMs": 1300,
+          "flightMs": 700,
+          "targetOffsetRadius": 80,
+          "radius": 150,
+          "damage": 28,
+          "stunMs": 3000,
+          "flightHeight": 180
+        }
+      ]
+    },
+    "6": {
+      "id": "roll_call",
+      "name": "分身点名册",
+      "skillIntervalMs": 10000,
+      "skills": [
+        {
+          "id": "clones",
+          "cooldownMs": 22000,
+          "initialDelayMs": 5000,
+          "count": 3,
+          "hpDivisor": 3,
+          "spawnRadius": 170,
+          "durationMs": 14000,
+          "bossStunMs": 2000
+        },
+        {
+          "id": "transmute",
+          "cooldownMs": 18000,
+          "initialDelayMs": 12000,
+          "warningMs": 1000
+        }
+      ]
+    },
+    "7": {
+      "id": "nailong",
+      "name": "奶龙",
+      "skillIntervalMs": 7500,
+      "skills": [
+        {
+          "id": "rally",
+          "cooldownMs": 16000,
+          "initialDelayMs": 5000,
+          "durationMs": 5500,
+          "speedMultiplier": 1.9,
+          "aggroRadius": 5000,
+          "laughPulseMs": 550
+        },
+        {
+          "id": "blue_barrage",
+          "cooldownMs": 14000,
+          "initialDelayMs": 10000,
+          "roundsMin": 5,
+          "roundsMax": 7,
+          "roundIntervalMs": 450,
+          "count": 18,
+          "projectileSpeed": 210,
+          "projectileRadius": 7,
+          "damage": 12,
+          "lifetimeMs": 4200,
+          "volleyOffsetDeg": 10,
+          "color": 4238335
+        }
+      ]
+    },
+    "8": {
+      "id": "heart_demon",
+      "name": "心魔",
+      "skillIntervalMs": 8500,
+      "skills": [
+        {
+          "id": "mimic_chain",
+          "cooldownMs": 18000,
+          "initialDelayMs": 5000,
+          "count": 2,
+          "intervalMs": 1800,
+          "sourceFloorMin": 2,
+          "sourceFloorMax": 7,
+          "blackTint": 2236962
+        },
+        {
+          "id": "rewind",
+          "cooldownMs": 24000,
+          "initialDelayMs": 12000,
+          "historyMs": 3000,
+          "durationMs": 3000,
+          "snapshotIntervalMs": 100,
+          "tickIntervalMs": 1000,
+          "overlayAlpha": 0.24
+        },
+        {
+          "id": "player_shadow",
+          "cooldownMs": 22000,
+          "initialDelayMs": 17000,
+          "durationMs": 8500,
+          "visualScale": 3,
+          "followSpeed": 155,
+          "keepDistance": 220,
+          "weaponDamageMultiplier": 0.7,
+          "attackIntervalMultiplier": 1.3,
+          "blackTint": 1118481
+        }
+      ]
+    }
+  },
+  "feedback": {
+    "tickHz": 880,
+    "laughHz": 190,
+    "toneDurationMs": 100,
+    "toneGain": 0.12
+  }
+}

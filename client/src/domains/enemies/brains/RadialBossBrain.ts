@@ -26,18 +26,18 @@ export function makeRadialBossBrain(
       out.nextState = 'chase'
       return out
     }
-    if (model.state === 'windup') {
+    if (!model.skillManualAttacks && model.state === 'windup') {
       if (model.stateAgeMs(nowMs) >= cfg.windupMs) {
         out.attack = attack
         out.nextState = 'recover'
       }
       return out
     }
-    if (model.state === 'recover' && model.stateAgeMs(nowMs) < cfg.recoverMs) return out
+    if (!model.skillManualAttacks && model.state === 'recover' && model.stateAgeMs(nowMs) < cfg.recoverMs) return out
 
     const distance = Math.hypot(target.x - self.x, target.y - self.y)
     const visible = !ctx.nav || ctx.nav.hasLineOfSight(self.x, self.y, target.x, target.y)
-    if (distance <= cfg.aggroRadius && visible && nowMs >= model.slamReadyAtMs) {
+    if (!model.skillManualAttacks && distance <= cfg.aggroRadius && visible && nowMs >= model.slamReadyAtMs) {
       model.slamReadyAtMs = nowMs + cfg.cooldownMs
       out.nextState = 'windup'
       return out
