@@ -1,6 +1,8 @@
 import Phaser from 'phaser'
 import { preloadAssets, ensurePlaceholderTextures, registerAnimations } from '@/core/assets'
 import { parseConfigBundle, type ConfigBundle, type Difficulty } from '@/core/config'
+import type { EnemyKind } from '@/core/events'
+import { Rng } from '@/core/rng'
 import {
   parseCombatConfig,
   parseRewards,
@@ -67,6 +69,7 @@ import {
 } from '@/domains/meta/metaConfig'
 import { CHARACTERS, characterById } from '@/domains/meta/catalog'
 import { PauseOverlay } from '@/domains/meta/pause/PauseOverlay'
+import { EncounterCodexOverlay } from '@/domains/meta/codex/EncounterCodexOverlay'
 import { ProfileStore } from '@/domains/meta/profile/ProfileStore'
 import {
   LocalStorageProfileStorage,
@@ -84,6 +87,7 @@ import {
 import { RunLedger } from '@/domains/meta/run/RunLedger'
 import { D4SettlementAdapter } from '@/domains/meta/settlement/D4SettlementAdapter'
 import { RunFlow } from './RunFlow'
+import { BossReinforcements } from './BossReinforcements'
 
 /**
  * 「够得着」的距离门槛（世界像素）。**量的是到目标矩形的最短距离**，贴着它才是 0。
@@ -158,7 +162,6 @@ export class BattleScene extends Phaser.Scene {
   private loot!: FirstBossLoot
   private loadout!: LoadoutHud
   private skillHud!: SkillHud
-  private bossLabel!: Phaser.GameObjects.Text
   private difficulty: Difficulty = 'normal'
   private skillLab = false
   private skillLabCharacterId: string | undefined
@@ -398,6 +401,9 @@ export class BattleScene extends Phaser.Scene {
   private launchCharacterId: string | undefined
   private resultPresented = false
   private pauseMenu!: PauseOverlay
+  private encounterCodex: EncounterCodexOverlay | null = null
+  private bossReinforcements!: BossReinforcements
+  private reinforcementRng!: Rng
   /**
    * 这一局结算过没有。
    *
@@ -443,6 +449,7 @@ export class BattleScene extends Phaser.Scene {
     this.settlementAdapter = null
     this.flow = null
     this.resultPresented = false
+    this.encounterCodex = null
   }
   preload(): void {
     preloadAssets(this)
@@ -505,6 +512,8 @@ export class BattleScene extends Phaser.Scene {
       //    「少一层就用上一层凑」会让这一局的几何与配置表说的不是一回事。
       this.plans = floorPlansForRun(this.cache.json, this.rooms, this.floors)
       this.runSeed = (Math.random() * 0x7fffffff) | 0
+      this.reinforcementRng = new Rng(this.runSeed)
+      this.bossReinforcements = new BossReinforcements(this.cfg.encounter.bossReinforcements)
       // **整局的每一层种子先抽好**（不是每下一层现抽一个）：这样报出 `runSeed`
       // 就能把整局的每一层都复原出来，而不只是「当前这一层」。
       this.floorSeedList = floorSeeds(this.runSeed, this.floors)
@@ -555,17 +564,6 @@ export class BattleScene extends Phaser.Scene {
       this.loot = new FirstBossLoot(this, this.session)
       this.loadout = new LoadoutHud(this, this.session)
       this.skillHud = new SkillHud(this, this.session)
-      this.bossLabel = this.add
-        .text(0, 0, '', {
-          fontFamily: 'Microsoft YaHei',
-          fontSize: '13px',
-          color: '#ffd7a0',
-          stroke: '#101426',
-          strokeThickness: 4,
-          align: 'center',
-        })
-        .setOrigin(0.5)
-        .setDepth(4500)
       this.session.bus.on('entity_killed', (event) => {
         // 首领也不例外：**每一间都是「清完 → 开箱 → 门开」**，首领那间不再单独掉。
         if (event.bossStage === this.floor) this.notice.setText('首领已击败')
@@ -602,7 +600,7 @@ export class BattleScene extends Phaser.Scene {
       // ---- 局外成长（D4）：这一局打的账、暂停菜单、结算界面 ----
       //
       // 战斗场景需要一份档（结算要发币），但**不是**在战斗里读它改它 ——
-      // 档只在"这一局结束"和"打开暂停菜单"这两个时刻被碰，核心循环里一个字都没有。
+      // 结算、设置和首次怪物生成事件经 ProfileStore 更新档案；重复生成不再写盘。
       this.store = new ProfileStore({
         storage: this.skillLab
           ? new MemoryProfileStorage()
@@ -709,6 +707,25 @@ export class BattleScene extends Phaser.Scene {
             weaponName: this.session.weapon.name,
             skillName: this.skillNames(),
           }),
+        },
+      })
+      this.encounterCodex = new EncounterCodexOverlay({
+        scene: this,
+        bus: this.session.bus,
+        store: this.store,
+        bundle: this.bundle,
+        difficulty: this.difficulty,
+        host: {
+          pause: () => this.session.pause('codex'),
+          resume: () => {
+            this.session.resume('codex')
+            this.session.resume('hidden')
+          },
+          canOpen: () => this.flow?.phase === 'playing' &&
+            this.session.player.model.alive && !this.grabbing &&
+            !this.session.clock.paused && !this.session.clock.frozen &&
+            !this.pauseMenu.isOpen && !this.elevatorPanel.visible &&
+            !this.loot.replacementPending,
         },
       })
       this.bindKeys()
@@ -880,8 +897,7 @@ export class BattleScene extends Phaser.Scene {
     // 人活着、没暂停才认 —— 也别在切走标签页的时候吃按键。
     if (
       Phaser.Input.Keyboard.JustDown(this.passKey) &&
-      !this.session.reasons.has('hidden') &&
-      !this.session.reasons.has('user') &&
+      !this.session.clock.paused &&
       // 抓取期间只剩挣脱：换层键也不认（那时候人还挂在怪身上）
       !this.grabbing &&
       this.session.player.model.alive
@@ -915,21 +931,8 @@ export class BattleScene extends Phaser.Scene {
     this.loot.update()
     this.loadout.update()
     this.skillHud.update()
+    this.updateBossReinforcements()
     this.checkRoomCleared()
-    // 首领血条：**按「层」查，不是按「房间」**。
-    //
-    // `bossStatus(n)` 查的是出生时推给那只怪的那个编号（`spawnBoss(tier)`），
-    // 而首领现在带的是**层的序号**。早先这里查的是「第几间」，于是除了个别房间
-    // 基本都查不到 —— 血条压根不显示，而且不报任何错。
-    const boss = this.session.enemies.bossStatus(this.floor)
-    this.bossLabel.setVisible(!!boss)
-    if (boss)
-      this.bossLabel
-        .setPosition(boss.x, boss.y - (this.isBossRoom() ? 92 : 78))
-        .setText(
-          `第 ${this.floor} 层 · ${this.bossName(this.floor)}` +
-            `\n${Math.ceil(boss.hp)} / ${boss.maxHp}`,
-        )
     if (this.clearRequested && !this.session.clock.paused) this.session.enemies.simulateClear()
     this.layoutHud()
     this.updateHud()
@@ -1089,6 +1092,10 @@ export class BattleScene extends Phaser.Scene {
     this.clearEmitted = false
     this.clearRequested = false
     this.loot.reset()
+    this.bossReinforcements.reset()
+    this.session.enemies.setMinionCap(
+      unit.room.kind === 'boss' ? this.cfg.encounter.bossReinforcements.maxAlive : null,
+    )
     this.syncRoomState()
     this.spawnRoomEnemies(unit)
     this.notice.setText(this.roomBrief(unit))
@@ -1233,6 +1240,10 @@ export class BattleScene extends Phaser.Scene {
     const unit = this.activeRoom
     if (unit === null || this.clearEmitted || this.gameWon) return
     if (!this.session.player.model.alive || this.session.clock.paused) return
+    if (unit.room.kind === 'boss' && this.session.enemies.bossStatus(this.floor)) {
+      this.clearSince = null
+      return
+    }
     if (this.roomRemaining(unit) > 0) {
       this.clearSince = null
       return
@@ -1244,6 +1255,39 @@ export class BattleScene extends Phaser.Scene {
     }
     if (now - this.clearSince < this.rooms.settleMs) return
     this.onRoomCleared(unit)
+  }
+
+  /** 首领存活期间按游戏时间补怪；活怪、等待出生和分裂子代共同占用上限。 */
+  private updateBossReinforcements(): void {
+    if (this.session.clock.paused || this.session.clock.frozen) return
+    const unit = this.activeRoom
+    const bossAlive = unit?.room.kind === 'boss' &&
+      this.session.enemies.bossStatus(this.floor) !== null
+    const count = this.bossReinforcements.update(
+      this.session.clock.nowMs, bossAlive, this.session.enemies.minionPopulation,
+    )
+    if (!bossAlive) return
+    if (!unit || count === 0) return
+    const kinds = (Object.keys(this.bundle.enemies.enemies) as EnemyKind[]).filter((kind) =>
+      (kind !== 'muscovy' || this.floor >= this.cfg.arena.muscovyMinFloor) &&
+      (kind !== 'nightmare_cat' || this.floor >= this.cfg.arena.nightmareCatMinFloor),
+    )
+    const player = this.session.player
+    const far = unit.spawnPoints.filter((point) =>
+      Math.hypot(point.x - player.x, point.y - player.y) >= SAFE_SPAWN_GAP,
+    )
+    const spots = far.length ? far : [...unit.spawnPoints].sort((a, b) =>
+      Math.hypot(b.x - player.x, b.y - player.y) - Math.hypot(a.x - player.x, a.y - player.y),
+    ).slice(0, 1)
+    if (!spots.length || !kinds.length) return
+    for (let i = 0; i < count; i++) {
+      const raw = this.reinforcementRng.pick(spots)
+      const spot = this.session.terrain.safeSpawn(
+        raw.x, raw.y, ENEMY_CLEARANCE, player.model.stats.radius,
+      )
+      if (!containsPoint(unit.room.rect, spot.x, spot.y)) continue
+      this.session.enemies.spawn(this.reinforcementRng.pick(kinds), 0, spot.x, spot.y)
+    }
   }
 
   /**
@@ -1260,6 +1304,9 @@ export class BattleScene extends Phaser.Scene {
    *    键撞了的话，重进一间已清过的房会再发一次成长。
    */
   private onRoomCleared(unit: DungeonRoom): void {
+    this.bossReinforcements.reset()
+    // 清房判定会忽略墙外残留怪；撤场而非击杀，避免它们占用下一间首领房的名额。
+    this.session.enemies.despawnAll()
     this.clearEmitted = true
     this.clearRequested = false
     this.activeRoom = null
@@ -1400,6 +1447,7 @@ export class BattleScene extends Phaser.Scene {
         spot.y - 40,
         this.cfg.encounter.bossHp + (tier - 1) * this.cfg.encounter.bossHpPerStage,
         tier === this.cfg.arena.finale.floor,
+        this.cfg.encounter.bossDamageMultiplier,
       )
     }
   }
@@ -1423,11 +1471,6 @@ export class BattleScene extends Phaser.Scene {
   private currentRoomId(): string | null {
     return this.dungeon?.rooms.find((r) => r.order === this.roomOrder)?.room.id ?? null
   }
-  /** 现在这一间是不是首领房（`Room.kind === 'boss'`）。只影响血条往上让多少。 */
-  private isBossRoom(): boolean {
-    return this.dungeon?.rooms.find((r) => r.order === this.roomOrder)?.room.kind === 'boss'
-  }
-
   /* ------------------------------------------------------------ 换层 */
 
   /**
@@ -1549,6 +1592,8 @@ export class BattleScene extends Phaser.Scene {
    *   `order` 那一半照旧，所以两处都留着。
    */
   private loadFloor(fromElevator: string | null = null): void {
+    this.bossReinforcements.reset()
+    this.session.enemies.despawnAll()
     this.dungeon = this.buildFloor(this.floor)
     this.applyArena()
     this.stageConfig = parseStageCollisions(this.dungeon.stages, FLOOR_STAGE)
@@ -2116,37 +2161,45 @@ export class BattleScene extends Phaser.Scene {
   private bindKeys(): void {
     const k = this.input.keyboard
     k?.on('keydown-H', () => {
-      if (this.grabbing || this.flow?.phase !== 'playing') return
+      if (this.encounterCodex?.isOpen || this.grabbing || this.flow?.phase !== 'playing') return
       this.demoHit()
     })
     k?.on('keydown-C', () => {
-      if (this.grabbing || this.flow?.phase !== 'playing') return
+      if (this.encounterCodex?.isOpen || this.grabbing || this.flow?.phase !== 'playing') return
       this.requestClear()
     })
     k?.on('keydown-V', () => {
-      if (this.grabbing || this.flow?.phase !== 'playing') return
+      if (this.encounterCodex?.isOpen || this.grabbing || this.flow?.phase !== 'playing') return
       this.toggleGallery()
     })
     // `R` = **先结算、再重开**（见 `restartRun`）—— 不再是"把这一局白扔"的调试键
     k?.on('keydown-R', () => {
-      if (this.grabbing) return
+      if (this.encounterCodex?.isOpen || this.grabbing) return
       this.restartRun()
     })
-    k?.on('keydown-E', () => { if (this.flow?.phase === 'playing') this.loot.interact() })
+    k?.on('keydown-E', () => {
+      if (!this.encounterCodex?.isOpen && this.flow?.phase === 'playing') this.loot.interact()
+    })
     k?.on('keydown-ONE', () =>
-      this.flow?.phase !== 'playing' ? undefined : this.loot.replacementPending ? this.loot.chooseReplacement(0) : this.session.equipSlot(0),
+      this.encounterCodex?.isOpen || this.flow?.phase !== 'playing' ? undefined : this.loot.replacementPending ? this.loot.chooseReplacement(0) : this.session.equipSlot(0),
     )
     k?.on('keydown-TWO', () =>
-      this.flow?.phase !== 'playing' ? undefined : this.loot.replacementPending ? this.loot.chooseReplacement(1) : this.session.equipSlot(1),
+      this.encounterCodex?.isOpen || this.flow?.phase !== 'playing' ? undefined : this.loot.replacementPending ? this.loot.chooseReplacement(1) : this.session.equipSlot(1),
     )
-    k?.on('keydown-X', () => { if (this.flow?.phase === 'playing') this.session.cycleWeapon() })
+    k?.on('keydown-X', () => {
+      if (!this.encounterCodex?.isOpen && this.flow?.phase === 'playing') this.session.cycleWeapon()
+    })
     if (k) {
       // 这几个键默认会让页面滚动（`Scale.RESIZE` 下画布就是整页）—— 不捕获的话
       // 按一下空格整页就跳。
-      k.addCapture(['SPACE', 'ESC', 'UP', 'DOWN', 'ENTER', 'X'])
+      k.addCapture(['TAB', 'SPACE', 'ESC', 'UP', 'DOWN', 'ENTER', 'X'])
+      k.on('keydown-TAB', (event: KeyboardEvent) => {
+        if (!event.repeat) this.encounterCodex?.handleTab()
+      })
       // ⚠️ 暂停的键盘入口**只有这一处**（`togglePauseMenu`）。宿主自己再绑一个
       // "Esc 关菜单"，按一下就会同时又关又开 —— 见 `PauseOverlay` 文件头。
       k.on('keydown-ESC', () => {
+        if (this.encounterCodex?.handleEscape()) return
         if (this.grabbing || this.flow?.phase !== 'playing') return
         if (this.loot.replacementPending) this.loot.cancelReplacement()
         else this.togglePauseMenu()
@@ -2157,8 +2210,14 @@ export class BattleScene extends Phaser.Scene {
         const aim = this.cameras.main.getWorldPoint(pointer.x, pointer.y)
         this.session.activateSkill({ x: aim.x, y: aim.y })
       })
-      k.on('keydown-UP', () => this.pauseMenu.handleMoveFocus(-1))
-      k.on('keydown-DOWN', () => this.pauseMenu.handleMoveFocus(1))
+      k.on('keydown-UP', () => {
+        if (this.encounterCodex?.isOpen) this.encounterCodex.handleMoveSelection(-1)
+        else this.pauseMenu.handleMoveFocus(-1)
+      })
+      k.on('keydown-DOWN', () => {
+        if (this.encounterCodex?.isOpen) this.encounterCodex.handleMoveSelection(1)
+        else this.pauseMenu.handleMoveFocus(1)
+      })
       k.on('keydown-ENTER', () => this.pauseMenu.handleActivate())
     }
     this.events.once(Phaser.Scenes.Events.SHUTDOWN, () => {
@@ -2168,6 +2227,7 @@ export class BattleScene extends Phaser.Scene {
       this.ledger?.dispose()
       this.settlementAdapter?.destroy()
       this.pauseMenu?.destroy()
+      this.encounterCodex?.destroy()
       this.rewardPanel?.destroy()
       // 两个换层入口（`FloorExit` 自己画 Graphics、自己挂 Text，得显式收）。
       this.exitUp?.destroy()
@@ -2191,6 +2251,7 @@ export class BattleScene extends Phaser.Scene {
    * 3. 其余交给 `PauseOverlay` —— 顶着菜单时它是"继续游戏"，否则是"打开菜单"。
    */
   private togglePauseMenu(): void {
+    if (this.encounterCodex?.handleEscape()) return
     if (this.flow?.phase !== 'playing') return
     if (this.loot.replacementPending) {
       this.loot.reset()
@@ -2217,6 +2278,7 @@ export class BattleScene extends Phaser.Scene {
   private endRun(outcome: RunInput['outcome']): void {
     if (this.runEnded) return
     this.runEnded = true
+    this.bossReinforcements.reset()
     this.ledger.setDepth(this.floor)
     const snapshot = {
       ...this.flow!.context, ...this.ledger.input(outcome), elapsedMs: this.session.clock.nowMs,

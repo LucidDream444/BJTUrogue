@@ -45,6 +45,7 @@ export const MIGRATIONS: MigrationRegistry = {
   1: migrateV1ToV2,
   2: migrateV2ToV3,
   3: migrateV3ToV4,
+  4: migrateV4ToV5,
 }
 
 /**
@@ -185,6 +186,7 @@ export function normalizeProfile(raw: unknown): ProfileData {
       characterId: selectedId === 'leader' ? fallback.selected.characterId : selectedId,
       difficulty: asDifficulty(selected.difficulty, fallback.selected.difficulty),
     },
+    encounteredEnemyKinds: [...new Set(idList(root.encounteredEnemyKinds, []))],
   }
 }
 
@@ -279,6 +281,11 @@ function migrateV2ToV3(data: Record<string, unknown>): Record<string, unknown> {
  */
 function migrateV3ToV4(data: Record<string, unknown>): Record<string, unknown> {
   return { ...data, schemaVersion: 4, revision: 0 }
+}
+
+/** v5 加入首次遭遇标记；旧档没有可还原的遭遇记录，其他进度原样保留。 */
+function migrateV4ToV5(data: Record<string, unknown>): Record<string, unknown> {
+  return { ...data, schemaVersion: 5, encounteredEnemyKinds: [] }
 }
 
 const LEGACY_TRACK_COSTS: Readonly<

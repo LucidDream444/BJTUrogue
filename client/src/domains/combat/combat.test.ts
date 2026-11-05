@@ -163,6 +163,8 @@ describe('pulse loadout balance', () => {
     const gun = cfg.weapons.find((w) => w.id === 'pulse')!
     const before = deriveStats(bundle.balance, cfg, gun, defs, new Map())
     expect(before.damage).toBe(cfg.encounter.bossHp * gun.bossDamageRatio!)
+    // Raising enemy health must not silently raise the player's cannon impact too.
+    expect(before.damage).toBeCloseTo(117)
     expect(before.pellets).toBe(1)
     const after = deriveStats(
       bundle.balance,
@@ -184,6 +186,23 @@ describe('pulse loadout balance', () => {
     expect(() =>
       parseCombatConfig({ ...cfg, encounter: { ...cfg.encounter, bossHp: 0 } }),
     ).toThrow()
+  })
+  it.each([0, -1, NaN, Infinity, undefined])('rejects invalid boss damage multiplier %s', (value) => {
+    expect(() => parseCombatConfig({
+      ...cfg, encounter: { ...cfg.encounter, bossDamageMultiplier: value },
+    })).toThrow('Boss伤害倍率')
+  })
+  it.each([
+    { cooldownMs: 0 }, { cooldownMs: Infinity },
+    { maxAlive: 0 }, { maxAlive: 1.5 }, { spawnCount: -1 }, { spawnCount: 0.5 },
+  ])('rejects invalid boss reinforcement setting %j', (patch) => {
+    expect(() => parseCombatConfig({
+      ...cfg,
+      encounter: {
+        ...cfg.encounter,
+        bossReinforcements: { ...cfg.encounter.bossReinforcements, ...patch },
+      },
+    })).toThrow('Boss补怪')
   })
 })
 

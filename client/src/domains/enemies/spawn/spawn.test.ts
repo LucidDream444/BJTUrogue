@@ -4,6 +4,7 @@ import { countSplitChain, planSplitChildren } from './splitFan'
 import { EnemyPool, type PooledEnemy } from '../pool/EnemyPool'
 import { makeSpec } from '../testSupport'
 import type { EnemyKind } from '@/core/events'
+import { acceptedMinionSpawns } from './MinionSpawnPolicy'
 
 /**
  * 刷怪队列、分裂扇形、对象池。
@@ -72,6 +73,49 @@ describe('SpawnQueue — 基本节流', () => {
 
   it('maxAliveHard < maxAliveSoft 直接抛', () => {
     expect(() => new SpawnQueue({ ...CFG, maxAliveSoft: 100, maxAliveHard: 50 })).toThrow()
+  })
+})
+
+describe('boss-room minion limits', () => {
+  it('keeps all bosses while trimming minions already queued before the cap was enabled', () => {
+    const q = new SpawnQueue(CFG)
+    q.push(req({ fromId: 1 }))
+    q.push(req({ bossStage: 2, fromId: 2 }))
+    q.push(req({ fromId: 3 }))
+    q.push(req({ bossStage: 8, fromId: 4 }))
+    q.push(req({ fromId: 5 }))
+    q.limitMinions(2)
+    expect(q.peek().map((entry) => entry.fromId)).toEqual([1, 2, 3, 4])
+  })
+
+  it('lets a boss spawn even when no minion slots remain', () => {
+    const q = new SpawnQueue(CFG)
+    q.push(req())
+    q.push(req({ bossStage: 8, finalBoss: true }))
+    q.limitMinions(0)
+    expect(q.drain(0, 0).spawned).toMatchObject([{ bossStage: 8, finalBoss: true }])
+  })
+
+  it('counts reserved split children before admitting another reinforcement wave', () => {
+    const living = 2, queued = 0, pendingSplitChildren = 4
+    expect(acceptedMinionSpawns(2, living + queued + pendingSplitChildren, 6)).toBe(0)
+  })
+
+  it('clips a four-child split to the two free slots and rejects an extra wave that frame', () => {
+    const q = new SpawnQueue(CFG)
+    const living = 4
+    const children = acceptedMinionSpawns(4, living, 6)
+    for (let child = 0; child < children; child++) q.push(req())
+    expect(acceptedMinionSpawns(2, living + q.length, 6)).toBe(0)
+    expect(q.drain(0, living).spawned).toHaveLength(2)
+  })
+
+  it('retains the complete two-then-four splitting chain in ordinary rooms', () => {
+    const firstChildren = acceptedMinionSpawns(2, 180, null)
+    const grandChildren = Array.from({ length: firstChildren }, () =>
+      acceptedMinionSpawns(4, 180, null),
+    ).reduce((sum, count) => sum + count, 0)
+    expect(firstChildren + grandChildren).toBe(10)
   })
 })
 

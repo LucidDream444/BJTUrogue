@@ -34,6 +34,7 @@ export type PauseReason =
   | 'hidden'
   | 'reward'
   | 'preview'
+  | 'codex'
   | 'death'
   | 'intermission'
   | 'victory'

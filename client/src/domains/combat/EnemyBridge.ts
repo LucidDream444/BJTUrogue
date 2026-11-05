@@ -177,11 +177,20 @@ export class EnemyBridge implements BulletContactPort {
   abortGrab(): void {
     this.system.abortGrab()
   }
-  spawnBoss(stage: number, x: number, y: number, maxHp: number, finalBoss = false): void {
-    this.system.requestBoss(stage, x, y, maxHp, finalBoss)
+  spawnBoss(
+    stage: number, x: number, y: number, maxHp: number, finalBoss = false,
+    damageMultiplier = 1,
+  ): void {
+    this.system.requestBoss(stage, x, y, maxHp, finalBoss, damageMultiplier)
   }
   bossStatus(stage: number) {
     return this.system.bossStatus(stage)
+  }
+  setMinionCap(maxAlive: number | null): void {
+    this.system.setMinionCap(maxAlive)
+  }
+  get minionPopulation(): number {
+    return this.system.minionPopulation
   }
   touchPlayer(enemy: Phaser.GameObjects.GameObject): void {
     this.system.playerContact(enemy)

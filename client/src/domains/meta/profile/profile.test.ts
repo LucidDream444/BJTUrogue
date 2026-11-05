@@ -254,7 +254,7 @@ describe('迁移链', () => {
     if (!result.ok) expect(result.reason).toContain('超限')
   })
 
-  it('真实 v1 → v4 迁移旧成长退款、清空旧技能并建立同步版本号', () => {
+  it('真实旧档迁移会退款、清空旧技能并建立同步版本号和遭遇记录', () => {
     const real = migrateProfile({
       schemaVersion: 1,
       upgrades: {
@@ -265,7 +265,7 @@ describe('迁移链', () => {
       unlocks: { characters: ['student', 'leader'], skills: ['rapid_fire'] },
       selected: { characterId: 'leader', difficulty: 'normal' },
     })
-    expect(real.outcome).toEqual({ status: 'migrated', from: 1, to: 4 })
+    expect(real.outcome).toEqual({ status: 'migrated', from: 1, to: PROFILE_SCHEMA_VERSION })
     expect(real.profile.upgrades['student:armor']).toBeUndefined()
     expect(real.profile.upgrades['student:magic']).toBeUndefined()
     expect(real.profile.upgrades).toEqual({})

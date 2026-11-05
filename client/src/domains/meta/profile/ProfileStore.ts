@@ -255,6 +255,14 @@ export class ProfileStore {
     })
   }
 
+  /** 仅首次遭遇写一次档；后续同类生成不增加 revision，也不反复同步。 */
+  recordEnemyEncounter(kind: string): boolean {
+    if (this.current.encounteredEnemyKinds.includes(kind)) return true
+    return this.update((draft) => {
+      draft.encounteredEnemyKinds.push(kind)
+    })
+  }
+
   // ------------------------------------------------------------- 订阅
 
   /** 订阅变化。**返回退订函数，场景 shutdown 里必须调**（同 `core/events.ts` 的约定）。 */

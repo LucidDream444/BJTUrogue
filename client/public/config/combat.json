@@ -84,7 +84,7 @@
       "range": 100,
       "arcDeg": 0,
       "effectMs": 650,
-      "bossDamageRatio": 0.65,
+      "bossDamageRatio": 0.13,
       "chainTargets": 2,
       "chainRadius": 190,
       "chainDamageRatio": 0.28,
@@ -1157,8 +1157,14 @@
     "water": []
   },
   "encounter": {
-    "bossHp": 180,
-    "bossHpPerStage": 60,
+    "bossHp": 900,
+    "bossHpPerStage": 300,
+    "bossDamageMultiplier": 1.5,
+    "bossReinforcements": {
+      "cooldownMs": 8000,
+      "maxAlive": 6,
+      "spawnCount": 2
+    },
     "bossX": 1040,
     "bossY": 330,
     "bossColor": 16763981,

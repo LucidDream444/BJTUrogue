@@ -92,6 +92,7 @@ import {
 } from './model/EnemyModel'
 import { EnemyPool, type PooledEnemy } from './pool/EnemyPool'
 import { SpawnQueue, type SpawnReason } from './spawn/SpawnQueue'
+import { acceptedMinionSpawns } from './spawn/MinionSpawnPolicy'
 import { ContactResolver } from './contact/ContactResolver'
 import { planSplitChildren } from './spawn/splitFan'
 import { SpatialHash } from './nav/spatialHash'
@@ -327,6 +328,9 @@ export class EnemySystem implements ActorEventSink {
   /** 模型 id → 池槽位。sink 回调只给 id，得靠它找回表现对象 */
   private readonly finalBosses = new Set<number>()
   private readonly bossStages = new Map<number, number>()
+  private readonly bossDamageMultipliers = new Map<number, number>()
+  /** Only boss rooms opt in. Ordinary rooms retain their complete splitting chains. */
+  private minionCap: number | null = null
   /**
    * **同类冷却**：所有抓取怪共享的「最早可以起手」时刻（逻辑时间）。
    *
@@ -435,6 +439,7 @@ export class EnemySystem implements ActorEventSink {
         this.byId.delete(model.id)
         this.bossStages.delete(model.id)
         this.finalBosses.delete(model.id)
+        this.bossDamageMultipliers.delete(model.id)
         this.patrolOrigins.delete(model.id)
       },
     })
@@ -773,6 +778,7 @@ export class EnemySystem implements ActorEventSink {
 
   /** A final victory/floor teardown is despawn, not a simulated kill. */
   despawnAll(): void {
+    this.minionCap = null
     this.clearVortices()
     this.radialShots.clear()
     this.spawns.clear()
@@ -1462,6 +1468,32 @@ export class EnemySystem implements ActorEventSink {
 
   // ------------------------------------------------------------ 刷怪
 
+  /** Activate before a boss room's initial spawns; null restores ordinary-room behavior. */
+  setMinionCap(maxAlive: number | null): void {
+    if (maxAlive !== null && (!Number.isInteger(maxAlive) || maxAlive < 1))
+      throw new Error('EnemySystem: minion cap must be a positive integer or null')
+    this.minionCap = maxAlive
+    if (maxAlive !== null) {
+      const queued = this.spawns.peek().filter((request) => request.bossStage === undefined).length
+      this.spawns.limitMinions(acceptedMinionSpawns(queued, this.minionPopulation - queued, maxAlive))
+    }
+  }
+
+  /** Pending children reserve slots, so the reinforcement timer cannot steal a split's budget. */
+  get minionPopulation(): number {
+    let count = 0
+    for (const { model } of this.byId.values())
+      if (model.alive && !this.isBoss(model.id)) count++
+    for (const request of this.spawns.peek())
+      if (request.bossStage === undefined) count++
+    const generations = this.bundle.enemies.enemies.splitter.generations
+    for (const death of this.pendingDeaths) {
+      if (death.reason !== 'split') continue
+      count += generations[death.entry.model.gen]?.childCount ?? 0
+    }
+    return count
+  }
+
   /**
    * 把一只怪排进出生队列。**不立刻出生** —— 理由见 `SpawnQueue` 文件头
    * （同帧 8 只怪一起进物理世界 = 那一帧顶到天花板 + 表现层同时开 8 路音）。
@@ -1475,6 +1507,8 @@ export class EnemySystem implements ActorEventSink {
     delayMs = 0,
   ): boolean {
     this.assertWired()
+    if (this.minionCap !== null && acceptedMinionSpawns(1, this.minionPopulation, this.minionCap) === 0)
+      return false
     const nowMs = this.clock.nowMs
     return this.spawns.push({
       spec: this.specFor(kind, gen),
@@ -1486,7 +1520,14 @@ export class EnemySystem implements ActorEventSink {
     })
   }
 
-  requestBoss(stage: number, x: number, y: number, maxHp: number, finalBoss = false): boolean {
+  requestBoss(
+    stage: number,
+    x: number,
+    y: number,
+    maxHp: number,
+    finalBoss = false,
+    damageMultiplier = 1,
+  ): boolean {
     const spec = this.specFor('tank', 0)
     const ranged = stage === 2 && !finalBoss ? this.bundle.enemies.stage2Boss : null
     return this.spawns.push({
@@ -1508,6 +1549,7 @@ export class EnemySystem implements ActorEventSink {
       y,
       bossStage: stage,
       finalBoss,
+      bossDamageMultiplier: damageMultiplier,
       reason: 'wave',
       atMs: this.clock.nowMs,
       enqueuedAtMs: this.clock.nowMs,
@@ -1528,6 +1570,22 @@ export class EnemySystem implements ActorEventSink {
         }
     }
     return null
+  }
+  /** All encountered, living bosses remain visible in the HUD even outside the camera. */
+  bossStatuses(): {
+    id: number
+    stage: number
+    finalBoss: boolean
+    hp: number
+    maxHp: number
+  }[] {
+    const statuses = []
+    for (const [id, stage] of this.bossStages) {
+      const model = this.byId.get(id)?.model
+      if (!model?.alive) continue
+      statuses.push({ id, stage, finalBoss: this.finalBosses.has(id), hp: model.hp, maxHp: model.maxHp })
+    }
+    return statuses
   }
   /** Stable public snapshots; consumers never hold pooled EnemyModel references. */
   weaponTarget(id: number): { id: number; x: number; y: number; radius: number } | null {
@@ -1694,6 +1752,12 @@ export class EnemySystem implements ActorEventSink {
 
     for (let i = 0; i < result.spawned.length; i++) {
       const req = result.spawned[i]!
+      if (this.minionCap !== null && req.bossStage === undefined) {
+        let liveMinions = 0
+        for (const { model } of this.byId.values())
+          if (model.alive && !this.isBoss(model.id)) liveMinions++
+        if (acceptedMinionSpawns(1, liveMinions, this.minionCap) === 0) continue
+      }
       const entry = this.pool.acquire(req.spec, nowMs)
 
       if (!entry) {
@@ -1736,6 +1800,8 @@ export class EnemySystem implements ActorEventSink {
       this.byId.set(model.id, entry)
       if (req.bossStage !== undefined) this.bossStages.set(model.id, req.bossStage)
       if (req.finalBoss) this.finalBosses.add(model.id)
+      if (req.bossStage !== undefined)
+        this.bossDamageMultipliers.set(model.id, req.bossDamageMultiplier ?? 1)
       this.patrolOrigins.set(model.id, { x: position.x, y: position.y })
       model.sink = this
       this.brains.set(model, this.makeBrain(model))
@@ -1803,7 +1869,10 @@ export class EnemySystem implements ActorEventSink {
       return makeRadialBossBrain(
         model,
         cfg,
-        Math.round(cfg.projectile.damage * this.diffMods.enemyDamage),
+        Math.round(
+          cfg.projectile.damage * this.diffMods.enemyDamage *
+            (this.bossDamageMultipliers.get(model.id) ?? 1),
+        ),
       )
     }
     const def = this.bundle.enemies.enemies
@@ -1829,7 +1898,10 @@ export class EnemySystem implements ActorEventSink {
         slamWindupMs: t.slam.windupMs,
         slamCooldownMs: t.slam.cooldownMs,
         slamRecoverMs: t.slam.recoverMs,
-        slamDamage: this.derivedTank(t).slamDamage,
+        slamDamage: Math.round(
+          t.slam.damage * this.diffMods.enemyDamage *
+            (this.bossDamageMultipliers.get(model.id) ?? 1),
+        ),
         slamRadius: t.slam.radius,
         slamKnockback: t.slam.knockback,
         slamHitstopMs: t.slam.hitstopMs,
@@ -1876,7 +1948,10 @@ export class EnemySystem implements ActorEventSink {
       const parentId = entry.model.id
       const parentGen = entry.model.gen
 
-      const plans = pd.reason === 'split' ? this.planChildren(parentGen, x, y, pd.baseAngleRad) : []
+      const allPlans = pd.reason === 'split' ? this.planChildren(parentGen, x, y, pd.baseAngleRad) : []
+      const plans = this.minionCap === null
+        ? allPlans
+        : allPlans.slice(0, acceptedMinionSpawns(allPlans.length, this.minionPopulation, this.minionCap))
 
       this.pool.release(entry) // 内部一定会调 ledger.releaseTarget
 
