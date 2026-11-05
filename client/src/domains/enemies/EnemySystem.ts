@@ -41,6 +41,7 @@
  * 同理，不要把本系统的收尾工作挂在 WORLD_STEP 上（见 `shutdown()`）。
  */
 
+import { bossFootprint, type BossPresentationConfig } from './presentation/BossFootprint'
 import Phaser from 'phaser'
 import { Actor } from '@/core/actor/Actor'
 import {
@@ -91,7 +92,7 @@ import {
   type EnemyState,
 } from './model/EnemyModel'
 import { EnemyPool, type PooledEnemy } from './pool/EnemyPool'
-import { SpawnQueue, type SpawnReason } from './spawn/SpawnQueue'
+import { SpawnQueue, type SpawnReason, type SpawnRequest } from './spawn/SpawnQueue'
 import { acceptedMinionSpawns } from './spawn/MinionSpawnPolicy'
 import { ContactResolver } from './contact/ContactResolver'
 import { planSplitChildren } from './spawn/splitFan'
@@ -104,8 +105,10 @@ import { GrabQte } from './grab/grabQte'
 import { pickFlingDirection, shouldLand } from './grab/fling'
 import { targetsInBlast } from './grab/blast'
 import { makeRadialBossBrain } from './brains/RadialBossBrain'
-import { RadialProjectiles } from './projectiles/RadialProjectiles'
+import { RadialProjectiles, type BossVolley } from './projectiles/RadialProjectiles'
 import { bossArt } from './presentation/bossArt'
+import { transformedHealth, type BossAppearance, type EnemySkillUnit } from './skills/SkillUnitState'
+import { textureKeyFor } from '@/core/assets'
 import { LiquidField } from './liquid/LiquidField'
 import { makeSprayerBrain, type SprayAttack } from './brains/SprayerBrain'
 import { LiquidFx } from './presentation/LiquidFx'
@@ -227,6 +230,7 @@ export interface EnemySystemOptions {
   /** 固定随机种子，保证同局可复现。地牢种子归 D2 */
   rngSeed?: number
   hooks?: EnemySystemHooks
+  bossPresentation?: BossPresentationConfig
 }
 
 /** 一帧的 AI 记账。抽出来是为了让「远处降频」这件事可断言、能在 HUD 上看到。 */
@@ -294,6 +298,7 @@ export class EnemySystem implements ActorEventSink {
   private readonly projectileBlocked?: EnemySystemNavOptions['projectileBlocked']
   private solidHitTime?: SolidHitTime
   private readonly hooks: EnemySystemHooks
+  private readonly bossPresentation?: BossPresentationConfig
   private readonly rng: Rng
 
   readonly radialShots: RadialProjectiles
@@ -328,6 +333,9 @@ export class EnemySystem implements ActorEventSink {
   /** 模型 id → 池槽位。sink 回调只给 id，得靠它找回表现对象 */
   private readonly finalBosses = new Set<number>()
   private readonly bossStages = new Map<number, number>()
+  private readonly skillCapExempt = new Set<number>()
+  private readonly cloneBossStages = new Map<number, number>()
+  private readonly bossAppearances = new Map<number, BossAppearance>()
   private readonly bossDamageMultipliers = new Map<number, number>()
   /** Only boss rooms opt in. Ordinary rooms retain their complete splitting chains. */
   private minionCap: number | null = null
@@ -383,6 +391,7 @@ export class EnemySystem implements ActorEventSink {
 
   constructor(opts: EnemySystemOptions) {
     this.scene = opts.scene
+    this.bossPresentation = opts.bossPresentation
     this.bus = opts.bus
     this.clock = opts.clock
     this.bundle = opts.bundle
@@ -438,6 +447,9 @@ export class EnemySystem implements ActorEventSink {
         this.nextAiAt.delete(model)
         this.byId.delete(model.id)
         this.bossStages.delete(model.id)
+        this.skillCapExempt.delete(model.id)
+        this.cloneBossStages.delete(model.id)
+        this.bossAppearances.delete(model.id)
         this.finalBosses.delete(model.id)
         this.bossDamageMultipliers.delete(model.id)
         this.patrolOrigins.delete(model.id)
@@ -678,6 +690,11 @@ export class EnemySystem implements ActorEventSink {
       const entry = this.frameEntries[i]!
       if (!entry.model.alive) continue
       const model = entry.model
+      if (nowMs < model.skillStunnedUntilMs || nowMs < model.skillControlledUntilMs || model.skillStationary) {
+        model.velIntent.x = model.velIntent.y = 0
+        entry.view.body.stop()
+        continue
+      }
       const baseX = model.velIntent.x, baseY = model.velIntent.y
       const pull = vortexFields.length ? enemyVortexPull(model.id, entry.view.body.center, vortexFields) : null
       model.velIntent.x += pull?.x ?? 0
@@ -747,7 +764,7 @@ export class EnemySystem implements ActorEventSink {
 
   /** Host uses the same predicate for player × enemy collision composition. */
   collidesWithUnits(id: number): boolean {
-    return this.byId.get(id)?.model.state !== 'dash'
+    return !this.bossAppearances.get(id)?.hidden && this.byId.get(id)?.model.state !== 'dash'
   }
 
   /** Map composition can replace geometry queries without rebuilding the enemy system. */
@@ -961,6 +978,11 @@ export class EnemySystem implements ActorEventSink {
       const model = entry.model
       if (!model.alive) continue
 
+      if (nowMs < model.skillStunnedUntilMs || nowMs < model.skillControlledUntilMs) {
+        model.velIntent.x = model.velIntent.y = 0
+        continue
+      }
+
       const brain = this.brains.get(model)
       const self = this.snaps.get(model)
       if (!brain || !self) continue
@@ -984,7 +1006,8 @@ export class EnemySystem implements ActorEventSink {
         ? this.bundle.enemies.stage2Boss.aggroRadius
         : this.bundle.enemies.enemies.tank.aggroRadius
       const alertTarget =
-        target && distanceFromOrigin <= activityRadius && distanceToPlayer <= alertRadius
+        target && (nowMs < model.skillRallyUntilMs ||
+          distanceFromOrigin <= activityRadius && distanceToPlayer <= alertRadius)
           ? target
           : null
       const isNear = alertTarget
@@ -1046,7 +1069,7 @@ export class EnemySystem implements ActorEventSink {
         model.setState(next as EnemyState, nowMs)
         this.animalStateChanged(entry, previous, nowMs)
       }
-      if (out.attack) this.resolveAttack(entry, out.attack)
+      if (out.attack && !model.skillManualAttacks) this.resolveAttack(entry, out.attack)
 
       ticked++
       if (isNear) near++
@@ -1072,9 +1095,9 @@ export class EnemySystem implements ActorEventSink {
       nowMs,
       target,
       (id) => this.byId.get(id)?.model.alive ?? false,
-      (x0, y0, x1, y1) =>
+      (x0, y0, x1, y1, radius) =>
         this.projectileBlocked
-          ? !this.projectileBlocked(x0, y0, x1, y1, this.radialShots.cfg.radius)
+          ? !this.projectileBlocked(x0, y0, x1, y1, radius)
           : !this.nav || this.nav.hasLineOfSight(x0, y0, x1, y1),
       (shot) =>
         target?.model.takeHit({
@@ -1143,6 +1166,7 @@ export class EnemySystem implements ActorEventSink {
       g.entry.view.setPosition(g.fromX + (to.x - g.fromX) * t, g.fromY + (to.y - g.fromY) * t)
       if (t < 1) return
       g.entry.view.body.reset(to.x, to.y)
+      this.syncPlacedBody(g.entry)
       g.phase = 'holding'
       // **玩法判定从「吸附完成」这一刻才开始**：咬人节拍与连点都从这时起算
       const d = this.derivedGrabber(this.bundle.enemies.enemies.grabber)
@@ -1409,13 +1433,13 @@ export class EnemySystem implements ActorEventSink {
     if (this.disposed || this.clock.paused || this.clock.frozen) return
     const actor = enemyGO as EnemyActor
     const model = actor.model as EnemyModel | undefined
-    if (!model || this.byId.get(model.id)?.view !== actor) return
+    if (!model || this.byId.get(model.id)?.view !== actor || this.bossAppearances.get(model.id)?.hidden) return
     const target = this.playerOf()
     if (target?.alive) this.pendingPlayerContacts.add(model.id)
   }
 
   private registerPlayerContact(model: EnemyModel, target: PlayerView, nowMs: number): void {
-    if (!model.alive) return
+    if (!model.alive || this.bossAppearances.get(model.id)?.hidden) return
     this.liquid.touchContact(target.model.id, model, nowMs)
     if (this.liquid.active) {
       // 穿怪时保留重叠帧伤，移除敌人旧接触伤害配对，不让穿梭被受击硬直打断。
@@ -1474,7 +1498,7 @@ export class EnemySystem implements ActorEventSink {
       throw new Error('EnemySystem: minion cap must be a positive integer or null')
     this.minionCap = maxAlive
     if (maxAlive !== null) {
-      const queued = this.spawns.peek().filter((request) => request.bossStage === undefined).length
+      const queued = this.spawns.peek().filter((request) => request.bossStage === undefined && !request.skillCapExempt).length
       this.spawns.limitMinions(acceptedMinionSpawns(queued, this.minionPopulation - queued, maxAlive))
     }
   }
@@ -1483,12 +1507,12 @@ export class EnemySystem implements ActorEventSink {
   get minionPopulation(): number {
     let count = 0
     for (const { model } of this.byId.values())
-      if (model.alive && !this.isBoss(model.id)) count++
+      if (model.alive && !this.isBoss(model.id) && !this.skillCapExempt.has(model.id)) count++
     for (const request of this.spawns.peek())
-      if (request.bossStage === undefined) count++
+      if (request.bossStage === undefined && !request.skillCapExempt) count++
     const generations = this.bundle.enemies.enemies.splitter.generations
     for (const death of this.pendingDeaths) {
-      if (death.reason !== 'split') continue
+      if (death.reason !== 'split' || this.skillCapExempt.has(death.entry.model.id)) continue
       count += generations[death.entry.model.gen]?.childCount ?? 0
     }
     return count
@@ -1529,7 +1553,7 @@ export class EnemySystem implements ActorEventSink {
     damageMultiplier = 1,
   ): boolean {
     const spec = this.specFor('tank', 0)
-    const ranged = stage === 2 && !finalBoss ? this.bundle.enemies.stage2Boss : null
+    const ranged = stage === 3 && !finalBoss ? this.bundle.enemies.stage2Boss : null
     return this.spawns.push({
       spec: {
         ...spec,
@@ -1590,8 +1614,238 @@ export class EnemySystem implements ActorEventSink {
   /** Stable public snapshots; consumers never hold pooled EnemyModel references. */
   weaponTarget(id: number): { id: number; x: number; y: number; radius: number } | null {
     const e = this.byId.get(id)
-    if (!e?.model.alive || !e.view.body.enable) return null
-    return { id, x: e.view.body.center.x, y: e.view.body.center.y, radius: e.view.body.halfWidth }
+    if (!e?.model.alive || !e.view.body.enable || this.bossAppearances.get(id)?.hidden) return null
+    const radius = e.view.body.halfWidth *
+      (this.isBoss(id) || this.cloneBossStages.has(id) ? this.bossPresentation?.bossHitRadiusMultiplier ?? 1 : 1)
+    return { id, x: e.view.body.center.x, y: e.view.body.center.y, radius }
+  }
+
+  skillUnits(): EnemySkillUnit[] {
+    if (this.disposed) return []
+    const result: EnemySkillUnit[] = []
+    for (const { model, view } of this.byId.values()) {
+      // Phaser destroys display bodies before user SHUTDOWN listeners execute.
+      if (!model.alive || model.hp <= 0 || !view.body) continue
+      result.push({ id: model.id, x: view.body.center.x, y: view.body.center.y,
+        hp: model.hp, maxHp: model.maxHp, kind: model.enemyKind, gen: model.gen,
+        bossStage: this.bossStages.get(model.id), radius: view.body.halfWidth,
+        vx: view.body.velocity.x, vy: view.body.velocity.y })
+    }
+    return result
+  }
+
+  setUnitPosition(id: number, x: number, y: number): boolean {
+    const entry = this.byId.get(id)
+    if (this.disposed || !entry?.model.alive || !entry.view.body || !Number.isFinite(x) || !Number.isFinite(y)) return false
+    // The skill adapter already checks walls or chooses a teleport landing point. Running
+    // navigation fallback here again would replace short moves with jumps to distant cells.
+    const position = { x, y }
+    entry.view.setPosition(position.x, position.y)
+    entry.view.body.reset(position.x, position.y)
+    this.syncPlacedBody(entry)
+    entry.model.dashLastX = entry.view.body.center.x
+    entry.model.dashLastY = entry.view.body.center.y
+    entry.model.spinX = entry.view.body.center.x
+    entry.model.spinY = entry.view.body.center.y
+    this.vortex.moveOwner(id, entry.model.spinX, entry.model.spinY)
+    this.patrolOrigins.set(id, { x: entry.model.spinX, y: entry.model.spinY })
+    return true
+  }
+
+  setUnitHp(id: number, hp: number): boolean {
+    return this.byId.get(id)?.model.setHealthFromSkill(hp, this.clock.nowMs, this.clock.frameId) ?? false
+  }
+
+  setUnitSpeedBoost(id: number, multiplier: number, untilMs: number): boolean {
+    const entry = this.byId.get(id)
+    if (this.disposed || !entry?.model.alive || !entry.view.body || !Number.isFinite(multiplier) || multiplier <= 0 || !Number.isFinite(untilMs)) return false
+    entry.model.skillSpeedMultiplier = multiplier
+    entry.model.skillSpeedUntilMs = untilMs
+    entry.view.body.setMaxVelocity(Math.max(entry.model.stats.speed * 3, entry.model.stats.speed * multiplier))
+    return true
+  }
+
+  setUnitRally(id: number, untilMs: number): boolean {
+    const model = this.byId.get(id)?.model
+    if (!model?.alive || !Number.isFinite(untilMs)) return false
+    model.skillRallyUntilMs = untilMs
+    this.nextAiAt.set(model, 0)
+    return true
+  }
+
+  setBossInvulnerable(id: number, untilMs: number): boolean {
+    const model = this.byId.get(id)?.model
+    if (!model?.alive || !this.isBoss(id) || !Number.isFinite(untilMs)) return false
+    model.skillInvulnerableUntilMs = untilMs
+    return true
+  }
+
+  setBossControlled(id: number, untilMs: number): boolean {
+    const entry = this.byId.get(id)
+    if (this.disposed || !entry?.model.alive || !entry.view.body || !this.isBoss(id) || !Number.isFinite(untilMs)) return false
+    entry.model.skillControlledUntilMs = untilMs
+    this.stopSkillUnit(entry)
+    return true
+  }
+
+  setBossManualAttacks(id: number, manual: boolean): boolean {
+    const entry = this.byId.get(id)
+    if (!entry?.model.alive || !this.isBoss(id)) return false
+    entry.model.skillManualAttacks = manual
+    entry.model.setState('chase', this.clock.nowMs)
+    this.nextAiAt.set(entry.model, 0)
+    return true
+  }
+
+  setUnitStunned(id: number, untilMs: number): boolean {
+    const entry = this.byId.get(id)
+    if (this.disposed || !entry?.model.alive || !entry.view.body || !Number.isFinite(untilMs)) return false
+    entry.model.skillStunnedUntilMs = untilMs
+    this.stopSkillUnit(entry)
+    return true
+  }
+
+  setUnitAnimationPaused(id: number, paused: boolean): boolean {
+    const model = this.byId.get(id)?.model
+    if (!model?.alive) return false
+    model.skillAnimationPaused = paused
+    return true
+  }
+
+  setUnitLaugh(id: number, untilMs: number): boolean {
+    const model = this.byId.get(id)?.model
+    if (!model?.alive || !Number.isFinite(untilMs)) return false
+    model.skillLaughUntilMs = untilMs
+    return true
+  }
+
+  /** A different animation sheet must not shift the body's center or change its solid radius. */
+  setPresentationTexture(id: number, key: string, frame?: number): void {
+    const entry = this.byId.get(id)
+    if (this.disposed || !entry?.model.alive || !entry.view.body) return
+    const center = { x: entry.view.body.center.x, y: entry.view.body.center.y }
+    const radius = entry.view.body.halfWidth
+    const velocity = { x: entry.view.body.velocity.x, y: entry.view.body.velocity.y }
+    entry.view.setTexture(textureKeyFor(this.scene, key), frame)
+    entry.view.setPosition(center.x, center.y)
+    entry.view.body.reset(center.x, center.y)
+    this.restoreBodyRadius(entry, radius)
+    entry.view.body.setVelocity(velocity.x, velocity.y)
+  }
+
+  private stopSkillUnit(entry: Entry): void {
+    if (this.grab?.entry === entry) this.endGrab()
+    this.stopAnimalAttack(entry.model)
+    entry.model.setState('chase', this.clock.nowMs)
+    entry.model.velIntent.x = entry.model.velIntent.y = 0
+    entry.view.body.stop()
+    this.nextAiAt.set(entry.model, 0)
+  }
+
+  bossAppearance(id: number): Readonly<BossAppearance> | undefined { return this.bossAppearances.get(id) }
+  bossSkinStage(id: number): number | undefined {
+    return this.bossAppearances.get(id)?.skinBossStage ?? this.cloneBossStages.get(id) ?? this.bossStages.get(id)
+  }
+
+  setBossAppearance(id: number, appearance: BossAppearance): boolean {
+    const entry = this.byId.get(id)
+    if (this.disposed || !entry?.model.alive || !entry.view.body || (!this.isBoss(id) && !this.cloneBossStages.has(id))) return false
+    const stage = appearance.skinBossStage ?? this.cloneBossStages.get(id) ?? this.bossStages.get(id)!
+    const textureKey = appearance.playerTextureKey ?? bossArt(stage, stage === 8).key
+    const radius = entry.view.body.halfWidth
+    const position = { x: entry.view.body.center.x, y: entry.view.body.center.y }
+    const visualScale = appearance.visualScale ?? this.defaultBossVisualScale(this.bossStages.get(id) ?? this.cloneBossStages.get(id)!)
+    if (!Number.isFinite(visualScale) || visualScale <= 0) return false
+    this.bossAppearances.set(id, { ...appearance })
+    entry.model.skillStationary = appearance.stationary ?? false
+    entry.view.spawnAt({ ...position, textureKey, visualScale, collideWorldBounds: this.nav !== null })
+    // Monochrome frames are derived at runtime from a manifest-backed player sheet.
+    if (appearance.playerTextureKey && this.scene.textures.exists(appearance.playerTextureKey)) {
+      const playerTexture = this.scene.textures.get(appearance.playerTextureKey)
+      entry.view.setTexture(appearance.playerTextureKey, playerTexture.has('0') ? 0 : undefined)
+    }
+    this.restoreBodyRadius(entry, radius)
+    entry.view.setVisible(!appearance.hidden).clearTint().setTint(appearance.black ? 0x333333 : 0xffffff)
+    return true
+  }
+
+  private defaultBossVisualScale(stage: number): number {
+    const base = stage === 3 ? this.bundle.enemies.stage2Boss.visualScale : this.bundle.enemies.enemies.tank.visualScale
+    return base * (this.bossPresentation?.bossVisualScaleMultiplier ?? 1)
+  }
+
+  private restoreBodyRadius(entry: Entry, radius: number): void {
+    const local = radius / entry.view.scaleX
+    entry.view.body.setCircle(local, entry.view.frame.realWidth / 2 - local, entry.view.frame.realHeight / 2 - local)
+    this.syncPlacedBody(entry)
+  }
+
+  /** Arcade reset uses the sprite corner; the circle offset must share the same frame baseline. */
+  private syncPlacedBody(entry: Entry): void {
+    const body = entry.view.body
+    body.updateFromGameObject()
+    body.prev.copy(body.position)
+    body.prevFrame.copy(body.position)
+    // Phaser 3.90 keeps this reset baseline at runtime but omits it from its public types.
+    const autoFrame = (body as Phaser.Physics.Arcade.Body & { autoFrame: Phaser.Math.Vector2 }).autoFrame
+    autoFrame.copy(body.position)
+  }
+
+  fireBossVolley(id: number, volley: BossVolley): number {
+    const entry = this.byId.get(id)
+    if (this.disposed || !entry?.model.alive || !entry.view.body || !this.isBoss(id)) return 0
+    const center = entry.view.body.center
+    return this.radialShots.emitCustom(id, center.x, center.y, this.clock.nowMs, volley)
+  }
+
+  summonSkillEnemy(kind: EnemyKind, gen: number, x: number, y: number): number | null {
+    this.assertWired()
+    const nowMs = this.clock.nowMs
+    return this.spawnRequest({ spec: this.specFor(kind, gen), x, y, skillCapExempt: true,
+      reason: 'wave', atMs: nowMs, enqueuedAtMs: nowMs }, nowMs, false, { x, y })
+  }
+
+  spawnBossClone(ownerId: number, x: number, y: number, hp: number): number | null {
+    const owner = this.byId.get(ownerId)
+    const stage = this.bossStages.get(ownerId)
+    if (this.disposed || !owner?.model.alive || !owner.view.body || stage === undefined || !Number.isFinite(hp) || hp <= 0) return null
+    const base = this.specFor('tank', 0)
+    const nowMs = this.clock.nowMs
+    const id = this.spawnRequest({ spec: { ...base, pierceImmune: true,
+      stats: { ...owner.model.stats, maxHp: hp } }, x, y, skillCapExempt: true,
+      cloneBossStage: stage, reason: 'wave', atMs: nowMs, enqueuedAtMs: nowMs }, nowMs, false, { x, y })
+    if (id === null) return null
+    this.setBossAppearance(id, { ...this.bossAppearances.get(ownerId), hidden: false, stationary: false })
+    const clone = this.byId.get(id)
+    if (clone) this.restoreBodyRadius(clone, owner.view.body.halfWidth)
+    return id
+  }
+
+  despawnSkillUnit(id: number): void {
+    const entry = this.byId.get(id)
+    if (this.disposed || !entry || !entry.view.body) return
+    if (this.grab?.entry === entry) this.endGrab()
+    for (let i = this.pendingDeaths.length - 1; i >= 0; i--)
+      if (this.pendingDeaths[i]?.entry === entry) this.pendingDeaths.splice(i, 1)
+    this.pool.release(entry)
+  }
+
+  transformMinions(kind: EnemyKind): number {
+    let count = 0
+    const nowMs = this.clock.nowMs
+    for (const entry of [...this.byId.values()]) {
+      const model = entry.model
+      if (!model.alive || model.hp <= 0 || this.isBoss(model.id)) continue
+      const spec = this.specFor(kind, 0)
+      const request: SpawnRequest = { spec, x: entry.view.body.center.x, y: entry.view.body.center.y,
+        skillCapExempt: this.skillCapExempt.has(model.id),
+        initialHpRatio: transformedHealth(model.hp, model.maxHp, spec.stats.maxHp) / spec.stats.maxHp,
+        reason: 'wave', atMs: nowMs, enqueuedAtMs: nowMs }
+      if (!this.spawns.push(request)) continue
+      this.despawnSkillUnit(model.id)
+      count++
+    }
+    return count
   }
   weaponTargets(): { id: number; x: number; y: number; radius: number }[] {
     const result: { id: number; x: number; y: number; radius: number }[] = []
@@ -1603,7 +1857,7 @@ export class EnemySystem implements ActorEventSink {
   }
   weaponHit(id: number, sourceId: number, amount: number, tick: number | null): HitResult {
     const e = this.byId.get(id)
-    if (!e?.model.alive) return { applied: 0, killed: false, consumed: false }
+    if (!e?.model.alive || this.bossAppearances.get(id)?.hidden) return { applied: 0, killed: false, consumed: false }
     // Fixed weapon damage follows the existing heavy-cannon rule, while still using takeHit.
     const multiplier = e.model.state === 'recover' ? e.model.vulnerableMult : 1
     return e.model.takeHit({
@@ -1615,6 +1869,15 @@ export class EnemySystem implements ActorEventSink {
       nowMs: this.clock.nowMs,
       frameId: this.clock.frameId,
     })
+  }
+
+  /** Hazard identity owns deduplication: overlapping acid pools are independent sources. */
+  skillDamage(id: number, amount: number, sourceId: number, hitKey: string): HitResult {
+    const model = this.byId.get(id)?.model
+    if (this.disposed || !model?.alive || this.bossAppearances.get(id)?.hidden)
+      return { applied: 0, killed: false, consumed: false }
+    return model.takeHit({ sourceId, hitKey, sourceKind: 'aoe', mode: 'instant', amount,
+      nowMs: this.clock.nowMs, frameId: this.clock.frameId })
   }
   weaponSlow(id: number, multiplier: number, untilMs: number): void {
     const e = this.byId.get(id)
@@ -1628,6 +1891,7 @@ export class EnemySystem implements ActorEventSink {
     const model = (enemy as EnemyActor).model as EnemyModel | undefined
     if (!model || !model.alive || !this.byId.has(model.id))
       return { applied: 0, killed: false, consumed: true }
+    if (this.bossAppearances.get(model.id)?.hidden) return { applied: 0, killed: false, consumed: false }
     const multiplier = model.state === 'recover' ? model.vulnerableMult : 1
     const result = model.takeHit({
       sourceId,
@@ -1749,76 +2013,93 @@ export class EnemySystem implements ActorEventSink {
 
   private drainSpawns(nowMs: number): void {
     const result = this.spawns.drain(nowMs, this.pool.live)
+    for (const request of result.spawned) this.spawnRequest(request, nowMs)
+  }
 
-    for (let i = 0; i < result.spawned.length; i++) {
-      const req = result.spawned[i]!
-      if (this.minionCap !== null && req.bossStage === undefined) {
-        let liveMinions = 0
-        for (const { model } of this.byId.values())
-          if (model.alive && !this.isBoss(model.id)) liveMinions++
-        if (acceptedMinionSpawns(1, liveMinions, this.minionCap) === 0) continue
-      }
-      const entry = this.pool.acquire(req.spec, nowMs)
-
-      if (!entry) {
-        // 池满了。**留在队列里等**，不是丢掉 —— 丢掉一只分裂怪的孩子，
-        // 玩家看到的就是「打爆了但什么都没出来」，整个割草爽感的机制就没了。
-        //
-        // ⚠️ `enqueuedAtMs` 必须保留原值（不能写 nowMs）：写 nowMs 等于「刚刚入队」，
-        // 积压兜底会永远判不出来，队列会一直涨。只有 `atMs` 该被推后。
-        this.spawns.push({
-          ...req,
-          atMs: nowMs + this.bundle.balance.spawn.overflowStaggerMs,
-        })
-        continue
-      }
-
-      const model = entry.model
-      const position = this.safeSpawn?.(req.x, req.y, model.stats.radius) ?? req
-      const portrait =
-        req.bossStage === undefined ? null : bossArt(req.bossStage, req.finalBoss ?? false)
-      entry.view.spawnAt({
-        x: position.x,
-        y: position.y,
-        collideWorldBounds: this.nav !== null,
-        textureKey: portrait?.key ?? this.textureKeyFor(model.enemyKind, model.gen),
-        visualScale:
-          req.bossStage === 2 && !req.finalBoss
-            ? this.bundle.enemies.stage2Boss.visualScale
-            : this.visualScaleFor(model.enemyKind, model.gen),
-        // 速度上限：Arcade 默认 maxVelocity 是 (10000,10000)，分离力 + 击退叠起来
-        // 能把怪甩出房间。这只是兜底，不参与正常移动。
-        speedCap: model.enemyKind === 'muscovy'
-          ? Math.max(model.stats.speed * 3, this.bundle.enemies.enemies.muscovy.charge.dashSpeed)
-          : model.stats.speed * 3,
-      })
-      // Bosses and textbooks share pool buckets. Never carry a boss tint into a normal enemy.
-      entry.view.clearTint().setTint(portrait?.tint ?? 0xffffff)
-      entry.view.body.setImmovable(false)
-      entry.view.body.pushable = true
-
-      this.byId.set(model.id, entry)
-      if (req.bossStage !== undefined) this.bossStages.set(model.id, req.bossStage)
-      if (req.finalBoss) this.finalBosses.add(model.id)
-      if (req.bossStage !== undefined)
-        this.bossDamageMultipliers.set(model.id, req.bossDamageMultiplier ?? 1)
-      this.patrolOrigins.set(model.id, { x: position.x, y: position.y })
-      model.sink = this
-      this.brains.set(model, this.makeBrain(model))
-      this.nextAiAt.set(model, 0) // 出生的下一帧立刻跑一次 AI，别等满一个降频周期
-      this.snaps.set(model, { ...this.blank })
-
-      this.bus.emit('entity_spawned', {
-        bossStage: req.bossStage,
-        finalBoss: req.finalBoss ?? false,
-        id: model.id,
-        kind: 'enemy',
-        enemyKind: model.enemyKind,
-        gen: model.gen,
-        x: position.x,
-        y: position.y,
-      })
+  private spawnRequest(req: SpawnRequest, nowMs: number, deferIfFull = true,
+    skillPosition?: { x: number; y: number }): number | null {
+    if (this.minionCap !== null && req.bossStage === undefined && !req.skillCapExempt) {
+      let liveMinions = 0
+      for (const { model } of this.byId.values())
+        if (model.alive && !this.isBoss(model.id) && !this.skillCapExempt.has(model.id)) liveMinions++
+      if (acceptedMinionSpawns(1, liveMinions, this.minionCap) === 0) return null
     }
+    const entry = this.pool.acquire(req.spec, nowMs)
+
+    if (!entry) {
+      // 池满了。**留在队列里等**，不是丢掉 —— 丢掉一只分裂怪的孩子，
+      // 玩家看到的就是「打爆了但什么都没出来」，整个割草爽感的机制就没了。
+      //
+      // ⚠️ `enqueuedAtMs` 必须保留原值（不能写 nowMs）：写 nowMs 等于「刚刚入队」，
+      // 积压兜底会永远判不出来，队列会一直涨。只有 `atMs` 该被推后。
+      if (deferIfFull) this.spawns.push({
+        ...req,
+        atMs: nowMs + this.bundle.balance.spawn.overflowStaggerMs,
+      })
+      return null
+    }
+
+    const model = entry.model
+    // Skill positions were validated inside the sealed boss room by the adapter. A second
+    // whole-floor navigation fallback could relocate a clone or summon across a wall.
+    const position = skillPosition ?? this.safeSpawn?.(req.x, req.y, model.stats.radius) ?? req
+    const portrait =
+      req.bossStage === undefined ? null : bossArt(req.bossStage, req.finalBoss ?? false)
+    const baseVisualScale = req.bossStage === 3 && !req.finalBoss
+      ? this.bundle.enemies.stage2Boss.visualScale
+      : this.visualScaleFor(model.enemyKind, model.gen)
+    const footprint = req.bossStage !== undefined && this.bossPresentation
+      ? bossFootprint(model.stats.radius, baseVisualScale, this.bossPresentation)
+      : null
+    entry.view.spawnAt({
+      x: position.x,
+      y: position.y,
+      collideWorldBounds: this.nav !== null,
+      textureKey: portrait?.key ?? this.textureKeyFor(model.enemyKind, model.gen),
+      visualScale: footprint?.visualScale ?? baseVisualScale,
+      // 速度上限：Arcade 默认 maxVelocity 是 (10000,10000)，分离力 + 击退叠起来
+      // 能把怪甩出房间。这只是兜底，不参与正常移动。
+      speedCap: model.enemyKind === 'muscovy'
+        ? Math.max(model.stats.speed * 3, this.bundle.enemies.enemies.muscovy.charge.dashSpeed)
+        : model.stats.speed * 3,
+    })
+    if (footprint) {
+      const radius = footprint.bodyTextureRadius
+      const frame = entry.view.frame
+      entry.view.body.setCircle(radius, frame.realWidth / 2 - radius, frame.realHeight / 2 - radius)
+    }
+    this.syncPlacedBody(entry)
+    // Bosses and textbooks share pool buckets. Never carry a boss tint into a normal enemy.
+    entry.view.clearTint().setTint(portrait?.tint ?? 0xffffff)
+    entry.view.body.setImmovable(false)
+    entry.view.body.pushable = true
+
+    this.byId.set(model.id, entry)
+    if (req.bossStage !== undefined) this.bossStages.set(model.id, req.bossStage)
+    if (req.finalBoss) this.finalBosses.add(model.id)
+    if (req.bossStage !== undefined)
+      this.bossDamageMultipliers.set(model.id, req.bossDamageMultiplier ?? 1)
+    if (req.skillCapExempt) this.skillCapExempt.add(model.id)
+    if (req.cloneBossStage !== undefined) this.cloneBossStages.set(model.id, req.cloneBossStage)
+    this.patrolOrigins.set(model.id, { x: position.x, y: position.y })
+    model.sink = this
+    this.brains.set(model, this.makeBrain(model))
+    this.nextAiAt.set(model, 0) // 出生的下一帧立刻跑一次 AI，别等满一个降频周期
+    this.snaps.set(model, { ...this.blank })
+
+    if (req.initialHpRatio !== undefined)
+      model.setHealthFromSkill(model.maxHp * req.initialHpRatio, nowMs, this.clock.frameId)
+    this.bus.emit('entity_spawned', {
+      bossStage: req.bossStage,
+      finalBoss: req.finalBoss ?? false,
+      id: model.id,
+      kind: 'enemy',
+      enemyKind: model.enemyKind,
+      gen: model.gen,
+      x: position.x,
+      y: position.y,
+    })
+    return model.id
   }
 
   /** 贴图 key。**分裂怪按代际**（每一代是一张图），其余按模板。 */
@@ -1860,6 +2141,10 @@ export class EnemySystem implements ActorEventSink {
   }
 
   private makeBrain(model: EnemyModel): Brain {
+    if (this.cloneBossStages.has(model.id)) {
+      const ai = this.bundle.enemies.enemies.tank.ai
+      return makeSplitterBrain(model, { sepStrength: ai.separationStrength, sepPad: ai.separationPad })
+    }
     if (model.enemyKind === 'muscovy') return makeMuscovyBrain(model, this.bundle.enemies.enemies.muscovy)
     if (model.enemyKind === 'nightmare_cat') return makeVortexCatBrain(model, this.bundle.enemies.enemies.nightmare_cat)
     if (model.enemyKind === 'sprayer')
@@ -1949,7 +2234,8 @@ export class EnemySystem implements ActorEventSink {
       const parentGen = entry.model.gen
 
       const allPlans = pd.reason === 'split' ? this.planChildren(parentGen, x, y, pd.baseAngleRad) : []
-      const plans = this.minionCap === null
+      const capExempt = this.skillCapExempt.has(entry.model.id)
+      const plans = this.minionCap === null || capExempt
         ? allPlans
         : allPlans.slice(0, acceptedMinionSpawns(allPlans.length, this.minionPopulation, this.minionCap))
 
@@ -1957,7 +2243,11 @@ export class EnemySystem implements ActorEventSink {
 
       for (let k = 0; k < plans.length; k++) {
         const p = plans[k]!
-        this.requestSpawn('splitter', pd.childGen, p.x, p.y, 'split', p.delayMs)
+        if (capExempt) this.spawns.push({
+          spec: this.specFor('splitter', pd.childGen), x: p.x, y: p.y,
+          reason: 'split', atMs: nowMs + p.delayMs, enqueuedAtMs: nowMs, skillCapExempt: true,
+        })
+        else this.requestSpawn('splitter', pd.childGen, p.x, p.y, 'split', p.delayMs)
       }
 
       if (plans.length > 0) {
@@ -2113,6 +2403,7 @@ export class EnemySystem implements ActorEventSink {
     const entry = this.byId.get(enemyId)
     // 不在池子里的 id（已经回收 / 不是我们的东西）：让子弹回池，别让它一直飞。
     if (!entry) return { applied: 0, killed: false, consumed: true }
+    if (this.bossAppearances.get(enemyId)?.hidden) return { applied: 0, killed: false, consumed: false }
     return this.contacts.contact(
       shotId,
       entry.model,
@@ -2168,6 +2459,7 @@ export class EnemySystem implements ActorEventSink {
       // 让子弹回池，否则它会一直飞下去。
       return { applied: 0, killed: false, consumed: true }
     }
+    if (this.bossAppearances.get(model.id)?.hidden) return { applied: 0, killed: false, consumed: false }
     return this.contacts.contact(sourceId, model, kind, impactDamage, tickDamage, maxTicks)
   }
 
@@ -2220,7 +2512,7 @@ export class EnemySystem implements ActorEventSink {
   /** 池里活着的敌人（只读快照）。遍历时不要在里面刷怪 */
   /** Horizontal target direction for enemy presentation; zero retains its current facing. */
   isStage2Boss(id: number): boolean {
-    return this.bossStages.get(id) === 2 && !this.finalBosses.has(id)
+    return this.bossStages.get(id) === 3 && !this.finalBosses.has(id)
   }
   isFinalBoss(id: number): boolean {
     return this.finalBosses.has(id)

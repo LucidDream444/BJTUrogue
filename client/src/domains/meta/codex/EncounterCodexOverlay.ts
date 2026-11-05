@@ -11,7 +11,8 @@ import { OverlayLayer } from '../ui/overlayLayer'
 import { SaveStatusBanner } from '../ui/SaveStatusBanner'
 import { THEME, fontPx } from '../ui/theme'
 import { CodexPanel } from './CodexPanel'
-import { buildCodexEntries, type CodexEntry } from './codexCatalog'
+import { codexBossSkillConfig } from './bossCodexNotes'
+import { buildCodexEntries, codexEncounterConfig, type CodexEntry } from './codexCatalog'
 import { EnemyEncounterQueue } from './enemyEncounterQueue'
 
 export interface EncounterCodexHost {
@@ -66,20 +67,23 @@ export class EncounterCodexOverlay {
     this.store = options.store
     this.host = options.host
     this.difficulty = options.difficulty
-    this.entries = buildCodexEntries(options.bundle, options.difficulty)
+    this.entries = buildCodexEntries(
+      options.bundle, options.difficulty, codexEncounterConfig(this.scene.cache.json.get('combat.json')),
+      codexBossSkillConfig(this.scene.cache.json.get('boss-skills.json')),
+    )
     this.queue = new EnemyEncounterQueue(this.store.profile.encounteredEnemyKinds)
 
     this.promptLayer = new OverlayLayer(this.scene)
     this.prompt = this.scene.add.container(0, 0).setVisible(false)
     this.promptPanel = this.scene.add
-      .rectangle(0, 0, 296, 92, THEME.color.panel, 0.98)
+      .rectangle(0, 0, 392, 156, THEME.color.panel, 0.98)
       .setOrigin(0)
-      .setStrokeStyle(2, THEME.color.accent)
-    this.promptTitle = this.promptText(12, 12, '首次遭遇', THEME.font.small, THEME.text.accent)
-    this.promptCount = this.promptText(284, 12, '', THEME.font.small, THEME.text.dim)
+      .setStrokeStyle(3, THEME.color.accent)
+    this.promptTitle = this.promptText(20, 18, '发现新怪物', THEME.font.heading, THEME.text.accent)
+    this.promptCount = this.promptText(372, 22, '', THEME.font.body, THEME.text.dim)
       .setOrigin(1, 0)
-    this.promptName = this.promptText(12, 34, '', THEME.font.body, THEME.text.body)
-    this.promptHint = this.promptText(12, 62, '按 Tab 查看该怪物图鉴', THEME.font.small, THEME.text.accent)
+    this.promptName = this.promptText(20, 58, '', THEME.font.title, THEME.text.body)
+    this.promptHint = this.promptText(20, 112, '按 Tab 查看机制与战斗笔记', THEME.font.heading, THEME.text.accent)
     this.prompt.add([
       this.promptPanel, this.promptTitle, this.promptCount, this.promptName, this.promptHint,
     ])
@@ -161,11 +165,14 @@ export class EncounterCodexOverlay {
   }
 
   private layoutPrompt(): void {
-    const width = Math.min(296, this.scene.scale.width - THEME.space.md * 2)
-    this.promptPanel.setSize(width, 92)
-    this.promptCount.setX(width - 12)
-    this.promptName.setWordWrapWidth(width - 24)
-    this.prompt.setPosition(this.scene.scale.width - width - THEME.space.md, THEME.space.md)
+    const width = Math.min(392, this.scene.scale.width - THEME.space.lg * 2)
+    this.promptPanel.setSize(width, 156)
+    this.promptCount.setX(width - 20)
+    this.promptName.setWordWrapWidth(width - 40)
+    this.prompt.setPosition(
+      this.scene.scale.width - width - THEME.space.lg,
+      Math.max(THEME.space.md, (this.scene.scale.height - 156) / 2),
+    )
   }
 
   private refreshPrompt(): void {
@@ -173,7 +180,7 @@ export class EncounterCodexOverlay {
     this.prompt.setVisible(!this.opened && next !== null && this.host.canOpen())
     if (!next) return
     const entry = this.entries.find((candidate) => candidate.id === next.entryId)
-    this.promptName.setText(entry ? `${entry.name} · ${entry.variant}` : next.entryId)
+    this.promptName.setText(entry?.name ?? next.entryId)
     this.promptCount.setText(this.queue.pendingCount > 1 ? `待阅 ${this.queue.pendingCount} 种` : '')
   }
 

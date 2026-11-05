@@ -1166,6 +1166,8 @@
     "bossHp": 900,
     "bossHpPerStage": 300,
     "bossDamageMultiplier": 1.5,
+    "bossVisualScaleMultiplier": 2,
+    "bossHitRadiusMultiplier": 2,
     "bossReinforcements": {
       "cooldownMs": 8000,
       "maxAlive": 6,
