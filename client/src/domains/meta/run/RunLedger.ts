@@ -15,7 +15,9 @@
  */
 
 import type { GameEvents, TypedBus } from '@/core/events'
+import type { MetaConfig } from '../metaConfig'
 import type { RunInput } from '../progress/progress'
+import { coinsForRun } from '../progress/progress'
 
 /**
  * 账本对总线的全部要求：**能订阅 `entity_killed`**。
@@ -35,6 +37,8 @@ export class RunLedger {
   private killCount = 0
   private roomCount = 0
   private depthValue = 1
+  private bonusCoins = 0
+  private spentCoins = 0
   private readonly unsubscribe: () => void
 
   constructor(bus: KillEventSource) {
@@ -59,12 +63,48 @@ export class RunLedger {
 
   /** 宿主推进到新的一层时调 */
   setDepth(depth: number): void {
-    this.depthValue = Math.max(1, Math.round(depth))
+    this.depthValue = Math.max(this.depthValue, 1, Math.round(depth))
   }
 
   /** C1 还没有 `room_cleared`，所以清房由宿主报（见文件头） */
   countClearedRoom(): void {
     this.roomCount += 1
+  }
+
+  /**
+   * 给未来怪物 / 宝箱掉币预留的即时入账口。
+   *
+   * 当前正式玩法还没有实体金币，测试场和后续掉落系统都走同一入口；
+   * 不改计数，因此不会影响击杀 / 清房 / 层数的原收益公式。
+   */
+  grant(amount: number): void {
+    const value = Number.isFinite(amount) ? Math.max(0, Math.round(amount)) : 0
+    this.bonusCoins += value
+  }
+
+  get spent(): number {
+    return this.spentCoins
+  }
+
+  earned(meta: MetaConfig): number {
+    return coinsForRun(meta, this.input('quit')) + this.bonusCoins
+  }
+
+  remaining(meta: MetaConfig): number {
+    return Math.max(0, this.earned(meta) - this.spentCoins)
+  }
+
+  spend(meta: MetaConfig, amount: number): boolean {
+    const value = Number.isFinite(amount) ? Math.max(0, Math.round(amount)) : 0
+    if (value === 0) return true
+    if (this.remaining(meta) < value) return false
+    this.spentCoins += value
+    return true
+  }
+
+  refund(amount: number): void {
+    const value = Number.isFinite(amount) ? Math.max(0, Math.round(amount)) : 0
+    this.spentCoins = Math.max(0, this.spentCoins - value)
   }
 
   /** 结算要的那份输入 */
@@ -83,6 +123,8 @@ export class RunLedger {
     this.killCount = 0
     this.roomCount = 0
     this.depthValue = 1
+    this.bonusCoins = 0
+    this.spentCoins = 0
   }
 
   /** 场景结束必须调 —— 不调的话总线上的订阅会留到下一个场景。 */

@@ -10,6 +10,7 @@ import {
   SKILL_MAX_LEVEL,
   buySkillUpgrade,
   coinsForRun,
+  convertedRunCoins,
   effectiveStats,
   isUnlocked,
   settleRun,
@@ -113,7 +114,20 @@ describe('一局的收益', () => {
     expect(coinsForRun(META, { outcome: 'dead', depth: -5, kills: -3, clearedRooms: -1 })).toBe(0)
   })
 
-  it('阵亡照样发币，币只加不减', () => {
+  it('结算只把未花的局内货币按 50% 向下取整带入局外', () => {
+    expect(
+      convertedRunCoins(META, {
+        outcome: 'dead',
+        depth: 3,
+        kills: 10,
+        clearedRooms: 2,
+        runCoinsEarned: 101,
+        runCoinsSpent: 40,
+      }),
+    ).toBe(30)
+  })
+
+  it('阵亡照样发币，局外余额只加不减', () => {
     const p = profile()
     p.currency.coins = 500
     const r = settleRun(p, META, { outcome: 'dead', depth: 2, kills: 8, clearedRooms: 1 })
@@ -143,6 +157,27 @@ describe('RunLedger', () => {
     ledger.dispose()
     bus.emit('entity_killed', killed('enemy'))
     expect(ledger.kills).toBe(0)
+  })
+
+  it('局内钱包按当前公式入账，消费不碰局外档，层数只增不减', () => {
+    const bus = new TypedBus<GameEvents>()
+    const ledger = new RunLedger(bus)
+    expect(ledger.remaining(META)).toBe(META.economy.coinsPerDepth)
+    ledger.setDepth(3)
+    ledger.countClearedRoom()
+    bus.emit('entity_killed', killed('enemy'))
+    ledger.grant(7)
+    expect(ledger.earned(META)).toBe(
+      3 * META.economy.coinsPerDepth + META.economy.coinsPerClearedRoom +
+        META.economy.coinsPerKill + 7,
+    )
+    const before = ledger.remaining(META)
+    expect(ledger.spend(META, 4)).toBe(true)
+    expect(ledger.spent).toBe(4)
+    expect(ledger.remaining(META)).toBe(before - 4)
+    ledger.setDepth(1)
+    expect(ledger.depth).toBe(3)
+    ledger.dispose()
   })
 })
 

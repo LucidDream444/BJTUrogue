@@ -38,6 +38,9 @@ const OUTCOME_TEXT: Readonly<Record<RunInput['outcome'], string>> = {
 /** 只暴露一个结果给外面看 */
 export interface SettlementResult extends SettleOutcome {
   input: RunInput
+  runCoinsEarned: number
+  runCoinsSpent: number
+  runCoinsConverted: number
 }
 
 export class SettlementOverlay {
@@ -141,6 +144,10 @@ export class SettlementOverlay {
       ['到达进度', `第 ${input?.depth ?? 0} 层`],
       ['击杀', `${input?.kills ?? 0}`],
       ['清房', `${input?.clearedRooms ?? 0}`],
+      [
+        '局内金币',
+        `${s?.runCoinsEarned ?? 0} · 花费 ${s?.runCoinsSpent ?? 0} · 折算 +${s?.runCoinsConverted ?? 0}`,
+      ],
       ['本次所得', `+${s?.coinsEarned ?? 0} 币`],
       ['当前总计', `${s?.coinsTotal ?? 0} 币`],
     ]

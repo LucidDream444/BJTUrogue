@@ -70,6 +70,7 @@ export class CombatSession {
   private readonly playerCollider: Phaser.Physics.Arcade.Collider
   private readonly aim = new Phaser.Math.Vector2()
   readonly inventory: WeaponId[] = ['pencil']
+  private readonly pendingWeaponIds: WeaponId[] = []
   private readonly weaponRng = new Rng((20261014 ^ (Date.now() >>> 0)) >>> 0)
   weapon: WeaponDef
   stats: EffectiveStats
@@ -503,6 +504,73 @@ export class CombatSession {
     if (this.inventory.length < 2) return false
     const next = (this.inventory.indexOf(this.weapon.id) + 1) % this.inventory.length
     return this.equip(this.inventory[next]!)
+  }
+
+  /** 当前合法、可供商店陈列的局内强化 ID。 */
+  shopUpgradeCandidates(): string[] {
+    return this.rewards
+      .legal(this.weapon.id, this.player.model.hp, this.player.model.maxHp)
+      .filter((reward) => this.rewardChanges(reward).length > 0)
+      .map((reward) => reward.id)
+  }
+
+  canApplyShopReward(id: string): boolean {
+    return this.shopUpgradeCandidates().includes(id)
+  }
+
+  /** 商店购买强化：只改整局叠层并重算，不占用清房三选一的房间记录。 */
+  applyShopReward(id: string): boolean {
+    if (!this.player.model.alive || !this.canApplyShopReward(id)) return false
+    this.rewards.stacks.set(id, (this.rewards.stacks.get(id) ?? 0) + 1)
+    this.recompute()
+    return true
+  }
+
+  shopRewardDescription(id: string): string | null {
+    const reward = this.rewardDefs.find((entry) => entry.id === id)
+    return reward ? this.rewardDescription(reward) : null
+  }
+
+  /** 商店武器池排除已携带和已经买下、尚待交换的武器。 */
+  shopWeaponCandidates(): WeaponId[] {
+    return this.cfg.weapons
+      .map((weapon) => weapon.id)
+      .filter((id) => !this.inventory.includes(id) && !this.pendingWeaponIds.includes(id))
+  }
+
+  canAcquireShopWeapon(id: WeaponId): boolean {
+    return this.player.model.alive &&
+      this.cfg.weapons.some((weapon) => weapon.id === id) &&
+      !this.inventory.includes(id) &&
+      !this.pendingWeaponIds.includes(id)
+  }
+
+  /**
+   * 武器购买不受两格上限阻止：有空格直接装备，满格则进入待交换队列。
+   * 已经买过但未交换的武器也占“已拥有”，避免同一把武器重复进队列。
+   */
+  acquireShopWeapon(id: WeaponId): boolean {
+    if (!this.canAcquireShopWeapon(id)) return false
+    if (this.inventory.length < 2) {
+      this.inventory.push(id)
+      if (this.equip(id, true)) return true
+      this.inventory.pop()
+      return false
+    }
+    this.pendingWeaponIds.push(id)
+    return true
+  }
+
+  get pendingWeapons(): readonly WeaponId[] {
+    return this.pendingWeaponIds
+  }
+
+  /** 与普通奖励武器相同的槽位替换；成功后从待交换队列移除。 */
+  exchangePendingWeapon(slot: number): boolean {
+    const id = this.pendingWeaponIds[0]
+    if (!id || !this.replaceWeapon(slot, id)) return false
+    this.pendingWeaponIds.shift()
+    return true
   }
 
   pickupWeapon(id: WeaponId): boolean {
