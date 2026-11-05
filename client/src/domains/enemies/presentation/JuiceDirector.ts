@@ -163,7 +163,11 @@ export class JuiceDirector {
       opts.clock,
       opts.bundle.enemies.stage2Boss,
     )
-    this.healthBars = new EnemyHealthBars(opts.scene, opts.enemies)
+    this.healthBars = new EnemyHealthBars(
+      opts.scene,
+      opts.enemies,
+      opts.bundle.enemies.stage2Boss.displayName,
+    )
     this.grabAlerts = new GrabAlertFx(opts.scene, opts.enemies, opts.bundle.enemies.enemies.grabber)
     this.paperDeaths = new PaperDeathFx(
       opts.scene,

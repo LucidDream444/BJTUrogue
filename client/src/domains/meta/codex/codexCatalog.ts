@@ -222,11 +222,11 @@ export function buildCodexEntries(
     stats: [
       { label: '移动速度', value: `${boss.speed} px/s` },
       { label: '弹幕数量', value: `${boss.projectile.count} 发` },
-      { label: '单发伤害', value: `${boss.projectile.damage}` },
+      { label: '基础单发伤害', value: `${boss.projectile.damage}` },
       { label: '攻击前摇', value: formatSeconds(boss.windupMs) },
       { label: '碰撞半径', value: `${boss.radius} px` },
     ],
-    lorePlaceholder: '考卷折成纸鸢，准考证压在胸前，答题框与红色批改痕迹展开成双翼。它在远处释放环形弹幕；利用预警间隙穿过弹道，别被成堆试题困住。',
+    lorePlaceholder: '考卷折成纸鸢，准考证压在胸前，答题框与红色批改痕迹展开成双翼。它在远处释放环形弹幕；利用预警间隙穿过弹道，别被成堆试题困住。档案中的基础单发伤害还会受到当前难度与首领强化倍率影响。',
   })
 
   entries.push({

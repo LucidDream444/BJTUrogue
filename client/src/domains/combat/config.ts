@@ -1,5 +1,6 @@
 import type { BalanceConfig } from '@/core/config'
 import { validateAimArt, type AimArtConfig } from './AimPose'
+import type { BossReinforcementsConfig } from './BossReinforcements'
 
 export type WeaponId = 'pencil' | 'pulse' | 'venom' | 'flare' | 'rail' | 'smg'
 export type Stat =
@@ -168,6 +169,8 @@ export interface CombatConfig {
   encounter: {
     bossHp: number
     bossHpPerStage: number
+    bossDamageMultiplier: number
+    bossReinforcements: BossReinforcementsConfig
     bossX: number
     bossY: number
     bossColor: number
@@ -543,6 +546,19 @@ export function parseCombatConfig(raw: unknown): CombatConfig {
     c.encounter.bossHpPerStage < 0
   )
     throw new Error('encounter: Boss生命配置无效')
+  if (
+    !Number.isFinite(c.encounter.bossDamageMultiplier) ||
+    c.encounter.bossDamageMultiplier <= 0
+  )
+    throw new Error('encounter: Boss伤害倍率必须为正数')
+  const reinforcements = c.encounter.bossReinforcements
+  if (
+    !reinforcements ||
+    !Number.isFinite(reinforcements.cooldownMs) || reinforcements.cooldownMs <= 0 ||
+    !Number.isInteger(reinforcements.maxAlive) || reinforcements.maxAlive <= 0 ||
+    !Number.isInteger(reinforcements.spawnCount) || reinforcements.spawnCount <= 0
+  )
+    throw new Error('encounter: Boss补怪冷却、数量与上限配置无效')
   for (const camp of c.encounter.camps) numeric(camp, 'encounter.camp')
   if (
     !c.terrain ||

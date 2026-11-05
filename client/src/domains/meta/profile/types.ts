@@ -32,7 +32,7 @@
 import type { Difficulty } from '@/core/config'
 
 /** 当前 schema 版本。**改字段语义时加一**，并在 `migrate.ts` 里补一步迁移。 */
-export const PROFILE_SCHEMA_VERSION = 4
+export const PROFILE_SCHEMA_VERSION = 5
 
 /** 存储 key。**只有一个，且版本不在 key 里**（理由见文件头）。 */
 export const PROFILE_STORAGE_KEY = 'bjtu-rogue:profile'
@@ -114,6 +114,8 @@ export interface ProfileData {
   upgrades: ProfileUpgrades
   stats: ProfileStats
   selected: ProfileSelection
+  /** 已首次生成过的怪物种类；分裂怪各代共享一个标记，三种首领各有独立身份。 */
+  encounteredEnemyKinds: string[]
 }
 
 /**

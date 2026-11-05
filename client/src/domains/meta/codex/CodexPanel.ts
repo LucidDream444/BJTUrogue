@@ -84,7 +84,8 @@ export class CodexPanel {
     const left = frame.contentLeft
     const navWidth = Math.max(172, Math.min(224, frame.panelWidth * 0.27))
     const detailX = left + navWidth + THEME.space.md
-    const detailW = frame.panelWidth - (detailX - left) - THEME.space.lg
+    // contentLeft 已经包含左内边距；右侧仍需独立留出同样的内边距。
+    const detailW = frame.panelWidth - (detailX - left) - THEME.space.lg * 2
 
     this.buildList(left, top, navWidth)
     this.buildDetail(detailX, top, detailW)
@@ -105,14 +106,17 @@ export class CodexPanel {
     this.text(
       left,
       top + 26,
-      `${String(this.entries.length).padStart(2, '0')} 份记录 · 配置自动同步`,
+      `${String(this.entries.length).padStart(2, '0')} 份记录 · ↑↓ / 点击选择`,
       THEME.font.small,
       THEME.text.dim,
     )
 
     const firstY = top + 58
-    const buttonH = this.frame.panelHeight < 570 ? 32 : 36
-    const gap = THEME.space.sm
+    const gap = this.frame.panelHeight < 570 ? THEME.space.xs : THEME.space.sm
+    const listBottom = this.frame.cy + this.frame.panelHeight / 2 - 82
+    const fittingHeight =
+      (listBottom - firstY - (this.entries.length - 1) * gap) / (this.entries.length - 0.5)
+    const buttonH = Math.max(20, Math.min(36, Math.floor(fittingHeight)))
     this.entries.forEach((entry, index) => {
       const label = `${String(index + 1).padStart(2, '0')}  ${entry.name} · ${entry.variant}`
       const button = new Button(
@@ -130,31 +134,23 @@ export class CodexPanel {
       this.navButtons.push(button)
       this.sink.button(button)
     })
-
-    const dividerY = this.frame.cy + this.frame.panelHeight / 2 - 92
-    const guide = this.scene.add.graphics()
-    guide.lineStyle(1, THEME.color.border, 0.4).lineBetween(left, dividerY, left + width, dividerY)
-    this.sink.track(guide)
-    this.text(
-      left,
-      dividerY + THEME.space.sm,
-      '选择档案后，右侧会实时播放待机动画。',
-      THEME.font.small,
-      THEME.text.dim,
-    )
   }
 
   private buildDetail(left: number, top: number, width: number): void {
-    const narrow = width < 520
+    const narrow = width < 440
+    const compact = this.frame.panelHeight < 620
     this.detailWidth = width
     this.nameText = this.text(left, top, '', THEME.font.heading, THEME.text.body)
     this.variantText = this.text(left, top + 27, '', THEME.font.small, THEME.text.dim)
-    this.roleText = this.text(left, top + 48, '', THEME.font.body, THEME.text.dim)
+    this.roleText = this.text(
+      left, top + 46, '', compact ? THEME.font.small : THEME.font.body, THEME.text.dim,
+    ).setWordWrapWidth(width, true)
     this.threatText = this.text(left + width, top, '', THEME.font.small, THEME.text.accent)
     this.threatText.setOrigin(1, 0)
 
-    const previewTop = top + 76
-    const previewH = narrow ? 126 : 158
+    const previewTop = top + 82
+    // 小窗口优先为完整的怪物介绍留出高度，避免正文挤到关闭按钮上。
+    const previewH = compact ? 96 : narrow ? 126 : 158
     this.previewHeight = previewH
     const preview = this.scene.add.graphics()
     preview
@@ -237,7 +233,7 @@ export class CodexPanel {
     this.text(
       left + THEME.space.sm,
       loreTop + THEME.space.sm,
-      '怪物档案文案',
+      '怪物档案',
       THEME.font.small,
       THEME.text.accent,
     )
@@ -245,8 +241,9 @@ export class CodexPanel {
       fontFamily: THEME.font.family,
       fontSize: fontPx(THEME.font.small),
       color: THEME.text.dim,
-      lineSpacing: 4,
-      wordWrap: { width: width - THEME.space.md },
+      lineSpacing: compact ? 2 : 4,
+      // Phaser 3.90 的 advancedWordWrap 会按字符拆长词，也适用于没有空格的中文。
+      wordWrap: { width: width - THEME.space.md, useAdvancedWrap: true },
     })
     this.sink.track(this.loreText)
   }

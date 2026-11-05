@@ -46,6 +46,7 @@ export interface SpawnRequest {
   enqueuedAtMs: number
   bossStage?: number
   finalBoss?: boolean
+  bossDamageMultiplier?: number
   reason: SpawnReason
   /** 来源怪的 id（分裂时是父亲）。只为调试时能回答「这只为什么刷出来了」 */
   fromId?: number
@@ -98,6 +99,14 @@ export class SpawnQueue {
   /** 清空（切场景 / 重开）。**不回池** —— 池归 `EnemyPool`，它有自己的 `releaseAll` */
   clear(): void {
     this.queue.length = 0
+  }
+
+  /** Boss-room encounter cap: discard excess minions without ever discarding a boss. */
+  limitMinions(maxQueued: number): void {
+    let kept = 0
+    this.queue = this.queue.filter((request) =>
+      request.bossStage !== undefined || kept++ < Math.max(0, maxQueued),
+    )
   }
 
   /** 入队。返回 false = 队列已满，这条请求被拒了（调用方应知道自己在丢怪） */
