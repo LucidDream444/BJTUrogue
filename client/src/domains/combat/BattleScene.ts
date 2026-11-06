@@ -1701,6 +1701,9 @@ export class BattleScene extends Phaser.Scene {
       this.floor,
       this.floors,
       this.floor === this.anomalyFloor,
+      // ★ 2026-11-06：这一层的传送阵位置（7F 中段大厅那块；8F 那块在落点房里，
+      // 小地图上会和「落」字打架，`Minimap` 按 `arrivalRoom` 自己跳过）。
+      this.plans[this.floor - 1]?.anomalyGate ?? null,
     )
     // 换层：先清空**这一层**的记账，再把**这一层上次的记账**取回来
     // （没来过这一层则取回来的是 `null`，那就是一层全新的楼）。

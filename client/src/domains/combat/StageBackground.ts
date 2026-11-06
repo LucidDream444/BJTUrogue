@@ -24,27 +24,17 @@ export const STAGE_BACKGROUNDS = [
 const LABEL_FONT = 20
 
 /**
- * 房号那行字从房间中心**往上抬**多少。
+ * 房号那行字从**门洞中心**往房间里让多少（世界像素）。
  *
- * ⚠️ **它不是审美，是避让。** 非战斗房（道具关 / 宝箱关）的宝箱 2026-10-21 改成
- * 摆在**房间正中心**（`chestSpotAtCenter()`），而房号原来也画在正中心 ——
- * 于是那行字**正好横穿过宝箱**（截图里「道具」两个字被箱子压掉），
- * 而两条都在同一层画面上，谁先谁后只由 `depth` 决定，看起来就是"字缺了一半"。
+ * ★ 2026-11-06（用户：「房间文本放在房间门口，不要放在房间中间」）：房号改为贴着
+ * 自己那扇门摆，不再悬在房间正中。40 = 半堵墙（20）+ 半行字（约 12）+ 8px 余量，
+ * 字的**整行**都落在房间内侧，不会压在门洞/门框上。
  *
- * 抬 72 = 宝箱的半高 28 + 描边 5 + 一点余量，抬完那行字仍在房里
- * （最小的一间房 `YF612` 是 360×320，半高 160）。
+ * ⚠️ 竖门（`axis === 'v'`，字横着写）不能只让 40 —— 一行字有 100 多像素宽，
+ * 居中摆会让半个字压在墙上。所以竖门改成**贴着门边对齐**（`originX` 靠房间那一侧），
+ * 让字从门边往房间里铺开；见 `labelSpot()`。
  */
-const LABEL_LIFT = 72
-
-/**
- * **楼梯间**的房号那一行字从中心往上抬多少。
- *
- * ★ 2026-11-04：楼梯间里的两段楼梯改成**横着并排**、互动点压到楼梯下方之后，
- * 楼梯图占的是「中心 −141 .. 中心 +32」那一条，常规的 `LABEL_LIFT = 72`
- * 正好落在楼梯中间（截图里字压在白扶手上）。抬到 190 = 房顶下 50px 那条空带，
- * 楼梯图（顶边在中心 −141）上面还有 49px，两边都碰不着。
- */
-const STAIR_LABEL_LIFT = 190
+const DOOR_LABEL_INSET = 40
 
 /** 挡板本来就有厚度，描边再往外这点像素才看得出来。**只用在观感上**，与物理无关。 */
 const DOOR_INSET = 3
@@ -75,7 +65,8 @@ export class StageBackground {
 
   constructor(
     private readonly scene: Phaser.Scene,
-    map: DungeonMap,
+    /** 这一层的地图 —— 房号定位要用 `navCellSize`（门洞/墙厚的单位）。 */
+    private readonly map: DungeonMap,
     private readonly rooms: readonly DungeonRoom[],
     _cfg: RoomsConfig,
     /**
@@ -104,22 +95,17 @@ export class StageBackground {
 
   private makeLabels(): void {
     for (const unit of this.rooms) {
-      const r = unit.room.rect
+      const spot = this.labelSpot(unit)
       const label = this.scene.add
-        .text(
-          r.x,
-          r.y - (unit.room.kind === 'start' ? STAIR_LABEL_LIFT : LABEL_LIFT),
-          '',
-          {
-            fontFamily: 'Microsoft YaHei, sans-serif',
-            fontSize: `${LABEL_FONT}px`,
-            color: '#e9f2ff',
-            stroke: '#0b0b10',
-            strokeThickness: 5,
-            align: 'center',
-          },
-        )
-        .setOrigin(0.5)
+        .text(spot.x, spot.y, '', {
+          fontFamily: 'Microsoft YaHei, sans-serif',
+          fontSize: `${LABEL_FONT}px`,
+          color: '#e9f2ff',
+          stroke: '#0b0b10',
+          strokeThickness: 5,
+          align: 'center',
+        })
+        .setOrigin(spot.originX, 0.5)
         // Room annotations stay above world-y-sorted furniture and actors.
         .setDepth(4000)
       this.labels.push(label)
@@ -128,25 +114,53 @@ export class StageBackground {
   }
 
   /**
-   * 房号那一行字。**没打过的房要说清它是什么** —— 整层连续之后「进哪一间」是玩家
-   * 自己挑的（用户 2026-10-19：「可以随意在走廊走，随意选择房间进入挑战」），
-   * 而挑的依据只能是门上和房里的这几个字。不写关别，玩家就是闭着眼推门。
+   * 房号那行字摆在**房间门口**（用户 2026-11-06：「房间文本放在房间门口，
+   * 不要放在房间中间」）。
    *
-   * ⚠️ **「已清」读的是 `cleared`（打完了），不是「进过了」。** 正在打的那一间
-   * 退回只写关别 —— 和「压根没进去过」长得一样。**这是对的**：`enterRoom()` 一进门
-   * 就把门封上，玩家在打完之前出不去，而门封着这件事门自己会说话（橙色呼吸）。
-   * 换成一个「战斗中」的话，字和门说的是两件事，改一处漏一处。
+   * 门只有一扇（`DungeonRoom.doors[0]`），门洞的 `x` / `y` 是**左上角**，
+   * 字以门洞中心为基准：
+   *
+   * | 门 | 怎么让 |
+   * |---|---|
+   * | 横门（`axis === 'h'`，人沿 y 穿过） | 沿 y 往房间那一侧让 `DOOR_LABEL_INSET`，左右居中 |
+   * | 竖门（`axis === 'v'`，人沿 x 穿过） | 沿 x 让到门边，`originX` 靠着房间那一侧 —— 否则一行字有半截压在墙上 |
+   *
+   * 房间中心（`rect.x` / `rect.y`）只用来判断房间在门的哪一侧。
+   * 没有门的房间（今天不存在）退回房间中心。
+   */
+  private labelSpot(unit: DungeonRoom): { x: number; y: number; originX: number } {
+    const r = unit.room.rect
+    const door = unit.doors[0]
+    if (door === undefined) return { x: r.x, y: r.y, originX: 0.5 }
+    const cx = door.x + door.width / 2
+    const cy = door.y + door.height / 2
+    if (door.axis === 'h') {
+      const dir = r.y < cy ? -1 : 1
+      return { x: cx, y: cy + dir * DOOR_LABEL_INSET, originX: 0.5 }
+    }
+    const dir = r.x < cx ? -1 : 1
+    return {
+      x: cx + dir * (this.map.navCellSize / 2 + 4),
+      y: cy,
+      // 房间在门的西边 → 字从门边往西铺（右对齐）；东边 → 左对齐。
+      originX: dir < 0 ? 1 : 0,
+    }
+  }
+
+  /**
+   * 房号那一行字：**只说这间房是什么**（编号 + 关别）。
+   *
+   * ★ 2026-11-06（用户：「删掉游戏里不该出现的文本，比如不用打、已清」）：
+   * 去掉了「已清」「不用打」「中转站」这些**状态/说明后缀** —— 它们是给
+   * 开发看的，放在世界里既啰嗦又容易变成假话（`cleared` 是「打完了」，
+   * 不是「进过了」，曾经就出过「刚进门还没打就写已清」）。
+   *
+   * 「打没打过」现在只由**颜色**说（`refresh()`：打过的房号染绿），
+   * 不再是一句挂在门口的文字。
    */
   private labelText(unit: DungeonRoom): string {
+    if (this.opts.arrivalRoom && unit.room.kind === 'start') return '落点 · 传送阵'
     const kind = ROOM_KIND_LABELS[unit.room.kind] ?? unit.room.kind
-    const done = this.cleared.has(unit.room.id)
-    if (done) return `${unit.room.id} ${kind} · 已清`
-    // 楼梯间：**它不打架，也不会「清」**（`BattleScene.enterRoom()` 不让它进 `cleared`），
-    // 所以给它一句自己的话。用户 2026-10-21 说的是「楼梯间不算起点，应该是每层之间的
-    // 中转站」—— 而这行字正是玩家在走廊上挑门时读的那一行，它得说这个。
-    if (unit.room.kind === 'start')
-      return this.opts.arrivalRoom ? '落点 · 传送阵' : `${unit.room.id} ${kind} · 中转站`
-    if (!unit.needsFight) return `${unit.room.id} ${kind} · 不用打`
     return `${unit.room.id} ${kind}`
   }
 
