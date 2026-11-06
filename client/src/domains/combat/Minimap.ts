@@ -1,7 +1,7 @@
 import Phaser from 'phaser'
 import { COLORS, roomFillColor } from '@/domains/procgen/presentation/floorplan'
 import { ROOM_KIND_LABELS } from '@/domains/procgen/model/types'
-import type { DungeonMap, Room } from '@/domains/procgen/model/types'
+import type { DungeonMap, Point, Room } from '@/domains/procgen/model/types'
 import type { RoomsConfig } from '@/domains/procgen/config'
 import { bottom, left, right, top } from '@/domains/procgen/model/rect'
 
@@ -207,6 +207,15 @@ export class Minimap {
    */
   private arrivalRoom = false
   /**
+   * ★ 新增（2026-11-06，用户：「在第七层的小地图对应位置添加传送阵的图标」）：
+   * 这一层传送阵的世界坐标（`FloorPlan.anomalyGate`），没有就是 `null`。
+   *
+   * 7F 那块是去 8F 的入口，标在**中段大厅**里；8F 那块在落点房正中 ——
+   * 那间房在小地图上只有十几像素，图标会和「落」字打架，而且玩家落地就站在它旁边，
+   * 所以 `redraw()` 只在 `arrivalRoom === false` 时画。
+   */
+  private anomalyGate: Point | null = null
+  /**
    * 「走过」的房间 `Room.id`。**只存引用、不拷一份** ——
    * 宿主每帧都可能改它，拷一次就等于这份小地图从第 N 帧起就在说假话。
    */
@@ -315,13 +324,20 @@ export class Minimap {
    * 换层时地图**整个换掉**（`BattleScene.loadFloor()`）、房间数也可能不同，
    * 所以标号全部重建 —— 复用旧的会剩下一堆对不上任何房间的 `Text`。
    */
-  setFloor(map: DungeonMap, floor: number, floors: number, arrivalRoom = false): void {
+  setFloor(
+    map: DungeonMap,
+    floor: number,
+    floors: number,
+    arrivalRoom = false,
+    anomalyGate: Point | null = null,
+  ): void {
     for (const label of this.labels) label.destroy()
     this.labels.length = 0
     this.map = map
     this.floor = floor
     this.floors = floors
     this.arrivalRoom = arrivalRoom
+    this.anomalyGate = anomalyGate
     this.buildLabels(this.root.scene)
     this.currentId = null
     this.visited = NO_VISITED
@@ -433,6 +449,11 @@ export class Minimap {
       }
     }
 
+    // ---- 传送阵：7F 那块是去「异常」层的入口，标在它真实的位置上（用户 2026-11-06）。
+    //      8F 那块在落点房正中 —— 那间房只有十几像素宽，图标会和「落」字打架，
+    //      而且玩家落地就站在旁边，所以只在不是落点房的层画。
+    if (this.anomalyGate !== null && !this.arrivalRoom) this.drawAnomalyGate(at)
+
     this.drawLabels(at, scale)
 
     const here = this.currentRoom()
@@ -458,6 +479,40 @@ export class Minimap {
     let n = 0
     for (const room of this.map.rooms) if (this.visited.has(room.id)) n++
     return n
+  }
+
+  /**
+   * 传送阵图标：**紫色圆 + 六芒星**，与 `AnomalyGate` 的白盒同款（圆 + 两个三角形），
+   * 只是缩到面板尺寸（半径 6 面板像素）。
+   *
+   * 位置走 `redraw()` 里那个**同一个 `at()`** —— 和房间、走廊、门共用一次换算，
+   * 各算一份的话图标会在某些缩放下偏到隔壁去（那个症状看起来像"图标放错了位置"）。
+   */
+  private drawAnomalyGate(at: (x: number, y: number) => { x: number; y: number }): void {
+    const gate = this.anomalyGate
+    if (gate === null) return
+    const p = at(gate.x, gate.y)
+    const g = this.gfx
+    const r = 6
+    const star = r * 0.72
+    // 深紫底 + 外侧一道深色描边：底下的走廊/房间填色深浅不一，没有这道边会糊在一起。
+    g.fillStyle(0x2a1a45, 0.95).fillCircle(p.x, p.y, r)
+    g.lineStyle(1.5, 0x0b0b10, 1).strokeCircle(p.x, p.y, r + 1)
+    g.lineStyle(1.4, 0xb07cff, 1).strokeCircle(p.x, p.y, r)
+    // 六芒星 = 两个正三角形（与 `AnomalyGate.update()` 同一个画法，半径按图标缩）。
+    g.lineStyle(1, 0xe6d4ff, 1)
+    for (const flipped of [false, true]) {
+      g.beginPath()
+      for (let i = 0; i < 3; i++) {
+        const angle = Math.PI / 2 + (i * 2 * Math.PI) / 3 + (flipped ? Math.PI : 0)
+        const px = p.x + Math.cos(angle) * star
+        const py = p.y - Math.sin(angle) * star
+        if (i === 0) g.moveTo(px, py)
+        else g.lineTo(px, py)
+      }
+      g.closePath()
+      g.strokePath()
+    }
   }
 
   /**
