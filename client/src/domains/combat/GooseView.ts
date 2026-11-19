@@ -2,7 +2,7 @@ import Phaser from 'phaser'
 import { GOOSE_ART } from '@/core/assetManifest'
 import { textureKeyFor } from '@/core/assets'
 import { goosePose, type GooseDirection, type Point } from './GoosePose'
-import type { WeaponId } from './config'
+import type { PublicWeaponId } from './config'
 
 /** 只有躯干占用玩家原来的 Sprite；另外两层从不添加物理体。 */
 export class GooseView {
@@ -15,7 +15,7 @@ export class GooseView {
   }
 
   draw(feet: Point, direction: GooseDirection, frame: number, scale: number,
-    aim: Point, weapon: WeaponId, alive: boolean, flash: boolean): void {
+    aim: Point, weapon: PublicWeaponId, alive: boolean, flash: boolean): void {
     const art = GOOSE_ART.directions[direction]
     const pose = goosePose(feet, direction, scale, aim)
     this.torso.setTexture(textureKeyFor(this.torso.scene, art.body), frame)

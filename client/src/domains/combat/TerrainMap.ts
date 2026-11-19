@@ -9,6 +9,12 @@ export interface WaterRect extends Point {
   width: number
   height: number
 }
+/** 一次扫掠撞墙：命中参数 t 与外法线（指向实体外侧，供反弹用）。 */
+export interface SolidHit {
+  t: number
+  nx: number
+  ny: number
+}
 
 /** One geometry model for physical obstacles, navigation, projectiles and spawn safety. */
 export class TerrainMap {
@@ -154,13 +160,17 @@ export class TerrainMap {
     return reachable
   }
 
-  /** Swept collision catches fast projectiles crossing a thin door between physics frames. */
-  solidHitTime(from: Point, to: Point, radius = 0): number | null {
-    let first: number | null = null
+  /**
+   * 扫掠撞墙，返回命中参数与**外法线**。反弹需要法线；只关心时间的调用方用
+   * `solidHitTime()` 这个包装。
+   */
+  solidHit(from: Point, to: Point, radius = 0): SolidHit | null {
+    let first: SolidHit | null = null
     for (const r of this.solids) {
       let enter = 0,
         leave = 1,
-        hit = true
+        hit = true,
+        axisHit: 'x' | 'y' = 'x'
       for (const axis of ['x', 'y'] as const) {
         const low = r[axis] - radius,
           high = r[axis] + (axis === 'x' ? r.width : r.height) + radius,
@@ -174,16 +184,32 @@ export class TerrainMap {
         }
         const a = (low - from[axis]) / delta,
           b = (high - from[axis]) / delta
-        enter = Math.max(enter, Math.min(a, b))
+        const enterAxis = Math.min(a, b)
         leave = Math.min(leave, Math.max(a, b))
+        if (enterAxis > enter) {
+          enter = enterAxis
+          axisHit = axis
+        }
         if (enter > leave) {
           hit = false
           break
         }
       }
-      if (hit && (first === null || enter < first)) first = enter
+      if (!hit) continue
+      if (first === null || enter < first.t) {
+        const delta = to[axisHit] - from[axisHit]
+        first =
+          axisHit === 'x'
+            ? { t: enter, nx: delta > 0 ? -1 : 1, ny: 0 }
+            : { t: enter, nx: 0, ny: delta > 0 ? -1 : 1 }
+      }
     }
     return first
+  }
+
+  /** Swept collision catches fast projectiles crossing a thin door between physics frames. */
+  solidHitTime(from: Point, to: Point, radius = 0): number | null {
+    return this.solidHit(from, to, radius)?.t ?? null
   }
   crossesSolid(from: Point, to: Point, radius = 0): boolean {
     return this.solidHitTime(from, to, radius) !== null
