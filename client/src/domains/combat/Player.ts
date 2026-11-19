@@ -201,7 +201,10 @@ export class Player {
 
   /** 只换美术，存档身份和角色战斗数值继续由宿主决定。 */
   setCharacter(characterId: string): void {
-    if (characterId === GOOSE_ART.characterId) this.goose ??= new GooseView(this.sprite)
+    if (characterId === GOOSE_ART.characterId || characterId === 'performer') {
+      this.goose ??= new GooseView(this.sprite)
+      this.goose.setPerformer(characterId === 'performer')
+    }
     else {
       this.goose?.destroy()
       this.goose = null
@@ -355,8 +358,14 @@ export class Player {
     )
   }
   /** Body layers for a cosmetic boss snapshot; weapon stays a separately mounted asset. */
-  appearanceLayers(): readonly Phaser.GameObjects.Sprite[] {
-    return this.goose ? [this.sprite, this.goose.neck] : [this.sprite]
+  appearanceLayers(): readonly (
+    | Phaser.GameObjects.Sprite
+    | Phaser.GameObjects.Image
+  )[] {
+    if (!this.goose) return [this.sprite]
+    return this.goose.hat.visible
+      ? [this.sprite, this.goose.neck, this.goose.hat]
+      : [this.sprite, this.goose.neck]
   }
   get angle(): number {
     // 鼠标在长脖子内侧时也保持枪管方向，不能从枪口反算后突然倒射。

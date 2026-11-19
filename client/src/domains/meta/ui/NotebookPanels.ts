@@ -262,18 +262,25 @@ export function buildNotebookRunSetup(
 ): void {
   ui.label(115, 215, '选择今天的冒险伙伴', A.size.heading, A.paper, undefined, true)
   ui.label(115, 260, '带上勇气，走进熟悉校园的另一面。', A.size.small, A.muted)
+  const compactCards = CHARACTERS.length > 3
+  const cardWidth = compactCards ? 220 : 282
+  const cardGap = compactCards ? 20 : 27
   CHARACTERS.forEach((character, i) => {
-    const x = 115 + i * 309,
+    const x = 115 + i * (cardWidth + cardGap),
+      centerX = x + cardWidth / 2,
       unlocked = isUnlocked(profile, character.id),
       selected = profile.selected.characterId === character.id
     const def = meta?.characters[character.id]
-    ui.panel(x, 315, 282, 388, 0.74)
+    ui.panel(x, 315, cardWidth, 388, 0.74)
     const key =
       CAMPUS_MENU_ART.characterCards[character.id as keyof typeof CAMPUS_MENU_ART.characterCards]
-    ui.orbit(x + 141, 491, 77, selected ? A.cyan : A.brass)
-    if (key) ui.portrait(key, x + 141, 430, 148).setAlpha(unlocked ? 1 : 0.35)
+    ui.orbit(centerX, 491, compactCards ? 61 : 77, selected ? A.cyan : A.brass)
+    if (key) {
+      ui.portrait(key, centerX, 430, compactCards ? 118 : 148)
+        .setAlpha(unlocked ? 1 : 0.35)
+    }
     ui.label(
-      x + 141,
+      centerX,
       343,
       character.name,
       A.size.heading,
@@ -281,9 +288,9 @@ export function buildNotebookRunSetup(
       undefined,
       true,
     ).setOrigin(0.5)
-    ui.label(x + 141, 528, character.blurb, A.size.micro, A.muted).setOrigin(0.5)
+    ui.label(centerX, 528, character.blurb, A.size.micro, A.muted, cardWidth - 24).setOrigin(0.5)
     ui.label(
-      x + 141,
+      centerX,
       573,
       def?.skill.name ?? '成长档案待补',
       A.size.body,
@@ -297,16 +304,18 @@ export function buildNotebookRunSetup(
       unlocked ? (def?.skill.description ?? '') : `${def?.unlockCost ?? '—'} 金币解锁 · 前往升级页`,
       A.size.micro,
       A.muted,
-      232,
+      cardWidth - 50,
     )
     ui.label(
-      x + 141,
+      centerX,
       672,
       selected ? '◆ 当前出战' : unlocked ? '点击选择' : '未解锁',
       A.size.small,
       selected ? A.energy : A.muted,
     ).setOrigin(0.5)
-    const hit = ui.add(ui.scene.add.rectangle(x + 141, 509, 282, 388, A.ink, 0.001))
+    const hit = ui.add(
+      ui.scene.add.rectangle(centerX, 509, cardWidth, 388, A.ink, 0.001),
+    )
     if (selected) hit.setStrokeStyle(2, A.cyan)
     if (unlocked)
       hit.setInteractive({ useHandCursor: true }).on('pointerup', () => onCharacter(character.id))
