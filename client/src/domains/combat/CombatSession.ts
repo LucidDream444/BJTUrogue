@@ -94,6 +94,7 @@ export class CombatSession {
     readonly rewardDefs: RewardDef[],
     readonly difficulty: Difficulty,
     private stageConfig: StageCollisionConfig,
+    floor = 1,
   ) {
     this.terrain = new TerrainMap(cfg, stageConfig.navigationCellSize)
     const firstRoom = stageGeometry(stageConfig, 1, cfg.arena.width, cfg.arena.height)
@@ -137,6 +138,7 @@ export class CombatSession {
       this.bus,
       this.clock,
       bundle,
+      cfg,
       difficulty,
       () => this.player.view(),
       cfg.arena.seed,
@@ -168,6 +170,7 @@ export class CombatSession {
         },
       },
       cfg.encounter,
+      floor,
     )
     for (const rect of this.terrain.water) {
       const zone = scene.add.zone(
@@ -297,10 +300,11 @@ export class CombatSession {
    * 和强化都不在这里清），清掉的只是这一层留下的**子弹与地面掉落物** ——
    * 那些东西的坐标属于旧那一层，带下去只会散在新房间的地板上。
    */
-  loadFloor(stageConfig: StageCollisionConfig): void {
+  loadFloor(stageConfig: StageCollisionConfig, floor = 1): void {
     this.enemies.clearLiquid()
     this.enemies.clearVortices()
     this.vortices.clear()
+    this.enemies.setFloor(floor)
     this.stageConfig = stageConfig
     this.enterStage(1)
   }

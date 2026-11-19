@@ -9,6 +9,7 @@ import { BossHazardView } from './presentation/BossHazardView'
 import type { CombatSession } from './CombatSession'
 import { bossArenaContainsCircle, bossArenaPoint } from './BossArenaBounds'
 import type { BossHazardCommand } from './BossHazards'
+import { effectiveDifficultyModifiers } from './balance'
 
 const LABELS: Readonly<Record<string, string>> = {
   campus_slow: '课业重压 · 全场减速',
@@ -220,7 +221,22 @@ export class BossEncounterController {
       castBorrowed: (id, floor, skill, now) => this.runtime.castSkill(id, floor, skill, now),
       cancelBorrowed: () => this.runtime.clear(),
     })
+    this.setFloor(1)
   }
+
+  /** 首领技能伤害跟随楼层成长；换层清空技能后、施法前刷新。 */
+  setFloor(floor: number): void {
+    const modifiers = effectiveDifficultyModifiers(
+      this.session.bundle,
+      this.session.cfg,
+      this.session.difficulty,
+      floor,
+    )
+    this.port.damageMultiplier =
+      modifiers.enemyDamage * this.session.cfg.encounter.bossDamageMultiplier
+    this.heart.port.damageMultiplier = this.port.damageMultiplier
+  }
+
   update(stage: number): void {
     if (this.disposed) return
     const clock = this.session.clock,

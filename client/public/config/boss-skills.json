@@ -110,7 +110,7 @@
           "speed": 520,
           "bounceCount": 3,
           "maxDurationMs": 6500,
-          "damage": 24,
+          "damage": 16,
           "hitRadius": 48,
           "damageTickMs": 500,
           "invulnerable": true
@@ -123,8 +123,8 @@
           "flightMs": 700,
           "targetOffsetRadius": 80,
           "radius": 150,
-          "damage": 28,
-          "stunMs": 3000,
+          "damage": 20,
+          "stunMs": 1500,
           "flightHeight": 180
         }
       ]

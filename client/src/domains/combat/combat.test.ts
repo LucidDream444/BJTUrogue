@@ -11,7 +11,7 @@ import { PlayerModel, moveVelocity, FireGate } from './PlayerModel'
 import { RewardRun } from './RewardRun'
 import { DamageBatches } from './DamageBatches'
 import { parseCombatConfig, parseRewards, deriveStats } from './config'
-import { roomPlan } from './balance'
+import { roomPlan, roomPointBudget } from './balance'
 const read = (name: string) =>
   JSON.parse(readFileSync(new URL('../../../public/config/' + name, import.meta.url), 'utf8'))
 const bundle = parseConfigBundle({
@@ -63,10 +63,10 @@ describe('D1 movement and clock', () => {
         nowMs: c.nowMs,
       })
     expect(p.maxHp).toBe(50)
-    expect(p.maxShield).toBe(5)
-    expect(hit().applied).toBe(15)
+    expect(p.maxShield).toBe(20)
+    expect(hit().applied).toBe(0)
     expect(p.shield).toBe(0)
-    expect(p.hp).toBe(35)
+    expect(p.hp).toBe(50)
     const until = p.hurtUntilMs
     c.advance(100)
     expect(hit().applied).toBe(0)
@@ -74,7 +74,7 @@ describe('D1 movement and clock', () => {
     c.advance(400)
     expect(hit().applied).toBe(20)
     expect(p.shield).toBe(0)
-    expect(p.hp).toBe(15)
+    expect(p.hp).toBe(30)
     c.pause()
     c.advance(1000)
     expect(hit().applied).toBe(0)
@@ -92,7 +92,7 @@ describe('D1 movement and clock', () => {
     })
     expect(overflow.applied).toBe(5)
     expect(p.shield).toBe(0)
-    expect(p.hp).toBe(10)
+    expect(p.hp).toBe(25)
     c.advance(p.iframeMs)
     p.takeHit({
       sourceId: 2,
@@ -153,18 +153,25 @@ describe('D1 pool with existing damage bridge', () => {
   })
 })
 describe('pulse loadout balance', () => {
-  it('includes all six weapons with reduced cannon stamina cost', () => {
+  it('includes all six weapons with a playable cannon stamina cost', () => {
     expect(cfg.weapons.map((w) => w.id)).toEqual(
       expect.arrayContaining(['pencil', 'pulse', 'venom', 'flare', 'rail', 'smg']),
     )
-    expect(cfg.weapons.find((w) => w.id === 'pulse')!.staminaCost).toBe(18)
+    expect(cfg.weapons.find((w) => w.id === 'pulse')!.staminaCost).toBe(14)
   })
-  it('boosted cannon impact uses the configured boss ratio and remains single-shot after pistol multishot', () => {
+  it('cannon damage is target-independent and remains single-shot after pistol multishot', () => {
     const gun = cfg.weapons.find((w) => w.id === 'pulse')!
     const before = deriveStats(bundle.balance, cfg, gun, defs, new Map())
-    expect(before.damage).toBe(cfg.encounter.bossHp * gun.bossDamageRatio!)
-    // Raising enemy health must not silently raise the player's cannon impact too.
-    expect(before.damage).toBeCloseTo(117)
+    expect(before.damage).toBe(24)
+    // Boss health is not a weapon-damage input. The old ratio formula made F8 weaker
+    // against bosses than F2 and also applied the inflated number to ordinary enemies.
+    expect(deriveStats(
+      bundle.balance,
+      { ...cfg, encounter: { ...cfg.encounter, bossHp: 9999 } },
+      gun,
+      defs,
+      new Map(),
+    ).damage).toBe(24)
     expect(before.pellets).toBe(1)
     const after = deriveStats(
       bundle.balance,
@@ -177,11 +184,11 @@ describe('pulse loadout balance', () => {
       ]),
     )
     expect(after.pellets).toBe(1)
-    expect(after.damage).toBeCloseTo(before.damage * 1.2)
+    expect(after.damage).toBeCloseTo(before.damage * 1.3)
   })
-  it('rejects missing cannon ratios and invalid boss health', () => {
+  it('rejects missing cannon mechanics and invalid boss health', () => {
     const bad = structuredClone(cfg)
-    delete bad.weapons[1]!.bossDamageRatio
+    delete bad.weapons[1]!.chainTargets
     expect(() => parseCombatConfig(bad)).toThrow()
     expect(() =>
       parseCombatConfig({ ...cfg, encounter: { ...cfg.encounter, bossHp: 0 } }),
@@ -234,7 +241,7 @@ describe('permanent meta growth bridge', () => {
       energyRegenPct: 0,
     })
     const baseInterval = bundle.balance.baseline.bullet.fireIntervalMs * gun.cooldownScale
-    expect(grown.cooldownMs).toBeCloseTo(baseInterval / 1.65)
+    expect(grown.cooldownMs).toBeCloseTo(baseInterval / 1.7)
   })
 
   it('new-student temporary haste enters the same cooldown formula', () => {
@@ -265,11 +272,11 @@ describe('D1 rewards', () => {
     expect(a.offer('r1', 'pencil', 200, 200)).toEqual(b.offer('r1', 'pencil', 200, 200))
     expect(new Set(a.offered.map((r) => r.id)).size).toBe(3)
   })
-  it('limits capped upgrades but keeps three useful repeatable upgrades for every round', () => {
+  it('keeps useful choices available while stacks remain below their caps', () => {
     const r = new RewardRun(defs, new Rng(1))
-    for (const def of defs) r.stacks.set(def.id, def.maxStacks || 1000)
+    for (const def of defs) r.stacks.set(def.id, Math.max(0, def.maxStacks - 1))
     const options = r.legal('pencil', 50, 50)
-    expect(options.map((x) => x.id).sort()).toEqual(['lunch', 'reserves', 'sharp'])
+    expect(options).toHaveLength(defs.length)
     const before = deriveStats(bundle.balance, cfg, cfg.weapons[0]!, defs, r.stacks)
     for (const option of options) {
       const next = new Map(r.stacks)
@@ -326,12 +333,13 @@ describe('D1 rewards', () => {
         ['reserves', 1],
       ]),
     )
-    expect(1000 / after.cooldownMs).toBeCloseTo((1000 / before.cooldownMs) * 1.15)
+    expect(1000 / after.cooldownMs).toBeCloseTo((1000 / before.cooldownMs) * 1.2)
     expect(after.pellets).toBe(before.pellets + 1)
-    expect(after.maxStamina).toBe(600)
+    expect(after.maxStamina).toBe(650)
   })
-  it('offers exactly three different useful rewards over repeated rounds', () => {
+  it('offers different useful rewards until the finite upgrade pool is capped', () => {
     const r = new RewardRun(defs, new Rng(20261013))
+    let sawExhaustion = false
     for (let round = 1; round <= 200; round++) {
       const before = deriveStats(bundle.balance, cfg, cfg.weapons[0]!, defs, r.stacks)
       const options = r.offer('round' + round, 'pencil', 50, before.maxHp, (reward) => {
@@ -342,10 +350,16 @@ describe('D1 rewards', () => {
           JSON.stringify(before)
         )
       })!
-      expect(options).toHaveLength(3)
-      expect(new Set(options.map((x) => x.id)).size).toBe(3)
+      expect(options.length).toBeGreaterThan(0)
+      expect(options.length).toBeLessThanOrEqual(3)
+      expect(new Set(options.map((x) => x.id)).size).toBe(options.length)
+      if (options.length < 3) {
+        sawExhaustion = true
+        break
+      }
       r.choose(options[round % 3]!.id)
     }
+    expect(sawExhaustion).toBe(true)
   })
   it('derived stats do not drift and new run resets', () => {
     const stacks = new Map([
@@ -353,8 +367,8 @@ describe('D1 rewards', () => {
         ['lunch', 3],
       ]),
       a = deriveStats(bundle.balance, cfg, cfg.weapons[0]!, defs, stacks)
-    expect(a.damage).toBeCloseTo(18)
-    expect(a.maxHp).toBe(80)
+    expect(a.damage).toBeCloseTo(22)
+    expect(a.maxHp).toBe(95)
     for (let i = 0; i < 100; i++)
       expect(deriveStats(bundle.balance, cfg, cfg.weapons[0]!, defs, stacks)).toEqual(a)
     const r = new RewardRun(defs, new Rng(1))
@@ -373,58 +387,33 @@ it('aggregates valid damage within bounded capacity', () => {
   expect(b.flush(100)[0]!.amount).toBe(15)
   expect(b.pending.size).toBe(0)
 })
-it('difficulty count applied once and pacing differs', () => {
-  const easy = roomPlan(bundle, cfg, 'easy', 1),
-    hard = roomPlan(bundle, cfg, 'hard', 1)
-  expect(easy.splitters).toBe(2)
-  expect(hard.splitters).toBe(4)
-  expect(hard.phaseDelayMs).toBeLessThan(easy.phaseDelayMs)
+it('difficulty scales the room point budget once and keeps each monster cost fixed', () => {
+  const easyBudget = roomPointBudget(cfg, 'easy', 10, 1, 0.75)
+  const normalBudget = roomPointBudget(cfg, 'normal', 10, 1, 1)
+  const hardBudget = roomPointBudget(cfg, 'hard', 10, 1, 1.25)
+  expect(easyBudget).toBeLessThan(normalBudget)
+  expect(hardBudget).toBeGreaterThan(normalBudget)
+
+  const costs = new Map(
+    Object.entries(bundle.enemies.enemies).map(([kind, def]) => [kind, def.monsterPoints]),
+  )
+  for (const budget of [easyBudget, normalBudget, hardBudget]) {
+    const plan = roomPlan(bundle, cfg, 'normal', budget, 1, 17)
+    const spent = plan.units.reduce((sum, unit) => sum + costs.get(unit.kind)!, 0)
+    expect(plan.pointSpent).toBe(spent)
+    expect(plan.pointSpent).toBeLessThanOrEqual(budget)
+  }
 })
 it('invalid config and duplicate reward IDs fail early', () => {
   expect(() => parseCombatConfig({ ...cfg, projectiles: { capacity: 1, radius: 4 } })).toThrow()
   expect(() => parseRewards({ schemaVersion: 1, rewards: [defs[0], defs[0]] })).toThrow()
 })
 
-/**
- * 抓取怪的刷怪轴：**离楼梯间最近的那几间 0 只，越远越多**。
- *
- * ★ 改了（2026-10-21，整层连续）：原来是「第 1 层 0 只、之后按层出现」——
- * 那时"深度"由**层号**表达（`stageGrowth`）。整层连续之后同层之内每间房也不一样强，
- * 而那个差别由 D2 的威胁预算表达，于是这条判据换成**同一张曲线上的两端**
- * （`growth ∈ [1, budgetGrowth]`）。
- *
- * 两端取的是 `rooms.json` 的**真数**，不是随手写的 1 和 3：
- * 真去改 `budgetGrowth`（比如调到 1.1）而让最近那间也开始出抓取怪，
- * 这条会红 —— 「先让玩家在别处认识『!』再让它来抓人」是设计意图，不该被静默改掉。
- */
-it('抓取怪的刷怪轴：楼梯间旁边 0 只，全层最远的那间才出现', () => {
-  const rooms = read('rooms.json'),
-    near = rooms.budgetBase / rooms.budgetBase, // = 1，出生点旁边那间
-    far = rooms.budgetGrowth // = 全层最远那间的倍数（budget = base × growth^1）
-  // 最近那间不刷是**刻意的**：这一条也顺手把「有人给它套上 max(1, ...)」挡住。
-  expect(roomPlan(bundle, cfg, 'normal', near).grabbers).toBe(0)
-  expect(roomPlan(bundle, cfg, 'normal', far).grabbers).toBeGreaterThanOrEqual(1)
-  // 另外两个轴照旧：**任何一间**都至少有一只（那才是"这间要打"的含义）
-  for (const growth of [near, 1.3, far]) {
-    const p = roomPlan(bundle, cfg, 'normal', growth)
-    expect(p.splitters).toBeGreaterThan(0)
-    expect(p.tanks).toBeGreaterThan(0)
-    expect(p.grabbers).toBeGreaterThanOrEqual(0)
-  }
-})
-
-it('一局八层，且强度倍数算不出来时当场抛', () => {
-  // 层数（`maxStages`）管的是「有几个首领」—— 几个首领各守一层。
-  // ★ 改了（2026-10-30 晚）：6 → **7** —— 7F 也加进来了（1F … 6F → 7F）。
+it('一局八层，且非法点数预算或楼层当场抛', () => {
   expect(cfg.arena.maxStages).toBe(8)
-  // ★ 改了（2026-10-21）：原来这里断言的是 `stagePlan(..., 4)` / `(..., 0)` 抛，
-  //   因为函数的参数是**层号**、而层号有定义域。现在参数是 `growth = 预算 ÷ budgetBase`，
-  //   它由 D2 现算 —— 于是定义域判据换成了「这个倍数是不是个数」。
-  //   层号的边界搬去了 `BattleScene.floors` / `descend()`（`floor >= floors` 就不下楼）。
-  expect(() => roomPlan(bundle, cfg, 'normal', Number.NaN)).toThrow()
-  expect(() => roomPlan(bundle, cfg, 'normal', -1)).toThrow()
-  // ⚠️ 非有限值必须**抛**而不是"刷 0 只"：`NaN` 一路乘下去喂给 `Math.round` 还是 `NaN`，
-  //    而 `for (let i = 0; i < NaN; i++)` 一只都不刷、**不报错** ——
-  //    于是"预算算错了"表现成"这间房是空的"，清房判定还会当帧成立。
-  expect(() => roomPlan(bundle, cfg, 'normal', Infinity)).toThrow()
+  expect(() => roomPlan(bundle, cfg, 'normal', Number.NaN, 1)).toThrow()
+  expect(() => roomPlan(bundle, cfg, 'normal', -1, 1)).toThrow()
+  expect(() => roomPlan(bundle, cfg, 'normal', 10, 0)).toThrow()
+  expect(() => roomPlan(bundle, cfg, 'normal', 10, 9)).toThrow()
+  expect(() => roomPointBudget(cfg, 'normal', 10, 1, Number.NaN)).toThrow()
 })
