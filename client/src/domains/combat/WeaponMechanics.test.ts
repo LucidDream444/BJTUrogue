@@ -37,16 +37,17 @@ function fixture(capacity = 10) {
 }
 
 describe('advanced weapon mechanics', () => {
-  it.each([30, 60, 144])('poison lasts five seconds with exactly ten ticks at %i Hz', (fps) => {
+  it.each([30, 60, 144])('poison uses the configured duration and tick count at %i Hz', (fps) => {
     const f = fixture()
+    const ticks = venom.poisonDurationMs! / venom.poisonTickMs!
     f.statuses.poison(1, 100, venom, 0)
-    for (let frame = 0; frame <= fps * 5 + 1; frame++)
+    for (let frame = 0; frame <= (fps * venom.poisonDurationMs!) / 1000 + 1; frame++)
       f.statuses.step((frame * 1000) / fps, frame, () => {})
-    expect(f.hits).toHaveLength(10)
-    expect(f.hits.reduce((sum, h) => sum + h.damage, 0)).toBe(venom.poisonTickDamage! * 10)
+    expect(f.hits).toHaveLength(ticks)
+    expect(f.hits.reduce((sum, h) => sum + h.damage, 0)).toBe(venom.poisonTickDamage! * ticks)
     expect(f.statuses.poisons.size).toBe(0)
     f.statuses.step(15000, 10000, () => {})
-    expect(f.hits).toHaveLength(10)
+    expect(f.hits).toHaveLength(ticks)
   })
   it('refreshes one poison without adding stacks or starving its next tick', () => {
     const f = fixture()
@@ -54,7 +55,7 @@ describe('advanced weapon mechanics', () => {
     f.statuses.poison(1, 101, venom, 450)
     f.statuses.step(500, 1, () => {})
     expect(f.hits).toHaveLength(1)
-    expect(f.statuses.poisons.get(1)?.untilMs).toBe(5450)
+    expect(f.statuses.poisons.get(1)?.untilMs).toBe(450 + venom.poisonDurationMs!)
     f.statuses.step(500, 1, () => {})
     expect(f.hits).toHaveLength(1)
     f.statuses.step(5500, 2, () => {})

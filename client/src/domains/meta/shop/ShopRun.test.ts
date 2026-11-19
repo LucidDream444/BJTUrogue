@@ -40,9 +40,9 @@ function wallet(value: number): ShopWallet & { value: number } {
 }
 
 describe('shop-prices.json', () => {
-  it('当前四类商品都是 1，具体商品覆盖价优先', () => {
-    expect(priceForShopItem(prices, 'health', 'health_potion')).toBe(1)
-    expect(priceForShopItem(prices, 'weapon', 'weapon_a', 'rail')).toBe(1)
+  it('四类商品有可形成取舍的基础价，具体商品覆盖价优先', () => {
+    expect(priceForShopItem(prices, 'health', 'health_potion')).toBe(12)
+    expect(priceForShopItem(prices, 'weapon', 'weapon_a', 'rail')).toBe(35)
     expect(
       priceForShopItem(
         { ...prices, itemOverrides: { 'weapon:rail': 3, weapon_a: 2 } },
@@ -92,14 +92,15 @@ describe('ShopRun', () => {
   it('商品成功购买后售罄，重复购买不再扣币', () => {
     const shop = new ShopRun(prices, rng())
     shop.ensureStock('shop', candidates)
-    const coins = wallet(5)
+    const price = priceForShopItem(prices, 'health', 'health_potion')
+    const coins = wallet(price + 5)
     const bought = shop.purchase({
       shopId: 'shop',
       itemId: 'health_potion',
       wallet: coins,
       apply: () => true,
     })
-    expect(bought).toMatchObject({ ok: true, reason: 'ok', remainingCoins: 4 })
+    expect(bought).toMatchObject({ ok: true, reason: 'ok', remainingCoins: 5 })
     expect(shop.stock('shop')?.soldIds.has('health_potion')).toBe(true)
     expect(
       shop.purchase({
@@ -108,7 +109,7 @@ describe('ShopRun', () => {
         wallet: coins,
         apply: () => true,
       }),
-    ).toMatchObject({ ok: false, reason: 'sold', remainingCoins: 4 })
+    ).toMatchObject({ ok: false, reason: 'sold', remainingCoins: 5 })
   })
 
   it('余额不足或当前不可用时不扣币、不售罄', () => {
@@ -119,7 +120,7 @@ describe('ShopRun', () => {
       shop.purchase({ shopId: 'shop', itemId: 'health_potion', wallet: empty, apply: () => true }),
     ).toMatchObject({ ok: false, reason: 'insufficient' })
 
-    const coins = wallet(5)
+    const coins = wallet(priceForShopItem(prices, 'health', 'health_potion'))
     expect(
       shop.purchase({
         shopId: 'shop',
@@ -129,14 +130,14 @@ describe('ShopRun', () => {
         apply: () => true,
       }),
     ).toMatchObject({ ok: false, reason: 'unavailable', detail: '生命已满' })
-    expect(coins.value).toBe(5)
+    expect(coins.value).toBe(priceForShopItem(prices, 'health', 'health_potion'))
     expect(shop.stock('shop')?.soldIds.size).toBe(0)
   })
 
   it('应用失败会回滚扣款，商品仍保留', () => {
     const shop = new ShopRun(prices, rng())
     shop.ensureStock('shop', candidates)
-    const coins = wallet(5)
+    const coins = wallet(priceForShopItem(prices, 'health', 'health_potion'))
     expect(
       shop.purchase({
         shopId: 'shop',
@@ -146,8 +147,12 @@ describe('ShopRun', () => {
           throw new Error('unexpected')
         },
       }),
-    ).toMatchObject({ ok: false, reason: 'apply-failed', remainingCoins: 5 })
-    expect(coins.value).toBe(5)
+    ).toMatchObject({
+      ok: false,
+      reason: 'apply-failed',
+      remainingCoins: priceForShopItem(prices, 'health', 'health_potion'),
+    })
+    expect(coins.value).toBe(priceForShopItem(prices, 'health', 'health_potion'))
     expect(shop.stock('shop')?.soldIds.size).toBe(0)
   })
 })

@@ -16,7 +16,7 @@ import {
 } from '@/domains/combat/config'
 import { CombatSession } from '@/domains/combat/CombatSession'
 import { RewardPanel } from '@/domains/combat/RewardPanel'
-import { roomPlan } from '@/domains/combat/balance'
+import { roomPlan, roomPointBudget } from '@/domains/combat/balance'
 import { AssetGallery } from './AssetGallery'
 import { StatusHud } from '@/domains/combat/StatusHud'
 import { GameCursor } from '@/domains/combat/GameCursor'
@@ -574,6 +574,7 @@ export class BattleScene extends Phaser.Scene {
         this.rewardDefs,
         this.difficulty,
         this.stageConfig,
+        this.floor,
       )
       this.bossSkills = new BossEncounterController(this, this.session,
         parseBossSkillsTable(this.cache.json.get('boss-skills.json')), {
@@ -588,6 +589,7 @@ export class BattleScene extends Phaser.Scene {
           },
           sfxVolume: () => this.store?.profile.settings.sfxVolume ?? this.cfg.audio.shotVolume,
         })
+      this.bossSkills.setFloor(this.floor)
       this.fitCamera()
       this.scale.on('resize', this.fitCamera, this)
       this.events.once(Phaser.Scenes.Events.SHUTDOWN, () =>
@@ -1364,8 +1366,7 @@ export class BattleScene extends Phaser.Scene {
     if (!bossAlive) return
     if (!unit || count === 0) return
     const kinds = (Object.keys(this.bundle.enemies.enemies) as EnemyKind[]).filter((kind) =>
-      (kind !== 'muscovy' || this.floor >= this.cfg.arena.muscovyMinFloor) &&
-      (kind !== 'nightmare_cat' || this.floor >= this.cfg.arena.nightmareCatMinFloor),
+      this.floor >= this.cfg.arena.monsterPointUnlockFloors[kind],
     )
     const player = this.session.player
     const far = unit.spawnPoints.filter((point) =>
@@ -1468,48 +1469,26 @@ export class BattleScene extends Phaser.Scene {
     }
     // 怪比刷怪点多时同一个点会叠人 —— 按序号错开一点，避免完全重合
     const offset = (i: number) => (spots.length && i >= spots.length ? (i % 3) * 26 - 26 : 0)
-    // ⚠️ **强度按这一间的威胁预算来，不按层号。**
-    //    `Room.budget` 由 D2 按「到楼梯间的跳数」算（`gen/budget.ts`），
-    //    `budgetBase` 是 `t = 0`（出生点旁边那间）的值 —— 比值正好是强度倍数。
-    const growth = unit.room.budget / this.rooms.budgetBase
-    const p = roomPlan(this.bundle, this.cfg, this.difficulty, growth, this.floor)
-    for (let i = 0; i < p.splitters; i++) {
+    // 房间先用“层倍率 × 深度 × 难度”算出固定点数预算，再逐只购买。
+    // 每只怪的成本来自 enemies.json 的 monsterPoints，选择过程不修改面额。
+    const pointBudget = roomPointBudget(
+      this.cfg,
+      this.difficulty,
+      unit.room.budget,
+      this.floor,
+      this.bundle.difficulty.difficulties[this.difficulty].enemyCount,
+    )
+    const roomSeed = ((this.floorSeedList[this.floor - 1] ?? this.runSeed) ^
+      Math.imul(unit.order + 1, 0x9e3779b9)) >>> 0
+    const p = roomPlan(this.bundle, this.cfg, this.difficulty, pointBudget, this.floor, roomSeed)
+    for (const [i, unitSpawn] of p.units.entries()) {
       const s = at(i)
       this.session.enemies.spawn(
-        'splitter',
-        0,
+        unitSpawn.kind,
+        unitSpawn.gen,
         s.x + offset(i),
         s.y + offset(i),
-        i >= Math.ceil(p.splitters * p.secondPhaseFraction) ? p.phaseDelayMs : 0,
-      )
-    }
-    // 抓取怪：第三个轴（`arena.initialGrabbers`，可以是小数 = 概率）。
-    // 靠近楼梯间的那几间算出来是 0 只 —— 先让玩家在别处认识「!」，再让它来抓人。
-    for (let i = 0; i < p.grabbers; i++) {
-      const k = p.splitters + p.tanks + i
-      const s = at(k)
-      this.session.enemies.spawn('grabber', 0, s.x + offset(k), s.y + offset(k))
-    }
-    for (let i = 0; i < p.sprayers; i++) {
-      const k = p.splitters + p.tanks + p.grabbers + i
-      const s = at(k)
-      this.session.enemies.spawn('sprayer', 0, s.x + offset(k), s.y + offset(k))
-    }
-    for (const [kind, count] of [['muscovy', p.muscovies], ['nightmare_cat', p.nightmareCats]] as const) {
-      for (let i = 0; i < count; i++) {
-        const k = p.splitters + p.tanks + p.grabbers + p.sprayers +
-          (kind === 'nightmare_cat' ? p.muscovies : 0) + i
-        const s = at(k)
-        this.session.enemies.spawn(kind, 0, s.x + offset(k), s.y + offset(k))
-      }
-    }
-    for (let i = 0; i < p.tanks; i++) {
-      const s = at(p.splitters + i)
-      this.session.enemies.spawn(
-        'tank',
-        0,
-        s.x + offset(p.splitters + i),
-        s.y + offset(p.splitters + i),
+        unitSpawn.delayMs,
       )
     }
     // 首领：**只有 `kind === 'boss'` 那一间出**。别的房间一只都不出 ——
@@ -1732,7 +1711,8 @@ export class BattleScene extends Phaser.Scene {
     //    从「房号相同」变成「上楼又下楼回到同一间」。
     this.session.rewards.forgetFloor()
     this.shopWorld.leaveRoom()
-    this.session.loadFloor(this.stageConfig)
+    this.session.loadFloor(this.stageConfig, this.floor)
+    this.bossSkills?.setFloor(this.floor)
     this.ledger?.setDepth(this.floor)
     // ★ 2026-10-23（用户：「从电梯去其它层应该是出现在对应电梯前，而不是楼梯间前」）：
     // `session.loadFloor()` 的落脚点恒是**楼梯间门口**（`dungeon.spawn`）——

@@ -6,14 +6,14 @@
       "name": "强健体魄",
       "category": "survival",
       "icon": "heart",
-      "headline": "生命上限 +10",
-      "description": "提升生命上限；当前生命仍通过拾取爱心恢复。",
+      "headline": "生命上限 +30%",
+      "description": "每次选择都明显提高容错；当前生命仍通过拾取爱心恢复。",
       "weight": 12,
-      "maxStacks": 0,
+      "maxStacks": 4,
       "effects": [
         {
           "stat": "maxHp",
-          "amount": 0.2
+          "amount": 0.3
         }
       ],
       "weapons": [],
@@ -25,14 +25,14 @@
       "name": "强化弹头",
       "category": "firepower",
       "icon": "icon_crosshair",
-      "headline": "基础伤害 +20%",
-      "description": "强化所携带武器的伤害，按各武器基础伤害叠加。",
+      "headline": "基础伤害 +30%",
+      "description": "强化所携带武器的伤害，按基础伤害加算，最多叠 4 层。",
       "weight": 12,
-      "maxStacks": 0,
+      "maxStacks": 4,
       "effects": [
         {
           "stat": "damage",
-          "amount": 0.2
+          "amount": 0.3
         }
       ],
       "weapons": [],
@@ -44,14 +44,14 @@
       "name": "快速击发",
       "category": "firepower",
       "icon": "energy",
-      "headline": "攻击频率 +15%",
-      "description": "缩短连续射击间隔；加成按基础攻击频率叠加。",
+      "headline": "攻击频率 +20%",
+      "description": "缩短连续射击间隔，最多叠 5 层；与其他攻速来源共用上限。",
       "weight": 12,
-      "maxStacks": 8,
+      "maxStacks": 5,
       "effects": [
         {
           "stat": "fireRate",
-          "amount": 0.15
+          "amount": 0.2
         }
       ],
       "weapons": [],
@@ -64,16 +64,16 @@
       "category": "firepower",
       "icon": "star_badge",
       "headline": "每次射击 +1 弹丸",
-      "description": "一次射击发出更多子弹，整次射击仍消耗 4 点能量。",
+      "description": "除星核重炮外，每次射击额外发射 1 枚弹丸，最多叠 2 层。",
       "weight": 10,
-      "maxStacks": 3,
+      "maxStacks": 2,
       "effects": [
         {
           "stat": "pellets",
           "amount": 1
         }
       ],
-      "weapons": ["pencil"],
+      "weapons": ["pencil", "venom", "flare", "rail", "smg"],
       "requires": [],
       "excludes": []
     },
@@ -82,14 +82,14 @@
       "name": "充沛能量",
       "category": "survival",
       "icon": "energy",
-      "headline": "能量上限 +20",
-      "description": "扩大射击能量储备，能量仍按每秒 6 点恢复。",
+      "headline": "能量上限 +30%",
+      "description": "扩大射击能量储备，最多叠 3 层；恢复速度另由角色与配置决定。",
       "weight": 8,
-      "maxStacks": 0,
+      "maxStacks": 3,
       "effects": [
         {
           "stat": "maxStamina",
-          "amount": 0.2
+          "amount": 0.3
         }
       ],
       "weapons": [],
@@ -101,14 +101,14 @@
       "name": "轻盈步伐",
       "category": "utility",
       "icon": "skill_orb_speed",
-      "headline": "移动速度 +8%",
-      "description": "更快拉开距离、躲开近身攻击，移动不消耗能量。",
+      "headline": "移动速度 +12%",
+      "description": "更快拉开距离、躲开近身攻击，最多叠 4 层。",
       "weight": 6,
-      "maxStacks": 5,
+      "maxStacks": 4,
       "effects": [
         {
           "stat": "move",
-          "amount": 0.08
+          "amount": 0.12
         }
       ],
       "weapons": [],
@@ -120,14 +120,14 @@
       "name": "从容应对",
       "category": "utility",
       "icon": "shield",
-      "headline": "受击保护 +0.1 秒",
-      "description": "受到有效伤害后的保护时间更长，减少连续受击。",
+      "headline": "受击保护 +0.15 秒",
+      "description": "受到有效伤害后的保护时间更长，最多叠 2 层。",
       "weight": 6,
-      "maxStacks": 3,
+      "maxStacks": 2,
       "effects": [
         {
           "stat": "iframeMs",
-          "amount": 100
+          "amount": 150
         }
       ],
       "weapons": [],

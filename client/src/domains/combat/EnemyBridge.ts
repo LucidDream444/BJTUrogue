@@ -8,6 +8,8 @@ import type { ConfigBundle, Difficulty } from '@/core/config'
 import type { HitResult, TickTarget } from '@/core/actor/damage'
 import type { CombatEvents } from './events'
 import type { EffectTargetPort, WeaponTarget } from './WeaponMechanics'
+import { effectiveDifficultyModifiers } from './balance'
+import type { CombatConfig } from './config'
 export interface PlayerPort {
   model: TickTarget
   /**
@@ -54,11 +56,13 @@ export class EnemyBridge implements BulletContactPort {
     bus: TypedBus<CombatEvents>,
     clock: GameClock,
     private readonly bundle: ConfigBundle,
-    difficulty: Difficulty,
+    private readonly cfg: CombatConfig,
+    private readonly difficulty: Difficulty,
     player: () => PlayerPort,
     seed: number,
     nav?: EnemySystemNavOptions,
     bossPresentation?: BossPresentationConfig,
+    floor = 1,
   ) {
     this.unsub = bus.on('player_hurt', (e) => {
       if (e.sourceKind === 'aoe' && e.hpDamage + e.shieldDamage > 0) this.damagedAtFrame = e.frameId
@@ -89,9 +93,16 @@ export class EnemyBridge implements BulletContactPort {
       },
     })
     this.group = this.system.group
+    this.setFloor(floor)
     this.system.create()
     this.juice = new JuiceDirector({ scene, bus: commonBus, clock, bundle, enemies: this.system })
     this.juice.create()
+  }
+  /** 换层时刷新普通怪的生命、伤害、速度成长。必须在生成该层敌人之前调用。 */
+  setFloor(floor: number): void {
+    this.system.setDifficultyModifiers(
+      effectiveDifficultyModifiers(this.bundle, this.cfg, this.difficulty, floor),
+    )
   }
   /**
    * 穿透期间的**帧伤节拍**（毫秒）。D1 的穿透特殊效果按它触发，不要每帧都触发 ——

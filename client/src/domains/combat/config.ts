@@ -1,4 +1,5 @@
 import type { BalanceConfig } from '@/core/config'
+import type { EnemyKind } from '@/core/events'
 import { validateAimArt, type AimArtConfig } from './AimPose'
 import type { BossReinforcementsConfig } from './BossReinforcements'
 
@@ -29,7 +30,6 @@ export interface WeaponDef {
   chainDamageRatio?: number
   slowMultiplier?: number
   slowDurationMs?: number
-  bossDamageRatio?: number
   damageScale: number
   cooldownScale: number
   speedScale: number
@@ -233,21 +233,28 @@ export interface CombatConfig {
      */
     width: number
     height: number
-    initialSplitters: number
-    initialSprayers: number
-    initialTanks: number
     /**
-     * **每间房期望刷几只抓取怪**（可以是小数 = 概率）。
+     * 每一层对“房间怪物点数预算”的固定倍率，下标 0 = 第 1 层。
      *
-     * 与另外两个轴不同，它**允许为 0，而且今天真的会是 0** —— 最靠近楼梯间的那几间
-     * （强度倍数 1）算出来就是 0：先让玩家在近处认识「!」和抓取，再让它来抓人。
-     * 整条曲线见 `roomPlan()`。
+     * 倍率只改**房间总预算**，不改单只敌人的点数面额。数组长度必须等于
+     * `maxStages`；缺一层会让后期的刷怪强度静默掉回上一层。
      */
-    initialGrabbers: number
-    initialMuscovies: number
-    initialNightmareCats: number
-    muscovyMinFloor: number
-    nightmareCatMinFloor: number
+    monsterPointFloorScale: number[]
+    /** 每一层对敌人生命、伤害、速度的独立倍率；必须逐层单调不减。 */
+    floorEnemyHpScale: number[]
+    floorEnemyDamageScale: number[]
+    floorEnemySpeedScale: number[]
+    /** 小怪种类被选中的权重。只影响组合，不影响点数成本。 */
+    monsterPointWeights: Partial<Record<EnemyKind, number>>
+    /** 每种小怪最早出现的楼层。难度和房间深度都不能把它提前。 */
+    monsterPointUnlockFloors: Record<EnemyKind, number>
+    /**
+     * 分裂纸团最多可吃掉房间预算的比例。
+     *
+     * 它的点数按“母体”计，子代是战斗中的分裂产物、不额外扣点；如果不设上限，
+     * 高点数房间可能随机成整屋纸团，实际尸体数会远高于预算直观值。
+     */
+    monsterPointSplitterShareCap: number
     /**
      * 末层（「异常」层）那一场的配置。
      *
@@ -256,17 +263,6 @@ export interface CombatConfig {
      * 它是玩法旋钮 → 进配置（红线 2），不写死在 `BattleScene` 里。
      */
     finale: { floor: number; displayName: string; finalRewardId: string; gateRooms: number }
-    /**
-     * ⚠️ **这个字段今天没有消费方**（2026-10-21 整层连续之后）。
-     *
-     * 它原来是**层与层之间的**强度斜率（`1 + (层号 - 1) × 0.3`），而整层连续之后
-     * 「这一间多难」由 D2 的威胁预算（到楼梯间的跳数）说，层号不再参与刷怪数量。
-     * 留着是因为它在 `combat.json` 里、删一个配置字段要走配置契约那一套；
-     * **但别照着它改难度** —— 改它不会有任何效果，而它看着像是会有的
-     * （那正是最难查的一种「配置改了没用」）。要调难度改 `rooms.json` 的
-     * `budgetBase` / `budgetGrowth`。
-     */
-    stageGrowth: number
     phaseBaseMs: number
     phaseCountScale: number
     intermissionMs: number
@@ -275,10 +271,6 @@ export interface CombatConfig {
      * 名字沿用旧版「一关一个首领」时期的叫法，语义在这一版是「层」。
      */
     maxStages: number
-    /** 一层几间房（第 `roomsPerFloor` 间是首领房，D2 的生成器把 `kind: 'boss'` 只放那儿）。 */
-    roomsPerFloor: number
-    /** 其中几间是侧室（支线）。主干数 = `roomsPerFloor − sideRoomsPerFloor`，至少要有首末两间。 */
-    sideRoomsPerFloor: number
     demoDamage: number
   }
 }
@@ -502,41 +494,84 @@ export function parseCombatConfig(raw: unknown): CombatConfig {
   if (!(c.weaponEffects.glowAlpha > 0 && c.weaponEffects.glowAlpha <= 1))
     throw new Error('weaponEffects: 光晕透明度无效')
   numeric(c.limits, 'limits')
-  const { finale: _finale, ...arenaNumbers } = c.arena
+  const {
+    finale: _finale,
+    monsterPointFloorScale: _floorScale,
+    floorEnemyHpScale: _floorHpScale,
+    floorEnemyDamageScale: _floorDamageScale,
+    floorEnemySpeedScale: _floorSpeedScale,
+    monsterPointWeights: _weights,
+    monsterPointUnlockFloors: _unlockFloors,
+    ...arenaNumbers
+  } = c.arena
   numeric(arenaNumbers, 'arena')
   if (!Number.isInteger(c.arena.maxStages) || c.arena.maxStages < 1)
     throw new Error('arena.maxStages: 关卡上限无效')
-  if (!Number.isFinite(c.arena.initialSprayers) || c.arena.initialSprayers < 0)
-    throw new Error('arena.initialSprayers: 必须为非负有限数')
-  if (!Number.isFinite(c.arena.initialGrabbers) || c.arena.initialGrabbers < 0)
-    throw new Error('arena.initialGrabbers: 不能为负（0 是合法值：第一层不出抓取怪）')
-  for (const key of ['initialMuscovies', 'initialNightmareCats'] as const) {
-    if (!Number.isFinite(c.arena[key]) || c.arena[key] < 0)
-      throw new Error(`arena.${key}: 新敌人预算必须为非负数`)
-  }
-  for (const key of ['muscovyMinFloor', 'nightmareCatMinFloor'] as const) {
-    if (!Number.isInteger(c.arena[key]) || c.arena[key] < 2 || c.arena[key] > c.arena.maxStages)
-      throw new Error(`arena.${key}: 新敌人最早出现层必须在2至末层之间`)
-  }
   if (!c.arena.finale || c.arena.finale.floor !== c.arena.maxStages ||
     !c.arena.finale.displayName?.trim() || !c.arena.finale.finalRewardId?.trim())
     throw new Error('arena.finale: 必须明确末层首领名称与最终收益ID')
+  if (
+    !Array.isArray(c.arena.monsterPointFloorScale) ||
+    c.arena.monsterPointFloorScale.length !== c.arena.maxStages ||
+    c.arena.monsterPointFloorScale.some((v) => !Number.isFinite(v) || v <= 0)
+  )
+    throw new Error('arena.monsterPointFloorScale: 必须为每层各给一个正数倍率')
+  for (const [name, values] of [
+    ['floorEnemyHpScale', c.arena.floorEnemyHpScale],
+    ['floorEnemyDamageScale', c.arena.floorEnemyDamageScale],
+    ['floorEnemySpeedScale', c.arena.floorEnemySpeedScale],
+  ] as const) {
+    if (
+      !Array.isArray(values) ||
+      values.length !== c.arena.maxStages ||
+      values[0] !== 1 ||
+      values.some((v, i) => !Number.isFinite(v) || v <= 0 || (i > 0 && v < values[i - 1]!))
+    )
+      throw new Error(`arena.${name}: 必须以 1 开始、每层一项且单调不减`)
+  }
+  const pointKinds: EnemyKind[] = [
+    'splitter',
+    'tank',
+    'grabber',
+    'sprayer',
+    'muscovy',
+    'nightmare_cat',
+  ]
+  const pointWeights = c.arena.monsterPointWeights
+  if (
+    !pointWeights ||
+    typeof pointWeights !== 'object' ||
+    Object.keys(pointWeights).some((key) => !pointKinds.includes(key as EnemyKind)) ||
+    pointKinds.some(
+      (kind) =>
+        !Number.isFinite(pointWeights[kind]) || (pointWeights[kind] ?? 0) <= 0,
+    )
+  )
+    throw new Error('arena.monsterPointWeights: 六种小怪都必须给出正权重，且不能有未知种类')
+  const unlockFloors = c.arena.monsterPointUnlockFloors
+  if (
+    !unlockFloors ||
+    typeof unlockFloors !== 'object' ||
+    Object.keys(unlockFloors).some((key) => !pointKinds.includes(key as EnemyKind)) ||
+    pointKinds.some(
+      (kind) =>
+        !Number.isInteger(unlockFloors[kind]) ||
+        unlockFloors[kind] < 1 ||
+        unlockFloors[kind] > c.arena.maxStages,
+    )
+  )
+    throw new Error(
+      'arena.monsterPointUnlockFloors: 六种小怪都必须给出 1..maxStages 的整数楼层',
+    )
+  if (
+    !Number.isFinite(c.arena.monsterPointSplitterShareCap) ||
+    c.arena.monsterPointSplitterShareCap <= 0 ||
+    c.arena.monsterPointSplitterShareCap > 1
+  )
+    throw new Error('arena.monsterPointSplitterShareCap: 必须在 (0, 1] 内')
   // ★ 2026-11-04：传送阵的解锁门槛。至少 1 间（0 就等于没有门槛，那和直接放行没区别）。
   if (!Number.isInteger(c.arena.finale.gateRooms) || c.arena.finale.gateRooms < 1)
     throw new Error('arena.finale.gateRooms: 传送阵的解锁门槛必须是不小于 1 的整数')
-  // 一局几层 = `maxStages`（第 1..N 层的首领按层的序号挑），一层几间 = 下面这两个数。
-  // 层与间都进配置：红线 2 说数值不许写死在代码里，而这两个数直接决定一局有多长。
-  if (!Number.isInteger(c.arena.roomsPerFloor) || c.arena.roomsPerFloor < 4)
-    throw new Error('arena.roomsPerFloor: 一层至少 4 间（首间起点 + 末间首领 + 要打的 + 侧室）')
-  if (
-    !Number.isInteger(c.arena.sideRoomsPerFloor) ||
-    c.arena.sideRoomsPerFloor < 1 ||
-    c.arena.sideRoomsPerFloor > c.arena.roomsPerFloor - 2
-  )
-    throw new Error(
-      'arena.sideRoomsPerFloor: 侧室数必须 ≥ 1（一层要有岔路，直线不是地牢）' +
-        '且 ≤ roomsPerFloor−2（主干至少留首末两间）',
-    )
   numeric(c.chest, 'chest')
   if (
     !['interactRadius', 'pickupRadius', 'visualSize', 'openFxMs'].every((key) =>
@@ -629,11 +664,6 @@ export function parseCombatConfig(raw: unknown): CombatConfig {
       !w.name
     )
       throw new Error('combat.weapons: ID重复/无效')
-    if (
-      w.id === 'pulse' &&
-      (!Number.isFinite(w.bossDamageRatio) || w.bossDamageRatio! <= 0 || w.bossDamageRatio! > 1)
-    )
-      throw new Error('weapon: 重炮伤害比例无效')
     if (w.id !== 'pencil') {
       if (
         !Number.isInteger(w.pierceTargets) ||
@@ -702,7 +732,7 @@ export function parseRewards(raw: unknown): RewardDef[] {
     if (![d.weapons, d.requires, d.excludes, d.effects].every(Array.isArray) || !d.effects.length)
       throw new Error('rewards: 条件/效果缺失')
     if (
-      d.weapons.some((w) => !['pencil', 'pulse'].includes(w)) ||
+      d.weapons.some((w) => !['pencil', 'pulse', 'venom', 'flare', 'rail', 'smg'].includes(w)) ||
       d.effects.some((e) => !STATS.includes(e.stat) || !Number.isFinite(e.amount))
     )
       throw new Error('rewards: 武器/属性无效')
@@ -736,11 +766,7 @@ export function deriveStats(
   const temporaryAttackSpeed = Math.max(0, temporaryAttackSpeedPct) / 100
   const permanentMoveSpeed = Math.max(0, permanent?.moveSpeedPct ?? 0) / 100
   return {
-    damage:
-      (weapon.bossDamageRatio
-        ? config.encounter.bossHp * weapon.bossDamageRatio
-        : b.bullet.damage * weapon.damageScale) *
-      (1 + sum.damage),
+    damage: b.bullet.damage * weapon.damageScale * (1 + sum.damage),
     cooldownMs:
       (b.bullet.fireIntervalMs * weapon.cooldownScale) /
       Math.min(

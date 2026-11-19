@@ -208,7 +208,7 @@ describe('酸池、水面与体育器材', () => {
     expect(f.moves).toEqual([])
     f.step(1000)
     expect(f.moves).toHaveLength(1)
-    expect(f.damage).toEqual([{ id: 1, amount: 36 }])
+    expect(f.damage).toEqual([{ id: 1, amount: 24 }])
     f.step(1016)
     expect(f.damage).toHaveLength(1)
     expect(f.invulnerability.get(100)).toBe(7500)
@@ -261,7 +261,7 @@ describe('酸池、水面与体育器材', () => {
       .filter((sign, index, all) => sign !== 0 && (index === 0 || sign !== all[index - 1]))
     expect(signs).toEqual([1, -1, 1])
   })
-  it('大跳锁定玩家面前，预警后隐身飞跃，落地对双方造成AOE和3秒晕眩', () => {
+  it('大跳锁定玩家面前，预警后隐身飞跃，落地对双方造成AOE和短晕眩', () => {
     const f = fixture()
     f.addMinion('tank', 100, 280, 0)
     f.runtime.castSkill(100, 5, 'leap_slam', 0)
@@ -272,8 +272,8 @@ describe('酸池、水面与体育器材', () => {
     expect(f.appearance.get(100)).toEqual({})
     expect(commands.filter((command) => command.type === 'damage').map((command) => command.id)).toEqual([1, 101])
     expect(commands.filter((command) => command.type === 'stun')).toEqual([
-      { type: 'stun', id: 1, sourceId: 100, untilMs: 5000 },
-      { type: 'stun', id: 101, sourceId: 100, untilMs: 5000 },
+      { type: 'stun', id: 1, sourceId: 100, untilMs: 3500 },
+      { type: 'stun', id: 101, sourceId: 100, untilMs: 3500 },
     ])
   })
 })
