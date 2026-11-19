@@ -143,7 +143,6 @@ export interface WeaponDef {
   chainDamageRatio?: number
   slowMultiplier?: number
   slowDurationMs?: number
-  bossDamageRatio?: number
   damageScale: number
   cooldownScale: number
   speedScale: number
@@ -425,7 +424,7 @@ export interface PermanentRunStats {
   energyRegenPct: number
 }
 
-export type CharacterSkillKind = 'haste' | 'dash' | 'summon'
+export type CharacterSkillKind = 'haste' | 'dash' | 'summon' | 'performance'
 
 /** D4 把当前角色技能等级折算成这一份纯配置，D1 不认识 profile/meta 结构。 */
 export interface CharacterSkillConfig {
@@ -446,6 +445,19 @@ export interface CharacterSkillConfig {
   fireIntervalMs: number
   range: number
   maxCharges: number
+  beatPeriodMs: number
+  beatHitWindowMs: number
+  songCooldownMs: number
+  maxStacks: number
+  stackDurationMs: number
+  redDamage: number
+  redDamagePerStackPct: number
+  redRadius: number
+  damageBonusPctPerStack: number
+  moveSpeedPctPerStack: number
+  shieldPerStack: number
+  blueShieldRestore: number
+  manaCost: number
 }
 export const COMBAT_CONFIG_FILES = ['combat.json', 'rewards.json'] as const
 export function combatConfigUrl(name: (typeof COMBAT_CONFIG_FILES)[number]): string {
@@ -882,11 +894,6 @@ export function parseCombatConfig(raw: unknown): CombatConfig {
     if (w.traits !== undefined) validateWeaponTraits(w.traits)
     if (w.status !== undefined) validateWeaponStatus(w.status)
     if (legacy.has(w.id)) {
-      if (
-        w.id === 'pulse' &&
-        (!Number.isFinite(w.bossDamageRatio) || w.bossDamageRatio! <= 0 || w.bossDamageRatio! > 1)
-      )
-        throw new Error('weapon: 重炮伤害比例无效')
       if (w.id !== 'pencil') {
         if (
           !Number.isInteger(w.pierceTargets) ||
@@ -962,6 +969,8 @@ export function deriveStats(
   stacks: ReadonlyMap<string, number>,
   permanent?: PermanentRunStats,
   temporaryAttackSpeedPct = 0,
+  temporaryMoveSpeedPct = 0,
+  temporaryDamagePct = 0,
 ): EffectiveStats {
   const sum = Object.fromEntries(STATS.map((k) => [k, 0])) as Record<Stat, number>
   for (const r of defs) {
@@ -975,12 +984,11 @@ export function deriveStats(
   const permanentAttackSpeed = Math.max(0, permanent?.attackSpeedPct ?? 0) / 100
   const temporaryAttackSpeed = Math.max(0, temporaryAttackSpeedPct) / 100
   const permanentMoveSpeed = Math.max(0, permanent?.moveSpeedPct ?? 0) / 100
+  const temporaryMoveSpeed = Math.max(0, temporaryMoveSpeedPct) / 100
+  const temporaryDamage = Math.max(0, temporaryDamagePct) / 100
   return {
     damage:
-      (weapon.bossDamageRatio
-        ? config.encounter.bossHp * weapon.bossDamageRatio
-        : b.bullet.damage * weapon.damageScale) *
-      (1 + sum.damage),
+      b.bullet.damage * weapon.damageScale * (1 + sum.damage) * (1 + temporaryDamage),
     cooldownMs:
       (b.bullet.fireIntervalMs * weapon.cooldownScale) /
       Math.min(
@@ -995,7 +1003,9 @@ export function deriveStats(
         ? 1
         : Math.min(l.pellets, weapon.pellets + sum.pellets),
     lifeMs: weapon.lifeMs,
-    moveSpeed: b.player.speed * Math.min(l.moveScale, 1 + sum.move + permanentMoveSpeed),
+    moveSpeed:
+      b.player.speed *
+      Math.min(l.moveScale, 1 + sum.move + permanentMoveSpeed + temporaryMoveSpeed),
     maxHp: Math.round(permanentMaxHp * (1 + sum.maxHp)),
     maxStamina: Math.round(permanentMaxStamina * (1 + sum.maxStamina)),
     iframeMs: Math.min(l.iframeMs, b.player.iframeMs + sum.iframeMs),

@@ -1,6 +1,12 @@
 import { describe, expect, it } from 'vitest'
 import { readFileSync, readdirSync } from 'node:fs'
-import { ANIMS, ASSETS, GOOSE_ART, findAsset } from '@/core/assetManifest'
+import {
+  ANIMS,
+  ASSETS,
+  CAMPUS_MENU_ART,
+  GOOSE_ART,
+  findAsset,
+} from '@/core/assetManifest'
 import { gooseDirection, gooseFrame, goosePose, type GooseDirection } from './GoosePose'
 
 describe('大鹅四向躯干与独立鹅嘴瞄准', () => {
@@ -24,6 +30,18 @@ describe('大鹅四向躯干与独立鹅嘴瞄准', () => {
     expect(ANIMS.filter((a) => a.textureKey.startsWith(neck))).toHaveLength(Object.keys(GOOSE_ART.states).length)
     const files = readdirSync(new URL('../../../public/assets/sprites/player/goose/', import.meta.url))
     expect(files.filter((f) => f.startsWith(neck))).toEqual([`${neck}.png`])
+  })
+  it('演奏家大鹅使用独立帽饰图层和戴帽立绘，原大鹅立绘不变', () => {
+    const hat = findAsset(GOOSE_ART.performerHat)!
+    const portrait = findAsset(GOOSE_ART.performerPortrait)!
+    const hatPng = readFileSync(new URL('../../../public/assets/' + hat.path, import.meta.url))
+    const portraitPng = readFileSync(
+      new URL('../../../public/assets/' + portrait.path, import.meta.url),
+    )
+    expect([hatPng.readUInt32BE(16), hatPng.readUInt32BE(20)]).toEqual([96, 96])
+    expect([portraitPng.readUInt32BE(16), portraitPng.readUInt32BE(20)]).toEqual([128, 128])
+    expect(CAMPUS_MENU_ART.characterCards.athlete).toBe(GOOSE_ART.portrait)
+    expect(CAMPUS_MENU_ART.characterCards.performer).toBe(GOOSE_ART.performerPortrait)
   })
   it('移动选择四向，停步保留方向，鼠标不参与躯干朝向', () => {
     expect(gooseDirection(0, -1, 'right')).toBe('up')
