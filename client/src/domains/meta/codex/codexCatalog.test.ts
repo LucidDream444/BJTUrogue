@@ -1,7 +1,7 @@
 import { readFileSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
 import { describe, expect, it } from 'vitest'
-import { CONFIG_FILE_NAMES, parseConfigBundle } from '@/core/config'
+import { CONFIG_FILE_NAMES, deriveTank, parseConfigBundle } from '@/core/config'
 import { bossSkillNotes, codexBossSkillConfig } from './bossCodexNotes'
 import { buildCodexEntries, codexAnimationKey, codexEncounterConfig, moveCodexIndex } from './codexCatalog'
 
@@ -46,12 +46,23 @@ describe('怪物图鉴目录', () => {
   })
 
   it('数值来自当前难度派生，不在图鉴里复制一份', () => {
-    const normal = buildCodexEntries(bundle(), 'normal')
-    const hard = buildCodexEntries(bundle(), 'hard')
+    const b = bundle()
+    const normal = buildCodexEntries(b, 'normal')
+    const hard = buildCodexEntries(b, 'hard')
     const normalTank = normal.find((entry) => entry.id === 'tank')!
     const hardTank = hard.find((entry) => entry.id === 'tank')!
-    expect(normalTank.stats.find((stat) => stat.label === '生命值')?.value).toBe('520')
-    expect(hardTank.stats.find((stat) => stat.label === '生命值')?.value).toBe('676')
+    const normalHp = deriveTank(
+      b.enemies.enemies.tank,
+      b.difficulty.difficulties.normal,
+      b.balance,
+    ).maxHp
+    const hardHp = deriveTank(
+      b.enemies.enemies.tank,
+      b.difficulty.difficulties.hard,
+      b.balance,
+    ).maxHp
+    expect(normalTank.stats.find((stat) => stat.label === '生命值')?.value).toBe(String(normalHp))
+    expect(hardTank.stats.find((stat) => stat.label === '生命值')?.value).toBe(String(hardHp))
   })
 
   it('已交付的普通敌人都有可播放的循环待机动画', () => {

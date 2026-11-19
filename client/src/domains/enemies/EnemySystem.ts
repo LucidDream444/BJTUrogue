@@ -291,7 +291,7 @@ export class EnemySystem implements ActorEventSink {
   private readonly bus: TypedBus<GameEvents>
   private readonly clock: GameClock
   private readonly bundle: ConfigBundle
-  private readonly diffMods: DifficultyModifiers
+  private diffMods: DifficultyModifiers
   private readonly playerOf: PlayerProvider
   private readonly patrolOrigins = new Map<number, { x: number; y: number }>()
   private readonly safeSpawn?: EnemySystemNavOptions['safeSpawn']
@@ -512,6 +512,22 @@ export class EnemySystem implements ActorEventSink {
   // ------------------------------------------------------------ 生命周期
 
   /** 挂到物理世界的 step 事件上。**在场景的 `create()` 里调一次。** */
+  /**
+   * 换层时更新生命、伤害、速度倍率。
+   *
+   * 派生结果有缓存，必须一起清掉；否则同一只怪会继续使用上一层派生出的血量。
+   * 调用方应在 `despawnAll()` 之后、生成新一层的怪之前调用。
+   */
+  setDifficultyModifiers(mods: DifficultyModifiers): void {
+    for (const [name, value] of Object.entries(mods))
+      if (!Number.isFinite(value) || value <= 0)
+        throw new Error(`EnemySystem: 非法难度倍率 ${name}=${value}`)
+    this.diffMods = { ...mods }
+    this.splitterCache.clear()
+    this.tankCache = null
+    this.grabberCache = null
+  }
+
   create(): void {
     if (this.wired) return
     this.wired = true
