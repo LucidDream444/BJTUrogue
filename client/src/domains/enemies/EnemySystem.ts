@@ -333,6 +333,8 @@ export class EnemySystem implements ActorEventSink {
   /** 模型 id → 池槽位。sink 回调只给 id，得靠它找回表现对象 */
   private readonly finalBosses = new Set<number>()
   private readonly bossStages = new Map<number, number>()
+  private readonly bossIds = new Map<number, string>()
+  private readonly bossLayers = new Map<number, number>()
   private readonly skillCapExempt = new Set<number>()
   private readonly cloneBossStages = new Map<number, number>()
   private readonly bossAppearances = new Map<number, BossAppearance>()
@@ -447,6 +449,8 @@ export class EnemySystem implements ActorEventSink {
         this.nextAiAt.delete(model)
         this.byId.delete(model.id)
         this.bossStages.delete(model.id)
+        this.bossIds.delete(model.id)
+        this.bossLayers.delete(model.id)
         this.skillCapExempt.delete(model.id)
         this.cloneBossStages.delete(model.id)
         this.bossAppearances.delete(model.id)
@@ -713,8 +717,13 @@ export class EnemySystem implements ActorEventSink {
       }
       const baseX = model.velIntent.x, baseY = model.velIntent.y
       const pull = vortexFields.length ? enemyVortexPull(model.id, entry.view.body.center, vortexFields) : null
-      model.velIntent.x += pull?.x ?? 0
-      model.velIntent.y += pull?.y ?? 0
+      const kbLeft = model.knockbackUntilMs - nowMs
+      const kbScale =
+        kbLeft > 0 && model.state !== 'flung'
+          ? kbLeft / Math.max(1, model.knockbackUntilMs - model.knockbackStartedMs)
+          : 0
+      model.velIntent.x += (pull?.x ?? 0) + model.knockbackVx * kbScale
+      model.velIntent.y += (pull?.y ?? 0) + model.knockbackVy * kbScale
       entry.view.applyVelocityIntent()
       model.velIntent.x = baseX
       model.velIntent.y = baseY
@@ -1562,6 +1571,8 @@ export class EnemySystem implements ActorEventSink {
 
   requestBoss(
     stage: number,
+    layer: number,
+    bossId: string,
     x: number,
     y: number,
     maxHp: number,
@@ -1569,7 +1580,7 @@ export class EnemySystem implements ActorEventSink {
     damageMultiplier = 1,
   ): boolean {
     const spec = this.specFor('tank', 0)
-    const ranged = stage === 3 && !finalBoss ? this.bundle.enemies.stage2Boss : null
+    const ranged = stage === 3 ? this.bundle.enemies.stage2Boss : null
     return this.spawns.push({
       spec: {
         ...spec,
@@ -1588,6 +1599,8 @@ export class EnemySystem implements ActorEventSink {
       x,
       y,
       bossStage: stage,
+      bossId,
+      bossLayer: layer,
       finalBoss,
       bossDamageMultiplier: damageMultiplier,
       reason: 'wave',
@@ -1615,6 +1628,8 @@ export class EnemySystem implements ActorEventSink {
   bossStatuses(): {
     id: number
     stage: number
+    bossId?: string
+    layer?: number
     finalBoss: boolean
     hp: number
     maxHp: number
@@ -1623,7 +1638,15 @@ export class EnemySystem implements ActorEventSink {
     for (const [id, stage] of this.bossStages) {
       const model = this.byId.get(id)?.model
       if (!model?.alive) continue
-      statuses.push({ id, stage, finalBoss: this.finalBosses.has(id), hp: model.hp, maxHp: model.maxHp })
+      statuses.push({
+        id,
+        stage,
+        bossId: this.bossIds.get(id),
+        layer: this.bossLayers.get(id),
+        finalBoss: this.finalBosses.has(id),
+        hp: model.hp,
+        maxHp: model.maxHp,
+      })
     }
     return statuses
   }
@@ -1767,7 +1790,7 @@ export class EnemySystem implements ActorEventSink {
     const entry = this.byId.get(id)
     if (this.disposed || !entry?.model.alive || !entry.view.body || (!this.isBoss(id) && !this.cloneBossStages.has(id))) return false
     const stage = appearance.skinBossStage ?? this.cloneBossStages.get(id) ?? this.bossStages.get(id)!
-    const textureKey = appearance.playerTextureKey ?? bossArt(stage, stage === 8).key
+    const textureKey = appearance.playerTextureKey ?? bossArt(stage).key
     const radius = entry.view.body.halfWidth
     const position = { x: entry.view.body.center.x, y: entry.view.body.center.y }
     const visualScale = appearance.visualScale ?? this.defaultBossVisualScale(this.bossStages.get(id) ?? this.cloneBossStages.get(id)!)
@@ -1900,6 +1923,50 @@ export class EnemySystem implements ActorEventSink {
     if (!e?.model.alive) return
     e.model.weaponSlowMultiplier = multiplier
     e.model.weaponSlowUntilMs = untilMs
+  }
+
+  /**
+   * 玩家武器的击退。**不直接写 body 速度**：`applyVelocityIntent()` 每步都会覆盖它。
+   * 冲量存进 model，物理步里和 `velIntent` 合流后按剩余时间线性衰减。
+   */
+  applyKnockback(id: number, vx: number, vy: number, durationMs: number): void {
+    const model = this.byId.get(id)?.model
+    if (!model?.alive || !Number.isFinite(vx) || !Number.isFinite(vy)) return
+    if (!Number.isFinite(durationMs) || durationMs <= 0) return
+    const nowMs = this.clock.nowMs
+    model.knockbackVx = vx
+    model.knockbackVy = vy
+    model.knockbackStartedMs = nowMs
+    model.knockbackUntilMs = nowMs + durationMs
+  }
+
+  /**
+   * 近战消弹：把扇形范围内的敌方弹丸直接关掉（不改变阵营，只销毁）。
+   * 返回值用于表现层反馈（命中几发）。
+   */
+  destroyShotsInArc(
+    x: number,
+    y: number,
+    range: number,
+    angle: number,
+    arcRad: number,
+  ): number {
+    const half = Math.max(0, arcRad) / 2
+    const cosHalf = Math.cos(half)
+    const cos = Math.cos(angle)
+    const sin = Math.sin(angle)
+    let destroyed = 0
+    for (const shot of this.radialShots.shots) {
+      if (!shot.active) continue
+      const dx = shot.x - x
+      const dy = shot.y - y
+      const distance = Math.hypot(dx, dy)
+      if (distance > range + shot.radius) continue
+      if (distance > 1e-6 && (dx * cos + dy * sin) / distance < cosHalf) continue
+      shot.active = false
+      destroyed++
+    }
+    return destroyed
   }
 
   /** Pulse shot has one exact impact, without armor tick damage or vulnerability amplification. */
@@ -2059,9 +2126,8 @@ export class EnemySystem implements ActorEventSink {
     // Skill positions were validated inside the sealed boss room by the adapter. A second
     // whole-floor navigation fallback could relocate a clone or summon across a wall.
     const position = skillPosition ?? this.safeSpawn?.(req.x, req.y, model.stats.radius) ?? req
-    const portrait =
-      req.bossStage === undefined ? null : bossArt(req.bossStage, req.finalBoss ?? false)
-    const baseVisualScale = req.bossStage === 3 && !req.finalBoss
+    const portrait = req.bossStage === undefined ? null : bossArt(req.bossStage)
+    const baseVisualScale = req.bossStage === 3
       ? this.bundle.enemies.stage2Boss.visualScale
       : this.visualScaleFor(model.enemyKind, model.gen)
     const footprint = req.bossStage !== undefined && this.bossPresentation
@@ -2092,6 +2158,8 @@ export class EnemySystem implements ActorEventSink {
 
     this.byId.set(model.id, entry)
     if (req.bossStage !== undefined) this.bossStages.set(model.id, req.bossStage)
+    if (req.bossId !== undefined) this.bossIds.set(model.id, req.bossId)
+    if (req.bossLayer !== undefined) this.bossLayers.set(model.id, req.bossLayer)
     if (req.finalBoss) this.finalBosses.add(model.id)
     if (req.bossStage !== undefined)
       this.bossDamageMultipliers.set(model.id, req.bossDamageMultiplier ?? 1)
@@ -2107,6 +2175,8 @@ export class EnemySystem implements ActorEventSink {
       model.setHealthFromSkill(model.maxHp * req.initialHpRatio, nowMs, this.clock.frameId)
     this.bus.emit('entity_spawned', {
       bossStage: req.bossStage,
+      bossId: req.bossId,
+      bossLayer: req.bossLayer,
       finalBoss: req.finalBoss ?? false,
       id: model.id,
       kind: 'enemy',
@@ -2336,6 +2406,8 @@ export class EnemySystem implements ActorEventSink {
 
     this.bus.emit('entity_killed', {
       bossStage: this.bossStages.get(model.id),
+      bossId: this.bossIds.get(model.id),
+      bossLayer: this.bossLayers.get(model.id),
       finalBoss: this.finalBosses.has(model.id),
       id: model.id,
       kind: 'enemy',

@@ -153,7 +153,12 @@ export interface GameEvents extends EventMap {
   }
   entity_spawned: {
     finalBoss?: boolean
+    /** 首领档位（技能/美术/皮肤查表用），不是层号。 */
     bossStage?: number
+    /** 首领稳定内容身份（boss-skills 的 id）。 */
+    bossId?: string
+    /** 首领所在的本局层号（1—3）；心魔也用 3。 */
+    bossLayer?: number
     id: number
     kind: ActorKind
     enemyKind?: EnemyKind
@@ -183,6 +188,8 @@ export interface GameEvents extends EventMap {
   entity_killed: {
     finalBoss?: boolean
     bossStage?: number
+    bossId?: string
+    bossLayer?: number
     id: number
     kind: ActorKind
     enemyKind?: EnemyKind

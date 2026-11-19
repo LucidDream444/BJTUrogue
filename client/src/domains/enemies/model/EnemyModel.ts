@@ -303,6 +303,16 @@ export class EnemyModel extends ActorModel<EnemyState> {
   flingVx = 0
   flingVy = 0
 
+  /**
+   * 玩家武器造成的**击退冲量**（px/s）。和 `flingVx` 一样必须走速度意图，
+   * 不能直接写物理体 —— `applyVelocityIntent()` 每步都会覆盖 body 速度。
+   * 按剩余时间线性衰减，到 `knockbackUntilMs` 自动归零。
+   */
+  knockbackVx = 0
+  knockbackVy = 0
+  knockbackStartedMs = 0
+  knockbackUntilMs = 0
+
   // ---- 减速叠层 ----
 
   weaponSlowMultiplier = 1
@@ -368,6 +378,10 @@ export class EnemyModel extends ActorModel<EnemyState> {
     this.vortexFieldId = 0
     this.flingVx = 0
     this.flingVy = 0
+    this.knockbackVx = 0
+    this.knockbackVy = 0
+    this.knockbackStartedMs = 0
+    this.knockbackUntilMs = 0
     this.slowStacks = 0
     this.slowExpireAtMs = 0
     this.lastDecayAtMs = nowMs

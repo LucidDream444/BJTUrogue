@@ -146,24 +146,6 @@ const NO_VISITED: ReadonlySet<string> = new Set<string>()
  * 而「标号让位」那一段判的是**字宽 vs 房间宽**，它会**正确地**把自己藏起来，
  * 于是症状变成「商店在缩略图上根本没有标号」。一个字两个房间都放得下。
  */
-const SHORT_LABELS: Readonly<Record<string, string>> = { STAIR: '梯', SHOP: '商' }
-
-/**
- * **按前缀**认的设施标号。★ 新增（2026-10-23，用户：「为什么小地图给电梯间显示问号」）。
- *
- * 电梯间是 `E_A` / `E_B` / `E_C`（同一部电梯在三层的三个位置），三个都得单独往
- * `SHORT_LABELS` 里塞一遍才不显示 `?` —— 而**下一层再来一个 `E_D` 就又漏了**。
- * 前缀表一次管住一类 id，也顺手把「设施」这条规矩写在了明面上。
- */
-const SHORT_PREFIX_LABELS: readonly (readonly [string, string])[] = [['E_', '电']]
-
-function shortId(id: string): string {
-  const digits = /(\d+)\s*$/.exec(id)
-  if (digits !== null) return digits[1]!
-  for (const [prefix, label] of SHORT_PREFIX_LABELS) if (id.startsWith(prefix)) return label
-  return SHORT_LABELS[id] ?? '?'
-}
-
 export class Minimap {
   /**
    * 面板上的东西**全部挂在这一个容器里**（`gfx` / 标题 / 每间的标号）。
@@ -201,6 +183,9 @@ export class Minimap {
   private currentId: string | null = null
   private floor = 1
   private floors = 1
+  private titleText = ''
+  /** 房间 id → 本层顺序号（1、2、3…）；设施不在表里。 */
+  private readonly displayNos = new Map<string, string>()
   /**
    * 这一层的 `start` 房是不是**传送阵落点**而不是楼梯间（8F「异常」层）。
    * 是的话：格子标号写「落」、标题写「落点 · 传送阵」（与 `StageBackground` 同步）。
@@ -248,11 +233,20 @@ export class Minimap {
    */
   private view = { ox: 0, oy: 0, scale: 1 }
 
-  constructor(scene: Phaser.Scene, map: DungeonMap, cfg: RoomsConfig, floor = 1, floors = 1) {
+  constructor(
+    scene: Phaser.Scene,
+    map: DungeonMap,
+    cfg: RoomsConfig,
+    floor = 1,
+    floors = 1,
+    title = '',
+  ) {
     this.map = map
     this.cfg = cfg
     this.floor = floor
     this.floors = floors
+    this.titleText = title
+    this.buildDisplayNos()
     // ⚠️ **`setScrollFactor(0)` 是「钉住」的前提，不是修饰。**
     //    容器渲染时 Phaser 会把容器的 scrollFactor **乘进每一个子对象**
     //    （`ContainerWebGLRenderer`：`child.setScrollFactor(childSfx * containerSfx, …)`），
@@ -299,6 +293,25 @@ export class Minimap {
     this.redraw()
   }
 
+  /** 非设施房间按 `Room.order` 从 1 编号；设施（start/elevator/shop）不占号。 */
+  private buildDisplayNos(): void {
+    this.displayNos.clear()
+    let n = 0
+    for (const room of [...this.map.rooms].sort((a, b) => a.order - b.order)) {
+      if (room.kind === 'start' || room.kind === 'elevator' || room.kind === 'shop') continue
+      n++
+      this.displayNos.set(room.id, String(n))
+    }
+  }
+
+  private shortLabel(room: Room): string {
+    if (this.arrivalRoom && room.kind === 'start') return '落'
+    if (room.kind === 'elevator') return '电'
+    if (room.kind === 'shop') return '商'
+    if (room.kind === 'start') return '梯'
+    return this.displayNos.get(room.id) ?? '?'
+  }
+
   private buildLabels(scene: Phaser.Scene): void {
     for (let i = 0; i < this.map.rooms.length; i++) {
       const t = scene.add
@@ -330,14 +343,17 @@ export class Minimap {
     floors: number,
     arrivalRoom = false,
     anomalyGate: Point | null = null,
+    title = '',
   ): void {
     for (const label of this.labels) label.destroy()
     this.labels.length = 0
     this.map = map
     this.floor = floor
     this.floors = floors
+    this.titleText = title
     this.arrivalRoom = arrivalRoom
     this.anomalyGate = anomalyGate
+    this.buildDisplayNos()
     this.buildLabels(this.root.scene)
     this.currentId = null
     this.visited = NO_VISITED
@@ -461,11 +477,13 @@ export class Minimap {
       here === null
         ? '走廊'
         : this.arrivalRoom && here.kind === 'start'
-          ? '落点 · 传送阵'
-          : `${here.id} ${ROOM_KIND_LABELS[here.kind]}`
+          ? '落点'
+          : here.kind === 'start' || here.kind === 'elevator' || here.kind === 'shop'
+            ? ROOM_KIND_LABELS[here.kind]
+            : `${this.displayNos.get(here.id) ?? '?'} 号 ${ROOM_KIND_LABELS[here.kind]}`
     const gone = this.countVisited()
     this.title.setText(
-      `第 ${this.floor} / ${this.floors} 层 · ${label} · 走过 ${gone} / ${this.map.rooms.length} 间`,
+      `${this.titleText || `第 ${this.floor} / ${this.floors} 层`} · ${label} · 走过 ${gone} / ${this.map.rooms.length} 间`,
     )
   }
 
@@ -548,7 +566,7 @@ export class Minimap {
       // 而「这是第几层」小地图标题上一直写着 —— 少一位不会认错房间。
       // 四级都放不下（比如 8×8 的电梯间）才藏起来：那几间靠**填色**认（`roomFillColor`）。
       // ★ 8F「异常」层：那间 `start` 房是传送阵落点，标号写「落」，不写「梯」。
-      const full = this.arrivalRoom && room.kind === 'start' ? '落' : shortId(room.id)
+      const full = this.shortLabel(room)
       const compact = /^\d{3,}$/.test(full) ? full.slice(-2) : full
       // `-4` 是给描边留的两侧余量（描边画在矩形边上，不占宽度，
       // 但字贴着边看起来就像被框切了一半）。宽度是**面板单位** —— 标号和格子

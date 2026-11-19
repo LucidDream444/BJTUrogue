@@ -109,11 +109,11 @@ describe('怪物图鉴目录', () => {
     expect(cat.combatNotes.join('')).toContain('2.7 rad/s')
     const paper = entries.find((entry) => entry.id === 'stage2-boss')!
     expect(paper.combatNotes.join('')).toContain(`单次攻击伤害 ${Math.round(config.enemies.stage2Boss.projectile.damage * config.difficulty.difficulties.hard.enemyDamage * 1.5)}`)
-    expect(paper.combatNotes.join('')).toContain('第 3 层生命 1500')
+    expect(paper.combatNotes.join('')).toContain('第 1 层生命 900')
     expect(paper.combatNotes.join('')).toContain('每 8 秒')
     const final = entries.find((entry) => entry.id === 'heart-demon')!
     expect(final.combatNotes.join('')).toContain('近身范围下砸')
-    expect(final.combatNotes.join('')).toContain('第 8 层生命 3000')
+    expect(final.combatNotes.join('')).toContain('第 3 层生命 1800')
     expect(codexEncounterConfig({ encounter: { bossHp: 'oops' } })).toBeUndefined()
   })
 

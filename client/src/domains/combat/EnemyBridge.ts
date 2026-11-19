@@ -8,8 +8,6 @@ import type { ConfigBundle, Difficulty } from '@/core/config'
 import type { HitResult, TickTarget } from '@/core/actor/damage'
 import type { CombatEvents } from './events'
 import type { EffectTargetPort, WeaponTarget } from './WeaponMechanics'
-import { effectiveDifficultyModifiers } from './balance'
-import type { CombatConfig } from './config'
 export interface PlayerPort {
   model: TickTarget
   /**
@@ -42,6 +40,10 @@ export interface BulletContactPort extends EffectTargetPort {
   bulletRayContact(shotId: number, enemyId: number, damage: number): HitResult
   meleeContact(id: number, target: Phaser.GameObjects.GameObject, damage: number): HitResult
   pulseContact(id: number, target: Phaser.GameObjects.GameObject, damage: number): HitResult
+  /** 玩家武器击退：走 D3 的速度意图，不直接写 body。 */
+  knockback(id: number, vx: number, vy: number, durationMs: number): void
+  /** 近战消弹：扇形内关闭敌方弹丸，返回销毁数量。 */
+  destroyShotsInArc(x: number, y: number, range: number, angle: number, arcRad: number): number
   release(id: number): void
 }
 /** Composition adapter: only the existing D3 public contract, never EnemyModel state. */
@@ -56,13 +58,11 @@ export class EnemyBridge implements BulletContactPort {
     bus: TypedBus<CombatEvents>,
     clock: GameClock,
     private readonly bundle: ConfigBundle,
-    private readonly cfg: CombatConfig,
-    private readonly difficulty: Difficulty,
+    difficulty: Difficulty,
     player: () => PlayerPort,
     seed: number,
     nav?: EnemySystemNavOptions,
     bossPresentation?: BossPresentationConfig,
-    floor = 1,
   ) {
     this.unsub = bus.on('player_hurt', (e) => {
       if (e.sourceKind === 'aoe' && e.hpDamage + e.shieldDamage > 0) this.damagedAtFrame = e.frameId
@@ -93,16 +93,9 @@ export class EnemyBridge implements BulletContactPort {
       },
     })
     this.group = this.system.group
-    this.setFloor(floor)
     this.system.create()
     this.juice = new JuiceDirector({ scene, bus: commonBus, clock, bundle, enemies: this.system })
     this.juice.create()
-  }
-  /** 换层时刷新普通怪的生命、伤害、速度成长。必须在生成该层敌人之前调用。 */
-  setFloor(floor: number): void {
-    this.system.setDifficultyModifiers(
-      effectiveDifficultyModifiers(this.bundle, this.cfg, this.difficulty, floor),
-    )
   }
   /**
    * 穿透期间的**帧伤节拍**（毫秒）。D1 的穿透特殊效果按它触发，不要每帧都触发 ——
@@ -143,6 +136,12 @@ export class EnemyBridge implements BulletContactPort {
   }
   pulseContact(id: number, target: Phaser.GameObjects.GameObject, damage: number): HitResult {
     return this.system.pulseContact(id, target, damage)
+  }
+  knockback(id: number, vx: number, vy: number, durationMs: number): void {
+    this.system.applyKnockback(id, vx, vy, durationMs)
+  }
+  destroyShotsInArc(x: number, y: number, range: number, angle: number, arcRad: number): number {
+    return this.system.destroyShotsInArc(x, y, range, angle, arcRad)
   }
   target(id: number): WeaponTarget | null {
     return this.system.weaponTarget(id)
@@ -199,10 +198,10 @@ export class EnemyBridge implements BulletContactPort {
     this.system.abortGrab()
   }
   spawnBoss(
-    stage: number, x: number, y: number, maxHp: number, finalBoss = false,
-    damageMultiplier = 1,
+    stage: number, layer: number, bossId: string, x: number, y: number, maxHp: number,
+    finalBoss = false, damageMultiplier = 1,
   ): void {
-    this.system.requestBoss(stage, x, y, maxHp, finalBoss, damageMultiplier)
+    this.system.requestBoss(stage, layer, bossId, x, y, maxHp, finalBoss, damageMultiplier)
   }
   bossStatus(stage: number) {
     return this.system.bossStatus(stage)

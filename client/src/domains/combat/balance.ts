@@ -1,181 +1,51 @@
-import type { ConfigBundle, Difficulty, DifficultyModifiers } from '@/core/config'
-import {
-  deriveGrabber,
-  deriveSplitterGeneration,
-  deriveTank,
-  roundHalfUp,
-} from '@/core/config'
-import type { EnemyKind } from '@/core/events'
-import { Rng } from '@/core/rng'
+import type { ConfigBundle, Difficulty } from '@/core/config'
+import { deriveGrabber, deriveSplitterGeneration, deriveTank } from '@/core/config'
 import { deriveStats, type CombatConfig } from './config'
-const MONSTER_KINDS: readonly EnemyKind[] = [
-  'splitter',
-  'tank',
-  'grabber',
-  'sprayer',
-  'muscovy',
-  'nightmare_cat',
-]
-
-export interface MonsterSpawn {
-  readonly kind: EnemyKind
-  readonly gen: 0
-  readonly delayMs: number
-}
-
-export interface RoomMonsterPlan {
-  readonly pointBudget: number
-  readonly pointSpent: number
-  readonly units: readonly MonsterSpawn[]
-  readonly counts: Readonly<Record<EnemyKind, number>>
-  readonly phaseDelayMs: number
-  readonly secondPhaseFraction: number
-}
-
 /**
- * 把 D2 的房间深度预算换成**本层本难度的怪物点数总预算**。
+ * **一间房**的刷怪计划。D2 只给「这一间该有多难」的抽象量（`Room.budget`），
+ * 把它折成「几只什么怪」是这里的事（`gen/budget.ts` 的文件头写着这条分工）。
  *
- * `room.budget` 只表达“离楼梯间多远”；楼层倍率与难度再次缩放它。
- * 单只怪的成本不在这里乘任何东西，保证点数表是稳定面额。
- */
-export function roomPointBudget(
-  cfg: CombatConfig,
-  difficulty: Difficulty,
-  roomBudget: number,
-  floor: number,
-  enemyCountMultiplier: number,
-): number {
-  if (!Number.isFinite(roomBudget) || roomBudget < 0)
-    throw new Error(`房间怪物点数非法：${roomBudget}`)
-  if (!Number.isInteger(floor) || floor < 1 || floor > cfg.arena.maxStages)
-    throw new Error(`楼层 ${floor} 超出 1..${cfg.arena.maxStages}，房间点数无法计算`)
-  if (!Number.isFinite(enemyCountMultiplier) || enemyCountMultiplier < 0)
-    throw new Error(`难度 enemyCount 非法：${enemyCountMultiplier}（${difficulty}）`)
-  const floorScale = cfg.arena.monsterPointFloorScale[floor - 1]
-  if (floorScale === undefined || !Number.isFinite(floorScale) || floorScale <= 0)
-    throw new Error(`第 ${floor} 层没有合法的怪物点数倍率`)
-  return Math.max(0, roundHalfUp(roomBudget * floorScale * enemyCountMultiplier))
-}
-
-/**
- * 楼层是在玩家所选难度之上再叠一层固定成长。
+ * ★ 改了（2026-10-21，整层连续）：原来是 `stagePlan(bundle, cfg, difficulty, stage)`，
+ * 按**第几层**算 —— 那时一层楼被拆成 16 屏「一间房 = 一关」，一屏里的怪是同一批，
+ * 而层与层之间用 `arena.stageGrowth` 拉开。整层连续之后**同层之内每间房也不一样强**，
+ * 而那个差别不该由层号表达：
  *
- * 点数预算负责“来多少怪”，这里负责“每只怪有多强”。两者必须分开，
- * 否则后期只能靠堆数量制造难度。第 1 层三个倍率恒为 1。
- */
-export function effectiveDifficultyModifiers(
-  bundle: ConfigBundle,
-  cfg: CombatConfig,
-  difficulty: Difficulty,
-  floor: number,
-): DifficultyModifiers {
-  if (!Number.isInteger(floor) || floor < 1 || floor > cfg.arena.maxStages)
-    throw new Error(`楼层 ${floor} 超出 1..${cfg.arena.maxStages}，敌人强度无法计算`)
-  const base = bundle.difficulty.difficulties[difficulty]
-  const hp = cfg.arena.floorEnemyHpScale[floor - 1]
-  const damage = cfg.arena.floorEnemyDamageScale[floor - 1]
-  const speed = cfg.arena.floorEnemySpeedScale[floor - 1]
-  if (hp === undefined || damage === undefined || speed === undefined)
-    throw new Error(`第 ${floor} 层缺少敌人强度倍率`)
-  return {
-    enemyHp: base.enemyHp * hp,
-    enemyDamage: base.enemyDamage * damage,
-    enemySpeed: base.enemySpeed * speed,
-    // 数量轴由 roomPointBudget 单独消费，避免同一层被乘两次。
-    enemyCount: base.enemyCount,
-  }
-}
-
-function weightedPick<T extends { weight: number }>(items: readonly T[], rng: Rng): T {
-  const total = items.reduce((sum, item) => sum + item.weight, 0)
-  let roll = rng.floatBetween(0, total)
-  for (const item of items) {
-    roll -= item.weight
-    if (roll < 0) return item
-  }
-  return items[items.length - 1]!
-}
-
-/**
- * **一间房**的刷怪计划。
+ * - D2 的 `Room.budget` 按**到楼梯间的跳数**参数化（`budget = base × growth ^ t`），
+ *   离出生点越远越强 —— 这是 v5 里唯一表达「深度」的量；
+ * - 这里把 `budget ÷ budgetBase` 当成**强度倍数**接着用（`t = 0` 的那间正好是 1 倍，
+ *   与 `arena.initialSplitters` 那几个数一个量级，所以配置表的语义没变）。
  *
- * 2026-11-13 起采用“怪物点数购买”：
- *
- * 1. 房间先拿到一个固定总点数；
- * 2. 每种怪在 `enemies.json.monsterPoints` 有固定成本；
- * 3. 按权重选当前买得起的怪并立即扣点，点数花完或没有可负担目标时停止。
- *
- * 分裂后的子代、首领本体和首领增援**不再扣房间点数**：它们分别是同一只怪的
- * 战斗阶段、单独首领预算和遭遇机制，而不是房间初始出怪名单。
+ * ⚠️ **别把层号也乘进来。** `arena.maxStages` 还在（一局几层），但那是「有几个首领」，
+ * 不是「怪多强」—— 两个都乘的话，第 3 层最远的房间会是第 1 层最近那间的 4.6 倍，
+ * 而 4.6 倍是没人试玩过的数。
  */
 export function roomPlan(
   bundle: ConfigBundle,
   cfg: CombatConfig,
   difficulty: Difficulty,
-  pointBudget: number,
-  floor: number,
-  seed = cfg.arena.seed,
-): RoomMonsterPlan {
-  if (!Number.isInteger(pointBudget) || pointBudget < 0)
-    throw new Error(`房间怪物点数预算必须是非负整数：${pointBudget}`)
-  if (!Number.isInteger(floor) || floor < 1 || floor > cfg.arena.maxStages)
-    throw new Error(`楼层 ${floor} 超出 1..${cfg.arena.maxStages}，刷怪计划无法生成`)
-  if (!Number.isFinite(seed)) throw new Error(`房间刷怪种子非法：${seed}`)
-
-  const d = bundle.difficulty.difficulties[difficulty]
-  const a = cfg.arena
-  const costs = Object.fromEntries(
-    MONSTER_KINDS.map((kind) => [kind, bundle.enemies.enemies[kind].monsterPoints]),
-  ) as Record<EnemyKind, number>
-  const candidates = MONSTER_KINDS.flatMap((kind) => {
-    if (floor < a.monsterPointUnlockFloors[kind]) return []
-    return [{ kind, cost: costs[kind], weight: a.monsterPointWeights[kind] ?? 0 }]
-  })
-  for (const candidate of candidates)
-    if (!Number.isInteger(candidate.cost) || candidate.cost <= 0 || candidate.weight <= 0)
-      throw new Error(`怪物点数配置非法：${candidate.kind}`)
-
-  const rng = new Rng(seed >>> 0)
-  const counts = Object.fromEntries(MONSTER_KINDS.map((kind) => [kind, 0])) as Record<
-    EnemyKind,
-    number
-  >
-  const kinds: EnemyKind[] = []
-  let pointSpent = 0
-  let splitterPoints = 0
-  const splitterCap = pointBudget * a.monsterPointSplitterShareCap
-
-  while (pointSpent < pointBudget) {
-    const remaining = pointBudget - pointSpent
-    const affordable = candidates.filter((candidate) => candidate.cost <= remaining)
-    if (affordable.length === 0) break
-    const preferred = affordable.filter(
-      (candidate) =>
-        candidate.kind !== 'splitter' ||
-        splitterPoints + candidate.cost <= splitterCap,
-    )
-    const pick = weightedPick(preferred.length ? preferred : affordable, rng)
-    kinds.push(pick.kind)
-    counts[pick.kind]++
-    pointSpent += pick.cost
-    if (pick.kind === 'splitter') splitterPoints += pick.cost
-  }
-
-  const phaseDelayMs = a.phaseBaseMs / d.enemySpeed
-  const secondPhaseFraction = a.phaseCountScale
-  const immediate = Math.ceil(kinds.length * (1 - secondPhaseFraction))
-  const units = kinds.map((kind, i) => ({
-    kind,
-    gen: 0 as const,
-    delayMs: i < immediate ? 0 : phaseDelayMs,
-  }))
+  growth: number,
+  floor = cfg.arena.maxStages,
+) {
+  if (!Number.isFinite(growth) || growth < 0)
+    // 非有限值一路乘下去会得到 `NaN`，而 `NaN` 喂给 `Math.round` 还是 `NaN`，
+    // 最后落到「刷几只」上 —— `for (let i = 0; i < NaN; i++)` **一只都不刷**，
+    // 不抛异常。于是「预算算错了」表现成「这一间房是空的」，而清房判定当帧就成立。
+    throw new Error(`房间强度倍数非法：${growth}（威胁预算 ÷ budgetBase 才是它）`)
+  const d = bundle.difficulty.difficulties[difficulty],
+    a = cfg.arena
   return {
-    pointBudget,
-    pointSpent,
-    units,
-    counts,
-    phaseDelayMs,
-    secondPhaseFraction,
+    splitters: Math.max(1, Math.round(a.initialSplitters * growth * d.enemyCount)),
+    tanks: Math.max(1, Math.round(a.initialTanks * growth * d.enemyCount)),
+    // ⚠️ `initialGrabbers` **允许算出 0**（另外两个轴是 `max(1, ...)`）：
+    //    最靠近楼梯间的那几间就是 0 只（`growth = 1` 时 `round(0.4) = 0`）——
+    //    先让玩家在近处认识「!」和抓取，再让它真的来抓人。
+    //    给它套上 `max(1, ...)` 会让第一间房就出现它，那正是这一档要避免的。
+    grabbers: Math.max(0, Math.round(a.initialGrabbers * growth * d.enemyCount)),
+    sprayers: Math.max(0, Math.round(a.initialSprayers * growth * d.enemyCount)),
+    muscovies: floor < a.muscovyMinFloor ? 0 : Math.max(0, Math.round(a.initialMuscovies * growth * d.enemyCount)),
+    nightmareCats: floor < a.nightmareCatMinFloor ? 0 : Math.max(0, Math.round(a.initialNightmareCats * growth * d.enemyCount)),
+    phaseDelayMs: a.phaseBaseMs / d.enemySpeed,
+    secondPhaseFraction: a.phaseCountScale,
   }
 }
 export function balanceReport(bundle: ConfigBundle, cfg: CombatConfig, difficulty: Difficulty) {

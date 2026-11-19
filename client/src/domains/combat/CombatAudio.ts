@@ -2,10 +2,16 @@ import Phaser from 'phaser'
 import { GAME_AUDIO } from '@/core/assetManifest'
 import type { TypedBus, Unsubscribe } from '@/core/events'
 import type { CombatEvents } from './events'
-import type { CombatConfig } from './config'
+import type { CombatConfig, WeaponDef } from './config'
+import { WeaponSynth } from './WeaponSynth'
+import { sfxProfileFor } from './WeaponSfxProfiles'
 
 /**
- * A single looping track and a bounded voice pool shared by all player weapons.
+ * 一首循环 BGM + **逐武器程序化 8-bit 音效**。
+ *
+ * - WebAudio 下由 `WeaponSynth` 现场合成（每把武器在 `WeaponSfxProfiles` 里有一条配方），
+ *   不加载任何枪声音频文件；
+ * - HTML5 回退时退回旧的 `sfx_player_shot.mp3` 池，保证老浏览器仍有声音。
  *
  * ## 音量：**档里那个值就是实际音量**，不乘配置
  *
@@ -21,7 +27,9 @@ import type { CombatConfig } from './config'
  */
 export class CombatAudio {
   private readonly music: Phaser.Sound.BaseSound | null
+  /** HTML5 回退用的旧 mp3 枪声池；WebAudio 下走 `synth`，不再播它。 */
   private readonly shots: Phaser.Sound.BaseSound[] = []
+  private readonly synth: WeaponSynth
   private readonly unsubs: Unsubscribe[]
   private cursor = 0
   /** 基准起步，`setVolumes()` 之后就是玩家设置的那个值 */
@@ -42,12 +50,15 @@ export class CombatAudio {
     if (scene.cache.audio.exists(GAME_AUDIO.shot))
       for (let i = 0; i < cfg.shotVoices; i++) this.shots.push(scene.sound.add(GAME_AUDIO.shot))
     this.sfxVolume = cfg.shotVolume
+    this.synth = new WeaponSynth(scene)
+    this.synth.setVolume(cfg.shotVolume)
 
     this.unsubs = [
       bus.on('app_paused', () => {
         this.paused = true
         // Pause combat effects while the BGM continues through menus and rewards.
         for (const shot of this.shots) shot.stop()
+        this.synth.pause()
       }),
       bus.on('app_resumed', () => {
         this.paused = false
@@ -65,8 +76,13 @@ export class CombatAudio {
   }
 
   /** Called only after stamina, fire-rate, and projectile-pool checks accept a shot. */
-  fire(): void {
-    if (this.disposed || this.paused || this.scene.sound.locked || !this.shots.length) return
+  fire(weapon: WeaponDef): void {
+    if (this.disposed || this.paused || this.scene.sound.locked) return
+    if (this.synth.available) {
+      this.synth.play(sfxProfileFor(weapon.id))
+      return
+    }
+    if (!this.shots.length) return
     this.shots[this.cursor]!.play({ volume: this.sfxVolume })
     this.cursor = (this.cursor + 1) % this.shots.length
   }
@@ -74,6 +90,7 @@ export class CombatAudio {
   /** 两个数**就是实际音量**（0—1），不是乘在配置上的系数。见类注释。 */
   setVolumes(bgm: number, sfx: number): void {
     this.sfxVolume = Math.max(0, Math.min(1, sfx))
+    this.synth.setVolume(this.sfxVolume)
     if (this.music && 'setVolume' in this.music) {
       const music = this.music as Phaser.Sound.WebAudioSound | Phaser.Sound.HTML5AudioSound
       music.setVolume(Math.max(0, Math.min(1, bgm)))
@@ -88,5 +105,6 @@ export class CombatAudio {
     this.music?.destroy()
     for (const shot of this.shots) shot.destroy()
     this.shots.length = 0
+    this.synth.destroy()
   }
 }

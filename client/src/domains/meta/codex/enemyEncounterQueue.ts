@@ -15,13 +15,17 @@ export function identifyEnemyEncounter(
   event: GameEvents['entity_spawned'],
 ): EnemyEncounter | null {
   if (event.kind !== 'enemy') return null
-  if (event.finalBoss) return { kind: 'heart-demon', entryId: 'heart-demon' }
-  if (event.bossStage !== undefined) {
-    const byFloor: Record<number, EncounterKind> = {
-      2: 'first-boss', 3: 'stage2-boss', 4: 'acid-boss', 5: 'sports-boss',
-      6: 'rollcall-boss', 7: 'nailong-boss', 8: 'heart-demon',
+  if (event.bossId !== undefined) {
+    const byId: Record<string, EncounterKind> = {
+      coursework: 'first-boss',
+      paper_kite: 'stage2-boss',
+      acid_sprinkler: 'acid-boss',
+      sports_gear: 'sports-boss',
+      roll_call: 'rollcall-boss',
+      nailong: 'nailong-boss',
+      heart_demon: 'heart-demon',
     }
-    const kind = byFloor[event.bossStage] ?? 'first-boss'
+    const kind = byId[event.bossId] ?? 'first-boss'
     return { kind, entryId: kind }
   }
   if (!event.enemyKind) return null
