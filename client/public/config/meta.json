@@ -1,20 +1,21 @@
 {
   "schemaVersion": 2,
-
   "_comment": "D4 局外成长配置。每个角色只有一个固定被动和一个四阶主动技能；字段定义仍需 D2 过目。",
   "_economy_note": "币只在对局中获得，死亡不清空。",
   "_skill_note": "技能 1 级随角色解锁获得；upgradeCosts 对应升到 2/3/4 级的三笔费用。",
-
   "economy": {
     "coinsPerKill": 1,
     "coinsPerClearedRoom": 5,
     "coinsPerDepth": 20
   },
-
   "finalRewards": {
-    "heart_demon": { "coins": 120 }
+    "heart_demon": {
+      "coins": 120
+    },
+    "run_clear": {
+      "coins": 120
+    }
   },
-
   "characters": {
     "student": {
       "unlockCost": 0,
@@ -32,35 +33,39 @@
         "name": "奋笔疾书",
         "description": "短时间大幅提高攻击速度",
         "kind": "haste",
-        "upgradeCosts": [60, 140, 260],
+        "upgradeCosts": [
+          80,
+          180,
+          360
+        ],
         "levels": [
           {
             "name": "启笔",
-            "description": "攻速 +50%，持续 5 秒",
+            "description": "攻速 +40%，持续 5 秒",
             "cooldownMs": 12000,
             "durationMs": 5000,
-            "attackSpeedPct": 50
+            "attackSpeedPct": 40
           },
           {
             "name": "加速",
-            "description": "攻速 +70%，持续 6 秒，冷却缩短",
-            "cooldownMs": 10000,
+            "description": "攻速 +50%，持续 6 秒，冷却缩短",
+            "cooldownMs": 11000,
             "durationMs": 6000,
-            "attackSpeedPct": 70
+            "attackSpeedPct": 50
           },
           {
             "name": "疾书",
-            "description": "攻速 +90%，持续 7 秒，冷却再次缩短",
-            "cooldownMs": 8500,
-            "durationMs": 7000,
-            "attackSpeedPct": 90
+            "description": "攻速 +60%，持续时间与冷却再次改善",
+            "cooldownMs": 10000,
+            "durationMs": 6000,
+            "attackSpeedPct": 60
           },
           {
             "name": "奋笔",
-            "description": "攻速 +120%，持续 8 秒，冷却大幅缩短",
-            "cooldownMs": 6500,
-            "durationMs": 8000,
-            "attackSpeedPct": 120
+            "description": "攻速 +80%，持续 7 秒，冷却进一步缩短",
+            "cooldownMs": 8000,
+            "durationMs": 7000,
+            "attackSpeedPct": 80
           }
         ]
       }
@@ -81,48 +86,52 @@
         "name": "展翅突进",
         "description": "向瞄准方向突进",
         "kind": "dash",
-        "upgradeCosts": [80, 180, 320],
+        "upgradeCosts": [
+          120,
+          260,
+          480
+        ],
         "levels": [
           {
             "name": "扑翅",
-            "description": "180px 突进，对沿途敌人造成 12 点伤害",
+            "description": "180px 突进，对沿途敌人造成 8 点伤害",
             "cooldownMs": 5000,
             "durationMs": 0,
             "distance": 180,
             "dashMs": 250,
             "iframeMs": 150,
-            "dashDamage": 12
+            "dashDamage": 8
           },
           {
             "name": "助跑",
-            "description": "沿途伤害提高到 24，无敌时间和冷却改善",
+            "description": "沿途伤害提高到 16，无敌时间和冷却改善",
             "cooldownMs": 4000,
             "durationMs": 0,
             "distance": 180,
             "dashMs": 250,
             "iframeMs": 180,
-            "dashDamage": 24
+            "dashDamage": 16
           },
           {
             "name": "振翅",
-            "description": "沿途伤害提高到 40，无敌时间和冷却再次改善",
+            "description": "沿途伤害提高到 28，无敌时间和冷却再次改善",
             "cooldownMs": 3000,
             "durationMs": 0,
             "distance": 180,
             "dashMs": 250,
             "iframeMs": 220,
-            "dashDamage": 40
+            "dashDamage": 28
           },
           {
             "name": "穿身振翅",
-            "description": "沿途伤害提高到 70，穿敌后获得 3 秒攻速",
+            "description": "沿途伤害提高到 50，穿敌后获得 3 秒攻速",
             "cooldownMs": 2000,
             "durationMs": 3000,
             "distance": 180,
             "dashMs": 250,
             "iframeMs": 300,
-            "dashDamage": 70,
-            "attackSpeedPerEnemyPct": 12,
+            "dashDamage": 50,
+            "attackSpeedPerEnemyPct": 10,
             "maxMechanicEnemies": 5
           }
         ]
@@ -144,14 +153,18 @@
         "name": "红果伴读",
         "description": "小红果唤出参考书，自动攻击附近敌人",
         "kind": "summon",
-        "upgradeCosts": [100, 220, 400],
+        "upgradeCosts": [
+          140,
+          300,
+          540
+        ],
         "levels": [
           {
             "name": "萌芽",
             "description": "放置一本参考书",
             "cooldownMs": 12000,
             "durationMs": 8000,
-            "pageDamage": 10,
+            "pageDamage": 8,
             "fireIntervalMs": 800,
             "range": 300,
             "maxCharges": 1
@@ -159,9 +172,9 @@
           {
             "name": "舒叶",
             "description": "书页伤害、发射频率和冷却改善",
-            "cooldownMs": 10500,
+            "cooldownMs": 10800,
             "durationMs": 9000,
-            "pageDamage": 14,
+            "pageDamage": 10,
             "fireIntervalMs": 700,
             "range": 320,
             "maxCharges": 1
@@ -169,20 +182,20 @@
           {
             "name": "枝繁",
             "description": "持续时间、伤害、频率和冷却再次改善",
-            "cooldownMs": 9000,
+            "cooldownMs": 9600,
             "durationMs": 10000,
-            "pageDamage": 19,
+            "pageDamage": 13,
             "fireIntervalMs": 600,
             "range": 340,
             "maxCharges": 1
           },
           {
             "name": "双果相伴",
-            "description": "书页伤害大幅提高并获得两层充能",
-            "cooldownMs": 7500,
-            "durationMs": 11000,
-            "pageDamage": 26,
-            "fireIntervalMs": 500,
+            "description": "技能获得两层充能，可继续放置会过期的参考书",
+            "cooldownMs": 9000,
+            "durationMs": 10500,
+            "pageDamage": 15,
+            "fireIntervalMs": 567,
             "range": 360,
             "maxCharges": 2
           }

@@ -1,9 +1,26 @@
 import Phaser from 'phaser'
 import type { GameClock } from '@/core/time'
-import type { WeaponDef, WeaponEffectsConfig, WeaponId } from './config'
+import type { WeaponDef, WeaponEffectsConfig, WeaponEffect } from './config'
 import type { WeaponTarget } from './WeaponMechanics'
 
-type Special = Exclude<WeaponId, 'pencil'>
+/** 特效形状/调色板的“族”。新武器按 `effect` 归类，旧六把保持各自外观。 */
+export type FxKind = 'pulse' | 'venom' | 'flare' | 'rail' | 'smg' | 'slash' | 'laser'
+const EFFECT_FX: Record<WeaponEffect, FxKind> = {
+  bullet: 'smg',
+  energy: 'pulse',
+  slash: 'slash',
+  arcane: 'pulse',
+  nature: 'venom',
+  poison: 'venom',
+  explosion: 'flare',
+  pierce: 'rail',
+  rapid: 'smg',
+}
+export function fxKindOf(w: WeaponDef): FxKind {
+  if (w.id === 'pulse' || w.id === 'venom' || w.id === 'flare' || w.id === 'rail' || w.id === 'smg')
+    return w.id
+  return EFFECT_FX[w.effect]
+}
 interface Particle {
   alive: boolean
   born: number
@@ -14,10 +31,10 @@ interface Particle {
   vy: number
   size: number
   spin: number
-  kind: Special
+  kind: FxKind
 }
 interface Burst {
-  kind: Special
+  kind: FxKind
   x: number
   y: number
   born: number
@@ -27,7 +44,7 @@ interface Burst {
   muzzle: boolean
 }
 interface Beam {
-  kind: 'pulse' | 'rail'
+  kind: FxKind
   x: number
   y: number
   tx: number
@@ -36,12 +53,24 @@ interface Beam {
   life: number
   seed: number
 }
-const PALETTE: Record<Special, { core: number; glow: number; accent: number }> = {
+interface Slash {
+  kind: FxKind
+  x: number
+  y: number
+  angle: number
+  range: number
+  arcDeg: number
+  born: number
+  life: number
+}
+const PALETTE: Record<FxKind, { core: number; glow: number; accent: number }> = {
   pulse: { core: 0xe6ffff, glow: 0x37dfff, accent: 0x9465ff },
   venom: { core: 0xd6ff91, glow: 0x85ee41, accent: 0xac45ed },
   flare: { core: 0xfff6c7, glow: 0xffad23, accent: 0xff4b18 },
   rail: { core: 0xffffe4, glow: 0xffdd82, accent: 0xb484ff },
   smg: { core: 0xe3ffff, glow: 0x55d5ff, accent: 0x9baaff },
+  slash: { core: 0xf4fff0, glow: 0x9dffb0, accent: 0x5fbf7a },
+  laser: { core: 0xffffff, glow: 0xff5d5d, accent: 0xffb3b3 },
 }
 
 /** Bounded procedural particle pool. Every animation uses the pausable gameplay clock. */
@@ -52,6 +81,7 @@ export class WeaponFx {
   private readonly particles: Particle[]
   private bursts: Burst[] = []
   private beams: Beam[] = []
+  private slashes: Slash[] = []
   private cursor = 0
   constructor(
     scene: Phaser.Scene,
@@ -75,7 +105,7 @@ export class WeaponFx {
     }))
   }
   private scatter(
-    kind: Special,
+    kind: FxKind,
     x: number,
     y: number,
     count: number,
@@ -103,44 +133,46 @@ export class WeaponFx {
   }
   muzzle(w: WeaponDef, x: number, y: number, angle: number): void {
     if (w.id === 'pencil') return
-    this.scatter(w.id, x, y, this.cfg.muzzleParticles, angle, w.id === 'smg' ? 0.65 : 1)
+    const kind = fxKindOf(w)
+    this.scatter(kind, x, y, this.cfg.muzzleParticles, angle, kind === 'smg' ? 0.65 : 1)
     this.burst({
-      kind: w.id,
+      kind,
       x,
       y,
       born: this.clock.nowMs,
       life: Math.min(180, w.effectMs),
-      radius: w.id === 'pulse' ? 26 : 18,
+      radius: kind === 'pulse' ? 26 : 18,
       angle,
       muzzle: true,
     })
   }
   trail(w: WeaponDef, x: number, y: number, angle: number): void {
     if (w.id === 'pencil') return
-    this.scatter(w.id, x, y, this.cfg.trailParticles, angle + Math.PI, 0.22)
+    this.scatter(fxKindOf(w), x, y, this.cfg.trailParticles, angle + Math.PI, 0.22)
   }
   impact(w: WeaponDef, x: number, y: number, angle: number): void {
     if (w.id === 'pencil') return
+    const kind = fxKindOf(w)
     this.scatter(
-      w.id,
+      kind,
       x,
       y,
-      w.id === 'smg' ? Math.ceil(this.cfg.burstParticles * 0.4) : this.cfg.burstParticles,
+      kind === 'smg' ? Math.ceil(this.cfg.burstParticles * 0.4) : this.cfg.burstParticles,
       undefined,
-      w.id === 'flare' ? 1.35 : 1,
+      kind === 'flare' ? 1.35 : 1,
     )
     const radius =
-      w.id === 'flare'
-        ? w.splashRadius!
-        : w.id === 'pulse'
+      kind === 'flare'
+        ? (w.splashRadius ?? 60)
+        : kind === 'pulse'
           ? 64
-          : w.id === 'venom'
+          : kind === 'venom'
             ? 40
-            : w.id === 'rail'
+            : kind === 'rail'
               ? 30
               : 25
     this.burst({
-      kind: w.id,
+      kind,
       x,
       y,
       born: this.clock.nowMs,
@@ -148,6 +180,20 @@ export class WeaponFx {
       radius,
       angle,
       muzzle: false,
+    })
+  }
+  /** 近战挥砍：一段随时间扩张、淡出的扇形弧线。 */
+  slash(w: WeaponDef, x: number, y: number, angle: number, range: number, arcDeg: number, life: number): void {
+    if (this.slashes.length >= 24) this.slashes.shift()
+    this.slashes.push({
+      kind: fxKindOf(w),
+      x,
+      y,
+      angle,
+      range,
+      arcDeg,
+      born: this.clock.nowMs,
+      life: Math.max(60, life),
     })
   }
   private burst(b: Burst): void {
@@ -174,20 +220,21 @@ export class WeaponFx {
   projectile(w: WeaponDef, x: number, y: number, angle: number, born: number): void {
     if (w.id === 'pencil') return
     const g = this.glow,
-      c = PALETTE[w.id],
+      kind = fxKindOf(w),
+      c = PALETTE[kind],
       phase = (this.clock.nowMs - born) / 140
     const r =
-      w.id === 'pulse' ? 13 : w.id === 'flare' ? 11 : w.id === 'venom' ? 9 : w.id === 'rail' ? 6 : 5
+      kind === 'pulse' ? 13 : kind === 'flare' ? 11 : kind === 'venom' ? 9 : kind === 'rail' ? 6 : 5
     g.fillStyle(c.glow, 0.09).fillCircle(x, y, r * 2.1)
     g.fillStyle(c.glow, 0.22).fillCircle(x, y, r * 1.4)
     g.fillStyle(c.core, 0.95).fillCircle(x, y, r * 0.42)
-    if (w.id === 'pulse' || w.id === 'venom') {
+    if (kind === 'pulse' || kind === 'venom') {
       g.lineStyle(2, c.accent, 0.85).strokeEllipse(x, y, r * 2.1, r * 1.2)
       for (let i = 0; i < 3; i++) {
         const a = phase + (i * Math.PI * 2) / 3
         g.fillStyle(c.glow, 0.95).fillCircle(x + Math.cos(a) * r, y + Math.sin(a) * r * 0.6, 2.5)
       }
-    } else if (w.id === 'flare') {
+    } else if (kind === 'flare') {
       for (let i = 0; i < 5; i++) {
         const a = phase * 0.5 + (i * Math.PI * 2) / 5
         g.fillStyle(c.accent, 0.55).fillCircle(
@@ -305,6 +352,23 @@ export class WeaponFx {
     g.clear()
     d.clear()
     ink.clear()
+    this.slashes = this.slashes.filter((s) => now - s.born < s.life)
+    for (const s of this.slashes) {
+      const t = (now - s.born) / s.life,
+        fade = 1 - t,
+        c = PALETTE[s.kind],
+        half = (s.arcDeg * Math.PI) / 360,
+        r = s.range * (0.55 + 0.45 * Math.sqrt(t))
+      g.lineStyle(8 * fade + 2, c.glow, 0.28 * fade)
+        .beginPath()
+        .arc(s.x, s.y, r, s.angle - half, s.angle + half)
+        .strokePath()
+      g.lineStyle(3 * fade + 1, c.core, 0.85 * fade)
+        .beginPath()
+        .arc(s.x, s.y, r, s.angle - half, s.angle + half)
+        .strokePath()
+      ink.fillStyle(c.accent, 0.12 * fade).fillCircle(s.x, s.y, r * 0.35)
+    }
     this.bursts = this.bursts.filter((b) => now - b.born < b.life)
     for (const b of this.bursts) {
       const t = (now - b.born) / b.life,
@@ -498,6 +562,7 @@ export class WeaponFx {
     for (const p of this.particles) p.alive = false
     this.bursts = []
     this.beams = []
+    this.slashes = []
     this.glow.clear()
     this.ground.clear()
     this.ink.clear()

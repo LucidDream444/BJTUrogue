@@ -107,6 +107,8 @@ export interface DungeonRoom {
   /** = `Room.order`。**不是关卡号** —— 整层只有一关，它只是「第几间房」 */
   readonly order: number
   readonly room: Room
+  /** 门牌上的顺序号（非设施房间按 `Room.order` 从 1 排）；设施为 `null`。 */
+  readonly displayNo?: number | null
   /** 这一间要不要打（`roomNeedsFight`：关别要打 **且** 有刷怪点）。 */
   readonly needsFight: boolean
   /**
@@ -353,10 +355,19 @@ export function buildDungeonStages(
   // （`Stairwell.stairPadSpots()`）。中心仍然读 `rect.x` / `rect.y`（`Rect` 的约定）。
   const stairwell = stairRoom.rect
 
+  // ---- 门牌顺序号：非设施房间按 `Room.order` 从 1 排；设施（楼梯/电梯/商店）不占号。
+  const displayNos = new Map<number, number>()
+  let displayNo = 0
+  for (const room of [...map.rooms].sort((a, b) => a.order - b.order)) {
+    if (room.kind === 'start' || room.kind === 'elevator' || room.kind === 'shop') continue
+    displayNo++
+    displayNos.set(room.order, displayNo)
+  }
   // ---- 每间房交出去的那一份。★ 没有再「换算到竞技场坐标」这一步了：世界坐标就是地图坐标。
   const rooms: DungeonRoom[] = map.rooms.map((room) => ({
     order: room.order,
     room,
+    displayNo: displayNos.get(room.order) ?? null,
     needsFight: roomNeedsFight(room, roomsCfg),
     spawnPoints: [...room.spawnPoints].sort(
       (a, b) =>

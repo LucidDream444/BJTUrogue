@@ -31,7 +31,7 @@ describe('图书委员旧档继续作为小红果使用', () => {
       expect(first.profile.selected).toEqual(original.selected)
       expect(skillLevelOf(first.profile, meta, 'scholar')).toBe(unlocked ? 3 : 0)
       expect(effectiveStats(first.profile, meta, 'scholar').energyRegenPct).toBe(50)
-      expect(meta.characters.scholar).toMatchObject({ unlockCost: 400, skill: { id: 'library_loan', kind: 'summon', upgradeCosts: [100, 220, 400] } })
+      expect(meta.characters.scholar).toMatchObject({ unlockCost: 400, skill: { id: 'library_loan', kind: 'summon', upgradeCosts: [140, 300, 540] } })
       expect(first.save()).toBe(true)
       const second = new ProfileStore({ storage }); second.load()
       expect(second.profile).toEqual(first.profile)

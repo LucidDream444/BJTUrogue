@@ -1,9 +1,105 @@
 import type { BalanceConfig } from '@/core/config'
-import type { EnemyKind } from '@/core/events'
 import { validateAimArt, type AimArtConfig } from './AimPose'
 import type { BossReinforcementsConfig } from './BossReinforcements'
 
-export type WeaponId = 'pencil' | 'pulse' | 'venom' | 'flare' | 'rail' | 'smg'
+export const WEAPON_IDS = [
+  'pencil',
+  'pulse',
+  'venom',
+  'flare',
+  'rail',
+  'smg',
+  // 近战 10
+  'pencil_knife',
+  'ruler_sword',
+  'pointer_rapier',
+  'compass',
+  'eraser_maul',
+  'broom',
+  'scissors',
+  'glowstick',
+  'mop',
+  'bug_swatter',
+  // 远程 20
+  'eraser_shotgun',
+  'set_square_sniper',
+  'auto_pencil_smg',
+  'chem_sprayer',
+  'cryo_sprayer',
+  'laser_pointer',
+  'basketball_boomerang',
+  'paper_plane',
+  'tennis_ball',
+  'model_rocket',
+  'grenade_launcher',
+  'arc_emitter',
+  'split_dart',
+  'lifesteal_syringe',
+  'nail_gun',
+  'bubble_gun',
+  'double_barrel',
+  'magnetic_frisbee',
+  'sonic_horn',
+  'firework_launcher',
+] as const
+/** 六把旧武器：保留原专属字段与执行分支，不参与新 trait 校验。 */
+export const LEGACY_WEAPON_IDS = ['pencil', 'pulse', 'venom', 'flare', 'rail', 'smg'] as const
+/** 学生/大鹅/小红果的公共替身外观只有这六套。 */
+export const PUBLIC_WEAPON_IDS = LEGACY_WEAPON_IDS
+export type PublicWeaponId = (typeof PUBLIC_WEAPON_IDS)[number]
+/** 把任意武器 id 收敛到六套公共外观之一；新武器靠 `visualId` 指定替身。 */
+export function publicWeaponVisual(id: string | undefined): PublicWeaponId {
+  return id !== undefined && (PUBLIC_WEAPON_IDS as readonly string[]).includes(id)
+    ? (id as PublicWeaponId)
+    : 'pencil'
+}
+export type WeaponId = (typeof WEAPON_IDS)[number]
+export type WeaponMode = 'projectile' | 'melee' | 'beam'
+export type WeaponEffect =
+  | 'bullet'
+  | 'energy'
+  | 'slash'
+  | 'arcane'
+  | 'nature'
+  | 'poison'
+  | 'explosion'
+  | 'pierce'
+  | 'rapid'
+export interface WeaponStatusDef {
+  kind: 'poison' | 'slow'
+  durationMs: number
+  tickMs?: number
+  tickDamage?: number
+  slowMultiplier?: number
+}
+export type WeaponTrait =
+  | { kind: 'pierce'; targets: number }
+  | { kind: 'splash'; radius: number; damageRatio: number }
+  | { kind: 'chain'; targets: number; radius: number; damageRatio: number }
+  | { kind: 'bounce'; maxBounces: number; speedRetain?: number }
+  | { kind: 'homing'; turnRateRadPerSec: number; range?: number }
+  | { kind: 'boomerang'; outMs: number; returnSpeedScale?: number }
+  | {
+      kind: 'split'
+      count: number
+      damageRatio: number
+      spreadDeg?: number
+      maxDepth?: number
+      on?: 'hit' | 'wall' | 'both'
+      radial?: boolean
+    }
+  | {
+      kind: 'fuse'
+      fuseMs: number
+      splashRadius: number
+      splashDamageRatio: number
+      explodeOnImpact?: boolean
+    }
+  | { kind: 'lifesteal'; ratio: number; maxPerHit?: number }
+  | { kind: 'knockback'; strength: number }
+  | { kind: 'burst'; count: number; intervalMs: number }
+  | { kind: 'destroyShot' }
+  | { kind: 'multiHit'; count: number; intervalMs: number; damageRatio?: number }
 export type Stat =
   | 'damage'
   | 'fireRate'
@@ -19,6 +115,23 @@ export interface WeaponDef {
   id: WeaponId
   name: string
   description: string
+  /** 决定玩家侧执行路径；近战/光束不生成弹丸。 */
+  mode: WeaponMode
+  /**
+   * 学生持握时借用的既有武器外观（六把公共枪之一）。
+   * 新武器没有自绘整帧图时用它选 `player_<id>_aim_*` 与 `gunMuzzles`。
+   */
+  visualId?: WeaponId
+  /** 数据驱动的弹道/近战特性；旧六把继续用下面的专属字段。 */
+  traits?: WeaponTrait[]
+  /** 命中附加的持续效果。 */
+  status?: WeaponStatusDef
+  /** 近战挥砍判定持续时长（ms）。 */
+  swingMs?: number
+  /** 逐武器弹丸碰撞半径；缺省用 `projectiles.radius`。 */
+  projectileRadius?: number
+  /** 弹丸贴图 key；缺省按 `PROJECTILE_ART` 或默认子弹。 */
+  projectileArt?: string
   poisonDurationMs?: number
   poisonTickMs?: number
   poisonTickDamage?: number
@@ -30,6 +143,7 @@ export interface WeaponDef {
   chainDamageRatio?: number
   slowMultiplier?: number
   slowDurationMs?: number
+  bossDamageRatio?: number
   damageScale: number
   cooldownScale: number
   speedScale: number
@@ -38,18 +152,9 @@ export interface WeaponDef {
   lifeMs: number
   staminaCost: number
   color: number
-  mode: 'projectile' | 'melee'
   artKey: string
-  effect:
-    | 'bullet'
-    | 'energy'
-    | 'slash'
-    | 'arcane'
-    | 'nature'
-    | 'poison'
-    | 'explosion'
-    | 'pierce'
-    | 'rapid'
+  effect: WeaponEffect
+  /** 近战挥砍距离 / 光束长度；弹丸武器保留旧字段（当前未消费）。 */
   range: number
   arcDeg: number
   effectMs: number
@@ -233,36 +338,39 @@ export interface CombatConfig {
      */
     width: number
     height: number
+    initialSplitters: number
+    initialSprayers: number
+    initialTanks: number
     /**
-     * 每一层对“房间怪物点数预算”的固定倍率，下标 0 = 第 1 层。
+     * **每间房期望刷几只抓取怪**（可以是小数 = 概率）。
      *
-     * 倍率只改**房间总预算**，不改单只敌人的点数面额。数组长度必须等于
-     * `maxStages`；缺一层会让后期的刷怪强度静默掉回上一层。
+     * 与另外两个轴不同，它**允许为 0，而且今天真的会是 0** —— 最靠近楼梯间的那几间
+     * （强度倍数 1）算出来就是 0：先让玩家在近处认识「!」和抓取，再让它来抓人。
+     * 整条曲线见 `roomPlan()`。
      */
-    monsterPointFloorScale: number[]
-    /** 每一层对敌人生命、伤害、速度的独立倍率；必须逐层单调不减。 */
-    floorEnemyHpScale: number[]
-    floorEnemyDamageScale: number[]
-    floorEnemySpeedScale: number[]
-    /** 小怪种类被选中的权重。只影响组合，不影响点数成本。 */
-    monsterPointWeights: Partial<Record<EnemyKind, number>>
-    /** 每种小怪最早出现的楼层。难度和房间深度都不能把它提前。 */
-    monsterPointUnlockFloors: Record<EnemyKind, number>
+    initialGrabbers: number
+    initialMuscovies: number
+    initialNightmareCats: number
+    muscovyMinFloor: number
+    nightmareCatMinFloor: number
     /**
-     * 分裂纸团最多可吃掉房间预算的比例。
+     * 第 3 层之后的心魔最终战配置。
      *
-     * 它的点数按“母体”计，子代是战斗中的分裂产物、不额外扣点；如果不设上限，
-     * 高点数房间可能随机成整屋纸团，实际尸体数会远高于预算直观值。
+     * `heartDemonHp` 是心魔的固定血量；第 1—3 层池内首领仍走
+     * `bossHp + (layer − 1) × bossHpPerStage`。
      */
-    monsterPointSplitterShareCap: number
+    finale: { floor: number; finalRewardId: string; heartDemonHp: number }
     /**
-     * 末层（「异常」层）那一场的配置。
+     * ⚠️ **这个字段今天没有消费方**（2026-10-21 整层连续之后）。
      *
-     * `gateRooms`（★ 2026-11-04）是**传送阵的解锁门槛**：在末层的前一层（第 7 层）
-     * 走过这么多间**房间**（楼梯间不算）之后，那块六芒星传送阵才能按 F。
-     * 它是玩法旋钮 → 进配置（红线 2），不写死在 `BattleScene` 里。
+     * 它原来是**层与层之间的**强度斜率（`1 + (层号 - 1) × 0.3`），而整层连续之后
+     * 「这一间多难」由 D2 的威胁预算（到楼梯间的跳数）说，层号不再参与刷怪数量。
+     * 留着是因为它在 `combat.json` 里、删一个配置字段要走配置契约那一套；
+     * **但别照着它改难度** —— 改它不会有任何效果，而它看着像是会有的
+     * （那正是最难查的一种「配置改了没用」）。要调难度改 `rooms.json` 的
+     * `budgetBase` / `budgetGrowth`。
      */
-    finale: { floor: number; displayName: string; finalRewardId: string; gateRooms: number }
+    stageGrowth: number
     phaseBaseMs: number
     phaseCountScale: number
     intermissionMs: number
@@ -271,6 +379,10 @@ export interface CombatConfig {
      * 名字沿用旧版「一关一个首领」时期的叫法，语义在这一版是「层」。
      */
     maxStages: number
+    /** 一层几间房（第 `roomsPerFloor` 间是首领房，D2 的生成器把 `kind: 'boss'` 只放那儿）。 */
+    roomsPerFloor: number
+    /** 其中几间是侧室（支线）。主干数 = `roomsPerFloor − sideRoomsPerFloor`，至少要有首末两间。 */
+    sideRoomsPerFloor: number
     demoDamage: number
   }
 }
@@ -351,6 +463,99 @@ const STATS: Stat[] = [
   'iframeMs',
   'pellets',
 ]
+
+function validateWeaponStatus(s: WeaponStatusDef): void {
+  if (!['poison', 'slow'].includes(s.kind) || !(s.durationMs > 0) || !Number.isFinite(s.durationMs))
+    throw new Error('weapon.status: 时长无效')
+  if (s.kind === 'poison') {
+    if (
+      !(s.tickMs! > 0) ||
+      !(s.tickDamage! > 0) ||
+      !Number.isFinite(s.tickMs) ||
+      !Number.isFinite(s.tickDamage)
+    )
+      throw new Error('weapon.status: 毒伤参数无效')
+    if (s.durationMs < s.tickMs!) throw new Error('weapon.status: 毒伤时长不能短于间隔')
+  } else if (
+    !(s.slowMultiplier! > 0 && s.slowMultiplier! <= 1) ||
+    !Number.isFinite(s.slowMultiplier)
+  ) {
+    throw new Error('weapon.status: 减速倍率无效')
+  }
+}
+
+function validateWeaponTraits(traits: WeaponTrait[]): void {
+  if (!Array.isArray(traits)) throw new Error('weapon.traits: 必须是数组')
+  const pos = (v: unknown): v is number =>
+    typeof v === 'number' && Number.isFinite(v) && v > 0
+  for (const t of traits) {
+    if (!t || typeof t !== 'object') throw new Error('weapon.traits: 条目无效')
+    switch (t.kind) {
+      case 'pierce':
+        if (!Number.isInteger(t.targets) || t.targets < 1)
+          throw new Error('weapon.trait.pierce: 无效')
+        break
+      case 'splash':
+        if (!pos(t.radius) || !pos(t.damageRatio)) throw new Error('weapon.trait.splash: 无效')
+        break
+      case 'chain':
+        if (!Number.isInteger(t.targets) || t.targets < 1 || !pos(t.radius) || !pos(t.damageRatio))
+          throw new Error('weapon.trait.chain: 无效')
+        break
+      case 'bounce':
+        if (!Number.isInteger(t.maxBounces) || t.maxBounces < 1)
+          throw new Error('weapon.trait.bounce: 无效')
+        if (t.speedRetain !== undefined && !(t.speedRetain > 0 && t.speedRetain <= 1))
+          throw new Error('weapon.trait.bounce: 衰减无效')
+        break
+      case 'homing':
+        if (!pos(t.turnRateRadPerSec)) throw new Error('weapon.trait.homing: 无效')
+        if (t.range !== undefined && !pos(t.range)) throw new Error('weapon.trait.homing: 范围无效')
+        break
+      case 'boomerang':
+        if (!pos(t.outMs)) throw new Error('weapon.trait.boomerang: 无效')
+        if (t.returnSpeedScale !== undefined && !pos(t.returnSpeedScale))
+          throw new Error('weapon.trait.boomerang: 速度无效')
+        break
+      case 'split':
+        if (!Number.isInteger(t.count) || t.count < 1 || !(t.damageRatio > 0 && t.damageRatio <= 1))
+          throw new Error('weapon.trait.split: 无效')
+        if (t.spreadDeg !== undefined && (!Number.isFinite(t.spreadDeg) || t.spreadDeg < 0))
+          throw new Error('weapon.trait.split: 散布无效')
+        if (t.maxDepth !== undefined && (!Number.isInteger(t.maxDepth) || t.maxDepth < 0))
+          throw new Error('weapon.trait.split: 深度无效')
+        if (t.on !== undefined && !['hit', 'wall', 'both'].includes(t.on))
+          throw new Error('weapon.trait.split: 触发无效')
+        break
+      case 'fuse':
+        if (!pos(t.fuseMs) || !pos(t.splashRadius) || !(t.splashDamageRatio > 0))
+          throw new Error('weapon.trait.fuse: 无效')
+        break
+      case 'lifesteal':
+        if (!(t.ratio > 0 && t.ratio <= 1)) throw new Error('weapon.trait.lifesteal: 无效')
+        if (t.maxPerHit !== undefined && !pos(t.maxPerHit))
+          throw new Error('weapon.trait.lifesteal: 上限无效')
+        break
+      case 'knockback':
+        if (!pos(t.strength)) throw new Error('weapon.trait.knockback: 无效')
+        break
+      case 'burst':
+        if (!Number.isInteger(t.count) || t.count < 1 || !pos(t.intervalMs))
+          throw new Error('weapon.trait.burst: 无效')
+        break
+      case 'destroyShot':
+        break
+      case 'multiHit':
+        if (!Number.isInteger(t.count) || t.count < 1 || !Number.isFinite(t.intervalMs) || t.intervalMs < 0)
+          throw new Error('weapon.trait.multiHit: 无效')
+        if (t.damageRatio !== undefined && !(t.damageRatio > 0))
+          throw new Error('weapon.trait.multiHit: 伤害无效')
+        break
+      default:
+        throw new Error('weapon.traits: 未知类型')
+    }
+  }
+}
 
 export function parseCombatConfig(raw: unknown): CombatConfig {
   const c = raw as CombatConfig
@@ -494,84 +699,40 @@ export function parseCombatConfig(raw: unknown): CombatConfig {
   if (!(c.weaponEffects.glowAlpha > 0 && c.weaponEffects.glowAlpha <= 1))
     throw new Error('weaponEffects: 光晕透明度无效')
   numeric(c.limits, 'limits')
-  const {
-    finale: _finale,
-    monsterPointFloorScale: _floorScale,
-    floorEnemyHpScale: _floorHpScale,
-    floorEnemyDamageScale: _floorDamageScale,
-    floorEnemySpeedScale: _floorSpeedScale,
-    monsterPointWeights: _weights,
-    monsterPointUnlockFloors: _unlockFloors,
-    ...arenaNumbers
-  } = c.arena
+  const { finale: _finale, ...arenaNumbers } = c.arena
   numeric(arenaNumbers, 'arena')
   if (!Number.isInteger(c.arena.maxStages) || c.arena.maxStages < 1)
     throw new Error('arena.maxStages: 关卡上限无效')
-  if (!c.arena.finale || c.arena.finale.floor !== c.arena.maxStages ||
-    !c.arena.finale.displayName?.trim() || !c.arena.finale.finalRewardId?.trim())
-    throw new Error('arena.finale: 必须明确末层首领名称与最终收益ID')
-  if (
-    !Array.isArray(c.arena.monsterPointFloorScale) ||
-    c.arena.monsterPointFloorScale.length !== c.arena.maxStages ||
-    c.arena.monsterPointFloorScale.some((v) => !Number.isFinite(v) || v <= 0)
-  )
-    throw new Error('arena.monsterPointFloorScale: 必须为每层各给一个正数倍率')
-  for (const [name, values] of [
-    ['floorEnemyHpScale', c.arena.floorEnemyHpScale],
-    ['floorEnemyDamageScale', c.arena.floorEnemyDamageScale],
-    ['floorEnemySpeedScale', c.arena.floorEnemySpeedScale],
-  ] as const) {
-    if (
-      !Array.isArray(values) ||
-      values.length !== c.arena.maxStages ||
-      values[0] !== 1 ||
-      values.some((v, i) => !Number.isFinite(v) || v <= 0 || (i > 0 && v < values[i - 1]!))
-    )
-      throw new Error(`arena.${name}: 必须以 1 开始、每层一项且单调不减`)
+  if (!Number.isFinite(c.arena.initialSprayers) || c.arena.initialSprayers < 0)
+    throw new Error('arena.initialSprayers: 必须为非负有限数')
+  if (!Number.isFinite(c.arena.initialGrabbers) || c.arena.initialGrabbers < 0)
+    throw new Error('arena.initialGrabbers: 不能为负（0 是合法值：第一层不出抓取怪）')
+  for (const key of ['initialMuscovies', 'initialNightmareCats'] as const) {
+    if (!Number.isFinite(c.arena[key]) || c.arena[key] < 0)
+      throw new Error(`arena.${key}: 新敌人预算必须为非负数`)
   }
-  const pointKinds: EnemyKind[] = [
-    'splitter',
-    'tank',
-    'grabber',
-    'sprayer',
-    'muscovy',
-    'nightmare_cat',
-  ]
-  const pointWeights = c.arena.monsterPointWeights
+  for (const key of ['muscovyMinFloor', 'nightmareCatMinFloor'] as const) {
+    if (!Number.isInteger(c.arena[key]) || c.arena[key] < 2 || c.arena[key] > c.arena.maxStages)
+      throw new Error(`arena.${key}: 新敌人最早出现层必须在2至末层之间`)
+  }
+  if (!c.arena.finale || c.arena.finale.floor !== c.arena.maxStages ||
+    !c.arena.finale.finalRewardId?.trim())
+    throw new Error('arena.finale: 必须明确末层序号与最终收益ID')
+  if (!Number.isInteger(c.arena.finale.heartDemonHp) || c.arena.finale.heartDemonHp <= 0)
+    throw new Error('arena.finale.heartDemonHp: 心魔血量必须是正整数')
+  // 一局几层 = `maxStages`（第 1..N 层的首领按层的序号挑），一层几间 = 下面这两个数。
+  // 层与间都进配置：红线 2 说数值不许写死在代码里，而这两个数直接决定一局有多长。
+  if (!Number.isInteger(c.arena.roomsPerFloor) || c.arena.roomsPerFloor < 4)
+    throw new Error('arena.roomsPerFloor: 一层至少 4 间（首间起点 + 末间首领 + 要打的 + 侧室）')
   if (
-    !pointWeights ||
-    typeof pointWeights !== 'object' ||
-    Object.keys(pointWeights).some((key) => !pointKinds.includes(key as EnemyKind)) ||
-    pointKinds.some(
-      (kind) =>
-        !Number.isFinite(pointWeights[kind]) || (pointWeights[kind] ?? 0) <= 0,
-    )
-  )
-    throw new Error('arena.monsterPointWeights: 六种小怪都必须给出正权重，且不能有未知种类')
-  const unlockFloors = c.arena.monsterPointUnlockFloors
-  if (
-    !unlockFloors ||
-    typeof unlockFloors !== 'object' ||
-    Object.keys(unlockFloors).some((key) => !pointKinds.includes(key as EnemyKind)) ||
-    pointKinds.some(
-      (kind) =>
-        !Number.isInteger(unlockFloors[kind]) ||
-        unlockFloors[kind] < 1 ||
-        unlockFloors[kind] > c.arena.maxStages,
-    )
+    !Number.isInteger(c.arena.sideRoomsPerFloor) ||
+    c.arena.sideRoomsPerFloor < 1 ||
+    c.arena.sideRoomsPerFloor > c.arena.roomsPerFloor - 2
   )
     throw new Error(
-      'arena.monsterPointUnlockFloors: 六种小怪都必须给出 1..maxStages 的整数楼层',
+      'arena.sideRoomsPerFloor: 侧室数必须 ≥ 1（一层要有岔路，直线不是地牢）' +
+        '且 ≤ roomsPerFloor−2（主干至少留首末两间）',
     )
-  if (
-    !Number.isFinite(c.arena.monsterPointSplitterShareCap) ||
-    c.arena.monsterPointSplitterShareCap <= 0 ||
-    c.arena.monsterPointSplitterShareCap > 1
-  )
-    throw new Error('arena.monsterPointSplitterShareCap: 必须在 (0, 1] 内')
-  // ★ 2026-11-04：传送阵的解锁门槛。至少 1 间（0 就等于没有门槛，那和直接放行没区别）。
-  if (!Number.isInteger(c.arena.finale.gateRooms) || c.arena.finale.gateRooms < 1)
-    throw new Error('arena.finale.gateRooms: 传送阵的解锁门槛必须是不小于 1 的整数')
   numeric(c.chest, 'chest')
   if (
     !['interactRadius', 'pickupRadius', 'visualSize', 'openFxMs'].every((key) =>
@@ -657,50 +818,99 @@ export function parseCombatConfig(raw: unknown): CombatConfig {
       throw new Error('terrain.playerSpawn: 不允许出生在水中')
   }
   const ids = new Set<string>()
+  const canonical = new Set<string>(WEAPON_IDS)
+  const legacy = new Set<string>(LEGACY_WEAPON_IDS)
   for (const w of c.weapons) {
-    if (
-      !['pencil', 'pulse', 'venom', 'flare', 'rail', 'smg'].includes(w.id) ||
-      ids.has(w.id) ||
-      !w.name
-    )
+    if (!canonical.has(w.id) || ids.has(w.id) || !w.name || !w.description)
       throw new Error('combat.weapons: ID重复/无效')
-    if (w.id !== 'pencil') {
-      if (
-        !Number.isInteger(w.pierceTargets) ||
-        w.pierceTargets! < 1 ||
-        !Number.isFinite(w.effectMs) ||
-        w.effectMs <= 0
-      )
-        throw new Error('weapon: 穿透数量或特效时长无效')
-      const fields: Partial<Record<WeaponId, (keyof WeaponDef)[]>> = {
-        venom: ['poisonDurationMs', 'poisonTickMs', 'poisonTickDamage'],
-        flare: ['splashRadius', 'splashDamageRatio'],
-        pulse: ['chainTargets', 'chainRadius', 'chainDamageRatio'],
-        smg: ['slowDurationMs', 'slowMultiplier'],
-      }
-      for (const key of fields[w.id] ?? [])
-        if (typeof w[key] !== 'number' || !Number.isFinite(w[key]) || (w[key] as number) <= 0)
-          throw new Error('weapon: 特殊攻击数值无效')
-      if (w.id === 'venom' && w.poisonDurationMs! < w.poisonTickMs!)
-        throw new Error('weapon: 毒伤时长不能短于间隔')
-      if (w.id === 'pulse' && !Number.isInteger(w.chainTargets))
-        throw new Error('weapon: 连锁数量无效')
-      if (w.id === 'smg' && w.slowMultiplier! > 1) throw new Error('weapon: 减速倍率无效')
-    }
     ids.add(w.id)
-    if (!['projectile', 'melee'].includes(w.mode) || !w.artKey)
+    if (!w.artKey || !['projectile', 'melee', 'beam'].includes(w.mode))
       throw new Error('weapon: 模式/素材无效')
-    for (const key of [
-      'damageScale',
-      'cooldownScale',
-      'speedScale',
-      'pellets',
-      'lifeMs',
-      'staminaCost',
-    ] as const)
-      if (!(w[key] > 0) || !Number.isFinite(w[key])) throw new Error(`weapon.${key}: 必须为正数`)
-    if (!Number.isInteger(w.pellets) || w.spreadDeg < 0 || !Number.isFinite(w.spreadDeg))
-      throw new Error('weapon: 弹丸/散布无效')
+    if (
+      !['bullet', 'energy', 'slash', 'arcane', 'nature', 'poison', 'explosion', 'pierce', 'rapid'].includes(
+        w.effect,
+      )
+    )
+      throw new Error('weapon.effect: 无效')
+    if (w.visualId !== undefined && !canonical.has(w.visualId))
+      throw new Error('weapon.visualId: 无效')
+    if (
+      !(w.damageScale > 0) ||
+      !Number.isFinite(w.damageScale) ||
+      !(w.cooldownScale > 0) ||
+      !Number.isFinite(w.cooldownScale)
+    )
+      throw new Error('weapon: 伤害/冷却倍率无效')
+    if (
+      !Number.isFinite(w.staminaCost) ||
+      w.staminaCost < 0 ||
+      (w.mode !== 'melee' && w.staminaCost <= 0)
+    )
+      throw new Error('weapon.staminaCost: 无效')
+    if (!Number.isFinite(w.effectMs) || w.effectMs <= 0)
+      throw new Error('weapon.effectMs: 无效')
+    if (w.mode === 'melee') {
+      if (
+        !(w.range > 0) ||
+        !Number.isFinite(w.range) ||
+        !(w.arcDeg > 0) ||
+        !Number.isFinite(w.arcDeg) ||
+        !(w.swingMs! > 0) ||
+        !Number.isFinite(w.swingMs)
+      )
+        throw new Error('weapon: 近战范围/弧/挥砍时长无效')
+    } else {
+      if (
+        !(w.speedScale > 0) ||
+        !Number.isFinite(w.speedScale) ||
+        !(w.lifeMs > 0) ||
+        !Number.isFinite(w.lifeMs)
+      )
+        throw new Error('weapon.speed/life: 无效')
+      if (!Number.isInteger(w.pellets) || w.pellets < 1 || !Number.isFinite(w.spreadDeg) || w.spreadDeg < 0)
+        throw new Error('weapon: 弹丸/散布无效')
+      if (w.mode === 'beam' && (!(w.range > 0) || !Number.isFinite(w.range)))
+        throw new Error('weapon.range: 光束长度无效')
+    }
+    if (
+      w.projectileRadius !== undefined &&
+      (!(w.projectileRadius > 0) || !Number.isFinite(w.projectileRadius))
+    )
+      throw new Error('weapon.projectileRadius: 无效')
+    if (w.projectileArt !== undefined && typeof w.projectileArt !== 'string')
+      throw new Error('weapon.projectileArt: 无效')
+    if (w.traits !== undefined) validateWeaponTraits(w.traits)
+    if (w.status !== undefined) validateWeaponStatus(w.status)
+    if (legacy.has(w.id)) {
+      if (
+        w.id === 'pulse' &&
+        (!Number.isFinite(w.bossDamageRatio) || w.bossDamageRatio! <= 0 || w.bossDamageRatio! > 1)
+      )
+        throw new Error('weapon: 重炮伤害比例无效')
+      if (w.id !== 'pencil') {
+        if (
+          !Number.isInteger(w.pierceTargets) ||
+          w.pierceTargets! < 1 ||
+          !Number.isFinite(w.effectMs) ||
+          w.effectMs <= 0
+        )
+          throw new Error('weapon: 穿透数量或特效时长无效')
+        const fields: Partial<Record<WeaponId, (keyof WeaponDef)[]>> = {
+          venom: ['poisonDurationMs', 'poisonTickMs', 'poisonTickDamage'],
+          flare: ['splashRadius', 'splashDamageRatio'],
+          pulse: ['chainTargets', 'chainRadius', 'chainDamageRatio'],
+          smg: ['slowDurationMs', 'slowMultiplier'],
+        }
+        for (const key of fields[w.id] ?? [])
+          if (typeof w[key] !== 'number' || !Number.isFinite(w[key]) || (w[key] as number) <= 0)
+            throw new Error('weapon: 特殊攻击数值无效')
+        if (w.id === 'venom' && w.poisonDurationMs! < w.poisonTickMs!)
+          throw new Error('weapon: 毒伤时长不能短于间隔')
+        if (w.id === 'pulse' && !Number.isInteger(w.chainTargets))
+          throw new Error('weapon: 连锁数量无效')
+        if (w.id === 'smg' && w.slowMultiplier! > 1) throw new Error('weapon: 减速倍率无效')
+      }
+    }
   }
   if (
     c.projectiles.capacity < c.limits.pellets ||
@@ -732,7 +942,7 @@ export function parseRewards(raw: unknown): RewardDef[] {
     if (![d.weapons, d.requires, d.excludes, d.effects].every(Array.isArray) || !d.effects.length)
       throw new Error('rewards: 条件/效果缺失')
     if (
-      d.weapons.some((w) => !['pencil', 'pulse', 'venom', 'flare', 'rail', 'smg'].includes(w)) ||
+      d.weapons.some((w) => !['pencil', 'pulse'].includes(w)) ||
       d.effects.some((e) => !STATS.includes(e.stat) || !Number.isFinite(e.amount))
     )
       throw new Error('rewards: 武器/属性无效')
@@ -766,7 +976,11 @@ export function deriveStats(
   const temporaryAttackSpeed = Math.max(0, temporaryAttackSpeedPct) / 100
   const permanentMoveSpeed = Math.max(0, permanent?.moveSpeedPct ?? 0) / 100
   return {
-    damage: b.bullet.damage * weapon.damageScale * (1 + sum.damage),
+    damage:
+      (weapon.bossDamageRatio
+        ? config.encounter.bossHp * weapon.bossDamageRatio
+        : b.bullet.damage * weapon.damageScale) *
+      (1 + sum.damage),
     cooldownMs:
       (b.bullet.fireIntervalMs * weapon.cooldownScale) /
       Math.min(
@@ -776,7 +990,10 @@ export function deriveStats(
     bulletSpeed:
       b.bullet.speed * weapon.speedScale * Math.min(l.bulletSpeedScale, 1 + sum.bulletSpeed),
     spreadDeg: weapon.spreadDeg * Math.max(l.spreadScaleMin, 1 + sum.spread),
-    pellets: weapon.id === 'pulse' ? 1 : Math.min(l.pellets, weapon.pellets + sum.pellets),
+    pellets:
+      weapon.id === 'pulse' || weapon.mode === 'melee'
+        ? 1
+        : Math.min(l.pellets, weapon.pellets + sum.pellets),
     lifeMs: weapon.lifeMs,
     moveSpeed: b.player.speed * Math.min(l.moveScale, 1 + sum.move + permanentMoveSpeed),
     maxHp: Math.round(permanentMaxHp * (1 + sum.maxHp)),

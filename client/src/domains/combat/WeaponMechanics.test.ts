@@ -2,9 +2,14 @@ import { readFileSync } from 'node:fs'
 import { describe, expect, it } from 'vitest'
 import { parseCombatConfig } from './config'
 import {
+  angleDelta,
+  arcTargets,
   chainTargets,
+  homingTurn,
+  lifestealHeal,
   segmentHit,
   splashTargets,
+  splitAngles,
   WeaponStatuses,
   type EffectTargetPort,
   type WeaponTarget,
@@ -101,6 +106,41 @@ describe('advanced weapon mechanics', () => {
     expect(f.statuses.chills.has(1)).toBe(true)
     f.statuses.step(1700, 2, () => {})
     expect(f.statuses.chills.has(1)).toBe(false)
+  })
+  it('melee arc respects distance, angle, wall blocking and angle wrapping', () => {
+    const ts = [target(1, 50, 0), target(2, 0, 50), target(3, 50, 40), target(4, -50, 0), target(5, 95, 0)]
+    const origin = { x: 0, y: 0 }
+    expect(arcTargets(ts, origin, 0, 100, Math.PI / 2, 0, () => false).map((t) => t.id)).toEqual([
+      1, 3, 5,
+    ])
+    expect(
+      arcTargets(ts, origin, Math.PI, 100, Math.PI / 2, 0, (_a, b) => b.id === 4).map((t) => t.id),
+    ).toEqual([])
+    expect(arcTargets(ts, origin, Math.PI, 100, Math.PI / 2, 0, () => false).map((t) => t.id)).toEqual([
+      4,
+    ])
+    expect(angleDelta(Math.PI * 1.9, -Math.PI * 0.1)).toBeCloseTo(0)
+  })
+  it('homing, split and lifesteal helpers stay bounded', () => {
+    expect(homingTurn(0, Math.PI / 2, 0.1)).toBeCloseTo(0.1)
+    expect(homingTurn(0, -0.05, 0.1)).toBeCloseTo(-0.05)
+    expect(homingTurn(0, Math.PI * 2 - 0.05, 0.1)).toBeCloseTo(-0.05)
+    expect(splitAngles(0, 4, 1, true)).toEqual([
+      0,
+      Math.PI / 2,
+      Math.PI,
+      (3 * Math.PI) / 2,
+    ])
+    expect(splitAngles(0, 3, Math.PI / 2, false)).toEqual([
+      -Math.PI / 4,
+      0,
+      Math.PI / 4,
+    ])
+    expect(splitAngles(1, 1, Math.PI, false)).toEqual([1])
+    expect(splitAngles(0, 0, 1, false)).toEqual([])
+    expect(lifestealHeal(20, 0.2)).toBe(4)
+    expect(lifestealHeal(20, 0.2, 3)).toBe(3)
+    expect(lifestealHeal(0, 0.2)).toBe(0)
   })
   it('sweeps fast shots and sorts successive hits along the ray', () => {
     const from = { x: 0, y: 0 },
