@@ -43,7 +43,7 @@ describe('校园敌人资源交付', () => {
   })
 
   it('第二至八层七位首领分别使用真实资源与独立名称', () => {
-    const variants = Array.from({ length: 7 }, (_, i) => bossArt(i + 2, i === 6))
+    const variants = Array.from({ length: 7 }, (_, i) => bossArt(i + 2))
     expect(new Set(variants.map((variant) => variant.key)).size).toBe(7)
     expect(variants[0]?.key).toBe(BOSS_FIRST_ART.texture)
     expect(variants[1]?.key).toBe(STAGE2_BOSS_ART.idle)

@@ -201,19 +201,39 @@ export const ROOMS_CONFIG_URL = `config/${ROOMS_CONFIG_NAME}`
 export const FLOORS_CONFIG_NAME = 'floors.json'
 export const FLOORS_CONFIG_URL = `config/${FLOORS_CONFIG_NAME}`
 
+/** 一张平面图在 `floors.json` 里的引用。 */
+export interface FloorPlanRef {
+  readonly file: string
+  readonly label: string
+}
+
+/** 一层的候选平面图；`requireShop` 的层必须能放商店，其它层不能有商店。 */
+export interface FloorLayerCandidates {
+  readonly candidates: readonly string[]
+  readonly requireShop: boolean
+}
+
+/** 被排除出产品流程的平面图（本期是 7F）。 */
+export interface ExcludedFloorPlan {
+  readonly file: string
+  readonly reason: string
+}
+
 /**
- * `floors.json` 的落地形状。
+ * `floors.json` v2：出发层 + 按层候选 + 最终战 + 排除表。
  *
- * ⚠️ **`floors` 里的文件名必须都在 `FLOOR_PLAN_FILES` 里** —— 那一串是
- * **preload 时真的要加载的文件**（`BattleScene.preload()`），而这张表只是「用哪一张、第几个用」。
- * 两处分开是没办法的事：加载清单必须在读配置**之前**就存在（先有鸡才有蛋），
- * 所以它是代码里的常量；表里写了一个没加载的文件时，`floorPlansForRun()` 当场报出来
- * （那句报错会指回 `FLOOR_PLAN_FILES`），不会变成「第 2 层是空的」。
+ * ⚠️ 这里**不再有「第 1..N 层各是哪张图」的顺序表**：一局的地图要从候选里抽，
+ * 而且第 1/3 层共用同一组候选。`file` 必须都在 `FLOOR_PLAN_FILES` 里，
+ * 由 `floorPlansForRun()` 的 `needLoadedPlan()` 兜底（配置解析器不导入那张常量表，
+ * 避免 `config.ts` ↔ `gen/floorPlan.ts` 的环）。
  */
 export interface FloorsConfig {
   schemaVersion: number
-  /** 每一层的平面图文件名，顺序 = 层的顺序。 */
-  floors: readonly string[]
+  prologue: FloorPlanRef
+  pool: readonly FloorPlanRef[]
+  layers: readonly FloorLayerCandidates[]
+  finale: FloorPlanRef
+  excluded: readonly ExcludedFloorPlan[]
 }
 
 // ---------------------------------------------------------------- 取值
@@ -715,29 +735,76 @@ export function parseFloorsConfig(raw: unknown, expectedFloors: number): FloorsC
     throw new ConfigError('floors.schemaVersion', '缺这个字段（红线 3：数据要带 schemaVersion）')
   }
   const schemaVersion = needNumber(root.schemaVersion, 'floors.schemaVersion', { integer: true })
-
-  const list = needArray(need(root.floors, 'floors.floors'), 'floors.floors')
-  const floors = list.map((name, i) => {
-    if (typeof name !== 'string' || name.length === 0) {
-      throw new ConfigError(
-        `floors.floors[${i}]`,
-        `要一个平面图文件名（例如 "floor-plan.json"），拿到 ${JSON.stringify(name)}`,
-      )
-    }
-    return name
-  })
-
-  if (floors.length !== expectedFloors) {
-    throw new ConfigError(
-      'floors.floors',
-      `floors.json 给了 ${floors.length} 层（${floors.join(' / ')}），` +
-        `而 combat.json 的 arena.maxStages 是 ${expectedFloors} 层。` +
-        `两个数都是真值、管的不是同一件事 —— 一张说「第几层走哪张图」，一个说「一局几层」——` +
-        `所以加一层/删一层要两处一起改（缺的那一层没有图可走，多的那一条永远用不上，两种都不报错）`,
-    )
+  if (schemaVersion !== 2) {
+    throw new ConfigError('floors.schemaVersion', `本期只支持 2，拿到 ${schemaVersion}`)
   }
 
-  return { schemaVersion, floors }
+  const fileOf = (value: unknown, path: string): string => {
+    if (typeof value !== 'string' || value.length === 0) {
+      throw new ConfigError(path, `要一个平面图文件名（例如 "floor-plan.json"），拿到 ${JSON.stringify(value)}`)
+    }
+    return value
+  }
+  const ref = (value: unknown, path: string): FloorPlanRef => {
+    const obj = needObject(value, path)
+    return { file: fileOf(obj.file, `${path}.file`), label: fileOf(obj.label, `${path}.label`) }
+  }
+
+  const prologue = ref(need(root.prologue, 'floors.prologue'), 'floors.prologue')
+  const poolRaw = needArray(need(root.pool, 'floors.pool'), 'floors.pool')
+  const pool = poolRaw.map((entry, i) => ref(entry, `floors.pool[${i}]`))
+  const files = new Set<string>(),
+    labels = new Set<string>()
+  for (const [i, entry] of pool.entries()) {
+    if (files.has(entry.file)) throw new ConfigError(`floors.pool[${i}].file`, `重复的平面图：${entry.file}`)
+    if (labels.has(entry.label)) throw new ConfigError(`floors.pool[${i}].label`, `重复的 label：${entry.label}`)
+    files.add(entry.file)
+    labels.add(entry.label)
+  }
+  if (files.has(prologue.file)) throw new ConfigError('floors.prologue.file', `prologue 不能同时出现在 pool 里：${prologue.file}`)
+  if (labels.has(prologue.label)) throw new ConfigError('floors.prologue.label', `prologue 的 label 与 pool 重复：${prologue.label}`)
+
+  const layersRaw = needArray(need(root.layers, 'floors.layers'), 'floors.layers')
+  if (layersRaw.length !== expectedFloors) {
+    throw new ConfigError(
+      'floors.layers',
+      `floors.json 给了 ${layersRaw.length} 层候选，而 combat.json 的 arena.maxStages 是 ${expectedFloors} 层。` +
+        `两张表必须一起改；对不上时第 N 层没有候选可抽。`,
+    )
+  }
+  const layers = layersRaw.map((entry, i): FloorLayerCandidates => {
+    const obj = needObject(entry, `floors.layers[${i}]`)
+    const candidates = needArray(need(obj.candidates, `floors.layers[${i}].candidates`), `floors.layers[${i}].candidates`)
+      .map((value, j) => fileOf(value, `floors.layers[${i}].candidates[${j}]`))
+    const seen = new Set<string>()
+    for (const file of candidates) {
+      if (seen.has(file)) throw new ConfigError(`floors.layers[${i}].candidates`, `重复的候选：${file}`)
+      if (!files.has(file)) throw new ConfigError(`floors.layers[${i}].candidates`, `候选不在 pool 里：${file}`)
+      seen.add(file)
+    }
+    if (obj.requireShop !== undefined && typeof obj.requireShop !== 'boolean')
+      throw new ConfigError(`floors.layers[${i}].requireShop`, `要布尔值，拿到 ${JSON.stringify(obj.requireShop)}`)
+    return { candidates, requireShop: obj.requireShop === true }
+  })
+
+  const finale = ref(need(root.finale, 'floors.finale'), 'floors.finale')
+  if (files.has(finale.file)) throw new ConfigError('floors.finale.file', `finale 不能同时出现在 pool 里：${finale.file}`)
+  if (labels.has(finale.label)) throw new ConfigError('floors.finale.label', `finale 的 label 与 pool 重复：${finale.label}`)
+
+  const excludedRaw = root.excluded === undefined ? [] : needArray(root.excluded, 'floors.excluded', 0)
+  const excluded = excludedRaw.map((entry, i): ExcludedFloorPlan => {
+    const obj = needObject(entry, `floors.excluded[${i}]`)
+    const file = fileOf(obj.file, `floors.excluded[${i}].file`)
+    const reason = fileOf(obj.reason, `floors.excluded[${i}].reason`)
+    if (files.has(file) || file === prologue.file || file === finale.file)
+      throw new ConfigError(`floors.excluded[${i}].file`, `排除表不能与 prologue/pool/finale 相交：${file}`)
+    return { file, reason }
+  })
+  const excludedFiles = new Set(excluded.map((entry) => entry.file))
+  if (excludedFiles.size !== excluded.length)
+    throw new ConfigError('floors.excluded', '排除表里有重复文件')
+
+  return { schemaVersion, prologue, pool, layers, finale, excluded }
 }
 
 /**
