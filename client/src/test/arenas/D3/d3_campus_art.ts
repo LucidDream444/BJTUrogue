@@ -78,9 +78,9 @@ class CampusArtArena extends ArenaBase {
     bind('P', killPaper)
     if (this.subject === 'overview') {
       const maxHp = ctx.enemies.specFor('tank', 0).stats.maxHp
-      ctx.enemies.requestBoss(1, 240, 560, maxHp)
-      ctx.enemies.requestBoss(2, 640, 560, maxHp)
-      ctx.enemies.requestBoss(3, 1040, 560, maxHp, true)
+      ctx.enemies.requestBoss(1, 1, 'coursework', 240, 560, maxHp)
+      ctx.enemies.requestBoss(2, 2, 'acid_sprinkler', 640, 560, maxHp)
+      ctx.enemies.requestBoss(3, 3, 'heart_demon', 1040, 560, maxHp, true)
       campusButton(this, 782, 143, 236, 'P 击杀纸团看分裂', killPaper)
       campusButton(this, 1026, 143, 237, 'R 重开实战总览', () => this.scene.restart())
       campusText(this, 782, 185, '总览使用真实AI与伤害。点1—5单独预览动作，支持暂停、逐帧、重播。', 467)

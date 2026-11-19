@@ -1,20 +1,21 @@
 {
   "schemaVersion": 2,
-
   "_comment": "D4 局外成长配置。每个角色只有一个固定被动和一个四阶主动技能；字段定义仍需 D2 过目。",
   "_economy_note": "币只在对局中获得，死亡不清空。",
   "_skill_note": "技能 1 级随角色解锁获得；upgradeCosts 对应升到 2/3/4 级的三笔费用。",
-
   "economy": {
     "coinsPerKill": 1,
     "coinsPerClearedRoom": 5,
     "coinsPerDepth": 20
   },
-
   "finalRewards": {
-    "heart_demon": { "coins": 120 }
+    "heart_demon": {
+      "coins": 120
+    },
+    "run_clear": {
+      "coins": 120
+    }
   },
-
   "characters": {
     "student": {
       "unlockCost": 0,
@@ -32,7 +33,11 @@
         "name": "奋笔疾书",
         "description": "短时间大幅提高攻击速度",
         "kind": "haste",
-        "upgradeCosts": [80, 180, 360],
+        "upgradeCosts": [
+          80,
+          180,
+          360
+        ],
         "levels": [
           {
             "name": "启笔",
@@ -81,7 +86,11 @@
         "name": "展翅突进",
         "description": "向瞄准方向突进",
         "kind": "dash",
-        "upgradeCosts": [120, 260, 480],
+        "upgradeCosts": [
+          120,
+          260,
+          480
+        ],
         "levels": [
           {
             "name": "扑翅",
@@ -144,7 +153,11 @@
         "name": "红果伴读",
         "description": "小红果唤出参考书，自动攻击附近敌人",
         "kind": "summon",
-        "upgradeCosts": [140, 300, 540],
+        "upgradeCosts": [
+          140,
+          300,
+          540
+        ],
         "levels": [
           {
             "name": "萌芽",

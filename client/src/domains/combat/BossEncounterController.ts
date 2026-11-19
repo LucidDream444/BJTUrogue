@@ -93,7 +93,7 @@ export class BossEncounterController {
       .setVisible(false)
       .setDepth(8001)
     this.ghost = scene.add
-      .sprite(0, 0, textureKeyFor(scene, bossArt(5, false).key), 0)
+      .sprite(0, 0, textureKeyFor(scene, bossArt(5).key), 0)
       .setVisible(false)
       .setDepth(8002)
     this.port = {
@@ -191,7 +191,7 @@ export class BossEncounterController {
               height: Number(spec.flightHeight),
             }
             this.ghost
-              .setTexture(textureKeyFor(scene, bossArt(floor, false).key), 0)
+              .setTexture(textureKeyFor(scene, bossArt(floor).key), 0)
               .setScale(
                 session.bundle.enemies.enemies.tank.visualScale *
                   session.cfg.encounter.bossVisualScaleMultiplier,

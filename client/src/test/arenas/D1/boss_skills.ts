@@ -49,7 +49,8 @@ class BossSkillsArena extends BattleScene {
     this.events.once('shutdown', () => this.events.off('postupdate', refreshStatus))
     refreshStatus()
     const enter = (): void => {
-      controls.goToFloor(this.demoFloor, null, this.demoFloor === 8)
+      const demoLayer = this.demoFloor <= 3 ? 1 : this.demoFloor <= 5 ? 2 : 3
+      controls.goToFloor(demoLayer)
       const bossRoom = controls.dungeon.rooms.find((r) => r.room.kind === 'boss')
       // 7F 的平面图暂时没有 boss 房：退到面积最大的一间房，手动把奶龙放进去。
       const room =
@@ -102,12 +103,19 @@ class BossSkillsArena extends BattleScene {
       controls.session.player.model.protectedUntilMs = this.demoProtected ? Infinity : 0
       if (!bossRoom) {
         const { cfg, enemies } = controls.session
+        const bossIds = ['coursework', 'paper_kite', 'acid_sprinkler', 'sports_gear', 'roll_call', 'nailong', 'heart_demon']
+        const demoLayer = this.demoFloor <= 3 ? 1 : this.demoFloor <= 5 ? 2 : 3
+        const finalBoss = this.demoFloor === 8
         enemies.spawnBoss(
           this.demoFloor,
+          demoLayer,
+          bossIds[this.demoFloor - 2] ?? 'coursework',
           bossPoint.x,
           bossPoint.y,
-          cfg.encounter.bossHp + (this.demoFloor - 1) * cfg.encounter.bossHpPerStage,
-          this.demoFloor === cfg.arena.finale.floor,
+          finalBoss
+            ? cfg.arena.finale.heartDemonHp
+            : cfg.encounter.bossHp + (demoLayer - 1) * cfg.encounter.bossHpPerStage,
+          finalBoss,
           cfg.encounter.bossDamageMultiplier,
         )
       }

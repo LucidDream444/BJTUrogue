@@ -72,6 +72,8 @@ class NailongBossArena extends Phaser.Scene {
     const bossY = LAB.height * 0.45
     this.session.enemies.spawnBoss(
       BOSS_STAGE,
+      3,
+      'nailong',
       bossX,
       bossY,
       this.cfg.encounter.bossHp +

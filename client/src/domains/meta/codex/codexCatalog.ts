@@ -32,6 +32,8 @@ export interface CodexEncounterConfig {
   bossHpPerStage: number
   bossDamageMultiplier: number
   bossReinforcements: { cooldownMs: number; maxAlive: number; spawnCount: number }
+  /** 心魔固定血量（`arena.finale.heartDemonHp`）；旧配置没有时退回档位公式。 */
+  heartDemonHp?: number
 }
 
 export interface CodexEntry {
@@ -251,19 +253,19 @@ export function buildCodexEntries(
   })
 
   entries.push({
-    id: 'first-boss', category: '首领', name: '课业重压', variant: '第二层首领',
+    id: 'first-boss', category: '首领', name: '课业重压', variant: '第 1 层首领池',
     role: '教材与未交作业堆成的梦魇 · 预警后范围下砸', threatLevel: tank.threatLevel,
     textureKey: BOSS_FIRST_ART.texture, visualScale: tank.visualScale,
     hasArt: hasDeliveredArt(BOSS_FIRST_ART.texture),
     stats: [
-      ...(encounter ? [{ label: '生命值', value: `${encounter.bossHp + encounter.bossHpPerStage}` }] : []),
+      ...(encounter ? [{ label: '生命值', value: `${encounter.bossHp}` }] : []),
       { label: '攻击前摇', value: formatSeconds(tank.slam.windupMs) },
       { label: '技能数量', value: `${bossSkills?.bosses['2']?.skills.length ?? 2}` },
     ],
     combatNotes: [
       ...bossSkillNotes(bossSkills, 2, modifiers.enemyDamage * (encounter?.bossDamageMultiplier ?? 1)),
       `沿用计组课本的范围下砸：前摇 ${formatSeconds(tank.slam.windupMs)}，范围半径 ${tank.slam.radius} px；恢复 ${formatSeconds(tank.slam.recoverMs)} 时承伤 ×${tank.slam.vulnerableDamageMult}。首领本体会挡下子弹，不具备普通教材的穿透特性。`,
-      ...bossNotes(encounter, tank.slam.damage * modifiers.enemyDamage, 2),
+      ...bossNotes(encounter, tank.slam.damage * modifiers.enemyDamage, 1),
     ],
     lorePlaceholder: '厚课本、装订作业和批满红勾的试卷堆成了课业重压。在梦里，永远做不完的任务终于压成了实体。',
   })
@@ -277,14 +279,14 @@ export function buildCodexEntries(
     id: 'stage2-boss',
     category: '首领',
     name: boss.displayName,
-    variant: '第三层首领',
+    variant: '第 1 层首领池',
     role: `远程首领 · 保持 ${boss.keepDistance}px 距离并释放环形弹幕`,
     threatLevel: 5,
     textureKey: STAGE2_BOSS_ART.idle,
     visualScale: boss.visualScale,
     hasArt: hasDeliveredArt(STAGE2_BOSS_ART.idle),
     stats: [
-      ...(encounter ? [{ label: '生命值', value: `${encounter.bossHp + 2 * encounter.bossHpPerStage}` }] : []),
+      ...(encounter ? [{ label: '生命值', value: `${encounter.bossHp}` }] : []),
       { label: '移动速度', value: `${Math.round(boss.speed * modifiers.enemySpeed)} px/s` },
       { label: '弹幕数量', value: `${radialNumber('count', boss.projectile.count)} 发` },
       { label: '基础单发伤害', value: `${radialDamage}` },
@@ -297,7 +299,7 @@ export function buildCodexEntries(
       ...(!radial ? [
         `预警 ${formatSeconds(boss.windupMs)} 后发射 ${boss.projectile.count} 发环形弹幕，每次错开 ${boss.projectile.volleyOffsetDeg}°。子弹速度 ${boss.projectile.speed} px/s、半径 ${boss.projectile.radius} px、存在 ${formatSeconds(boss.projectile.lifetimeMs)}；恢复 ${formatSeconds(boss.recoverMs)}，冷却 ${formatSeconds(boss.cooldownMs)}。`,
       ] : []),
-      ...bossNotes(encounter, radialDamage * modifiers.enemyDamage, 3),
+      ...bossNotes(encounter, radialDamage * modifiers.enemyDamage, 1),
     ],
     lorePlaceholder: '高中的时候我的后桌们折了一架纸飞机然后放飞了。纸飞正正好好轻落到了我的脚边，他们都感到惊讶和高兴。我把纸飞机拆开，上面写着”飞黄腾达的人“。后来我把它变成了千纸鹤，放在大学的书包里',
   })
@@ -309,36 +311,36 @@ export function buildCodexEntries(
     { floor: 7, id: 'nailong-boss', name: '奶龙', textureKey: NAILONG_ART.texture, visualScale: tank.visualScale, role: '用笑声驱使怪群，并连续发射蓝色环形弹幕', lore: '短视频的笑声在熬夜的脑海里循环不止。梦里的它依旧笑得很响，却把每一个笑点都变成了躲不开的蓝色圆圈。' },
   ] as const
   for (const entry of extraBosses) entries.push({
-    id: entry.id, category: '首领', name: entry.name, variant: `第${['零', '一', '二', '三', '四', '五', '六', '七', '八'][entry.floor]}层首领`,
+    id: entry.id, category: '首领', name: entry.name, variant: entry.floor <= 5 ? '第 2 层首领池' : '第 3 层首领池',
     role: entry.role, threatLevel: 5, textureKey: entry.textureKey, visualScale: entry.visualScale,
     hasArt: hasDeliveredArt(entry.textureKey), stats: [
-      ...(encounter ? [{ label: '生命值', value: `${encounter.bossHp + (entry.floor - 1) * encounter.bossHpPerStage}` }] : []),
+      ...(encounter ? [{ label: '生命值', value: `${encounter.bossHp + (entry.floor <= 5 ? 1 : 2) * encounter.bossHpPerStage}` }] : []),
       { label: '技能数量', value: `${bossSkills?.bosses[String(entry.floor)]?.skills.length ?? 2}` },
     ],
     combatNotes: [
       ...bossSkillNotes(bossSkills, entry.floor, modifiers.enemyDamage * (encounter?.bossDamageMultiplier ?? 1)),
-      ...bossNotes(encounter, tank.slam.damage * modifiers.enemyDamage, entry.floor),
+      ...bossNotes(encounter, tank.slam.damage * modifiers.enemyDamage, entry.floor <= 5 ? 2 : 3),
     ],
     lorePlaceholder: entry.lore,
   })
 
   entries.push({
-    id: 'heart-demon', category: '首领', name: '心魔', variant: '第八层最终首领',
+    id: 'heart-demon', category: '首领', name: '心魔', variant: '最终首领',
     role: '考研梦魇 · 破裂考场钟盘、齿轮与批改试卷构成的最终心魔',
     threatLevel: entries.find((entry) => entry.id === 'stage2-boss')!.threatLevel,
     textureKey: FINAL_BOSS_ART.idle, visualScale: boss.visualScale,
     hasArt: hasDeliveredArt(FINAL_BOSS_ART.idle), stats: [
-      ...(encounter ? [{ label: '生命值', value: `${encounter.bossHp + 7 * encounter.bossHpPerStage}` }] : []),
+      ...(encounter ? [{ label: '生命值', value: `${encounter?.heartDemonHp ?? encounter.bossHp + 3 * encounter.bossHpPerStage}` }] : []),
       { label: '技能数量', value: `${bossSkills?.bosses['8']?.skills.length ?? 3}` },
     ],
     combatNotes: [
       ...bossSkillNotes(bossSkills, 8, modifiers.enemyDamage * (encounter?.bossDamageMultiplier ?? 1)),
-      `第八层最终首领，使用近身范围下砸。进入 ${tank.slam.range} px 后前摇 ${formatSeconds(tank.slam.windupMs)}，攻击半径 ${tank.slam.radius} px；冷却 ${formatSeconds(tank.slam.cooldownMs)}。`,
+      `最终首领，使用近身范围下砸。进入 ${tank.slam.range} px 后前摇 ${formatSeconds(tank.slam.windupMs)}，攻击半径 ${tank.slam.radius} px；冷却 ${formatSeconds(tank.slam.cooldownMs)}。`,
       `下砸后恢复 ${formatSeconds(tank.slam.recoverMs)}，期间受到伤害 ×${tank.slam.vulnerableDamageMult}。首领会挡下子弹；绕开预警圈，再趁恢复期输出。`,
-      ...bossNotes(encounter, tank.slam.damage * modifiers.enemyDamage, 8),
+      ...bossNotes(encounter, tank.slam.damage * modifiers.enemyDamage, 3, encounter ? (encounter.heartDemonHp ?? encounter.bossHp + 3 * encounter.bossHpPerStage) : undefined),
       '击败心魔并存活即可完成本局。',
     ],
-    lorePlaceholder: '它守在梦境第八层，把失败的恐惧变成钟表与试卷。打破心魔，让被困的北交学子回到黄昏的教室；只要自己也活下来，就能迎来梦醒。',
+    lorePlaceholder: '它守在梦境最深处，把失败的恐惧变成钟表与试卷。打破心魔，让被困的北交学子回到黄昏的教室；只要自己也活下来，就能迎来梦醒。',
   })
 
   return entries
@@ -364,11 +366,17 @@ function formatSeconds(ms: number): string {
   return `${(ms / 1000).toFixed(ms % 1000 === 0 ? 0 : 1)} 秒`
 }
 
-function bossNotes(encounter: CodexEncounterConfig | undefined, baseDamage: number, floor: number): string[] {
-  if (!encounter) return ['首领生命随所在楼层增加；强化后的生命、攻击伤害与援军参数在进入战斗后读取。']
+function bossNotes(
+  encounter: CodexEncounterConfig | undefined,
+  baseDamage: number,
+  layer: number,
+  hpOverride?: number,
+): string[] {
+  if (!encounter) return ['首领生命随所在层增加；强化后的生命、攻击伤害与援军参数在进入战斗后读取。']
   const support = encounter.bossReinforcements
+  const hp = hpOverride ?? encounter.bossHp + (layer - 1) * encounter.bossHpPerStage
   return [
-    `当前难度单次攻击伤害 ${Math.round(baseDamage * encounter.bossDamageMultiplier)}（首领强化 ×${encounter.bossDamageMultiplier}）。${floor === 1 ? '所在楼层为 N 时，' : `第 ${floor} 层`}生命 ${floor === 1 ? `${encounter.bossHp} + (N−1) × ${encounter.bossHpPerStage}` : encounter.bossHp + (floor - 1) * encounter.bossHpPerStage}，顶部血条持续显示至死亡。`,
+    `当前难度单次攻击伤害 ${Math.round(baseDamage * encounter.bossDamageMultiplier)}（首领强化 ×${encounter.bossDamageMultiplier}）。第 ${layer} 层生命 ${hp}，顶部血条持续显示至死亡。`,
     `首领存活时，每 ${formatSeconds(support.cooldownMs)} 补充最多 ${support.spawnCount} 只随机小怪，场内小怪上限 ${support.maxAlive}（含等待生成与分裂子代，课业重压的突击召集技能单独豁免）；满额不额外刷新。击败首领后停止补怪，清除剩余小怪才能解锁房间。`,
   ]
 }
@@ -383,5 +391,13 @@ export function codexEncounterConfig(raw: unknown): CodexEncounterConfig | undef
   if (!support || ![candidate.bossHp, candidate.bossHpPerStage, candidate.bossDamageMultiplier,
     support.cooldownMs, support.maxAlive, support.spawnCount].every((number) =>
     typeof number === 'number' && Number.isFinite(number) && number >= 0)) return undefined
-  return candidate as CodexEncounterConfig
+  const finale = (raw as { arena?: { finale?: { heartDemonHp?: unknown } } }).arena?.finale
+  const heartDemonHp = finale?.heartDemonHp
+  return {
+    ...candidate,
+    heartDemonHp:
+      typeof heartDemonHp === 'number' && Number.isFinite(heartDemonHp) && heartDemonHp > 0
+        ? heartDemonHp
+        : undefined,
+  } as CodexEncounterConfig
 }
