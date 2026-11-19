@@ -6,6 +6,7 @@ import type { GameClock } from '@/core/time'
 import type { TypedBus, Unsubscribe, EnemyKind, GameEvents } from '@/core/events'
 import type { ConfigBundle, Difficulty } from '@/core/config'
 import type { HitResult, TickTarget } from '@/core/actor/damage'
+import type { CombatConfig } from './config'
 import type { CombatEvents } from './events'
 import type { EffectTargetPort, WeaponTarget } from './WeaponMechanics'
 export interface PlayerPort {
@@ -58,11 +59,13 @@ export class EnemyBridge implements BulletContactPort {
     bus: TypedBus<CombatEvents>,
     clock: GameClock,
     private readonly bundle: ConfigBundle,
-    difficulty: Difficulty,
+    private readonly cfg: CombatConfig,
+    private readonly difficulty: Difficulty,
     player: () => PlayerPort,
     seed: number,
     nav?: EnemySystemNavOptions,
     bossPresentation?: BossPresentationConfig,
+    private floor = 1,
   ) {
     this.unsub = bus.on('player_hurt', (e) => {
       if (e.sourceKind === 'aoe' && e.hpDamage + e.shieldDamage > 0) this.damagedAtFrame = e.frameId
@@ -103,6 +106,21 @@ export class EnemyBridge implements BulletContactPort {
    */
   get pierceTickMs(): number {
     return this.bundle.enemies.enemies.tank.frameDamage.tickMs
+  }
+
+  /**
+   * 换层：把当前层号带进敌人系统，并刷新难度派生缓存。
+   *
+   * 3 层流程里每层的怪是重新生成的，`EnemySystem` 里有派生缓存（分裂/肉盾/抓取），
+   * 不刷新的话同一只怪会继续用上一层算出来的血量。这里先按难度基准重算；
+   * 如果以后 `combat.json` 增加逐层倍率，只改这里即可。
+   */
+  setFloor(floor: number): void {
+    const next = Math.max(1, Math.min(this.cfg.arena.maxStages, Math.floor(floor)))
+    if (next === this.floor) return
+    this.floor = next
+    const base = this.bundle.difficulty.difficulties[this.difficulty]
+    this.system.setDifficultyModifiers({ ...base })
   }
   contact(id: number, target: Phaser.GameObjects.GameObject, damage: number): HitResult {
     const cfg = this.bundle.enemies.enemies.tank.frameDamage.bullet
