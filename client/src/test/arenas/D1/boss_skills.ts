@@ -19,6 +19,9 @@ class BossSkillsArena extends BattleScene {
   }
   override init(data: BattleSceneData = {}): void {
     super.init({ ...data, skillLab: true })
+    // 直达某位首领：?arena=boss_skills&floor=7 → 奶龙
+    const floor = Number(new URLSearchParams(window.location.search).get('floor'))
+    if (Number.isInteger(floor) && floor >= 2 && floor <= 8) this.demoFloor = floor
   }
   override create(): void {
     super.create()
@@ -33,24 +36,81 @@ class BossSkillsArena extends BattleScene {
       const camera = this.cameras.main
       const top = camera.getWorldPoint(this.scale.width / 2, 112)
       status.setPosition(top.x, top.y).setScale(1 / camera.zoom)
-      status.setText(this.demoProtected
-        ? '首领验收：无敌已开启 · P 关闭无敌 · N 下一位'
-        : '首领验收：可受到伤害 · P 开启无敌 · N 下一位')
+      const boss = controls.bossSkills.config.bosses[String(this.demoFloor)]
+      status.setText(
+        `第 ${this.demoFloor} 层首领：${boss?.name ?? '—'} · ` +
+          (this.demoProtected
+            ? '无敌已开启 · P 关闭无敌'
+            : '可受到伤害 · P 开启无敌') +
+          ' · N 下一位 · K 试放技能',
+      )
     }
     this.events.on('postupdate', refreshStatus)
     this.events.once('shutdown', () => this.events.off('postupdate', refreshStatus))
     refreshStatus()
     const enter = (): void => {
       controls.goToFloor(this.demoFloor, null, this.demoFloor === 8)
-      const room = controls.dungeon.rooms.find((r) => r.room.kind === 'boss')
+      const bossRoom = controls.dungeon.rooms.find((r) => r.room.kind === 'boss')
+      // 7F 的平面图暂时没有 boss 房：退到面积最大的一间房，手动把奶龙放进去。
+      const room =
+        bossRoom ??
+        [...controls.dungeon.rooms].sort(
+          (a, b) =>
+            b.room.rect.width * b.room.rect.height - a.room.rect.width * a.room.rect.height,
+        )[0]
       if (!room) return
-      const p = controls.session.terrain.safeSpawn(
-        room.room.rect.x,
-        room.room.rect.y + room.room.rect.height / 4,
-        controls.session.player.model.stats.radius,
-      )
-      controls.session.player.body.reset(p.x, p.y)
+      // 直接落到房间中心。**不要走 safeSpawn**：它会按「从楼梯间可达」泛洪，
+      // 首领房的门在开战前可能还没联通，兜底会把玩家扔回楼梯间（实测 floor=7 就是这样）。
+      // 落地后场景的 syncRoomState 会把这一间认成当前房并触发 enterRoom。
+      const p = {
+        x: room.room.rect.x + room.room.rect.width / 2,
+        y: room.room.rect.y + room.room.rect.height / 2,
+      }
+      // 奶龙体形极大：首领放在房间中偏左，玩家放在右侧同一高度，
+      // 让弹幕有横向空间飞出去（上下叠会让中间那堵墙/课桌把弹幕全吃掉）。
+      // 切到中轴线左侧：房间正中有一道竖墙/柱子，首领和玩家分居两侧时弹幕会全部撞墙。
+      let bossPoint = {
+        x: p.x - room.room.rect.width * 0.3,
+        y: p.y,
+      }
+      let playerPoint = {
+        x: Math.max(room.room.rect.x + 48, p.x - room.room.rect.width * 0.05),
+        y: Math.min(room.room.rect.y + room.room.rect.height - 48, p.y + room.room.rect.height * 0.05),
+      }
+      // 7F 没有首领房：不要塞进任意教室（课桌/竖墙会把弹幕全吃掉），
+      // 在整层里找一块横向净空 ≥ 220px 的通道/空地，首领和玩家一左一右放进去。
+      if (!bossRoom) {
+        const terrain = controls.session.terrain
+        const step = 64
+        let found = false
+        for (let y = 110; y <= terrain.height - 110 && !found; y += step) {
+          for (let x = 110; x <= terrain.width - 330; x += step) {
+            if (
+              terrain.isWalkable(x, y, 110) &&
+              terrain.isWalkable(x + 220, y, 60) &&
+              !terrain.crossesSolid({ x, y }, { x: x + 220, y }, 40)
+            ) {
+              bossPoint = { x, y }
+              playerPoint = { x: x + 220, y }
+              found = true
+              break
+            }
+          }
+        }
+      }
+      controls.session.player.body.reset(playerPoint.x, playerPoint.y)
       controls.session.player.model.protectedUntilMs = this.demoProtected ? Infinity : 0
+      if (!bossRoom) {
+        const { cfg, enemies } = controls.session
+        enemies.spawnBoss(
+          this.demoFloor,
+          bossPoint.x,
+          bossPoint.y,
+          cfg.encounter.bossHp + (this.demoFloor - 1) * cfg.encounter.bossHpPerStage,
+          this.demoFloor === cfg.arena.finale.floor,
+          cfg.encounter.bossDamageMultiplier,
+        )
+      }
     }
     this.time.delayedCall(0, enter)
     this.input.keyboard?.on('keydown-N', () => {
@@ -82,8 +142,8 @@ class BossSkillsArena extends BattleScene {
   }
 }
 export const arena = {
-  displayName: 'D1 七位首领技能验收',
+  displayName: 'D1 七位首领技能验收（含奶龙）',
   description:
-    '真实首领房与独立内存存档：默认可受到伤害，N 切换下一位首领，P 切换玩家无敌，K 提前试放技能；Tab 查看本次新首领图鉴。',
+    '真实首领房与独立内存存档：默认可受到伤害，N 切换下一位首领，P 切换玩家无敌，K 提前试放技能；Tab 查看本次新首领图鉴。奶龙直达：?arena=boss_skills&floor=7。',
   scene: BossSkillsArena,
 }

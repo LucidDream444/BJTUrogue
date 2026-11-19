@@ -2,8 +2,14 @@
 import { Rng } from '@/core/rng'
 import type { EnemyKind } from '@/core/events'
 import { textureKeyFor } from '@/core/assets'
+import { NAILONG_SKILL_AUDIO } from '@/core/assetManifest'
 import { bossArt } from '@/domains/enemies/presentation/bossArt'
-import { BossSkillRuntime, type BossSkillPort, type BossSkillsTable } from './BossSkillRuntime'
+import {
+  BossSkillRuntime,
+  type BossSkillPort,
+  type BossSkillVolley,
+  type BossSkillsTable,
+} from './BossSkillRuntime'
 import { HeartDemonRuntime, type ShadowWeapon } from './HeartDemonRuntime'
 import { BossHazardView } from './presentation/BossHazardView'
 import type { CombatSession } from './CombatSession'
@@ -54,10 +60,16 @@ export class BossEncounterController {
   } | null = null
   private lastAt = 0
   private bossId: number | null = null
+  /** 独立弹幕调度：与技能 `busyUntil` 无关，固定间隔轮换三种弹幕。 */
+  private barrageIndex = 0
+  private nextBarrageAtMs = 0
   private redAlpha = 0
   private captionUntil = 0
   private weaponOwner: number | null = null
   private disposed = false
+  /** 第七层奶龙的三段技能语音；每次释放技能随机一段。 */
+  private readonly nailongVoices: Phaser.Sound.BaseSound[] = []
+  private readonly unsubPause: () => void
   constructor(
     private readonly scene: Phaser.Scene,
     private readonly session: CombatSession,
@@ -154,6 +166,8 @@ export class BossEncounterController {
         this.caption.setText(LABELS[skillId] ?? skillId).setVisible(true)
         this.captionUntil = Math.max(until, session.clock.nowMs + 1200)
         const u = e.skillUnits().find((u) => u.id === id)
+        // 只有本尊奶龙（第 7 层首领）释放技能才播；心魔借用同一技能时不误播。
+        if (u?.bossStage === 7) this.playNailongSkillVoice()
         if (u) {
           this.caption.setPosition(u.x, u.y - u.radius - 95)
           if (!this.canPlace(u.x, u.y, u.radius)) {
@@ -188,7 +202,9 @@ export class BossEncounterController {
       },
       onLaugh: (id, until) => {
         e.setUnitLaugh(id, until)
-        this.tone(false)
+        // 奶龙本尊改用三段 mp3 技能语音；其他首领/借用心魔仍用合成笑声。
+        const unit = e.skillUnits().find((u) => u.id === id)
+        if (unit?.bossStage !== 7) this.tone(false)
       },
     }
     this.runtime = new BossSkillRuntime(config, this.port)
@@ -220,6 +236,22 @@ export class BossEncounterController {
       castBorrowed: (id, floor, skill, now) => this.runtime.castSkill(id, floor, skill, now),
       cancelBorrowed: () => this.runtime.clear(),
     })
+    for (const key of NAILONG_SKILL_AUDIO)
+      if (scene.cache.audio.exists(key)) this.nailongVoices.push(scene.sound.add(key))
+    this.unsubPause = session.bus.on('app_paused', () => this.stopNailongVoices())
+  }
+
+  private playNailongSkillVoice(): void {
+    if (this.disposed || this.scene.sound.locked || this.options.sfxVolume() <= 0) return
+    if (!this.nailongVoices.length) return
+    this.stopNailongVoices()
+    const voice =
+      this.nailongVoices[Math.floor(Math.random() * this.nailongVoices.length)]!
+    voice.play({ volume: this.options.sfxVolume() })
+  }
+
+  private stopNailongVoices(): void {
+    for (const voice of this.nailongVoices) voice.stop()
   }
   update(stage: number): void {
     if (this.disposed) return
@@ -235,12 +267,39 @@ export class BossEncounterController {
       this.lastAt = now
       return
     }
-    this.bossId = boss.id
+    const barrages = this.config.barrages[String(stage)]
+    if (this.bossId !== boss.id) {
+      this.bossId = boss.id
+      const visualScale = this.config.bosses[String(stage)]?.visualScale
+      if (visualScale !== undefined)
+        this.session.enemies.skills.setBossAppearance(boss.id, { visualScale })
+      this.barrageIndex = 0
+      this.nextBarrageAtMs = now + (barrages?.initialDelayMs ?? 0)
+    }
     const dt = Math.max(0, Math.min(1000 / 30, now - this.lastAt))
     this.lastAt = now
     this.session.bossForcedVelocity = null
     const commands = this.runtime.update(now, dt, boss.id, stage)
     for (const command of commands) this.apply(command)
+    // 弹幕独立于技能冷却：技能正在释放时这里照样按自己的固定间隔开火。
+    if (barrages && now >= this.nextBarrageAtMs) {
+      const pattern = barrages.patterns[this.barrageIndex % barrages.patterns.length]!
+      const player = this.session.player
+      const aimed = Math.atan2(player.y - boss.y, player.x - boss.x)
+      const spreadRad = (pattern.spreadDeg * Math.PI) / 180
+      const volley: BossSkillVolley = {
+        count: pattern.count,
+        speed: pattern.speed,
+        radius: pattern.radius,
+        damage: Math.round(pattern.damage * this.port.damageMultiplier),
+        lifetimeMs: pattern.lifetimeMs,
+        color: barrages.color,
+        ...(pattern.pattern === 'ring' ? {} : { angleRad: aimed, spreadRad }),
+      }
+      this.session.enemies.skills.fireBossVolley(boss.id, volley)
+      this.barrageIndex = (this.barrageIndex + 1) % barrages.patterns.length
+      this.nextBarrageAtMs = now + barrages.intervalMs
+    }
     // The paper kite's basic ring is owned by the configured scheduler.
     if (stage === 3) this.session.enemies.skills.setBossManualAttacks(boss.id, true)
     if (stage === 8) this.heart.update(now, dt, boss.id)
@@ -443,9 +502,12 @@ export class BossEncounterController {
   clear(): void {
     this.runtime.clear()
     this.heart.clear()
+    this.stopNailongVoices()
     this.session.resetBossPlayerControl()
     this.view.update(this.session.clock.nowMs)
     this.bossId = null
+    this.barrageIndex = 0
+    this.nextBarrageAtMs = 0
     this.redAlpha = 0
     this.screen.clear()
     this.caption.setVisible(false)
@@ -458,6 +520,9 @@ export class BossEncounterController {
     if (this.disposed) return
     this.clear()
     this.disposed = true
+    this.unsubPause()
+    for (const voice of this.nailongVoices) voice.destroy()
+    this.nailongVoices.length = 0
     this.view.destroy()
     this.screen.destroy()
     this.caption.destroy()

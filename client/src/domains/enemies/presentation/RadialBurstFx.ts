@@ -13,7 +13,9 @@ export class RadialBurstFx {
     private readonly clock: GameClock,
     private readonly cfg: Stage2BossDef,
   ) {
-    this.graphics = scene.add.graphics().setDepth(32)
+    // 弹丸必须画在首领巨大的身体之上：首领贴图深度按 y（几百），32 会被完全盖住。
+    // 3000 高于实体与武器特效（2500），低于 HUD（5010）。
+    this.graphics = scene.add.graphics().setDepth(3000)
   }
 
   update(): void {
@@ -41,12 +43,15 @@ export class RadialBurstFx {
       const age = now - shot.bornAtMs
       const fade = Math.min(1, (shot.lifetimeMs - age) / 220)
       const tail = Math.min(24, (age * shot.speed) / 1000)
-      g.lineStyle(radius * 1.2, shot.color ?? 0x60cfff, 0.25 * fade)
+      // 用弹丸自己的颜色画光晕/拖尾：首领弹幕配置成红色时整颗子弹都是红的，
+      // 不再被写死的蓝色光晕盖掉。
+      const color = shot.color ?? 0x60cfff
+      g.lineStyle(radius * 1.2, color, 0.25 * fade)
       g.lineBetween(shot.x - dx * tail, shot.y - dy * tail, shot.x, shot.y)
-      g.fillStyle(0x4fb9ff, 0.18 * fade).fillCircle(shot.x, shot.y, radius * 1.8)
-      g.fillStyle(shot.color ?? 0x7fddff, 0.9 * fade).fillCircle(shot.x, shot.y, radius)
-      g.fillStyle(0xf0ffff, fade).fillCircle(shot.x, shot.y, radius * 0.5)
-      g.fillStyle(0xb6f5ff, 0.5 * fade)
+      g.fillStyle(color, 0.18 * fade).fillCircle(shot.x, shot.y, radius * 1.8)
+      g.fillStyle(color, 0.9 * fade).fillCircle(shot.x, shot.y, radius)
+      g.fillStyle(0xffffff, fade).fillCircle(shot.x, shot.y, radius * 0.45)
+      g.fillStyle(color, 0.5 * fade)
       g.fillCircle(shot.x - dx * tail * 1.6, shot.y - dy * tail * 1.6, 1.5)
     }
   }
