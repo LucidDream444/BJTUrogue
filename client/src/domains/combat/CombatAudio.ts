@@ -26,7 +26,8 @@ import { sfxProfileFor } from './WeaponSfxProfiles'
  * 「这一版的基准音量」这个数（红线 2：数值不写死在代码里）。
  */
 export class CombatAudio {
-  private readonly music: Phaser.Sound.BaseSound | null
+  private readonly baseMusic: Phaser.Sound.BaseSound | null
+  private readonly performanceMusic: Phaser.Sound.BaseSound | null
   /** HTML5 回退用的旧 mp3 枪声池；WebAudio 下走 `synth`，不再播它。 */
   private readonly shots: Phaser.Sound.BaseSound[] = []
   private readonly synth: WeaponSynth
@@ -34,8 +35,10 @@ export class CombatAudio {
   private cursor = 0
   /** 基准起步，`setVolumes()` 之后就是玩家设置的那个值 */
   private sfxVolume: number
+  private bgmVolume: number
   private paused = false
   private disposed = false
+  private performanceActive = false
 
   constructor(
     private readonly scene: Phaser.Scene,
@@ -44,18 +47,23 @@ export class CombatAudio {
     // 所以是普通参数，不再是参数属性（留个 `this.cfg` 只会让人以为它还参与算音量）。
     cfg: CombatConfig['audio'],
   ) {
-    this.music = scene.cache.audio.exists(GAME_AUDIO.bgm)
+    this.baseMusic = scene.cache.audio.exists(GAME_AUDIO.bgm)
       ? scene.sound.add(GAME_AUDIO.bgm, { loop: true, volume: cfg.bgmVolume })
+      : null
+    this.performanceMusic = scene.cache.audio.exists(GAME_AUDIO.performer)
+      ? scene.sound.add(GAME_AUDIO.performer, { loop: true, volume: cfg.bgmVolume })
       : null
     if (scene.cache.audio.exists(GAME_AUDIO.shot))
       for (let i = 0; i < cfg.shotVoices; i++) this.shots.push(scene.sound.add(GAME_AUDIO.shot))
     this.sfxVolume = cfg.shotVolume
     this.synth = new WeaponSynth(scene)
     this.synth.setVolume(cfg.shotVolume)
+    this.bgmVolume = cfg.bgmVolume
 
     this.unsubs = [
       bus.on('app_paused', () => {
         this.paused = true
+        if (this.performanceActive) this.performanceMusic?.pause()
         // Pause combat effects while the BGM continues through menus and rewards.
         for (const shot of this.shots) shot.stop()
         this.synth.pause()
@@ -70,9 +78,29 @@ export class CombatAudio {
   }
 
   private startMusic(): void {
-    if (this.disposed || this.scene.sound.locked || !this.music) return
-    if (this.music.isPaused) this.music.resume()
-    else if (!this.music.isPlaying) this.music.play()
+    if (this.disposed || this.scene.sound.locked) return
+    if (this.performanceActive) {
+      if (this.baseMusic?.isPlaying) this.baseMusic.pause()
+      if (this.performanceMusic?.isPaused) this.performanceMusic.resume()
+      else if (this.performanceMusic && !this.performanceMusic.isPlaying) {
+        this.performanceMusic.play()
+      }
+      return
+    }
+
+    if (this.performanceMusic?.isPlaying || this.performanceMusic?.isPaused) {
+      this.performanceMusic.stop()
+    }
+    if (!this.baseMusic) return
+    if (this.baseMusic.isPaused) this.baseMusic.resume()
+    else if (!this.baseMusic.isPlaying) this.baseMusic.play()
+  }
+
+  /** 演奏开始时用 60 BPM 曲替换普通 BGM；停止后回到原 BGM。 */
+  setPerformanceActive(active: boolean): void {
+    if (this.performanceActive === active) return
+    this.performanceActive = active
+    this.startMusic()
   }
 
   /** Called only after stamina, fire-rate, and projectile-pool checks accept a shot. */
@@ -91,9 +119,11 @@ export class CombatAudio {
   setVolumes(bgm: number, sfx: number): void {
     this.sfxVolume = Math.max(0, Math.min(1, sfx))
     this.synth.setVolume(this.sfxVolume)
-    if (this.music && 'setVolume' in this.music) {
-      const music = this.music as Phaser.Sound.WebAudioSound | Phaser.Sound.HTML5AudioSound
-      music.setVolume(Math.max(0, Math.min(1, bgm)))
+    this.bgmVolume = Math.max(0, Math.min(1, bgm))
+    for (const music of [this.baseMusic, this.performanceMusic]) {
+      if (!music || !('setVolume' in music)) continue
+      const sound = music as Phaser.Sound.WebAudioSound | Phaser.Sound.HTML5AudioSound
+      sound.setVolume(this.bgmVolume)
     }
   }
 
@@ -102,7 +132,8 @@ export class CombatAudio {
     this.disposed = true
     this.scene.sound.off(Phaser.Sound.Events.UNLOCKED, this.startMusic, this)
     for (const unsub of this.unsubs) unsub()
-    this.music?.destroy()
+    this.baseMusic?.destroy()
+    this.performanceMusic?.destroy()
     for (const shot of this.shots) shot.destroy()
     this.shots.length = 0
     this.synth.destroy()

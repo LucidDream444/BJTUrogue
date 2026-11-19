@@ -161,19 +161,24 @@ describe('解锁门禁（需求 §4.1：未解锁不能被选中）', () => {
     expect(result.notice).toContain('不存在的角色')
   })
 
-  it('角色目录现在只有三个角色，社团长已移除', () => {
-    expect(CHARACTERS.map((c) => c.id)).toEqual(['student', 'athlete', 'scholar'])
+  it('角色目录包含四名角色，社团长已移除', () => {
+    expect(CHARACTERS.map((c) => c.id)).toEqual([
+      'student',
+      'athlete',
+      'scholar',
+      'performer',
+    ])
   })
 })
 
 describe('已解锁计数', () => {
-  it('档里带着未来版本的 id 时，不会显示成「4 / 3」', () => {
+  it('档里带着未来版本的 id 时，不会显示成「4 / 4」', () => {
     const p = profileWith((d) => {
       d.unlocks.characters.push('来自未来版本的角色', '另一个未来的角色')
     })
     const { unlocked, total } = unlockedCount(p)
     expect(unlocked).toBe(1) // 目录里只认得 student
-    expect(total).toBe(3)
+    expect(total).toBe(4)
   })
 
   it('解锁了目录里的第二个角色，计数跟着走', () => {

@@ -2,6 +2,7 @@ import { readFileSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
 import { describe, expect, it } from 'vitest'
 import { TypedBus, type GameEvents } from '@/core/events'
+import { PERFORMANCE_LOOP } from '@/core/assetManifest'
 import { RunLedger } from '../run/RunLedger'
 import { createDefaultProfile } from '../profile/defaults'
 import type { ProfileData } from '../profile/types'
@@ -33,8 +34,13 @@ function profile(): ProfileData {
 }
 
 describe('meta.json 角色技能', () => {
-  it('三个角色都恰好四级，并有三笔统一结构的升级费用', () => {
-    expect(Object.keys(META.characters)).toEqual(['student', 'athlete', 'scholar'])
+  it('四个角色都恰好四级，并有三笔统一结构的升级费用', () => {
+    expect(Object.keys(META.characters)).toEqual([
+      'student',
+      'athlete',
+      'scholar',
+      'performer',
+    ])
     for (const character of Object.values(META.characters)) {
       expect(character.skill.levels).toHaveLength(SKILL_MAX_LEVEL)
       expect(character.skill.upgradeCosts).toHaveLength(SKILL_MAX_LEVEL - 1)
@@ -60,6 +66,25 @@ describe('meta.json 角色技能', () => {
     expect(effectiveStats(p, META, 'athlete').moveSpeedPct).toBe(20)
     expect(effectiveStats(p, META, 'scholar').energyRegenPct).toBe(50)
   })
+
+  it('演奏家大鹅无技能冷却，并固定每秒一拍、最多五层', () => {
+    expect(META.characters.athlete!.skill).toMatchObject({
+      id: 'wing_dash',
+      kind: 'dash',
+    })
+    const skill = META.characters.performer!.skill
+    expect(skill).toMatchObject({ id: 'stage_performance', kind: 'performance' })
+    for (const level of skill.levels) {
+      expect(level.songCooldownMs).toBe(200)
+      expect(level.beatPeriodMs).toBe(1000)
+      expect(level.beatPeriodMs).toBe(PERFORMANCE_LOOP.beatMs)
+      expect(level.beatHitWindowMs).toBe(200)
+      expect(level.maxStacks).toBe(5)
+      expect(level.cooldownMs).toBe(0)
+    }
+    expect(skill.levels.map((level) => level.manaCost)).toEqual([20, 18, 16, 14])
+    expect(skill.levels.map((level) => level.redRadius)).toEqual([180, 190, 200, 220])
+  })
 })
 
 describe('统一技能升级流程', () => {
@@ -83,11 +108,11 @@ describe('统一技能升级流程', () => {
     expect(skillUpgradeCost(p, META, 'student')).toBeNull()
   })
 
-  it('三个角色共用同一个升级入口和相同次数', () => {
+  it('四个角色共用同一个升级入口和相同次数', () => {
     const p = profile()
-    p.unlocks.characters.push('athlete', 'scholar')
+    p.unlocks.characters.push('athlete', 'scholar', 'performer')
     p.currency.coins = 10_000
-    for (const id of ['student', 'athlete', 'scholar']) {
+    for (const id of ['student', 'athlete', 'scholar', 'performer']) {
       for (let i = 0; i < 3; i++) expect(buySkillUpgrade(p, META, id).ok).toBe(true)
       expect(skillLevelOf(p, META, id)).toBe(4)
     }

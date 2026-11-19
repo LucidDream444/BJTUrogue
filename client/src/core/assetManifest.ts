@@ -117,6 +117,8 @@ export const SKILL_ART = { referenceBook: 'ui_campus_book' } as const
 export const GOOSE_ART = {
   characterId: 'athlete',
   portrait: 'player_goose_portrait',
+  performerPortrait: 'player_goose_performer_portrait',
+  performerHat: 'player_goose_hat_performer',
   portraitSize: 92,
   frameSize: 96,
   visualScale: 0.5,
@@ -273,7 +275,12 @@ function gooseAssets(): AssetEntry[] {
       key, path: `sprites/player/goose/${key}.png`, placeholder: false,
       kind: 'spritesheet' as const, frameWidth: GOOSE_ART.frameSize, frameHeight: GOOSE_ART.frameSize,
     })),
-    ...[GOOSE_ART.portrait, ...Object.values(GOOSE_ART.guns)].map((key) => ({
+    ...[
+      GOOSE_ART.portrait,
+      GOOSE_ART.performerPortrait,
+      GOOSE_ART.performerHat,
+      ...Object.values(GOOSE_ART.guns),
+    ].map((key) => ({
       key, path: `sprites/player/goose/${key}.png`, placeholder: false, kind: 'image' as const,
     })),
   ]
@@ -294,7 +301,17 @@ export const PROJECTILE_ART: Record<string, string> = {
 
 export const GAME_AUDIO = {
   bgm: 'bgm_pixel_dungeon_rush',
+  performer: 'bgm_performer_stage_loop_4bar_60bpm',
   shot: 'sfx_player_shot',
+} as const
+
+/** 演奏家大鹅专用音乐：60 BPM，16 拍/四小节，循环总长必须正好 16 秒。 */
+export const PERFORMANCE_LOOP = {
+  key: GAME_AUDIO.performer,
+  bpm: 60,
+  beatMs: 1000,
+  beats: 16,
+  durationMs: 16_000,
 } as const
 
 /** 角色语音的五个固定触发点。语音资源可以逐个到齐，未到齐的 cue 静默。 */
@@ -312,6 +329,8 @@ export const CHARACTER_VOICE_PROFILES = [
   { characterId: 'athlete', voiceId: 'athlete' },
   // UI 与战斗身份已是小红果；scholar 只作为旧存档 id 保留。
   { characterId: 'scholar', voiceId: 'red_berry' },
+  // 复用大鹅模型，但声线身份保持独立；未交付前对应 cue 静默。
+  { characterId: 'performer', voiceId: 'performer' },
 ] as const
 
 export type CharacterVoiceProfile = (typeof CHARACTER_VOICE_PROFILES)[number]
@@ -321,7 +340,7 @@ export const SHARED_CHARACTER_VOICE_KEYS = {
   boss_kill: 'voice_player_all_boss_kill',
 } as const
 
-/** 目前可出战的三名角色。新增角色时补 profile，资源清单会一并生成五个空槽。 */
+/** 目前可出战的四名角色。新增角色时补 profile，资源清单会一并生成五个空槽。 */
 export const CHARACTER_VOICE_CHARACTER_IDS = CHARACTER_VOICE_PROFILES.map(
   (profile) => profile.characterId,
 )
@@ -409,12 +428,14 @@ export const CAMPUS_MENU_ART = {
   map: 'ui_campus_main_menu_map',
   /**
    * 出发准备页的角色卡立绘。角色 id 与 `meta/catalog.ts` 的目录一致；
-   * 新生用现有待机图集的第一帧；大鹅与小红果使用各自已交付的立绘。
+   * 新生用现有待机图集的第一帧；大鹅与小红果使用各自已交付的立绘；
+   * 演奏家大鹅复用大鹅立绘。
    */
   characterCards: {
     student: 'player_student_idle_s',
     athlete: GOOSE_ART.portrait,
     scholar: RED_BERRY_ART.portrait,
+    performer: GOOSE_ART.performerPortrait,
   },
 } as const
 
@@ -523,6 +544,13 @@ const BASE_ASSETS: readonly AssetEntry[] = [
     kind: 'audio',
     placeholder: false,
     codecs: ['mp3'],
+  },
+  {
+    key: GAME_AUDIO.performer,
+    path: 'audio/bgm/bgm_performer_stage_loop_4bar_60bpm',
+    kind: 'audio',
+    placeholder: false,
+    codecs: ['wav'],
   },
   {
     key: GAME_AUDIO.shot,

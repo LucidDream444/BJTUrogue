@@ -8,10 +8,20 @@ import type { PublicWeaponId } from './config'
 export class GooseView {
   readonly neck: Phaser.GameObjects.Sprite
   readonly gun: Phaser.GameObjects.Image
+  readonly hat: Phaser.GameObjects.Image
+  private performer = false
   constructor(private readonly torso: Phaser.GameObjects.Sprite) {
     const scene = torso.scene
     this.neck = scene.add.sprite(0, 0, textureKeyFor(scene, GOOSE_ART.neck.texture))
     this.gun = scene.add.image(0, 0, textureKeyFor(scene, GOOSE_ART.guns.pencil))
+    this.hat = scene.add
+      .image(0, 0, textureKeyFor(scene, GOOSE_ART.performerHat))
+      .setVisible(false)
+  }
+
+  setPerformer(active: boolean): void {
+    this.performer = active
+    this.hat.setVisible(active)
   }
 
   draw(feet: Point, direction: GooseDirection, frame: number, scale: number,
@@ -30,7 +40,12 @@ export class GooseView {
       .setOrigin(GOOSE_ART.grip[0] / GOOSE_ART.gunSize[0], GOOSE_ART.grip[1] / GOOSE_ART.gunSize[1])
       .setPosition(pose.mouth.x, pose.mouth.y).setScale(scale).setRotation(pose.angle)
       .setDepth(depth - 0.05).setVisible(alive)
-    for (const layer of [this.torso, this.neck, this.gun]) {
+    this.hat.setTexture(textureKeyFor(this.torso.scene, GOOSE_ART.performerHat))
+      .setOrigin(GOOSE_ART.neck.pivot[0] / GOOSE_ART.frameSize, GOOSE_ART.neck.pivot[1] / GOOSE_ART.frameSize)
+      .setPosition(pose.pivot.x, pose.pivot.y).setScale(scale).setRotation(pose.rotation)
+      .setDepth(depth + 0.01).setAlpha(alive ? 1 : 0.45)
+      .setVisible(this.performer && alive)
+    for (const layer of [this.torso, this.neck, this.hat, this.gun]) {
       layer.texture.setFilter(Phaser.Textures.FilterMode.NEAREST)
       if (flash) layer.setTint(0xffb5b5)
       else layer.clearTint()
@@ -40,5 +55,6 @@ export class GooseView {
   destroy(): void {
     this.neck.destroy()
     this.gun.destroy()
+    this.hat.destroy()
   }
 }
