@@ -201,6 +201,103 @@
           }
         ]
       }
+    },
+    "performer": {
+      "unlockCost": 300,
+      "passive": {
+        "name": "舞台步法",
+        "description": "移动速度 +10%"
+      },
+      "combat": {
+        "maxHpPct": 0,
+        "moveSpeedPct": 10,
+        "energyRegenPct": 0
+      },
+      "skill": {
+        "id": "stage_performance",
+        "name": "演奏",
+        "description": "开启后缴械，跟随节拍交替演奏红歌与蓝歌；命中节拍才会叠层",
+        "kind": "performance",
+        "upgradeCosts": [100, 220, 400],
+        "levels": [
+          {
+            "name": "试音",
+            "description": "持续到魔力耗尽或 F1 停止；每首歌消耗 20 魔力",
+            "cooldownMs": 0,
+            "durationMs": 0,
+            "beatPeriodMs": 1000,
+            "beatHitWindowMs": 200,
+            "songCooldownMs": 200,
+            "maxStacks": 5,
+            "stackDurationMs": 3000,
+            "redDamage": 8,
+            "redDamagePerStackPct": 20,
+            "redRadius": 180,
+            "damageBonusPctPerStack": 5,
+            "moveSpeedPctPerStack": 4,
+            "shieldPerStack": 4,
+            "blueShieldRestore": 2,
+            "manaCost": 20
+          },
+          {
+            "name": "合奏",
+            "description": "每首歌消耗 18 魔力；红歌伤害与蓝歌护盾提高",
+            "cooldownMs": 0,
+            "durationMs": 0,
+            "beatPeriodMs": 1000,
+            "beatHitWindowMs": 200,
+            "songCooldownMs": 200,
+            "maxStacks": 5,
+            "stackDurationMs": 3500,
+            "redDamage": 10,
+            "redDamagePerStackPct": 25,
+            "redRadius": 190,
+            "damageBonusPctPerStack": 6,
+            "moveSpeedPctPerStack": 4,
+            "shieldPerStack": 5,
+            "blueShieldRestore": 2,
+            "manaCost": 18
+          },
+          {
+            "name": "华彩",
+            "description": "每首歌消耗 16 魔力；红歌范围与双重增益进一步提高",
+            "cooldownMs": 0,
+            "durationMs": 0,
+            "beatPeriodMs": 1000,
+            "beatHitWindowMs": 200,
+            "songCooldownMs": 200,
+            "maxStacks": 5,
+            "stackDurationMs": 4000,
+            "redDamage": 12,
+            "redDamagePerStackPct": 28,
+            "redRadius": 200,
+            "damageBonusPctPerStack": 7,
+            "moveSpeedPctPerStack": 4,
+            "shieldPerStack": 6,
+            "blueShieldRestore": 3,
+            "manaCost": 16
+          },
+          {
+            "name": "安可",
+            "description": "每首歌消耗 14 魔力；满层红歌增伤，满层蓝歌强化移速与护盾",
+            "cooldownMs": 0,
+            "durationMs": 0,
+            "beatPeriodMs": 1000,
+            "beatHitWindowMs": 200,
+            "songCooldownMs": 200,
+            "maxStacks": 5,
+            "stackDurationMs": 4500,
+            "redDamage": 15,
+            "redDamagePerStackPct": 30,
+            "redRadius": 220,
+            "damageBonusPctPerStack": 8,
+            "moveSpeedPctPerStack": 5,
+            "shieldPerStack": 7,
+            "blueShieldRestore": 3,
+            "manaCost": 14
+          }
+        ]
+      }
     }
   }
 }

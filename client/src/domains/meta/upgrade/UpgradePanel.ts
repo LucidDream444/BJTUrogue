@@ -37,21 +37,34 @@ export function buildUpgradePanel(
     ui.root.list.slice(start).forEach((obj) => obj.destroy())
     ui.label(115, 182, '成长档案', A.size.small, A.muted)
     // Slate-blue index tabs with real character portraits.
+    const compactTabs = CHARACTERS.length > 3
+    const tabStep = compactTabs ? 113 : 154
+    const tabHeight = compactTabs ? 98 : 126
+    const tabTopOffset = compactTabs ? -45 : -55
+    const tabPortraitSize = compactTabs ? 56 : 73
     CHARACTERS.forEach((c, i) => {
       if (!meta.characters[c.id]) return
-      const y = 285 + i * 154,
+      const y = (compactTabs ? 260 : 285) + i * tabStep,
         selected = c.id === selectedCharacterId,
         available = isUnlocked(profile, c.id)
-      ui.panel(100, y - 55, 242, 126, selected ? 0.95 : 0.64)
+      ui.panel(100, y + tabTopOffset, 242, tabHeight, selected ? 0.95 : 0.64)
       if (selected) {
         const g = ui.add(ui.scene.add.graphics())
-        g.lineStyle(10, A.cyan, 0.08).strokeRoundedRect(100, y - 55, 242, 126, 7)
-        g.lineStyle(2, A.cyan).strokeRoundedRect(100, y - 55, 242, 126, 7)
-        g.fillStyle(A.cyan).fillRect(100, y - 42, 4, 96)
+        g.lineStyle(10, A.cyan, 0.08).strokeRoundedRect(
+          100,
+          y + tabTopOffset,
+          242,
+          tabHeight,
+          7,
+        )
+        g.lineStyle(2, A.cyan).strokeRoundedRect(100, y + tabTopOffset, 242, tabHeight, 7)
+        g.fillStyle(A.cyan).fillRect(100, y + tabTopOffset + 13, 4, tabHeight - 30)
       }
       const key =
         CAMPUS_MENU_ART.characterCards[c.id as keyof typeof CAMPUS_MENU_ART.characterCards]
-      if (key) ui.portrait(key, 150, y - 4, 73).setAlpha(available ? 1 : 0.5)
+      if (key) {
+        ui.portrait(key, 150, y - 4, tabPortraitSize).setAlpha(available ? 1 : 0.5)
+      }
       ui.label(200, y - 25, c.name, A.size.body, selected ? A.paper : A.muted, undefined, true)
       ui.label(
         200,
@@ -62,7 +75,7 @@ export function buildUpgradePanel(
       )
       ui.add(
         ui.scene.add
-          .rectangle(221, y + 8, 242, 126, A.ink, 0.001)
+          .rectangle(221, y + 8, 242, tabHeight, A.ink, 0.001)
           .setInteractive({ useHandCursor: true }),
       ).on('pointerup', () => {
         if (!selected) {
@@ -230,11 +243,17 @@ function comparisonRows(
             ['无敌', 'iframeMs', '秒'],
             ['冷却', 'cooldownMs', '秒'],
           ]
-        : [
-            ['书页伤害', 'pageDamage', ''],
-            ['充能', 'maxCharges', '层'],
-            ['冷却', 'cooldownMs', '秒'],
-          ]
+        : kind === 'summon'
+          ? [
+              ['书页伤害', 'pageDamage', ''],
+              ['充能', 'maxCharges', '层'],
+              ['冷却', 'cooldownMs', '秒'],
+            ]
+          : [
+              ['红歌伤害', 'redDamage', ''],
+              ['蓝歌护盾', 'blueShieldRestore', ''],
+              ['每首歌魔力', 'manaCost', ''],
+            ]
   const format = (v: number | string, suffix: string): string =>
     `${suffix === '秒' ? Number(v) / 1000 : v}${suffix}`
   return fields.map(([label, key, suffix]) => ({

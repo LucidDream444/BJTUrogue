@@ -50,10 +50,10 @@
 import { PROFILE_SCHEMA_VERSION, type ProfileData } from './types'
 
 /**
- * 角色目录（当前 3 个角色，各有独立战斗身份）由 `catalog.ts` 维护；
+ * 角色目录（当前 4 个角色，各有独立战斗身份）由 `catalog.ts` 维护；
  * 这里只放初始角色 id，避免主菜单、升级页、结算三处各自写一遍 `'student'`。
  *
- * 需求 §4.1 草图里的角色数量是示例；当前目录为 3 个角色，初始只解锁新生。
+ * 需求 §4.1 草图里的角色数量是示例；当前目录为 4 个角色，初始只解锁新生。
  */
 export const STARTER_CHARACTER_ID = 'student'
 
