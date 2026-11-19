@@ -159,9 +159,9 @@ export class StageBackground {
    * 不再是一句挂在门口的文字。
    */
   private labelText(unit: DungeonRoom): string {
-    if (this.opts.arrivalRoom && unit.room.kind === 'start') return '落点 · 传送阵'
+    if (this.opts.arrivalRoom && unit.room.kind === 'start') return '落点'
     const kind = ROOM_KIND_LABELS[unit.room.kind] ?? unit.room.kind
-    return `${unit.room.id} ${kind}`
+    return unit.displayNo == null ? kind : `${unit.displayNo} 号 ${kind}`
   }
 
   /** 门与房号现在长什么样，**全都按这两个集合算**。 */

@@ -198,10 +198,10 @@ export class EnemyBridge implements BulletContactPort {
     this.system.abortGrab()
   }
   spawnBoss(
-    stage: number, x: number, y: number, maxHp: number, finalBoss = false,
-    damageMultiplier = 1,
+    stage: number, layer: number, bossId: string, x: number, y: number, maxHp: number,
+    finalBoss = false, damageMultiplier = 1,
   ): void {
-    this.system.requestBoss(stage, x, y, maxHp, finalBoss, damageMultiplier)
+    this.system.requestBoss(stage, layer, bossId, x, y, maxHp, finalBoss, damageMultiplier)
   }
   bossStatus(stage: number) {
     return this.system.bossStatus(stage)

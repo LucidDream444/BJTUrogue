@@ -25,20 +25,21 @@ describe('首次遭遇识别与排队', () => {
     expect(identifyEnemyEncounter(spawn('splitter'))?.entryId).toBe('splitter-0')
   })
 
-  it('首领身份优先于复用的肉盾种类，心魔优先于bossStage', () => {
-    expect(identifyEnemyEncounter(spawn('tank', { bossStage: 1 }))).toEqual({ kind: 'first-boss', entryId: 'first-boss' })
-    expect(identifyEnemyEncounter(spawn('tank', { bossStage: 3 }))).toEqual({ kind: 'stage2-boss', entryId: 'stage2-boss' })
-    expect(identifyEnemyEncounter(spawn('tank', { bossStage: 2, finalBoss: true }))).toEqual({ kind: 'heart-demon', entryId: 'heart-demon' })
+  it('首领身份优先于复用的肉盾种类，心魔优先于其它身份', () => {
+    expect(identifyEnemyEncounter(spawn('tank', { bossId: 'coursework' }))).toEqual({ kind: 'first-boss', entryId: 'first-boss' })
+    expect(identifyEnemyEncounter(spawn('tank', { bossId: 'paper_kite' }))).toEqual({ kind: 'stage2-boss', entryId: 'stage2-boss' })
+    expect(identifyEnemyEncounter(spawn('tank', { bossId: 'heart_demon', finalBoss: true }))).toEqual({ kind: 'heart-demon', entryId: 'heart-demon' })
     const queue = new EnemyEncounterQueue(['tank'])
-    expect(queue.discover(spawn('tank', { bossStage: 1 }))?.kind).toBe('first-boss')
+    expect(queue.discover(spawn('tank', { bossId: 'coursework' }))?.kind).toBe('first-boss')
   })
 
   it('第二至八层七位首领分别提示，复用贴图与普通怪种类不影响身份', () => {
     const queue = new EnemyEncounterQueue()
     const ids = ['first-boss', 'stage2-boss', 'acid-boss', 'sports-boss', 'rollcall-boss', 'nailong-boss', 'heart-demon']
+    const bossIds = ['coursework', 'paper_kite', 'acid_sprinkler', 'sports_gear', 'roll_call', 'nailong', 'heart_demon']
     ids.forEach((id, index) => {
-      expect(queue.discover(spawn('tank', { bossStage: index + 2 }))?.entryId).toBe(id)
-      expect(queue.discover(spawn('tank', { bossStage: index + 2 }))).toBeNull()
+      expect(queue.discover(spawn('tank', { bossId: bossIds[index] }))?.entryId).toBe(id)
+      expect(queue.discover(spawn('tank', { bossId: bossIds[index] }))).toBeNull()
     })
     expect(queue.pendingCount).toBe(7)
   })
@@ -80,7 +81,7 @@ describe('首次遭遇识别与排队', () => {
   it('存档已经标记的种类不会再进入新一局的提示队列', () => {
     const queue = new EnemyEncounterQueue(['splitter', 'first-boss'])
     expect(queue.discover(spawn('splitter', { gen: 2 }))).toBeNull()
-    expect(queue.discover(spawn('tank', { bossStage: 1 }))).toBeNull()
+    expect(queue.discover(spawn('tank', { bossId: 'coursework' }))).toBeNull()
     expect(queue.discover(spawn('tank'))?.entryId).toBe('tank')
   })
 })

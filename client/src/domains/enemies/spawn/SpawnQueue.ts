@@ -45,6 +45,8 @@ export interface SpawnRequest {
    */
   enqueuedAtMs: number
   bossStage?: number
+  bossId?: string
+  bossLayer?: number
   finalBoss?: boolean
   bossDamageMultiplier?: number
   skillCapExempt?: boolean

@@ -1,33 +1,14 @@
 /**
- * **一局的楼层表**：`floors.json`（第几层走哪张平面图）。
+ * **一局的地图计划**：`floors.json` v2（1F 出发层 + 第 1/2/3 层候选 + 8F 最终战 + 7F 排除）。
  *
- * 用户 2026-10-22：「YF3 地图加入到游戏里，进入游戏先是 YF3，下一层是 YF6」——
- * ★ 晚一点改成「进去后先是 YF1，然后可以从楼梯间上一层，进入 YF3（YF2 还没做，
- * 先这样上 3 过渡）」。所以今天是**三层三张图**：`[yf1, yf3, 6f]`。
- * 这个文件守的就是那句话 —— 以及它成立所依赖的**四件别人看不见的事**：
- *
- * | # | 前提 | 破了之后的样子 |
- * |---|---|---|
- * | 1 | 条数 = `combat.json` 的 `arena.maxStages` | 一局三层而表里两项 ⇒ 第 3 层拿不到图（今天由 `parseFloorsConfig` 当场抛） |
- * | 2 | 每个文件名都在 `FLOOR_PLAN_FILES` 里（= preload 真的加载过） | 第 1 层一进去就是 `undefined`，报出来的是「schemaVersion 不是整数」 |
- * | 3 | **每一层的包围盒一模一样** | 换层时 `BattleScene.applyArena()` 抛（物理世界边界在构造时定死） |
- * | 4 | **最后一层有首领房** | 三层全是空房 / 商店 ⇒ 永远打不出首领 ⇒ 通不了关（不报错，只是没有结局） |
- *
- * 四条都是**无声的**：配置表各自都合法、生成器一声不吭，代价在「玩到第 2 层」时才付。
- * 所以它们在这里逐条钉住，而不是写在 `floors.json` 的注释里 —— 注释不会红。
- *
- * ## 为什么这里读得到 `combat.json`
- *
- * 第 1 条是**跨域的约定**（D2 的表 vs D1 的「一局几层」），两边各有一个真值，
- * 所以它只能在一个看得见两边的地方验。读的是 D1 **自己的解析器**而不是
- * `JSON.parse(...).arena.maxStages`：后者是照着字段名抄近路，D1 换个字段名时
- * 它读到 `undefined`，于是 `floors.length !== undefined` 恒真、**这条测试变成哑的**。
- * 运行时没有跨域调用被引入（D1 单向读 D2 的表，方向没变）。
- *
- * 这里读的是**真的那两份文件**，种子写死：与 `generate.test.ts` 同一个手法、
- * 同一个理由（失败要能复跑）。
+ * 这个文件守的是新结构所依赖的几件事：
+ * 1. 层数 = `combat.json` 的 `arena.maxStages`（3）；
+ * 2. 第 2 层固定 3F、第 1/3 层只在 2F/4F/5F/6F 里选、7F 不进产品；
+ * 3. 第 2 层候选必须有商店，第 1/3 层候选不能有商店；
+ * 4. 每个候选（不只抽中的）都有楼梯间和恰好一间首领房；
+ * 5. 8F 是最终战，不是一个可抽取的层；
+ * 6. 同一 `runSeed` 复现同一组地图。
  */
-
 import { readFileSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
 import { describe, expect, it } from 'vitest'
@@ -45,11 +26,10 @@ import {
   FLOOR_PLAN_YF5_NAME,
   FLOOR_PLAN_YF7_NAME,
   FLOOR_PLAN_YF8_NAME,
+  floorPlanFromCache,
   floorPlansForRun,
-  type FloorPlan,
 } from './floorPlan'
 import { generateDungeon } from './generate'
-import { containsPoint } from '../model/rect'
 import { validateContract } from '../validate/contract'
 import { assertReachable } from '../validate/reachability'
 
@@ -64,244 +44,140 @@ const readJson = (name: string): unknown => {
 }
 
 const cfg: RoomsConfig = parseRoomsConfig(readJson('rooms.json'))
-
-/** D1 的配置，只为拿 `arena.maxStages`（一局几层）。 */
 const d1 = parseCombatConfig(readJson('combat.json'))
 const MAX_STAGES = d1.arena.maxStages
-
-/**
- * `floorPlansForRun` 要的那个「缓存」—— 产品的 `cache.json` 就长这样（一个 `get`）。
- * 这里换成了「按名字现读磁盘」，于是**加载清单里写的每个文件都真的读得到**，
- * 而「表里写了一个没人加载的名字」这种情况由 `floorPlansForRun()` 自己拦。
- */
 const cache = { get: (key: string): unknown => readJson(key) }
+const floors = parseFloorsConfig(readJson(FLOORS_CONFIG_NAME), MAX_STAGES)
 
-/** 产品那条路：`floors.json` → 每一层一份已解析的平面图。 */
-const plans: readonly FloorPlan[] = floorPlansForRun(cache, cfg, MAX_STAGES)
+const LAYER_MAPS = [
+  FLOOR_PLAN_YF2_NAME,
+  FLOOR_PLAN_YF4_NAME,
+  FLOOR_PLAN_YF5_NAME,
+  FLOOR_PLAN_NAME,
+]
 
-describe('一局的楼层表（floors.json）', () => {
-  it('条数 MUST 等于 combat.json 的 arena.maxStages —— 对不上时当场抛，不静默跑', () => {
-    expect(parseFloorsConfig(readJson(FLOORS_CONFIG_NAME), MAX_STAGES).floors).toHaveLength(
-      MAX_STAGES,
-    )
-    // 少一层、多一层都要拦：多的是「多的那层永远走不到」（无害但说明有人改错了一边），
-    // 少的是「第 3 层没有图」。
-    expect(() => parseFloorsConfig(readJson(FLOORS_CONFIG_NAME), MAX_STAGES + 1)).toThrow(ConfigError)
-    expect(() => parseFloorsConfig(readJson(FLOORS_CONFIG_NAME), MAX_STAGES - 1)).toThrow(ConfigError)
+describe('一局的地图计划（floors.json v2）', () => {
+  it('层数 = arena.maxStages（3）；第 2 层固定 3F', () => {
+    expect(MAX_STAGES).toBe(3)
+    expect(floors.layers).toHaveLength(MAX_STAGES)
+    expect(floors.layers[0]!.candidates).toEqual(LAYER_MAPS)
+    expect(floors.layers[1]!.candidates).toEqual([FLOOR_PLAN_YF3_NAME])
+    expect(floors.layers[1]!.requireShop).toBe(true)
+    expect(floors.layers[2]!.candidates).toEqual(LAYER_MAPS)
+    expect(floors.prologue.file).toBe(FLOOR_PLAN_YF1_NAME)
+    expect(floors.finale.file).toBe(FLOOR_PLAN_YF8_NAME)
   })
 
-  it('一局八层：1F → 2F → 3F → 4F → 5F → 6F → 7F → 梦境8F', () => {
-    expect(MAX_STAGES).toBe(8)
-    // ★ 改了（2026-10-23）：2F 的图做出来了，一局从三层变四层 ——
-    // 用户：「按照照片做 YF2 的地图」「YF1 上去是 YF2」。上一版是 [yf1, yf3, 6f]
-    // （YF2 还没有，先拿 3F 过渡）。
-    // 最后一项是**最后一层** —— 首领关（YF604）在它上面，见下面那条「最后一层必须有首领房」。
-    // ★ 改了（2026-10-30）：4F / 5F 也进来了（它们是 6F 的逐格副本，只换了房号前缀）。
-    expect(parseFloorsConfig(readJson(FLOORS_CONFIG_NAME), MAX_STAGES).floors).toEqual([
-      FLOOR_PLAN_YF1_NAME,
-      FLOOR_PLAN_YF2_NAME,
-      FLOOR_PLAN_YF3_NAME,
-      FLOOR_PLAN_YF4_NAME,
-      FLOOR_PLAN_YF5_NAME,
-      FLOOR_PLAN_NAME,
-      FLOOR_PLAN_YF7_NAME,
-      FLOOR_PLAN_YF8_NAME,
+  it('7F 只在排除表里，8F 只作最终战', () => {
+    expect(floors.excluded.map((entry) => entry.file)).toEqual([FLOOR_PLAN_YF7_NAME])
+    const used = new Set([
+      floors.prologue.file,
+      ...floors.pool.map((entry) => entry.file),
+      floors.finale.file,
     ])
+    expect(used.has(FLOOR_PLAN_YF7_NAME)).toBe(false)
+    for (const layer of floors.layers) expect(layer.candidates).not.toContain(FLOOR_PLAN_YF7_NAME)
+    expect(floors.layers.flatMap((layer) => layer.candidates)).not.toContain(FLOOR_PLAN_YF8_NAME)
   })
 
-  it('每一项都被 preload 加载过（在 FLOOR_PLAN_FILES 里）—— 写在表里而没加载 = 第 1 层就是 undefined', () => {
-    for (const name of parseFloorsConfig(readJson(FLOORS_CONFIG_NAME), MAX_STAGES).floors) {
-      expect(FLOOR_PLAN_FILES, `${name} 不在 FLOOR_PLAN_FILES 里`).toContain(name)
+  it('所有引用的文件都被 preload 加载过', () => {
+    for (const file of [
+      floors.prologue.file,
+      ...floors.pool.map((entry) => entry.file),
+      floors.finale.file,
+      ...floors.excluded.map((entry) => entry.file),
+    ])
+      expect(FLOOR_PLAN_FILES, `${file} 不在 FLOOR_PLAN_FILES 里`).toContain(file)
+  })
+
+  it('候选必须有楼梯间 + 恰好 1 间首领房；第 2 层有商店，第 1/3 层没有', () => {
+    floors.layers.forEach((layer, index) => {
+      for (const file of layer.candidates) {
+        const plan = floorPlanFromCache(cache, cfg, file)
+        expect(plan.stairwell, `${file} 缺楼梯间`).toBeDefined()
+        expect(
+          plan.rooms.filter((room) => room.fixed === 'boss'),
+          `${file} 的首领房数量`,
+        ).toHaveLength(1)
+        const shops = plan.rooms.filter((room) => room.fixed === 'shop')
+        if (index === 1) expect(shops.length, `${file} 是第 2 层，必须有商店`).toBeGreaterThan(0)
+        else expect(shops.length, `${file} 不是第 2 层，不能有商店`).toBe(0)
+      }
+    })
+    const finale = floorPlanFromCache(cache, cfg, floors.finale.file)
+    expect(finale.rooms.filter((room) => room.fixed === 'boss')).toHaveLength(1)
+  })
+
+  it('同一 runSeed 复现同一组地图；三层不重复；7F 不被抽中', () => {
+    const first = floorPlansForRun(cache, cfg, MAX_STAGES, 20261119)
+    const second = floorPlansForRun(cache, cfg, MAX_STAGES, 20261119)
+    expect(first.layers.map((layer) => layer.file)).toEqual(second.layers.map((layer) => layer.file))
+    expect(first.prologue.file).toBe(FLOOR_PLAN_YF1_NAME)
+    expect(first.finale.file).toBe(FLOOR_PLAN_YF8_NAME)
+    expect(first.layers).toHaveLength(MAX_STAGES)
+    expect(new Set(first.layers.map((layer) => layer.file)).size).toBe(MAX_STAGES)
+    expect(first.layers[1]!.file).toBe(FLOOR_PLAN_YF3_NAME)
+    expect(first.layers.map((layer) => layer.file)).not.toContain(FLOOR_PLAN_YF7_NAME)
+    for (const layer of first.layers)
+      expect([...LAYER_MAPS, FLOOR_PLAN_YF3_NAME]).toContain(layer.file)
+  })
+
+  it('第 1 层会抽到 2F / 4F / 5F / 6F 四张图', () => {
+    const seen = new Set<string>()
+    for (let seed = 1; seed <= 200; seed++) {
+      const run = floorPlansForRun(cache, cfg, MAX_STAGES, seed)
+      seen.add(run.layers[0]!.file)
     }
-    // 反向：加载清单里也不该有**谁都不用的**图（那只是每次开屏多下一份文件）。
-    // ⚠️ 今天**三张都被用上**（1F / 3F / 6F 各占一层）。将来加第 4 张图时，这条会
-    //    逼着人同时把它排进 floors.json —— 那正是想要的：加载清单与楼层表不许
-    //    各说各的。（★ 改了 2026-10-22 晚：上一版写的是「今天两张都被用上
-    //    （6F 是第 2/3 层）」，三层三张图之后那句话早就不对了。）
-    const used = new Set(parseFloorsConfig(readJson(FLOORS_CONFIG_NAME), MAX_STAGES).floors)
-    expect([...FLOOR_PLAN_FILES].filter((n) => !used.has(n))).toEqual([])
+    expect(seen).toEqual(new Set(LAYER_MAPS))
   })
 
-  it('每一项都解析得出来，且**间数写在它自己身上**（层层不同，4F/5F 与 6F 同构）', () => {
-    expect(plans).toHaveLength(MAX_STAGES)
-    // ★ 改了（2026-10-23）：**四层**了 —— 2F 这一层 9 间编号教室 + 3 电梯间 + 楼梯间 = 13。
-    // 四个数仍然**互不相同**（13 / 17 / 18 / 19）：一个全局常量配不了四层。
-    expect(plans[0]!.roomTotal).toBe(17) // 逸夫楼 1F：13 间编号教室 + 3 电梯间 + 楼梯间
-    expect(plans[0]!.rooms.length + 1).toBe(plans[0]!.roomTotal)
-    expect(plans[1]!.roomTotal).toBe(13) // 2F：9 间编号教室 + 3 电梯间 + 楼梯间
-    expect(plans[1]!.rooms.length + 1).toBe(plans[1]!.roomTotal)
-    expect(plans[2]!.roomTotal).toBe(18) // 3F：13 间编号教室 + 商店 + 3 电梯间 + 楼梯间
-    // ★ 2026-10-30：4F / 5F 是 6F 的逐格副本，所以三层的间数**一样**（19）——
-    // 「互不相同」那条不再是 6 个不同值，改成「至少四种」：真的会变的仍是前四层。
-    expect(plans[3]!.roomTotal).toBe(19) // 4F：与 6F 同构（房号 YF4xx）
-    expect(plans[4]!.roomTotal).toBe(19) // 5F：与 6F 同构（房号 YF5xx）
-    expect(plans[5]!.roomTotal).toBe(19) // 6F：15 间编号教室 + 3 电梯间 + 楼梯间
-    // ★ 2026-10-30：用户「左边少了个电梯间」之后，7F 也是**三个**电梯间了
-    //（西半两间 + 东半一间）：西半 7 + 东半 8 + 3 电梯 + 楼梯间 = 19。
-    expect(plans[6]!.roomTotal).toBe(19)
-    // ★ 改了（2026-11-04，用户：「第八层只有一个首领房，没有其他房间」）：
-    // 「异常」层只剩 1 间首领房 + 楼梯间 = **2**。
-    expect(plans[7]!.roomTotal).toBe(2)
-    expect(new Set(plans.map((p) => p.roomTotal)).size).toBeGreaterThanOrEqual(4)
+  it('所有候选/最终战都能生成、过契约校验且可达', () => {
+    const seen = new Set<string>()
+    for (let seed = 1; seed <= 50; seed++) {
+      const run = floorPlansForRun(cache, cfg, MAX_STAGES, seed)
+      for (const layer of [...run.layers, run.finale]) {
+        if (seen.has(layer.file)) continue
+        seen.add(layer.file)
+        const map = generateDungeon(seed, cfg, layer.plan)
+        expect(map.rooms).toHaveLength(layer.plan.roomTotal)
+        expect(() => validateContract(map, cfg, layer.plan.roomTotal), `${layer.file} seed ${seed}`).not.toThrow()
+        expect(() => assertReachable(map, cfg), `${layer.file} seed ${seed}`).not.toThrow()
+      }
+    }
+    // 覆盖到全部层候选 + 8F（1F 单独生成；它是空房教学层）。
+    expect(seen).toEqual(new Set([...LAYER_MAPS, FLOOR_PLAN_YF3_NAME, FLOOR_PLAN_YF8_NAME]))
+  })
 
-    // 反向证据①：层数对不上时先说「两个文件」，不是闷头往下取。
-    expect(() => floorPlansForRun(cache, cfg, MAX_STAGES + 1)).toThrow(/maxStages/)
+  it('8F 最终战只有 YF804 一间首领房', () => {
+    const eight = floorPlansForRun(cache, cfg, MAX_STAGES, 1).finale.plan
+    expect(eight.rooms.map((room) => room.id)).toEqual(['YF804'])
+    expect(eight.rooms[0]!.fixed).toBe('boss')
+    expect(eight.stairwell.id).toBe('STAIR')
+    expect(eight.rooms.some((room) => room.fixed === 'elevator')).toBe(false)
+  })
 
-    // 反向证据②：**表里写了一个没人加载的文件名**（条数是对的，所以只有这一条拦得住）。
-    // 报错必须指回 `FLOOR_PLAN_FILES` —— 不拦的话 `cache.get()` 给一个 `undefined`，
-    // 一路走到底报出来的是「floorPlan.schemaVersion 要一个整数，拿到 undefined」，
-    // 而那句话把人指向**平面图写错了**，真正的病因一个字都没提。
-    //
-    // ⚠️ 缺的那个 key 必须交 `undefined`，**不能顺手落到 `readJson` 上** ——
-    //    那个函数对不存在的文件是 `readFileSync` 直接抛 `ENOENT`，而**真缓存对缺 key
-    //    给的是 `undefined`**（`cache.json.get`）。让它抛的话，这条测试守的就变成了
-    //    「`readFileSync` 会不会抛」，报出来的是 `ENOENT`，而该守的那句
-    //    「指回 `FLOOR_PLAN_FILES`」一个字都验不到 —— 一条绿着的哑测试。
-    const GHOST_PLAN = 'floor-plan-4f.json'
+  it('缺少加载的平面图时报错指回 FLOOR_PLAN_FILES', () => {
+    const GHOST = 'floor-plan-4f.json'
     const ghost = {
       ...(readJson(FLOORS_CONFIG_NAME) as Record<string, unknown>),
-      // 4 项（= 今天的 MAX_STAGES），其中第 2 项是个没人加载的文件名
-      floors: [
-        FLOOR_PLAN_YF1_NAME,
-        GHOST_PLAN,
-        FLOOR_PLAN_YF3_NAME,
-        FLOOR_PLAN_YF4_NAME,
-        FLOOR_PLAN_YF5_NAME,
-        FLOOR_PLAN_NAME,
-        FLOOR_PLAN_YF7_NAME,
-        FLOOR_PLAN_YF8_NAME,
+      pool: [
+        ...(readJson(FLOORS_CONFIG_NAME) as { pool: unknown[] }).pool,
+        { file: GHOST, label: '幽灵' },
+      ],
+      layers: [
+        { candidates: [GHOST, FLOOR_PLAN_YF4_NAME, FLOOR_PLAN_YF5_NAME, FLOOR_PLAN_NAME] },
+        { candidates: [FLOOR_PLAN_YF3_NAME], requireShop: true },
+        { candidates: [FLOOR_PLAN_YF2_NAME, FLOOR_PLAN_YF4_NAME, FLOOR_PLAN_YF5_NAME, FLOOR_PLAN_NAME] },
       ],
     }
     const ghostCache = {
-      get: (k: string): unknown =>
-        k === FLOORS_CONFIG_NAME ? ghost : k === GHOST_PLAN ? undefined : readJson(k),
+      get: (k: string): unknown => (k === FLOORS_CONFIG_NAME ? ghost : k === GHOST ? undefined : readJson(k)),
     }
-    expect(() => floorPlansForRun(ghostCache, cfg, MAX_STAGES)).toThrow(/FLOOR_PLAN_FILES/)
+    expect(() => floorPlansForRun(ghostCache, cfg, MAX_STAGES, 1)).toThrow(/FLOOR_PLAN_FILES/)
   })
 
-  it('**每一层的外框一模一样** —— 换层时 applyArena() 的前提', () => {
-    // 物理世界边界、寻路网格的行列数、`TerrainMap` 的宽高都在 `CombatSession`
-    // 构造时读走，之后改不了 —— 于是「三层楼拼一局」这件事成立的前提是
-    // **每层一样大**。三张图的差别都在楼内（1F 是两块拼的、3F 西头两间并成了
-    // 商店、6F 是原样），整层 0..263 × 0..73 格一模一样。
-    //
-    // ★ 改了（2026-10-22 晚）：这个外框现在是平面图里**声明**的 `footprint`，
-    //    不再由所有空间的并集推出来（`boundsOf` 已删）。**这条用例因此从
-    //    「三层恰好一样」升级成「三层声明得一样」** —— 上一版它其实是靠
-    //    「三层的房间都铺到了楼的边上」间接成立的，而 1F 的房间从 y25 起
-    //    （楼的最北一条带在那一层是墙），推出来会矮 25 格。
-    const first = plans[0]!.bounds
-    for (const [i, p] of plans.entries()) {
-      expect(p.bounds, `第 ${i + 1} 层（${FLOOR_PLAN_FILES.join('/')}）`).toEqual(first)
-      expect(p.cols).toBe(plans[0]!.cols)
-      expect(p.rows).toBe(plans[0]!.rows)
-    }
-    expect([plans[0]!.cols, plans[0]!.rows]).toEqual([190, 60]) // 楼的尺寸（格）
-    // 反向证据①：这条判据今天**不是**恒真的 —— 八张图的房间数就不一样
-    //（1 / 12 / 16 / 17 / 18 五种：★ 2026-11-04 之后「异常」层只有 1 间）。
-    expect(new Set(plans.map((p) => p.rooms.length)).size).toBe(5)
-    // 反向证据②（★ 新增）：外框也不再恒等于「房间的并集」—— 1F 的**房间**
-    // 从 y25 起，另外两层从 y0 起。所以这条用例守的确实是那个声明值，
-    // 而不是顺手又验了一遍推导。
-    // ⚠️ 这里只看**房间**（+ 楼梯间），不看走廊：★ 2026-10-22 晚·六之后，1F
-    // 大厅的北端（`C_HALL` / `C_N`）伸到了 y0，把空间并集又撑回了整高 ——
-    // 但那走廊是**内容**，外框是**楼**。哪天大厅收回去，并集又会矮 25 格。
-    const minRoomY = (p: (typeof plans)[number]): number =>
-      Math.min(...[p.stairwell, ...p.rooms].map((s) => s.cells.y))
-    // 2F 的 YF201 也从 y25 起（它是西头那一整块竖长的房）；
-    // 4F / 5F / 6F 都有首领房从 y0 起。所以是 [25, 25, 0, 0, 0, 0]。
-    // 7F 的东半**上移过**（与 6F 东翼同构：北排从 y5 起），而它没有首领房 ⇒ 最北一间是 y5。
-    // ★ 2026-11-04：8F（「异常」层）只有一间首领房，它在南排（y51）—— 所以最北一间是 31（楼梯间）。
-    expect(plans.map(minRoomY)).toEqual([20, 20, 0, 0, 0, 0, 3, 25])
-  })
-
-  it('三层都生成得出来、且过契约校验 —— 楼层表里的每一层真的能玩', () => {
-    // `validateContract` 的第三个参数（这一层应当有几间）**逐层取** ——
-    // 这正是 2026-10-22 把它从全局常量改成参数的原因：三层楼间数不同。
-    for (const seed of [1, 13, 20261022]) {
-      for (const [i, plan] of plans.entries()) {
-        const map = generateDungeon(seed, cfg, plan)
-        expect(map.rooms, `第 ${i + 1} 层 seed ${seed}`).toHaveLength(plan.roomTotal)
-        expect(
-          () => validateContract(map, cfg, plan.roomTotal),
-          `第 ${i + 1} 层 seed ${seed}`,
-        ).not.toThrow()
-      }
-    }
-  })
-
-  it('最后一层恰有YF804心魔房，1F和7F继续没有首领，不再豁免最终关', () => {
-    const last = plans[plans.length - 1]!
-    for (const seed of [1, 13, 20261022, 20261102]) {
-      const map = generateDungeon(seed, cfg, last)
-      expect(map.rooms.filter((r) => r.kind === 'boss').map((r) => r.id)).toEqual(['YF804'])
-      expect(generateDungeon(seed, cfg, plans[6]!).rooms.filter((r) => r.kind === 'boss')).toEqual([])
-      expect(() => assertReachable(map, cfg), `8F seed ${seed}含入口、电梯和首领的可走网格`).not.toThrow()
-    }
-    // 反向证据：这条判据今天**不是**恒真的 —— 第 1 层一间都没有（用户要的空房层），
-    // 所以「每层都有首领」是一种**会被这条测试放过去、但那层确实没有**的写法。
-    const first = generateDungeon(1, cfg, plans[0]!)
-    expect(first.rooms.filter((r) => r.kind === 'boss')).toHaveLength(0)
-  })
-
-  it('★ 「异常」层（8F）**只有一间首领房** —— 用户：「只有一个首领房，没有其他房间」', () => {
-    const eight = plans[7]!
-    // 房间：只剩 YF804，且它是首领
-    expect(eight.rooms.map((room) => room.id)).toEqual(['YF804'])
-    expect(eight.rooms[0]!.fixed).toBe('boss')
-    // 没有电梯间（那一层是「异常」，电梯到不了）、没有商店 / 教休室 / 空房
-    expect(eight.rooms.some((room) => room.fixed === 'elevator')).toBe(false)
-    // 楼梯间照旧（落点），走廊只有一条
-    expect(eight.stairwell.id).toBe('STAIR')
-    expect(eight.corridors.map((c) => c.id)).toEqual(['C_MAIN'])
-    // 生成出来也确实只有一场仗：首领一个，别的关别一个没有
-    const map = generateDungeon(1, cfg, eight)
-    expect(map.rooms.map((room) => room.kind).sort()).toEqual(['boss', 'start'])
-  })
-
-  it('★ 8F 的两间房**正对**，中间只有一小段走廊 —— 用户：「搞两个房间对立就行」', () => {
-    const eight = plans[7]!
-    const stair = eight.stairwell.cells
-    const boss = eight.rooms[0]!.cells
-    // 两间房的中线在同一条竖线上，两扇门也在同一条竖线上：走过去是**直着**过去的。
-    expect(stair.x + stair.width / 2, '落点房与首领房的中线对不上').toBe(
-      boss.x + boss.width / 2,
-    )
-    expect(boss.y, '首领房应该在落点房的**对面**（南边）').toBeGreaterThan(
-      stair.y + stair.height,
-    )
-    // 走廊只有一小段：25 格宽（1000px），上一版是 263 格（10520px）。
-    const hall = eight.corridors[0]!
-    expect(hall.cells.width).toBeLessThanOrEqual(30)
-    // 而且它正好包住两扇门（两扇都在 x42..44），玩家不用横着走很远。
-    const door = eight.doors[0]!
-    expect(hall.cells.x, '走廊没包住门').toBeLessThanOrEqual(door.cells.x)
-    expect(hall.cells.x + hall.cells.width).toBeGreaterThanOrEqual(door.cells.x + door.cells.width)
-    // 传送阵在**小落点房里面**（用户：「小房间是来的房间，放传送阵就行」），不是走廊里。
-    expect(eight.anomalyGate).not.toBeNull()
-    expect(
-      containsPoint(eight.stairwell.rect, eight.anomalyGate!.x, eight.anomalyGate!.y),
-      `传送阵 (${eight.anomalyGate!.x}, ${eight.anomalyGate!.y}) 不在小落点房里`,
-    ).toBe(true)
-  })
-
-  it('三层的房号**只在楼梯间上重合** —— 顺手证明第 3 层不再是 6F 的复制品', () => {
-    const ids = (p: FloorPlan): string[] => [p.stairwell, ...p.rooms].map((r) => r.id)
-    const first = new Set(ids(plans[0]!))
-    // 楼梯间三层同名（`STAIR`）是有意的：它就是「上下楼的那个地方」，
-    // 而它**不打怪、不给强化、不记进度**，同名不会串。
-    // ★ 改了（2026-10-22 晚·七）：**三个电梯间也三层同名**（`E_A` / `E_B` / `E_C`）——
-    // 理由与楼梯间一模一样：它们是**同一部电梯在三层的同一个位置**，也是设施。
-    // 它们同样不打怪、不给强化、不记进度（`kind = 'elevator'`，不在 `combatKinds` 里）。
-    const facilities = ['E_A', 'E_B', 'E_C', 'STAIR']
-    expect(ids(plans[1]!).filter((id) => first.has(id)).sort()).toEqual(facilities)
-    expect(ids(plans[2]!).filter((id) => first.has(id)).sort()).toEqual(facilities)
-    // ⚠️ ★ 改了（2026-10-22 晚）：这一段原先是**另一条用例**
-    //    （「第 2、3 层是同一张图」），它守的是「按房号的记账必须按层清」这件事
-    //    还在 —— 那时第 2、3 层都是 6F，房号一模一样。现在三层三张图，
-    //    **房号不再跨层重复了**，但那条记账**照旧不能删**：`visited` / `cleared` /
-    //    `combatRooms` 记的是 `order`（每层重排的 0、1、2…），三层逐层撞号。
-    //    理由写在了 `BattleScene.loadFloor()` 那一段上，不在这里重复。
-    expect(ids(plans[1]!)).not.toEqual(ids(plans[2]!))
+  it('层数对不上时当场抛', () => {
+    expect(() => parseFloorsConfig(readJson(FLOORS_CONFIG_NAME), MAX_STAGES + 1)).toThrow(ConfigError)
+    expect(() => parseFloorsConfig(readJson(FLOORS_CONFIG_NAME), MAX_STAGES - 1)).toThrow(ConfigError)
   })
 })

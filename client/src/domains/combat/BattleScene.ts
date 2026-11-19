@@ -50,14 +50,14 @@ import {
 import {
   FLOOR_PLAN_FILES,
   floorPlansForRun,
-  type FloorPlan,
+  type RunFloorPlans,
 } from '@/domains/procgen/gen/floorPlan'
 import { ROOM_KIND_LABELS } from '@/domains/procgen/model/types'
 import { containsPoint } from '@/domains/procgen/model/rect'
 import { Minimap } from './Minimap'
 import { FloorExit } from './FloorExit'
 import { AnomalyGate } from './AnomalyGate'
-import { ElevatorPanel, type FloorRow } from './ElevatorPanel'
+import { ElevatorPanel } from './ElevatorPanel'
 import { FloorProgress, stairPadSpots } from './Stairwell'
 import { FirstBossLoot } from '@/domains/combat/FirstBossLoot'
 import { ShopWorld } from '@/domains/combat/ShopWorld'
@@ -106,6 +106,7 @@ import { BossReinforcements } from './BossReinforcements'
 import { BossEncounterController } from './BossEncounterController'
 import { bossArenaBoundsFromRect } from './BossArenaBounds'
 import { parseBossSkillsTable } from './BossSkillRuntime'
+import { parseBossPools, pickLayerBosses, type BossPicks } from './bossPools'
 
 /**
  * 「够得着」的距离门槛（世界像素）。**量的是到目标矩形的最短距离**，贴着它才是 0。
@@ -251,7 +252,8 @@ export class BattleScene extends Phaser.Scene {
    * 清理（`loadFloor()`）与还原（`FloorProgress`）是同一件事的两半，
    * 见 `Stairwell.ts` 那个类头上「不还原的后果」。
    */
-  private plans!: readonly FloorPlan[]
+  private runPlans!: RunFloorPlans
+  private bossPicks!: BossPicks
   /**
    * 现在在第几层（1 起）。**这一局打的是「第几层」**。
    *
@@ -266,7 +268,11 @@ export class BattleScene extends Phaser.Scene {
    * 而第 1 层（逸夫楼 1F）**一间首领房都没有**（13 间全空房），
    * 所以「本层首领」在这三层里是**可有可无**的 —— 见 `bossDown()`。
    */
-  private floor = 1
+  private layer = 0
+  /** `'main'` = 1F/第 1—3 层；`'finale'` = 8F 心魔最终战。 */
+  private zone: 'main' | 'finale' = 'main'
+  /** 哪些层的池内首领已经死了（按层号 1—3）。第 3 层死后开最终传送阵。 */
+  private readonly bossCleared = new Set<number>()
   /**
    * 本局每一层的种子（长度 = `floors()`）。整局共用一条 `runSeed` 派生出来，
    * 于是**报出 `runSeed` 就能复现整局**（推导见 `DungeonStages.floorSeeds()`）。
@@ -297,7 +303,7 @@ export class BattleScene extends Phaser.Scene {
    * 于是电梯只会亮起「你到过的地方」，不会把玩家直接送进没打过的楼。
    * `init()` 里回到 1（新的一局从第 1 层开始）。
    */
-  private maxFloorReached = 1
+  private maxLayerReached = 1
   /**
    * ★ 2026-10-23：电梯的**楼层选择面板**（用户：「进去后可以选择楼层（之后楼层比较多），
    * 不然和楼梯没区别」）。原来电梯里摆的是一列方框 —— 和楼梯间同一个交互，
@@ -305,16 +311,10 @@ export class BattleScene extends Phaser.Scene {
    */
   private elevatorPanel!: ElevatorPanel
   /**
-   * ★ 新增（2026-11-04）：第七层那块**圆形六芒星传送阵** —— 「异常」层的唯一入口。
-   *
-   * 位置来自平面图（`FloorPlan.anomalyGate`，只有 7F 有），解锁条件来自
-   * `arena.finale.gateRooms`（走过几间房）。见 `AnomalyGate` 的类注释。
+   * 第 3 层池内首领死后，首领房里的**最终传送阵**（通往 8F 心魔战）。
+   * 组件复用 `AnomalyGate`（圆 + 六芒星），但不再有「走过几间房」的解锁条件。
    */
-  private anomalyGate!: AnomalyGate
-  /** 「异常」层（末层）的层号 —— 电梯**不去**它、楼梯间**不亮**上一层，只有传送阵能进。 */
-  private get anomalyFloor(): number {
-    return this.cfg.arena.finale.floor
-  }
+  private finalGate!: AnomalyGate
   private exitUp!: FloorExit
   /**
    * 楼梯间里那个「**下一层**」入口 —— **它就是回去的路**：**第 1 层没有**
@@ -462,8 +462,10 @@ export class BattleScene extends Phaser.Scene {
     this.skillLab = data.skillLab === true
     this.skillLabCharacterId = data.skillLabCharacterId
     this.skillLabLevel = Phaser.Math.Clamp(data.skillLabLevel ?? 1, 1, 4)
-    this.floor = 1
-    this.maxFloorReached = 1
+    this.layer = 0
+    this.zone = 'main'
+    this.maxLayerReached = 1
+    this.bossCleared.clear()
     this.floorSeedList = []
     this.roomOrder = -1
     this.activeRoom = null
@@ -500,6 +502,7 @@ export class BattleScene extends Phaser.Scene {
       'enemies.json',
       'combat.json',
       'boss-skills.json',
+      'boss-pools.json',
       'rewards.json',
       // D2 的地牢生成配置：**数值 + 几何 + 楼层表**。
       // **必须走 Phaser 的 loader，不能 fetch** ——
@@ -541,23 +544,20 @@ export class BattleScene extends Phaser.Scene {
       //    （它本来是给测试场复现用的），拿它当每局的种子 = 每局都生成一模一样的楼，
       //    「随机生成」四个字就没了。下面把 `runSeed` 留在场上，方便复现整局。
       this.rooms = roomsConfigFromCache(this.cache.json)
-      // **整局的每一层平面图一次取好**（★ 2026-10-22）：第 1 层是逸夫楼 1F、
-      // 第 2 层是 3F、第 3 层是 6F，走的是 `floors.json` 那张表。
-      // ⚠️ **顺序**：`floorPlansForRun` 第二个参数要一份 `FloorPlanMetrics`，
-      //    而 `RoomsConfig` 结构上满足它（签名就是这么写的）。
-      //    所以三个 `this.xxx` 之间是**有依赖的**，别为了「看着对称」把行换个位。
-      // ⚠️ 三层校验（条数 = `arena.maxStages` / 文件都加载过 / 每份都解析得过）
-      //    都在那个函数里，**取不到就当场抛** —— 不降级、不兜底（2.8）：
-      //    「少一层就用上一层凑」会让这一局的几何与配置表说的不是一回事。
-      this.plans = floorPlansForRun(this.cache.json, this.rooms, this.floors)
+      // ⚠️ **种子必须每局换**，而且要先于地图/首领抽取：抽图与抽首领都从它派生。
       this.runSeed = (Math.random() * 0x7fffffff) | 0
+      // **整局的地图计划一次取好**：1F 出发层 + 第 1/2/3 层 + 8F 最终战。
+      // `floorPlansForRun` 会先解析并校验**所有候选**，再按 `runSeed` 抽三张。
+      this.runPlans = floorPlansForRun(this.cache.json, this.rooms, this.floors, this.runSeed)
+      const bossSkills = parseBossSkillsTable(this.cache.json.get('boss-skills.json'))
+      const bossPools = parseBossPools(this.cache.json.get('boss-pools.json'), bossSkills, this.floors)
+      this.bossPicks = pickLayerBosses(this.runSeed, bossPools, bossSkills, this.floors)
       this.shopRun = new ShopRun(this.shopPrices, new Rng((this.runSeed ^ 0x5a17) >>> 0))
       this.reinforcementRng = new Rng(this.runSeed)
       this.bossReinforcements = new BossReinforcements(this.cfg.encounter.bossReinforcements)
-      // **整局的每一层种子先抽好**（不是每下一层现抽一个）：这样报出 `runSeed`
-      // 就能把整局的每一层都复原出来，而不只是「当前这一层」。
-      this.floorSeedList = floorSeeds(this.runSeed, this.floors)
-      this.dungeon = this.buildFloor(1)
+      // **整局的每层/最终战种子先抽好**：`[1F, L1, L2, L3, 8F]`。
+      this.floorSeedList = floorSeeds(this.runSeed, this.floors + 2)
+      this.dungeon = this.buildArea()
       // ⚠️ **竞技场 = 整层包围盒**，必须在 `new CombatSession()` **之前**写回去：
       //    物理世界边界、寻路网格的行列数、`TerrainMap` 的宽高全在构造函数里读它，
       //    之后再改就晚了（`TerrainMap.width` 还是 readonly）。见 `applyArena()`。
@@ -576,7 +576,7 @@ export class BattleScene extends Phaser.Scene {
         this.stageConfig,
       )
       this.bossSkills = new BossEncounterController(this, this.session,
-        parseBossSkillsTable(this.cache.json.get('boss-skills.json')), {
+        bossSkills, {
           bounds: () => {
             // The arena belongs to the floor's boss, even if the player-room tracker is
             // temporarily unset during a floor transition or a scripted encounter.
@@ -593,7 +593,7 @@ export class BattleScene extends Phaser.Scene {
       this.events.once(Phaser.Scenes.Events.SHUTDOWN, () =>
         this.scale.off('resize', this.fitCamera, this),
       )
-      this.minimap = new Minimap(this, this.dungeon.map, this.rooms, this.floor, this.floors)
+      this.minimap = new Minimap(this, this.dungeon.map, this.rooms, this.layer, this.floors, this.areaTitle())
       // 楼梯间里那两个入口（上楼 / 下楼）。**两个都要先建出来**，哪怕第 1 层
       // 下面没有楼 —— 「这一层有没有楼下」是 `refreshStairPads()` 每层现判的事。
       // ⚠️ `dir` 与字段名一一对应：`exitUp` 画朝上的箭头（暖黄，「上一层」），
@@ -603,10 +603,10 @@ export class BattleScene extends Phaser.Scene {
       // ★ 2026-10-23：电梯的楼层面板（走进去弹、走出去关）。选完直接换层。
       // ⚠️ **从电梯走的人，落地要出现在那一部电梯前**（用户 2026-10-23）——
       //    所以把「现在站在哪一部电梯里」一起带进 `goToFloor()`。
-      this.anomalyGate = new AnomalyGate(this, { reach: EXIT_REACH })
-      this.elevatorPanel = new ElevatorPanel((floor) => {
+      this.finalGate = new AnomalyGate(this, { reach: EXIT_REACH })
+      this.elevatorPanel = new ElevatorPanel((target) => {
         const here = this.roomOrder >= 0 ? this.dungeon.rooms[this.roomOrder] : undefined
-        this.goToFloor(floor, here?.room.kind === 'elevator' ? here.room.id : null)
+        this.goToFloor(target, here?.room.kind === 'elevator' ? here.room.id : null)
       })
       this.rewardPanel = new RewardPanel(this.session)
       this.gallery = new AssetGallery(this, () => this.toggleGallery())
@@ -620,10 +620,16 @@ export class BattleScene extends Phaser.Scene {
       this.skillHud = new SkillHud(this, this.session)
       this.session.bus.on('entity_killed', (event) => {
         // 首领也不例外：**每一间都是「清完 → 开箱 → 门开」**，首领那间不再单独掉。
-        if (event.bossStage === this.floor) this.notice.setText('首领已击败')
-        if (event.kind === 'enemy' && event.finalBoss === true &&
-          event.bossStage === this.cfg.arena.finale.floor && this.floor === this.cfg.arena.finale.floor)
-          this.flow?.recordFinalBossDeath()
+        if (event.kind === 'enemy' && event.bossLayer === this.layer) {
+          if (event.finalBoss === true) {
+            this.notice.setText('心魔已击败')
+            this.flow?.recordFinalBossDeath()
+          } else {
+            this.bossCleared.add(this.layer)
+            this.notice.setText('本层首领已击败 · 最终传送阵已开启')
+            this.refreshFinalGate()
+          }
+        }
       })
       // 成长选完（或没有可选项）之后：**把这一间收尾**，再说清「接下来去哪儿」。
       //
@@ -645,8 +651,11 @@ export class BattleScene extends Phaser.Scene {
           return
         }
         // **本层的首领打完了**：层内没有"下一个首领"了，改亮「下一层」的入口。
-        // 最后一层不亮 —— 那是通关，走 `finishRun()`。
-        if (this.floor >= this.floors) {
+        // 第 3 层不亮楼梯 —— 出口是首领房里的最终传送阵；心魔房不参与。
+        if (this.zone === 'finale') return
+        if (this.layer >= this.floors) {
+          this.refreshFinalGate()
+          this.notice.setText(label + '最终传送阵已开启 · 走进阵里按 F 进入最终战')
           return
         }
         this.showFloorExit(bonus)
@@ -981,26 +990,13 @@ export class BattleScene extends Phaser.Scene {
         // 商品桌优先消费 F；失败也消费，避免同一下误触楼梯入口。
       } else if (this.exitUp.visible && this.exitUp.near(px, py)) this.goUp()
       else if (this.exitDown.visible && this.exitDown.near(px, py)) this.goDown()
-      else if (this.anomalyGate.visible && this.anomalyGate.near(px, py)) {
-        // ★ 2026-11-04：传送阵 —— 7F 那一块是「异常」层的唯一入口；8F 小落点房里
-        // 那一块是**回去的门**。锁着时**说清还差几间**，而不是没反应
-        // （这一层没有别的出口，沉默等于让玩家去翻整层）。
-        if (this.anomalyGate.isUnlocked) {
-          const target =
-            this.floor === this.anomalyFloor ? this.anomalyFloor - 1 : this.anomalyFloor
-          this.goToFloor(target, null, true)
-        } else {
-          this.notice.setText(
-            `传送阵还没开：再走过 ${this.cfg.arena.finale.gateRooms - this.visitedRoomCount()} 间房`,
-          )
-        }
-      } else if (this.exitUp.visible || this.exitDown.visible)
+      else if (this.finalGate.visible && this.finalGate.near(px, py)) this.enterFinale()
+      else if (this.exitUp.visible || this.exitDown.visible)
         this.notice.setText(this.stairHintWhenMissed())
     }
     this.exitUp.update(this.time.now)
     this.exitDown.update(this.time.now)
-    this.anomalyGate.update(this.time.now)
-    this.syncAnomalyGateState()
+    this.finalGate.update(this.time.now)
     this.trackChestOpened()
     this.shopWorld.update()
     // 门一开就换成亮绿 + 呼吸 —— 打完一间找不到门出不去是这一层最容易卡人的地方。
@@ -1008,7 +1004,7 @@ export class BattleScene extends Phaser.Scene {
     // 画面才是静的。
     this.scenery.update(this.time.now)
     this.session.update(delta)
-    this.bossSkills?.update(this.floor)
+    this.bossSkills?.update(this.currentBossProfile() ?? -1)
     // Scene.UPDATE在本帧物理事件和全部伤害生产者之后运行，不在单个死亡回调抢先暂停。
     const outcome = this.flow?.adjudicate(this.session.player.model.alive)
     if (outcome === 'cleared') this.finishRun()
@@ -1030,7 +1026,7 @@ export class BattleScene extends Phaser.Scene {
     if (fallbackNotice) {
       this.deathNotice.setText(
         this.gameWon
-          ? `${this.floors} 层通关！\n${this.bossName(this.floors)}已击败\n按 R 重新开始`
+          ? `心魔已击败 · 本局通关！\n按 R 重新开始`
           : this.session.player.model.deathCause === 'water'
             ? '落水身亡\n按 R 重新开始'
             : '你倒下了\n按 R 重新开始',
@@ -1081,7 +1077,6 @@ export class BattleScene extends Phaser.Scene {
     // ★ 2026-10-23：电梯面板**跟着「人现在在哪一间」开关** —— 走进电梯间弹、
     //    走进别的房（或走廊）关。放在最前面：后面每条分支都会 return。
     this.syncElevatorPanel(unit.room.kind)
-    this.syncAnomalyGateState()
     // ⚠️ **「还在打」要排在最前面，而且只看 `combatRooms`，不看 `visited`。**
     //
     // `roomAt()` 的判据是「身体整个进到房间里」（`inset = 玩家半径`），而门就开在房间的
@@ -1135,7 +1130,7 @@ export class BattleScene extends Phaser.Scene {
         }
         this.syncRoomState()
         this.notice.setText(
-          `${unit.room.id} ${this.kindLabel(unit)} · 这间不用打 · ` +
+          `${this.roomLabel(unit)} · 这间不用打 · ` +
             (this.lootedRooms.has(unit.order) ? '宝箱已开过' : '有宝箱（E 开）') +
             ' · 门一直开着',
         )
@@ -1164,20 +1159,20 @@ export class BattleScene extends Phaser.Scene {
         return
       }
       if (unit.room.kind === 'shop') {
-        this.shopWorld.showRoom(this.floor, unit)
+        this.shopWorld.showRoom(this.layer, unit)
         this.syncRoomState()
         return
       }
       // 其余「不用打又没宝箱」的房：空房。门一直开着，里面什么都没有。
       this.syncRoomState()
       this.notice.setText(
-        `${unit.room.id} ${this.kindLabel(unit)} · 这间不用打 · 门一直开着`,
+        `${this.roomLabel(unit)} · 这间不用打 · 门一直开着`,
       )
       return
     }
     if (!first) {
       this.syncRoomState()
-      this.notice.setText(`${unit.room.id} ${this.kindLabel(unit)} · 已清过，放心走`)
+      this.notice.setText(`${this.roomLabel(unit)} · 已清过，放心走`)
       return
     }
     this.combatRooms.add(unit.order)
@@ -1335,7 +1330,7 @@ export class BattleScene extends Phaser.Scene {
     const unit = this.activeRoom
     if (unit === null || this.clearEmitted || this.gameWon) return
     if (!this.session.player.model.alive || this.session.clock.paused) return
-    if (unit.room.kind === 'boss' && this.session.enemies.bossStatus(this.floor)) {
+    if (unit.room.kind === 'boss' && this.session.enemies.bossStatus(this.currentBossProfile() ?? -1)) {
       this.clearSince = null
       return
     }
@@ -1357,15 +1352,15 @@ export class BattleScene extends Phaser.Scene {
     if (this.session.clock.paused || this.session.clock.frozen) return
     const unit = this.activeRoom
     const bossAlive = unit?.room.kind === 'boss' &&
-      this.session.enemies.bossStatus(this.floor) !== null
+      this.session.enemies.bossStatus(this.currentBossProfile() ?? -1) !== null
     const count = this.bossReinforcements.update(
       this.session.clock.nowMs, bossAlive, this.session.enemies.minionPopulation,
     )
     if (!bossAlive) return
     if (!unit || count === 0) return
     const kinds = (Object.keys(this.bundle.enemies.enemies) as EnemyKind[]).filter((kind) =>
-      (kind !== 'muscovy' || this.floor >= this.cfg.arena.muscovyMinFloor) &&
-      (kind !== 'nightmare_cat' || this.floor >= this.cfg.arena.nightmareCatMinFloor),
+      (kind !== 'muscovy' || this.layer >= this.cfg.arena.muscovyMinFloor) &&
+      (kind !== 'nightmare_cat' || this.layer >= this.cfg.arena.nightmareCatMinFloor),
     )
     const player = this.session.player
     const far = unit.spawnPoints.filter((point) =>
@@ -1426,8 +1421,8 @@ export class BattleScene extends Phaser.Scene {
     // 而这一行正是玩家判断「现在能不能出去」的依据。（实测 2026-10-21 走一遍时看到。）
     this.notice.setText(
       unit.room.kind === 'elite'
-        ? `${unit.room.id} ${this.kindLabel(unit)} · 清怪完成 · ★ 宝箱已出现（E 开）· 选择一项强化`
-        : `${unit.room.id} ${this.kindLabel(unit)} · 清怪完成 · 选择一项强化`,
+        ? `${this.roomLabel(unit)} · 清怪完成 · ★ 宝箱已出现（E 开）· 选择一项强化`
+        : `${this.roomLabel(unit)} · 清怪完成 · 选择一项强化`,
     )
   }
 
@@ -1472,7 +1467,7 @@ export class BattleScene extends Phaser.Scene {
     //    `Room.budget` 由 D2 按「到楼梯间的跳数」算（`gen/budget.ts`），
     //    `budgetBase` 是 `t = 0`（出生点旁边那间）的值 —— 比值正好是强度倍数。
     const growth = unit.room.budget / this.rooms.budgetBase
-    const p = roomPlan(this.bundle, this.cfg, this.difficulty, growth, this.floor)
+    const p = roomPlan(this.bundle, this.cfg, this.difficulty, growth, this.layer)
     for (let i = 0; i < p.splitters; i++) {
       const s = at(i)
       this.session.enemies.spawn(
@@ -1533,16 +1528,22 @@ export class BattleScene extends Phaser.Scene {
     //    真正要打的是第 2 层的霜翼使徒与第 3 层的终焉蛛王。
     //    **这是这一局的形状，不是 bug**：档位仍按层的序号取，改的是哪一层有首领。
     if (unit.room.kind === 'boss') {
-      const tier = this.floor
+      const pick = this.zone === 'finale' ? this.bossPicks.finalBoss : this.bossPicks.layers[this.layer - 1]
+      if (!pick) throw new Error(`第 ${this.layer} 层没有首领抽取结果`)
       // 首领摆在**离房间中心最近的那个刷怪点**（`spawnPoints[0]`），再往上让 40px：
       // 首领体形大，摆在格子中心会有一截压在墙/课桌上。
       const spot = unit.spawnPoints[0] ?? { x: cx, y: cy }
+      const finalBoss = this.zone === 'finale'
       this.session.enemies.spawnBoss(
-        tier,
+        pick.profile,
+        this.layer,
+        pick.id,
         spot.x,
         spot.y - 40,
-        this.cfg.encounter.bossHp + (tier - 1) * this.cfg.encounter.bossHpPerStage,
-        tier === this.cfg.arena.finale.floor,
+        finalBoss
+          ? this.cfg.arena.finale.heartDemonHp
+          : this.cfg.encounter.bossHp + (this.layer - 1) * this.cfg.encounter.bossHpPerStage,
+        finalBoss,
         this.cfg.encounter.bossDamageMultiplier,
       )
     }
@@ -1552,12 +1553,17 @@ export class BattleScene extends Phaser.Scene {
   private roomBrief(unit: DungeonRoom): string {
     const r = unit.room.rect
     return (
-      `${unit.room.id} ${this.kindLabel(unit)} · ${r.width}×${r.height} · ${this.label()} · ` +
+      `${this.roomLabel(unit)} · ${r.width}×${r.height} · ${this.label()} · ` +
       `门已封上，清完才开`
     )
   }
   private kindLabel(unit: DungeonRoom): string {
     return ROOM_KIND_LABELS[unit.room.kind] ?? unit.room.kind
+  }
+  /** 门牌/通知栏用的「N 号 关别」；设施只写关别名。 */
+  private roomLabel(unit: DungeonRoom): string {
+    const kind = this.kindLabel(unit)
+    return unit.displayNo == null ? kind : `${unit.displayNo} 号 ${kind}`
   }
   /** 按 `Room.id` 找一间，找不到给 `null`。 */
   private roomById(id: string): DungeonRoom | null {
@@ -1581,25 +1587,27 @@ export class BattleScene extends Phaser.Scene {
    * 越界由 `floorPlansForRun()` 那层校验挡在前面（条数 = `arena.maxStages` = `floors`），
    * 所以这里的 `!` 是在断言一件**已经被验过**的事。
    */
-  private buildFloor(n: number): DungeonStages {
-    const seed = this.floorSeedList[n - 1] ?? this.runSeed
-    return buildDungeonStages(seed, this.rooms, this.plans[n - 1]!, this.cfg)
+  /** 当前区域的进度键：1F=0、第 1—3 层=1..3、8F 最终战=4。 */
+  private areaKey(): number {
+    return this.zone === 'finale' ? 4 : this.layer
   }
   /**
-   * 把**整层的包围盒**写回 `cfg.arena`。
-   *
-   * ⚠️ **这一步不是可有可无的**：`DungeonStages` 交出的几何是**地图坐标、1:1**
-   * （它的 `sourceSize` 就是整层尺寸），而 `stageGeometry()` 的取景框是
-   * `fitMapFrame(arena.width, arena.height, sourceSize…)` —— 两个数不相等时
-   * 整层会被缩到七分之一并居中，而且**什么都不报**（看起来像「地图没加载」）。
-   * `TerrainMap` 的宽高、物理世界的边界、寻路网格的行列数读的也是这一对。
-   *
-   * ⚠️ **换层时它必须是不变的**，尽管 ★ 2026-10-22 起**几何本身是逐层不同的**
-   * （三层三张图：逸夫楼 1F / 3F / 6F）：`TerrainMap.width`（readonly）和物理世界边界
-   * 都在 `CombatSession` 构造时定死了，改不了 —— 所以三层的**包围盒必须一样**，
-   * 换层只换内容、不换尺寸。三张图逐格量出来的差别都不小（1F 是两块分开的、
-   * 3F 把西头两间并成了商店），但整层 **0..263 × 0..73 格**一模一样，
-   * 所以今天成立；不成立时这里**当场抛**，而不是让它以「第二层的墙全在错位」的形式出现。
+   * 生成**当前区域**。几何来自本局抽中的平面图；种子来自 `floorSeedList`
+   * （0=1F，1—3=层，4=8F），所以同一 `runSeed` 能复现整局。
+   */
+  private buildArea(): DungeonStages {
+    const entry =
+      this.zone === 'finale'
+        ? this.runPlans.finale
+        : this.layer === 0
+          ? this.runPlans.prologue
+          : this.runPlans.layers[this.layer - 1]!
+    const seed = this.floorSeedList[this.areaKey()] ?? this.runSeed
+    return buildDungeonStages(seed, this.rooms, entry.plan, this.cfg)
+  }
+  /**
+   * 把**整层的包围盒**写回 `cfg.arena`。换层/换区域时包围盒必须不变；
+   * 不同时当场抛（物理世界边界在 CombatSession 构造时就定死了）。
    */
   private applyArena(): void {
     const arena = arenaOf(this.dungeon.map)
@@ -1608,108 +1616,53 @@ export class BattleScene extends Phaser.Scene {
       (arena.width !== this.cfg.arena.width || arena.height !== this.cfg.arena.height)
     )
       throw new Error(
-        `第 ${this.floor} 层的包围盒（${arena.width}×${arena.height}）与上一层` +
+        `当前区域（${this.areaTitle()}）的包围盒（${arena.width}×${arena.height}）与上一层` +
           `（${this.cfg.arena.width}×${this.cfg.arena.height}）不一样 —— 换层换的应该是内容，` +
-          `不是尺寸（物理世界边界在 CombatSession 构造时就定死了）。` +
-          `若这两层是**故意**不同大小，那要动的是那边，不是这里。` +
-          `见 BattleScene.applyArena() 与 floors.json 的 _box_comment。`,
+          `不是尺寸（物理世界边界在 CombatSession 构造时就定死了）。`,
       )
     this.cfg.arena.width = arena.width
     this.cfg.arena.height = arena.height
   }
-  /**
-   * **上一层**（`floor++`）—— 前进方向。**只在 `exitUp` 亮着、且玩家站在上面时调用**
-   * （见 `update()` 里那一段）。
-   *
-   * ★ 改名（2026-10-22 晚）：原叫 `descend()`，因为那时前进 = 往下走（地牢层数）。
-   * 上下颠倒之后 `floor++` 就是**上楼**，名字跟着走 —— 留着旧名字的话，
-   * `exitUp` 里调 `descend()` 会让每个人都在这一行上停一下。
-   */
+  /** 前进一步：1F→第 1 层、第 1→2 层、第 2→3 层；第 3 层没有上一层。 */
   private goUp(): void {
-    if (this.floor >= this.floors) return
-    // ★ 改了（2026-10-22 晚·七）：走 `goToFloor()` —— 上层永远已解锁
-    // （刚站着的这一层就是往上走的起点），所以行为与原来逐字一样。
-    this.goToFloor(this.floor + 1)
+    if (this.zone === 'finale' || this.layer >= this.floors) return
+    this.goToFloor(this.layer + 1)
   }
-  /**
-   * **下一层**（`floor--`）—— 回去的路。**只在 `exitDown` 亮着、而玩家站在上面时调用**
-   * （见 `update()`）；★ 原名 `ascend()`，与 `goUp()` 一起改名，理由同它。
-   *
-   * 与 `goUp()` 只差一个方向，但**两件事都要做对**：
-   * ① 走之前把这一层的进度**存下来**（`leaveFloor()`）；
-   * ② 落地之后 `loadFloor()` 会把那一层那份**取回来**（`progress.restore()`）。
-   * 少了①，回去的那层会以「没打过」的样子长回来（怪重刷、宝箱重生、首领复活 ——
-   * 而首领复活意味着**那一层的出口没了**，卡死）。少了②同理，方向相反。
-   */
+  /** 回去一步：第 3→2 层、第 2→1 层、第 1 层→1F；1F 没有下一层。 */
   private goDown(): void {
-    if (this.floor <= 1) return
-    this.goToFloor(this.floor - 1)
+    if (this.zone === 'finale' || this.layer <= 0) return
+    this.goToFloor(this.layer - 1)
   }
-  /**
-   * 记下**现在这一层**的进度，然后才准换层。
-   *
-   * ⚠️ **必须在 `this.floor` 被改掉之前调**：存的是"刚才那一层"，用改过之后的
-   * 层号去存就把第 1 层的进度记到第 2 层名下了 —— 而两个方向（上/下）都会中招。
-   */
+  /** 记下**当前区域**的进度；必须在改 `layer` / `zone` 之前调。 */
   private leaveFloor(): void {
-    this.progress.save(this.floor, {
+    this.progress.save(this.areaKey(), {
       visited: this.visited,
       cleared: this.cleared,
       lootedRooms: this.lootedRooms,
     })
   }
   /**
-   * 换上**当前 `this.floor` 那一层**的几何与观感。
-   *
-   * ⚠️ **顺序有讲究。**几何要在 `session.loadFloor()` 之前换好（那一趟里
-   * `enterStage()` 按新的 `stageConfig` 重算寻路网格与落脚点）；观感层里
-   * `Minimap` 是「换一份排布」，而 `StageBackground`（和 v4 一样）**没有
-   * 「换一层」这个动作**（它构造时就吃下了一层的房间表），所以只能整个重建。
-   *
-   * ⚠️ **所有「按房的记账」必须一起清**：`visited`（哪间进过）、`cleared`（哪间打完）、
-   * `combatRooms`（哪间在打）、`lootedRooms`（哪间的宝箱开过）。不清前两个的话，
-   * 新层的第 3 间会被当成「回走」—— 一进门就门大开、一只怪不刷、房号还写着「已清」；
-   * 不清 `combatRooms` 的话，上一层那扇封着的门会指到新层**同一个房号**上去，
-   * 表现是「刚下楼就有一间进不去」；不清 `lootedRooms` 的话，新层同号码那间
-   * 的宝箱会莫名其妙地不出现。
-   *
-   * ⚠️ ★ 2026-10-22 晚：**三层的房号现在互不重复了**（第 1 层是 `YF1xx`、
-   * 第 2 层是 `YF3xx` + `SHOP`、第 3 层是 `YF6xx`），**但这不表示这一整段可以删** ——
-   * 房号只是这套记账里的两个 key 之一，另一个是 `order`：
-   *
-   * - `visited` / `cleared` / `combatRooms` 记的是 **`order`**，而 `order` 是
-   *   「楼梯间 + 其余按 id 升序」的**每层重排的序号**（见 `model/types.ts` 的
-   *   `Room.order`）—— 每一层都是 0、1、2、…，三层**逐层撞号**。
-   *   不在这里换成新集合的话，第 2 层的第 1 间会顶着第 1 层第 1 间的记性上场：
-   *   一进门就门大开、一只怪不刷、房号还写着「已清」。
-   * - `lootedRooms` 与 `RewardRun` 记的是 **`Room.id`**，那时才轮到房号不撞这件事。
-   *   房号不撞**只是**去掉了「同名」那一半风险（上一版第 2、3 层是同一张图，
-   *   房号一模一样，`forgetFloor()` 是**唯一**挡着卡死的东西），
-   *   `order` 那一半照旧，所以两处都留着。
+   * 换上**当前 `layer` / `zone`** 的几何与观感。
+   * 所有按房的记账都要按区域清空并从 `progress.restore()` 取回。
    */
-  private loadFloor(fromElevator: string | null = null, fromAnomalyGate = false): void {
+  private loadFloor(fromElevator: string | null = null): void {
     this.bossSkills?.clear()
     this.bossReinforcements.reset()
     this.session.enemies.despawnAll()
-    this.dungeon = this.buildFloor(this.floor)
+    this.dungeon = this.buildArea()
     this.applyArena()
     this.stageConfig = parseStageCollisions(this.dungeon.stages, FLOOR_STAGE)
     this.scenery.destroy()
     this.drawWorld()
     this.minimap.setFloor(
       this.dungeon.map,
-      this.floor,
+      this.areaKey(),
       this.floors,
-      this.floor === this.anomalyFloor,
-      // ★ 2026-11-06：这一层的传送阵位置（7F 中段大厅那块；8F 那块在落点房里，
-      // 小地图上会和「落」字打架，`Minimap` 按 `arrivalRoom` 自己跳过）。
-      this.plans[this.floor - 1]?.anomalyGate ?? null,
+      this.zone === 'finale',
+      null,
+      this.areaTitle(),
     )
-    // 换层：先清空**这一层**的记账，再把**这一层上次的记账**取回来
-    // （没来过这一层则取回来的是 `null`，那就是一层全新的楼）。
-    // 取回来之后 `visited` / `cleared` / `lootedRooms` 是三个**新集合**，
-    // `progress.restore()` 给的就是副本 —— 之后这里怎么改都不会脏到快照。
-    const past = this.progress.restore(this.floor)
+    const past = this.progress.restore(this.areaKey())
     this.visited = past === null ? new Set() : new Set(past.visited)
     this.cleared = past === null ? new Set() : new Set(past.cleared)
     this.lootedRooms = past === null ? new Set() : new Set(past.lootedRooms)
@@ -1721,52 +1674,18 @@ export class BattleScene extends Phaser.Scene {
     this.clearEmitted = false
     this.clearRequested = false
     this.loot.reset()
-    // ⚠️ **强化账本也要按层清。** 它记的是 `Room.id`。★ 2026-10-22 晚三层换成
-    //    三张不同的图之后，房号不再撞了 —— 但这条**照旧要清**，理由从「同名」
-    //    换成了「同一间房在上一层给过强化」这件事本身：
-    //    不清的话再上一层时 `offer()` 对那一间返回 `null`，
-    //    于是：三选一不弹、**那一间拿不到强化**、而「亮出下一层入口」正挂在
-    //    `reward_finished` 上 ⇒ **下楼口不亮，卡在那一层**。
-    //    上一版（第 2、3 层同一张图）实测过一次，见 `RewardRun.forgetFloor()`
-    //    的注释（`downLit=false`）—— 那次的症状与今天的形状一样，只是触发条件
-    //    从「房号相同」变成「上楼又下楼回到同一间」。
     this.session.rewards.forgetFloor()
     this.shopWorld.leaveRoom()
     this.session.loadFloor(this.stageConfig)
-    this.ledger?.setDepth(this.floor)
-    // ★ 2026-10-23（用户：「从电梯去其它层应该是出现在对应电梯前，而不是楼梯间前」）：
-    // `session.loadFloor()` 的落脚点恒是**楼梯间门口**（`dungeon.spawn`）——
-    // 坐电梯上来的人却被扔在楼梯间，等于「电梯白坐了」。所以落地之后**再挪一次**：
-    // 目标层上**同 id 的那一部电梯**（`E_A` / `E_B` / `E_C` 四层同名）的正中间。
-    // 找不到那部电梯（比如新的一层少了一部）就什么都不做，退回楼梯间门口 ——
-    // 不抛：那是「地图少画了一个电梯间」，不该让整局崩在这里。
+    this.ledger?.setDepth(this.layer)
     if (fromElevator !== null) this.spawnAtElevator(fromElevator)
-    // ★ 2026-11-04：穿传送阵进来的，落在**这一层那块传送阵旁边** ——
-    // 8F 的小落点房（以及从 8F 回 7F 时那块中段大厅里的阵）。
-    else if (fromAnomalyGate) this.spawnAtAnomalyGate()
     this.syncRoomState()
-    // ★ 新增（2026-10-22 晚·七）：落地即**解锁这一层**（电梯只去走到过的楼）。
-    this.maxFloorReached = Math.max(this.maxFloorReached, this.floor)
-    // 楼梯间里那两个入口：**每层都要重算**（第 1 层下面没楼、没打完首领的层
-    // 上不去、走回来的层则是「首领早就打完了」，而第 1 层根本没有首领）。
-    // 它自己会先 `hide()`。
+    if (this.zone === 'main' && this.layer >= 1)
+      this.maxLayerReached = Math.max(this.maxLayerReached, this.layer)
     this.refreshStairPads()
-    // ★ 换层了：电梯面板必须关掉 —— 它列的是**上一层**能去哪儿。
     this.syncElevatorPanel(null)
-    // ★ 传送阵跟着这一层的平面图走（只有 7F 有）。
-    this.refreshAnomalyGate()
-    // ⚠️ **通知栏必须在这里重写。** 它是「我现在在哪、该往哪走」的唯一说明，
-    // 而换层之后它还留着**上一层**的话 —— 实测上到第 2 层时屏幕上写的是
-    // 「第 1 层通关 · …已击败 · 回楼梯间，走到方框上按 F 到第 2 层」，
-    // 而那个方框已经隐藏了（新层的首领还没打），玩家会站在出生点找它。
-    //
-    // ★ 2026-11-04：从传送阵穿回 7F 时人不在楼梯间门口，那句「站在楼梯间外的
-    // 走廊上」就变成假话了 —— 单独写一句。
-    this.notice.setText(
-      fromAnomalyGate && this.floor !== this.anomalyFloor
-        ? `第 ${this.floor} / ${this.floors} 层 · 站在传送阵旁 · 按 F 可再穿回「异常」层`
-        : this.floorBrief(),
-    )
+    this.refreshFinalGate()
+    this.notice.setText(this.floorBrief())
   }
   /**
    * 刚换上一层时通知栏那行字。**`create()` 与 `loadFloor()` 共用一份** ——
@@ -1778,16 +1697,11 @@ export class BattleScene extends Phaser.Scene {
    * 「出生」只对第一次成立，于是换成「站在」。尾上那一截说的是楼梯间里有什么。
    */
   private floorBrief(): string {
-    // ★ 2026-11-04：「异常」层没有楼梯间外的走廊，落点在小屋里的传送阵旁边。
-    if (this.floor === this.anomalyFloor)
-      return (
-        `第 ${this.floor} / ${this.floors} 层 · 异常 · 落点在小屋里，` +
-        `传送阵按 F 回第 ${this.anomalyFloor - 1} 层 · ` +
-        `对面的门里是${this.bossName(this.floor)}`
-      )
+    if (this.zone === 'finale') return '最终战 · 心魔 · 对面的门里是心魔'
+    if (this.layer === 0) return '1F · 出发层 · 楼梯间里有上第 1 层的入口'
     const stairs = this.stairHint()
     return (
-      `第 ${this.floor} / ${this.floors} 层 · 站在楼梯间外的走廊上 · ` +
+      `第 ${this.layer} / ${this.floors} 层 · 站在楼梯间外的走廊上 · ` +
       `走廊里随便走，推开哪扇门就打哪一间（${this.dungeon.rooms.length} 间）` +
       (stairs === '' ? '' : ` · ${stairs}`)
     )
@@ -1800,12 +1714,11 @@ export class BattleScene extends Phaser.Scene {
    * 不然玩家会以为电梯坏了。
    */
   private elevatorBrief(unit: DungeonRoom): string {
-    const unlocked: number[] = []
-    for (let n = 1; n <= this.maxFloorReached; n++) if (n !== this.floor) unlocked.push(n)
+    const unlocked = this.elevatorTargets()
     const here = unlocked.length
       ? `面板里选一层（第 ${unlocked.join(' / ')} 层），或按数字键`
       : '别的层还没解锁 —— 先从楼梯间往上走，或打完这层的首领'
-    return `${unit.room.id} ${this.kindLabel(unit)} · 电梯 · ${here}`
+    return `${this.roomLabel(unit)} · 电梯 · ${here}`
   }
   /**
    * 楼梯间那一间（`kind === 'start'`）。八张平面图（`floors.json`），
@@ -1836,10 +1749,11 @@ export class BattleScene extends Phaser.Scene {
    * 「最后一层必须有首领房」由 `floors.test.ts` 盯着 —— 那是**一局**的性质
    * （最后一层打不出首领就永远通不了关），不是单张图的性质。
    */
+  /** 本层的池内首领倒下了没有；1F 出发层没有首领，恒为 true。 */
   private bossDown(): boolean {
-    const unit = this.dungeon?.rooms.find((r) => r.room.kind === 'boss')
-    if (unit === undefined) return true
-    return this.cleared.has(unit.order)
+    if (this.zone === 'finale') return false
+    if (this.layer === 0) return true
+    return this.bossCleared.has(this.layer)
   }
   /**
    * 重算楼梯间里那两个入口的可见性与位置。**`loadFloor()` / `create()` /
@@ -1893,32 +1807,24 @@ export class BattleScene extends Phaser.Scene {
    */
   private elevatorTargets(): number[] {
     const out: number[] = []
+    const current = this.zone === 'main' ? this.layer : -1
     for (let n = 1; n <= this.floors; n++) {
-      if (n === this.floor) continue
-      // ⚠️ ★ 2026-11-04：**「异常」层电梯不去**（用户：第八层只能靠传送阵进）。
-      if (n === this.anomalyFloor) continue
-      if (n <= this.maxFloorReached) out.push(n)
-      else if (n === this.floor + 1 && this.bossDown()) out.push(n)
+      if (n === current) continue
+      if (n <= this.maxLayerReached) out.push(n)
+      else if (current >= 0 && n === current + 1 && this.bossDown()) out.push(n)
     }
     return out
   }
-  /**
-   * ★ 2026-10-23：**电梯面板现在该摆什么**（用户：「进去后可以选择楼层」）。
-   *
-   * 一列 `第 1..N 层`：当前层标「当前」、能去的标「前往」、其余标「未解锁」。
-   * **能去哪些层由 `elevatorTargets()` 一处判定**（来过的 + 楼梯间那一步能到的下一层）。
-   */
-  private elevatorRows(): FloorRow[] {
+  /** 电梯面板只列第 1/2/3 层；1F 只是出发层，不占电梯选项。 */
+  private elevatorRows(): { target: number; label: string; here: boolean; unlocked: boolean }[] {
     const targets = new Set(this.elevatorTargets())
-    const rows: FloorRow[] = []
+    const rows: { target: number; label: string; here: boolean; unlocked: boolean }[] = []
     for (let n = 1; n <= this.floors; n++) {
-      // ★ 2026-11-04：末层（「异常」）那一行**不写「第 8 层」**，写「异常」——
-      // 它不是这栋楼的第八层，是玩家从那块六芒星传送阵掉进去的地方。
       rows.push({
-        floor: n,
-        here: n === this.floor,
+        target: n,
+        label: `第 ${n} 层`,
+        here: this.zone === 'main' && this.layer === n,
         unlocked: targets.has(n),
-        title: n === this.anomalyFloor ? '异常' : `第 ${n} 层`,
       })
     }
     return rows
@@ -1926,34 +1832,13 @@ export class BattleScene extends Phaser.Scene {
   /** 玩家走进 / 走出电梯间时开关面板。**一处在判定，别处只读结果。** */
   private syncElevatorPanel(kind: DungeonRoom['room']['kind'] | null): void {
     if (kind === 'elevator') {
-      this.elevatorPanel.show(this.elevatorRows())
+      const current = this.layer === 0 ? '1F' : `第 ${this.layer} 层`
+      this.elevatorPanel.show(this.elevatorRows(), current)
       return
     }
     this.elevatorPanel.hide()
   }
-  /**
-   * ★ 新增（2026-10-22 晚·七）：**坐电梯去第 `target` 层**。
-   *
-   * 与 `goUp()` / `goDown()` 是同一件事（存下这一层 → 换层号 → `loadFloor()`），
-   * 只是**跨几步**而不是一步 —— 所以它俩现在是它的特例。
-   *
-   * ⚠️ **这里不判「解锁」**：`goUp()` 走的也是这条路，而**往上走一层**永远该通
-   * （楼梯间就是前进的路，解锁是到达之后才发生的事）—— 在函数里拦一道的话，
-   * 第 1 层上第 2 层会被 `maxFloorReached = 1` 挡死。电梯的门槛在
-   * `elevatorTargets()`（面板里**没解锁的层是灰的**，点不动）。
-   */
-  /**
-   * 把玩家放到**目标层上同 id 那部电梯的门口**（走廊里，不是电梯里面）。
-   *
-   * ★ 改了（2026-10-23，用户：「出电梯应该在电梯门口（像之前楼梯口门口一样），
-   * 不然会被层数选择硬控」）：上一版落在**电梯正中间** —— 落地那一帧
-   * `roomAt()` 就判「你在电梯里」，于是**楼层选择面板立刻弹出来**把玩家按住。
-   * 楼梯间那条路一直是落在**门外**（`DungeonStages.corridorPointAt`），
-   * 这里照同一条：从门口往走廊迈**两格**（80px，比玩家半径 16 大得多）。
-   *
-   * 找不到走廊（那部电梯的门两侧都不是走廊）就退回**房间正中** —— 不抛：
-   * 那是「这一层的电梯间画得不对」，不该让换层崩在这儿。
-   */
+  /** 把玩家放到**目标层上同 id 那部电梯的门口**；目标图缺那部电梯就退回楼梯间门口。 */
   private spawnAtElevator(id: string): void {
     const unit = this.dungeon.rooms.find((r) => r.room.id === id && r.room.kind === 'elevator')
     if (unit === undefined) return
@@ -1962,10 +1847,8 @@ export class BattleScene extends Phaser.Scene {
     const door = unit.doors[0]
     let spot: { x: number; y: number } | null = null
     if (door !== undefined) {
-      // 门是「墙上挖掉的那几格」，`x` / `y` 是它的**左上角** —— 从中点往外迈。
       const cx = door.x + door.width / 2
       const cy = door.y + door.height / 2
-      // `axis === 'v'`（门开在竖直墙上）→ 人沿 x 穿过；否则沿 y 穿过。
       const alongX = door.axis === 'v'
       for (const step of [2, 1, 3]) {
         for (const sign of [1, -1]) {
@@ -1984,179 +1867,100 @@ export class BattleScene extends Phaser.Scene {
     const at = this.session.terrain.safeSpawn(from.x, from.y, radius, radius)
     this.session.player.body.reset(at.x, at.y)
   }
-  /**
-   * 落在**这一层那块传送阵旁边**（`FloorPlan.anomalyGate`，7F 与 8F 各有一块）。
-   *
-   * ★ 2026-11-04（用户：「小房间是来的房间，放传送阵就行」）：从 7F 穿到 8F，
-   * 人应该出现在 8F 那块阵旁边，而不是楼梯间门口。往下让 120px：
-   * 站在阵正中会**下一帧就能按 F 传回去**，落地离它一步远才像「刚走过来」。
-   * 120 仍在小落点房（440×480）里 —— 离南墙还有约 100px。
-   */
-  private spawnAtAnomalyGate(): void {
-    const spot = this.plans[this.floor - 1]?.anomalyGate
-    if (spot === null || spot === undefined) return
-    const radius = this.session.player.model.stats.radius
-    const at = this.session.terrain.safeSpawn(spot.x, spot.y + 120, radius, radius)
-    this.session.player.body.reset(at.x, at.y)
-  }
-  /**
-   * @param fromAnomalyGate 这一趟是**穿传送阵**过去的（7F ↔ 8F 两个方向）。
-   *   落地位置跟着换到目标层那块传送阵旁边，而不是楼梯间门口 —— 用户 2026-11-04
-   *   「小房间是来的房间」：从哪块阵进来，就落在哪块阵旁边。
-   */
-  private goToFloor(
-    target: number,
-    fromElevator: string | null = null,
-    fromAnomalyGate = false,
-  ): void {
-    if (target < 1 || target > this.floors || target === this.floor) return
+  /** 坐电梯/楼梯换到第 `target` 层（0=1F，1—3=层）。 */
+  private goToFloor(target: number, fromElevator: string | null = null): void {
+    if (target < 0 || target > this.floors || target === this.layer) return
     this.leaveFloor()
-    this.floor = target
-    this.loadFloor(fromElevator, fromAnomalyGate)
+    this.layer = target
+    this.zone = 'main'
+    this.loadFloor(fromElevator)
   }
-  /**
-   * ★ 新增（2026-11-04）：**传送阵** —— 摆出来、算解锁、写「还差几间」。
-   *
-   * 位置来自平面图（`FloorPlan.anomalyGate`）：**7F 有一块**（通往 8F 的入口），
-   * **8F 也有一块**（小落点房里，回 7F 的门）。7F 那块有解锁门槛
-   * （`arena.finale.gateRooms`），8F 那块落地就能按。每进一次房都重算
-   * （`enterRoom` 会调它）。
-   *
-   * ⚠️ **锁着也画**：玩家得先看见「这儿有个东西」，才知道要去凑房间数。
-   */
-  private refreshAnomalyGate(): void {
-    this.anomalyGate.hide()
-    const spot = this.plans[this.floor - 1]?.anomalyGate ?? null
-    if (spot === null) return
+  /** 第 3 层池内首领死后，进 8F 心魔最终战。 */
+  private enterFinale(): void {
+    if (this.zone !== 'main' || this.layer !== 3 || !this.bossCleared.has(3)) return
+    this.leaveFloor()
+    this.zone = 'finale'
+    this.loadFloor()
+  }
+  /** 第 3 层首领房里的最终传送阵：只在池内首领已死时出现。 */
+  private refreshFinalGate(): void {
+    this.finalGate.hide()
+    if (this.zone !== 'main' || this.layer !== 3 || !this.bossCleared.has(3)) return
+    const room = this.dungeon.rooms.find((unit) => unit.room.kind === 'boss')?.room.rect
+    if (!room) return
     const radius = this.session.player.model.stats.radius
-    const at = this.session.terrain.safeSpawn(spot.x, spot.y, radius, radius)
-    this.anomalyGate.show(at.x, at.y)
-    this.syncAnomalyGateState()
+    const at = this.session.terrain.safeSpawn(room.x, room.y, radius, radius)
+    this.finalGate.show(at.x, at.y)
+    this.finalGate.setState(true, 0, '最终战 · 心魔 · 走近按 F')
   }
-  /**
-   * 走过几间**房间**。
-   *
-   * ⚠️ ★ 2026-11-04（用户：「电梯房不能算啊」）：**设施不算** —— 楼梯间（`start`）
-   * 与**电梯间**（`elevator`）都跳过。上一版只跳过了楼梯间，于是**走进一次电梯间**
-   * 就被算成「通过了一间房」，传送阵的门槛凭空少一格（实测：刚上 7F 站进电梯看面板，
-   * 回来就变成「还需走过 2 间房」）。
-   * 判据按**关别**而不是按 id：将来再加别的设施（比如新的传送门）只要不是房间就不会被算进来。
-   */
-  private visitedRoomCount(): number {
-    let n = 0
-    for (const unit of this.dungeon.rooms) {
-      // 设施不是「房间」：楼梯间是出生点，电梯间是交通工具。
-      if (unit.room.kind === 'start' || unit.room.kind === 'elevator') continue
-      if (this.visited.has(unit.order)) n++
-    }
-    return n
+  /** 当前区域的首领档位（1F/没有首领时为 null）。 */
+  private currentBossProfile(): number | null {
+    if (this.zone === 'finale') return this.bossPicks.finalBoss.profile
+    if (this.layer < 1 || this.layer > this.floors) return null
+    return this.bossPicks.layers[this.layer - 1]?.profile ?? null
   }
-  /** 把「解锁了没有 / 还差几间」喂给传送阵（每帧调也安全，它只在变化时改字）。 */
-  private syncAnomalyGateState(): void {
-    if (!this.anomalyGate.visible) return
-    // ★ 2026-11-04：8F 小落点房里那一块是**回去的门** —— 落地就能按，
-    // 不看「走过几间房」（那是 7F 那一块的解锁条件）。
-    if (this.floor === this.anomalyFloor) {
-      this.anomalyGate.setState(true, 0, `回到第 ${this.anomalyFloor - 1} 层 · 走近按 F`)
-      return
-    }
-    const need = this.cfg.arena.finale.gateRooms
-    const got = this.visitedRoomCount()
-    this.anomalyGate.setState(got >= need, Math.max(0, need - got))
+  /** HUD / 小地图的区域标题。 */
+  private areaTitle(): string {
+    if (this.zone === 'finale') return '最终战 · 心魔'
+    if (this.layer === 0) return '1F · 出发层'
+    return `第 ${this.layer} / ${this.floors} 层`
   }
   private refreshStairPads(): void {
     this.exitUp.hide()
     this.exitDown.hide()
-    // ★ 2026-11-04：「异常」层（8F）的小房间是**传送阵落点**，不是楼梯间 ——
-    // 两个方框都不亮、也没有楼梯图（见 `drawWorld()`）；回第 7 层走那块传送阵。
-    if (this.floor === this.anomalyFloor) return
+    if (this.zone === 'finale') return
     const stair = this.stairwellUnit()
     if (stair === null) return
     const spots = stairPadSpots(stair.room.rect, FloorExit.SIZE)
     const player = this.session.player.model.stats.radius
-    // 净空取**半个方框**（方框不是实体，玩家要走进去）；通行半径（第四个参数）取玩家。
     const place = (p: { x: number; y: number }) =>
       this.session.terrain.safeSpawn(p.x, p.y, FloorExit.SIZE / 2, player)
-    // ⚠️ ★ 2026-11-04：**「异常」层（末层）不从这里走** —— 用户：「第八层进入只能靠
-    //    第七层……传送阵进入」。所以第 7 层（`anomalyFloor - 1`）的楼梯间**不亮**「上一层」，
-    //    那一层的唯一出口是传送阵。
-    if (this.bossDown() && this.floor < this.floors && this.floor + 1 !== this.anomalyFloor) {
+    const canUp = this.layer === 0 || (this.layer < this.floors && this.bossDown())
+    if (canUp) {
       const at = place(spots.up)
       this.exitUp.show(at.x, at.y)
     }
-    if (this.floor > 1) {
+    if (this.layer > 0) {
       const at = place(spots.down)
       this.exitDown.show(at.x, at.y)
     }
   }
-  /**
-   * 通知栏里「楼梯间现在能做什么」那一截。**`floorBrief()` 与走进楼梯间那一下共用** ——
-   * 两处各写一遍的话，改了一处就会出现「走廊里说的和进门前台说的不一样」。
-   *
-   * 没有可说的时给**空串**（第 1 层、这一层又有首领而且还没打完 —— 两个方向都去不了），
-   * 让调用方自己决定怎么拼。
-   */
+  /** 通知栏里「楼梯间现在能做什么」那一截。 */
   private stairHint(): string {
     const parts: string[] = []
-    if (this.exitDown.visible) parts.push(`楼梯间里有下第 ${this.floor - 1} 层的入口`)
-    if (this.exitUp.visible) parts.push(`楼梯间里已有上第 ${this.floor + 1} 层的入口`)
+    if (this.exitDown.visible)
+      parts.push(`楼梯间里有下${this.layer - 1 === 0 ? '1F' : `第 ${this.layer - 1} 层`}的入口`)
+    if (this.exitUp.visible) parts.push(`楼梯间里已有上第 ${this.layer + 1} 层的入口`)
     return parts.join(' · ')
   }
-  /**
-   * 走进楼梯间时通知栏那一行。
-   *
-   * 楼梯间**没有宝箱、也不进 `cleared`**（见 `enterRoom()` 那一支），
-   * 所以这一行要说的是**它有什么**：两个入口（有几个说几个），
-   * 以及「还没打完首领时，楼下那个为什么没亮」—— 不然玩家会以为这一层没有出口。
-   */
   private stairBrief(unit: DungeonRoom): string {
-    // ★ 2026-11-04：「异常」层的小房间是落点房，不是楼梯间。
-    if (this.floor === this.anomalyFloor)
-      return (
-        '落点 · 传送阵在屋里 · 按 F 回第 ' +
-        `${this.anomalyFloor - 1} 层 · 对面的门里是${this.bossName(this.floor)}`
-      )
-    const parts = [`${unit.room.id} ${this.kindLabel(unit)}`, '每层之间的中转站']
+    if (this.zone === 'finale')
+      return `落点 · 最终战 · 对面的门里是${this.bossPicks.finalBoss.name}`
+    const parts = [`${this.roomLabel(unit)}`, '每层之间的中转站']
     const here = this.stairHint()
     parts.push(here === '' ? '门一直开着' : here)
-    if (!this.exitUp.visible && this.floor < this.floors && !this.bossDown())
-      parts.push(`打倒这层的首领，上第 ${this.floor + 1} 层的入口才亮在这儿`)
+    if (this.layer === this.floors)
+      parts.push('打倒本层首领后，首领房里会出现最终传送阵')
+    else if (!this.exitUp.visible && !this.bossDown())
+      parts.push(`打倒这层的首领，上第 ${this.layer + 1} 层的入口才亮在这儿`)
     return parts.join(' · ')
   }
-  /**
-   * 入口亮着、但玩家没站上去时按了 `F` 的那句话。
-   *
-   * ⚠️ 两个入口都亮时要**把两个方向都说出来**（还带颜色）：它们在同一个房间里，
-   * 只说「走到方框上」的话，玩家得自己猜哪个是哪个 —— 而按错的代价是**整层楼**。
-   */
   private stairHintWhenMissed(): string {
     const where = '（都在楼梯间里）'
+    const up = this.layer + 1
+    const down = this.layer - 1 === 0 ? '1F' : `第 ${this.layer - 1} 层`
     if (this.exitUp.visible && this.exitDown.visible)
-      return `要走到方框上才能换层：暖黄 = 上第 ${this.floor + 1} 层、青绿 = 下第 ${this.floor - 1} 层${where}`
-    if (this.exitUp.visible) return `要走到暖黄方框上才能上楼（第 ${this.floor + 1} 层）${where}`
-    return `要走到青绿方框上才能下楼（第 ${this.floor - 1} 层）${where}`
+      return `要走到方框上才能换层：暖黄 = 上第 ${up} 层、青绿 = 下${down}${where}`
+    if (this.exitUp.visible) return `要走到暖黄方框上才能上楼（第 ${up} 层）${where}`
+    return `要走到青绿方框上才能下楼（${down}）${where}`
   }
-  /**
-   * 在**楼梯间里**亮出「上一层」入口（前进那一个），并把话说清楚。
-   *
-   * ★ 改了（2026-10-22 晚）：方位一词从上到下翻了个个儿（前进 = 上楼），
-   * 方框颜色跟着从青绿改成暖黄 —— 换的是**哪一个入口**，不是那一句话的写法。
-   *
-   * ★ 改了（2026-10-21，用户报的）：位置从 `dungeon.spawn`（楼梯间**门外**的走廊）
-   * 换成 `dungeon.stairwell`（那一间房本身）。楼梯间是这一层楼唯一的上下楼口 ——
-   * 入口摆在门口，等于把「中转站」挂在一个路过都不必进去的门框上；
-   * 而且玩家要原地站着按两次 `F` 的语义（一次在门口、一次在下一层的门口）也说不过去。
-   */
   private showFloorExit(bonus: { name: string } | null): void {
     this.refreshStairPads()
-    // ★ 2026-10-23：**电梯面板也一样**，首领倒下之后「下一层」对电梯同样开门
-    //（`elevatorTargets()` 读的就是 `bossDown()`）—— 玩家这时要是正站在电梯里，
-    // 面板得当场多出那一层。不在电梯里时这一步只是「按当前状态刷一遍」。
     this.syncElevatorPanel(this.roomOrder >= 0 ? this.dungeon.rooms[this.roomOrder]?.room.kind ?? null : null)
     this.notice.setText(
       (bonus ? '获得随机武器：' + bonus.name + ' · ' : '') +
-        `第 ${this.floor} 层通关 · ${this.bossName(this.floor)}已击败 · ` +
-        `回楼梯间，走到暖黄方框上按 F 上到第 ${this.floor + 1} 层`,
+        `第 ${this.layer} 层通关 · ${this.bossName(this.layer)}已击败 · ` +
+        `回楼梯间，走到暖黄方框上按 F 上到第 ${this.layer + 1} 层`,
     )
   }
   private finishRun(): void {
@@ -2171,16 +1975,13 @@ export class BattleScene extends Phaser.Scene {
     this.clearEmitted = true
     this.gameWon = true
     this.endRun('cleared')
-    this.notice.setText(`全部 ${this.floors} 层已通关 · 按 R 开始新一局`)
+    this.notice.setText(`心魔已击败 · 本局通关 · 按 R 开始新一局`)
   }
-  /**
-   * 第 `tier` 层首领的中文名。**和 `requestBoss()` 挑模板的规则是同一张表**：
-   * 第 1 档是课业重压、第 2 档是远程的考卷纸鸢（名字从 `enemies.json` 读）、
-   * 第 3 档（最后一层）是最终首领。
-   */
-  private bossName(tier: number): string {
-    if (tier === this.cfg.arena.finale.floor) return this.cfg.arena.finale.displayName
-    return this.bossSkills?.config.bosses[String(tier)]?.name ?? '课业重压'
+  /** 第 `layer` 层抽到的首领名；最终战返回心魔。 */
+  private bossName(layer = this.layer): string {
+    if (this.zone === 'finale') return this.bossPicks.finalBoss.name
+    if (layer < 1) return '首领'
+    return this.bossPicks.layers[layer - 1]?.name ?? '首领'
   }
 
   /* ------------------------------------------------------------ 相机与观感层 */
@@ -2209,8 +2010,8 @@ export class BattleScene extends Phaser.Scene {
       {
         // 「异常」层（8F）的小房间是**传送阵落点**，不是楼梯间：
         // 不画楼梯图、房号也改写成「落点 · 传送阵」（用户 2026-11-04）。
-        drawStairs: this.floor !== this.anomalyFloor,
-        arrivalRoom: this.floor === this.anomalyFloor,
+        drawStairs: this.zone !== 'finale',
+        arrivalRoom: this.zone === 'finale',
       },
     )
   }
@@ -2570,7 +2371,7 @@ export class BattleScene extends Phaser.Scene {
     this.runEnded = true
     this.bossSkills?.clear()
     this.bossReinforcements.reset()
-    this.ledger.setDepth(this.floor)
+    this.ledger.setDepth(this.layer)
     const snapshot = {
       ...this.flow!.context, ...this.ledger.input(outcome), elapsedMs: this.session.clock.nowMs,
       ...(this.meta

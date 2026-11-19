@@ -1045,10 +1045,9 @@
     "muscovyMinFloor": 2,
     "nightmareCatMinFloor": 3,
     "finale": {
-      "floor": 8,
-      "displayName": "心魔",
-      "finalRewardId": "heart_demon",
-      "gateRooms": 3
+      "floor": 3,
+      "finalRewardId": "run_clear",
+      "heartDemonHp": 1800
     },
     "initialSprayers": 0.75,
     "stageGrowth": 0.3,
@@ -1058,7 +1057,7 @@
     "intermissionMs": 1600,
     "roomsPerFloor": 7,
     "sideRoomsPerFloor": 3,
-    "maxStages": 8
+    "maxStages": 3
   },
   "gunMuzzles": {
     "shoot": [
