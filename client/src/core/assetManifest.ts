@@ -219,6 +219,16 @@ export const NAILONG_ART = {
   laughFrameRate: 8,
 } as const
 
+/**
+ * 第七层奶龙的三段技能语音：`nailong.mp3` 按 0—3s / 3—7s / 7—10s 切开。
+ * 每次释放技能随机播其中一段；资源只有 mp3（源文件就是 mp3，未生成 ogg）。
+ */
+export const NAILONG_SKILL_AUDIO = [
+  'sfx_boss_nailong_skill_01',
+  'sfx_boss_nailong_skill_02',
+  'sfx_boss_nailong_skill_03',
+] as const
+
 function dreamAssets(): AssetEntry[] {
   const sheet = (key: string, path: string, frameSize: number): AssetEntry => ({
     key, path, placeholder: false, kind: 'spritesheet', width: frameSize, height: frameSize,
@@ -1695,6 +1705,14 @@ const BASE_ASSETS: readonly AssetEntry[] = [
   audio('sfx_enemy_grabber_emp', 'audio/sfx/enemies/sfx_enemy_grabber_emp', false),
   audio('sfx_enemy_grabber_land', 'audio/sfx/enemies/sfx_enemy_grabber_land', false),
   audio('sfx_kill_flourish', 'audio/sfx/ui/sfx_kill_flourish'),
+  // 第七层奶龙的技能语音：源文件是 mp3，只交付 mp3 候选。
+  ...NAILONG_SKILL_AUDIO.map((key): AssetEntry => ({
+    key,
+    path: `audio/sfx/boss/${key}`,
+    kind: 'audio',
+    placeholder: false,
+    codecs: ['mp3'],
+  })),
   ...characterVoiceAssets(),
 
   // ---- 玩家分层：身体层 / 手臂+枪层（由 PLAYER_LAYER_BASES 展开，见上）----

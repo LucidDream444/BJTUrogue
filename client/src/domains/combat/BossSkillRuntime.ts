@@ -13,12 +13,37 @@ export interface BossFloorSkills {
   id: string
   name: string
   skillIntervalMs: number
+  /** 可选的**显示缩放覆盖**；只影响贴图，不影响碰撞/命中半径。 */
+  visualScale?: number
   skills: readonly BossSkillSpec[]
+}
+
+export type BossBarragePattern = 'ring' | 'fan' | 'line'
+
+export interface BossBarrageSpec {
+  id: string
+  pattern: BossBarragePattern
+  count: number
+  /** 相邻子弹的夹角；环形为 0。 */
+  spreadDeg: number
+  speed: number
+  radius: number
+  damage: number
+  lifetimeMs: number
+}
+
+export interface BossBarrageConfig {
+  intervalMs: number
+  initialDelayMs: number
+  /** 所有弹幕统一红色；保留字段方便以后按首领调色。 */
+  color: number
+  patterns: readonly BossBarrageSpec[]
 }
 
 export interface BossSkillsTable {
   schemaVersion?: 1
   bosses: Readonly<Record<string, BossFloorSkills>>
+  barrages: Readonly<Record<string, BossBarrageConfig>>
 }
 
 const REQUIRED_NUMBERS: Readonly<Record<string, readonly string[]>> = {
@@ -67,6 +92,10 @@ export function parseBossSkillsTable(raw: unknown): BossSkillsTable {
     const boss = object(entries[floor], path)
     const id = text(boss.id, `${path}.id`), name = text(boss.name, `${path}.name`)
     const skillIntervalMs = number(boss.skillIntervalMs, `${path}.skillIntervalMs`, true)
+    const visualScale =
+      boss.visualScale === undefined
+        ? undefined
+        : number(boss.visualScale, `${path}.visualScale`, true)
     if (!Array.isArray(boss.skills) || boss.skills.length === 0) throw new Error(`${path}.skills 必须是非空数组`)
     const ids = new Set<string>()
     const skills = boss.skills.map((rawSkill, index): BossSkillSpec => {
@@ -102,9 +131,52 @@ export function parseBossSkillsTable(raw: unknown): BossSkillsTable {
         throw new Error(`${skillPath} 只能偷取第 2—7 层技能`)
       return spec
     })
-    bosses[floor] = { id, name, skillIntervalMs, skills }
+    bosses[floor] = {
+      id,
+      name,
+      skillIntervalMs,
+      skills,
+      ...(visualScale !== undefined ? { visualScale } : {}),
+    }
   }
-  return { schemaVersion: 1, bosses }
+  const barragesRaw = object(root.barrages, 'boss-skills.barrages')
+  const barrages: Record<string, BossBarrageConfig> = {}
+  for (const floor of expectedFloors) {
+    const path = `boss-skills.barrages.${floor}`
+    const entry = object(barragesRaw[floor], path)
+    const intervalMs = number(entry.intervalMs, `${path}.intervalMs`, true)
+    const initialDelayMs = number(entry.initialDelayMs, `${path}.initialDelayMs`)
+    const color = number(entry.color, `${path}.color`)
+    if (!Number.isInteger(color) || color > 0xffffff)
+      throw new Error(`${path}.color 必须是 0—0xffffff 的整数颜色`)
+    if (!Array.isArray(entry.patterns) || entry.patterns.length !== 3)
+      throw new Error(`${path}.patterns 必须正好 3 种弹幕`)
+    const barrageIds = new Set<string>()
+    const patterns = entry.patterns.map((rawPattern, index): BossBarrageSpec => {
+      const patternPath = `${path}.patterns[${index}]`
+      const source = object(rawPattern, patternPath)
+      const id = text(source.id, `${patternPath}.id`)
+      if (barrageIds.has(id)) throw new Error(`${patternPath}.id 重复`)
+      barrageIds.add(id)
+      const pattern = text(source.pattern, `${patternPath}.pattern`)
+      if (!['ring', 'fan', 'line'].includes(pattern))
+        throw new Error(`${patternPath}.pattern 必须是 ring/fan/line`)
+      const count = number(source.count, `${patternPath}.count`, true)
+      if (!Number.isInteger(count)) throw new Error(`${patternPath}.count 必须是整数`)
+      return {
+        id,
+        pattern: pattern as BossBarragePattern,
+        count,
+        spreadDeg: number(source.spreadDeg, `${patternPath}.spreadDeg`),
+        speed: number(source.speed, `${patternPath}.speed`, true),
+        radius: number(source.radius, `${patternPath}.radius`, true),
+        damage: number(source.damage, `${patternPath}.damage`, true),
+        lifetimeMs: number(source.lifetimeMs, `${patternPath}.lifetimeMs`, true),
+      }
+    })
+    barrages[floor] = { intervalMs, initialDelayMs, color, patterns }
+  }
+  return { schemaVersion: 1, bosses, barrages }
 }
 
 export interface BossSkillUnit {

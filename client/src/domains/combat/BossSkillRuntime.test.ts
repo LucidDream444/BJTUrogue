@@ -57,6 +57,17 @@ describe('首领技能配置', () => {
   it('正式七位首领配置完整解析', () => {
     expect(Object.keys(table.bosses)).toEqual(['2', '3', '4', '5', '6', '7', '8'])
     expect(table.bosses['8']!.skills.map((skill) => skill.id)).toEqual(['mimic_chain', 'rewind', 'player_shadow'])
+    expect(Object.keys(table.barrages)).toEqual(['2', '3', '4', '5', '6', '7', '8'])
+    for (const floor of Object.keys(table.barrages))
+      expect(table.barrages[floor]!.patterns, floor).toHaveLength(3)
+  })
+  it('拒绝缺失、数量不对或未知形状的弹幕', () => {
+    const missing = rawTable() as unknown as { barrages: Record<string, { patterns: unknown[] }> }
+    missing.barrages['7']!.patterns.pop()
+    expect(() => parseBossSkillsTable(missing)).toThrow()
+    const unknown = rawTable() as unknown as { barrages: Record<string, { patterns: { pattern: string }[] }> }
+    unknown.barrages['7']!.patterns[0]!.pattern = 'spiral'
+    expect(() => parseBossSkillsTable(unknown)).toThrow()
   })
   it.each([
     (raw: Record<string, unknown>) => { raw.schemaVersion = 2 },

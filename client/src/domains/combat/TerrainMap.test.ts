@@ -73,6 +73,28 @@ describe('neon arena terrain', () => {
       }
   })
 
+  it('returns a usable wall normal for bouncing projectiles', () => {
+    const map = narrowDoorTerrain()
+    expect(map.solidHit({ x: 100, y: 60 }, { x: 100, y: 140 })).toEqual({
+      t: 0.75,
+      nx: 0,
+      ny: -1,
+    })
+    expect(map.solidHit({ x: 100, y: 220 }, { x: 100, y: 100 })).toEqual({
+      t: 0.5,
+      nx: 0,
+      ny: 1,
+    })
+    expect(map.solidHit({ x: 300, y: 300 }, { x: 500, y: 300 })).toEqual({
+      t: 0.5,
+      nx: -1,
+      ny: 0,
+    })
+    // 门洞在 x=280..320：竖着穿过门洞不应报告撞墙。
+    expect(map.solidHit({ x: 300, y: 60 }, { x: 300, y: 100 })).toBeNull()
+    expect(map.solidHitTime({ x: 100, y: 60 }, { x: 100, y: 140 })).toBe(0.75)
+  })
+
   it('does not report water entry on the neon arena', () => {
     expect(terrain.crossesWater({ x: 10, y: 10 }, { x: 1300, y: 800 })).toBe(false)
   })

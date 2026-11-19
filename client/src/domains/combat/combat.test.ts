@@ -152,6 +152,34 @@ describe('D1 pool with existing damage bridge', () => {
     expect(release).toHaveBeenCalledTimes(5)
   })
 })
+describe('expanded weapon roster', () => {
+  it('contains 10 melee, 25 projectile and 1 beam weapon', () => {
+    expect(cfg.weapons).toHaveLength(36)
+    expect(cfg.weapons.filter((w) => w.mode === 'melee')).toHaveLength(10)
+    expect(cfg.weapons.filter((w) => w.mode === 'projectile')).toHaveLength(25)
+    expect(cfg.weapons.filter((w) => w.mode === 'beam')).toHaveLength(1)
+    expect(new Set(cfg.weapons.map((w) => w.id)).size).toBe(36)
+  })
+  it('makes every melee weapon free to swing', () => {
+    for (const weapon of cfg.weapons.filter((w) => w.mode === 'melee'))
+      expect(weapon.staminaCost, weapon.id).toBe(0)
+  })
+  it('derives a melee weapon as one hit with its configured damage', () => {
+    const weapon = cfg.weapons.find((w) => w.id === 'ruler_sword')!
+    const stats = deriveStats(bundle.balance, cfg, weapon, defs, new Map())
+    expect(stats.pellets).toBe(1)
+    expect(stats.damage).toBeCloseTo(bundle.balance.baseline.bullet.damage * weapon.damageScale)
+    expect(stats.cooldownMs).toBeCloseTo(
+      bundle.balance.baseline.bullet.fireIntervalMs * weapon.cooldownScale,
+    )
+  })
+  it('rejects a weapon id outside the canonical roster', () => {
+    const bad = structuredClone(read('combat.json'))
+    bad.weapons[0].id = 'not_a_weapon'
+    expect(() => parseCombatConfig(bad)).toThrow()
+  })
+})
+
 describe('pulse loadout balance', () => {
   it('includes all six weapons with reduced cannon stamina cost', () => {
     expect(cfg.weapons.map((w) => w.id)).toEqual(

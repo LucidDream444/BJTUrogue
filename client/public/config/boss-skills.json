@@ -1,232 +1,494 @@
 {
- "schemaVersion": 1,
- "_comment": "七位首领档位技能表。键 \"2\"..\"8\" 是**首领档位**（不是楼层号），每条里的 id 是稳定身份（coursework / paper_kite / … / heart_demon）；伤害为基础值，运行时统一乘当前难度与首领伤害倍率。所有毫秒、速度、半径、概率与数量均由本表维护。",
- "bosses": {
-  "2": {
-   "id": "coursework",
-   "name": "课业重压",
-   "skillIntervalMs": 6500,
-   "skills": [
-    {
-     "id": "campus_slow",
-     "cooldownMs": 15000,
-     "initialDelayMs": 5000,
-     "durationMs": 4500,
-     "speedMultiplier": 0.55
+  "schemaVersion": 1,
+  "_comment": "七位首领档位技能表。键 \"2\"..\"8\" 是**首领档位**（不是楼层号），每条里的 id 是稳定身份（coursework / paper_kite / … / heart_demon）；伤害为基础值，运行时统一乘当前难度与首领伤害倍率。所有毫秒、速度、半径、概率与数量均由本表维护。",
+  "bosses": {
+    "2": {
+      "id": "coursework",
+      "name": "课业重压",
+      "skillIntervalMs": 6500,
+      "skills": [
+        {
+          "id": "campus_slow",
+          "cooldownMs": 15000,
+          "initialDelayMs": 5000,
+          "durationMs": 4500,
+          "speedMultiplier": 0.55
+        },
+        {
+          "id": "paper_summon",
+          "cooldownMs": 14000,
+          "initialDelayMs": 10000,
+          "countMin": 8,
+          "countMax": 12,
+          "maxExisting": 16,
+          "spawnIntervalMs": 100,
+          "spawnRadius": 180,
+          "bypassMinionCap": true
+        }
+      ]
     },
-    {
-     "id": "paper_summon",
-     "cooldownMs": 14000,
-     "initialDelayMs": 10000,
-     "countMin": 8,
-     "countMax": 12,
-     "maxExisting": 16,
-     "spawnIntervalMs": 100,
-     "spawnRadius": 180,
-     "bypassMinionCap": true
+    "3": {
+      "id": "paper_kite",
+      "name": "考卷纸鸢",
+      "skillIntervalMs": 6500,
+      "skills": [
+        {
+          "id": "radial",
+          "cooldownMs": 3400,
+          "initialDelayMs": 2500,
+          "windupMs": 875,
+          "recoverMs": 1125,
+          "count": 24,
+          "projectileSpeed": 190,
+          "projectileRadius": 6,
+          "damage": 14,
+          "lifetimeMs": 4600,
+          "volleyOffsetDeg": 7.5
+        },
+        {
+          "id": "triangle",
+          "cooldownMs": 16000,
+          "initialDelayMs": 7000,
+          "teleportCount": 3,
+          "teleportIntervalMs": 650,
+          "teleportDistance": 230,
+          "lineWidth": 20,
+          "damage": 18,
+          "damageTickMs": 400,
+          "lineDurationMs": 3500,
+          "warningMs": 650
+        },
+        {
+          "id": "haste",
+          "cooldownMs": 13000,
+          "initialDelayMs": 12000,
+          "durationMs": 2500,
+          "speedMultiplier": 3.2
+        }
+      ]
+    },
+    "4": {
+      "id": "acid_sprinkler",
+      "name": "酸蚀喷灌设备",
+      "skillIntervalMs": 6000,
+      "skills": [
+        {
+          "id": "acid_pools",
+          "cooldownMs": 6000,
+          "initialDelayMs": 3000,
+          "count": 4,
+          "radius": 90,
+          "warningMs": 900,
+          "lifetimeMs": 15000,
+          "damage": 6,
+          "damageTickMs": 500,
+          "maxActive": 16
+        },
+        {
+          "id": "water_pools",
+          "cooldownMs": 7500,
+          "initialDelayMs": 6500,
+          "count": 4,
+          "radius": 100,
+          "warningMs": 700,
+          "lifetimeMs": 16000,
+          "slideSpeed": 400,
+          "maxActive": 16
+        }
+      ]
+    },
+    "5": {
+      "id": "sports_gear",
+      "name": "失控体育器材",
+      "skillIntervalMs": 7500,
+      "skills": [
+        {
+          "id": "ricochet_charge",
+          "cooldownMs": 15000,
+          "initialDelayMs": 5000,
+          "warningMs": 1000,
+          "speed": 520,
+          "bounceCount": 3,
+          "maxDurationMs": 6500,
+          "damage": 24,
+          "hitRadius": 48,
+          "damageTickMs": 500,
+          "invulnerable": true
+        },
+        {
+          "id": "leap_slam",
+          "cooldownMs": 13000,
+          "initialDelayMs": 10000,
+          "warningMs": 1300,
+          "flightMs": 700,
+          "targetOffsetRadius": 80,
+          "radius": 150,
+          "damage": 28,
+          "stunMs": 3000,
+          "flightHeight": 180
+        }
+      ]
+    },
+    "6": {
+      "id": "roll_call",
+      "name": "分身点名册",
+      "skillIntervalMs": 10000,
+      "skills": [
+        {
+          "id": "clones",
+          "cooldownMs": 22000,
+          "initialDelayMs": 5000,
+          "count": 3,
+          "hpDivisor": 3,
+          "spawnRadius": 170,
+          "durationMs": 14000,
+          "bossStunMs": 2000
+        },
+        {
+          "id": "transmute",
+          "cooldownMs": 18000,
+          "initialDelayMs": 12000,
+          "warningMs": 1000
+        }
+      ]
+    },
+    "7": {
+      "id": "nailong",
+      "name": "奶龙",
+      "skillIntervalMs": 7500,
+      "visualScale": 1.5,
+      "skills": [
+        {
+          "id": "rally",
+          "cooldownMs": 16000,
+          "initialDelayMs": 5000,
+          "durationMs": 5500,
+          "speedMultiplier": 1.9,
+          "aggroRadius": 5000,
+          "laughPulseMs": 550
+        },
+        {
+          "id": "blue_barrage",
+          "cooldownMs": 14000,
+          "initialDelayMs": 10000,
+          "roundsMin": 5,
+          "roundsMax": 7,
+          "roundIntervalMs": 450,
+          "count": 18,
+          "projectileSpeed": 210,
+          "projectileRadius": 7,
+          "damage": 12,
+          "lifetimeMs": 4200,
+          "volleyOffsetDeg": 10,
+          "color": 4238335
+        }
+      ]
+    },
+    "8": {
+      "id": "heart_demon",
+      "name": "心魔",
+      "skillIntervalMs": 8500,
+      "skills": [
+        {
+          "id": "mimic_chain",
+          "cooldownMs": 18000,
+          "initialDelayMs": 5000,
+          "count": 2,
+          "intervalMs": 1800,
+          "sourceFloorMin": 2,
+          "sourceFloorMax": 7,
+          "blackTint": 2236962
+        },
+        {
+          "id": "rewind",
+          "cooldownMs": 24000,
+          "initialDelayMs": 12000,
+          "historyMs": 3000,
+          "durationMs": 3000,
+          "snapshotIntervalMs": 100,
+          "tickIntervalMs": 1000,
+          "overlayAlpha": 0.24
+        },
+        {
+          "id": "player_shadow",
+          "cooldownMs": 22000,
+          "initialDelayMs": 17000,
+          "durationMs": 8500,
+          "visualScale": 3,
+          "followSpeed": 155,
+          "keepDistance": 220,
+          "weaponDamageMultiplier": 0.7,
+          "attackIntervalMultiplier": 1.3,
+          "blackTint": 1118481
+        }
+      ]
     }
-   ]
   },
-  "3": {
-   "id": "paper_kite",
-   "name": "考卷纸鸢",
-   "skillIntervalMs": 6500,
-   "skills": [
-    {
-     "id": "radial",
-     "cooldownMs": 3400,
-     "initialDelayMs": 2500,
-     "windupMs": 875,
-     "recoverMs": 1125,
-     "count": 24,
-     "projectileSpeed": 190,
-     "projectileRadius": 6,
-     "damage": 14,
-     "lifetimeMs": 4600,
-     "volleyOffsetDeg": 7.5
+  "barrages": {
+    "2": {
+      "intervalMs": 3400,
+      "initialDelayMs": 1600,
+      "color": 16726843,
+      "patterns": [
+        {
+          "id": "frost_fan",
+          "pattern": "fan",
+          "count": 7,
+          "spreadDeg": 11,
+          "speed": 230,
+          "radius": 6,
+          "damage": 6,
+          "lifetimeMs": 3800
+        },
+        {
+          "id": "frost_ring",
+          "pattern": "ring",
+          "count": 18,
+          "spreadDeg": 0,
+          "speed": 170,
+          "radius": 5,
+          "damage": 5,
+          "lifetimeMs": 4200
+        },
+        {
+          "id": "frost_line",
+          "pattern": "line",
+          "count": 1,
+          "spreadDeg": 0,
+          "speed": 420,
+          "radius": 9,
+          "damage": 10,
+          "lifetimeMs": 2600
+        }
+      ]
     },
-    {
-     "id": "triangle",
-     "cooldownMs": 16000,
-     "initialDelayMs": 7000,
-     "teleportCount": 3,
-     "teleportIntervalMs": 650,
-     "teleportDistance": 230,
-     "lineWidth": 20,
-     "damage": 18,
-     "damageTickMs": 400,
-     "lineDurationMs": 3500,
-     "warningMs": 650
+    "3": {
+      "intervalMs": 3000,
+      "initialDelayMs": 1400,
+      "color": 16726843,
+      "patterns": [
+        {
+          "id": "kite_ring",
+          "pattern": "ring",
+          "count": 24,
+          "spreadDeg": 0,
+          "speed": 190,
+          "radius": 5,
+          "damage": 5,
+          "lifetimeMs": 4000
+        },
+        {
+          "id": "kite_fan",
+          "pattern": "fan",
+          "count": 5,
+          "spreadDeg": 16,
+          "speed": 260,
+          "radius": 6,
+          "damage": 7,
+          "lifetimeMs": 3400
+        },
+        {
+          "id": "kite_line",
+          "pattern": "line",
+          "count": 1,
+          "spreadDeg": 0,
+          "speed": 460,
+          "radius": 10,
+          "damage": 11,
+          "lifetimeMs": 2400
+        }
+      ]
     },
-    {
-     "id": "haste",
-     "cooldownMs": 13000,
-     "initialDelayMs": 12000,
-     "durationMs": 2500,
-     "speedMultiplier": 3.2
+    "4": {
+      "intervalMs": 3800,
+      "initialDelayMs": 2000,
+      "color": 16726843,
+      "patterns": [
+        {
+          "id": "acid_fan",
+          "pattern": "fan",
+          "count": 9,
+          "spreadDeg": 9,
+          "speed": 210,
+          "radius": 7,
+          "damage": 6,
+          "lifetimeMs": 4200
+        },
+        {
+          "id": "acid_ring",
+          "pattern": "ring",
+          "count": 14,
+          "spreadDeg": 0,
+          "speed": 150,
+          "radius": 8,
+          "damage": 6,
+          "lifetimeMs": 4800
+        },
+        {
+          "id": "acid_line",
+          "pattern": "line",
+          "count": 1,
+          "spreadDeg": 0,
+          "speed": 380,
+          "radius": 11,
+          "damage": 12,
+          "lifetimeMs": 2800
+        }
+      ]
+    },
+    "5": {
+      "intervalMs": 3200,
+      "initialDelayMs": 1500,
+      "color": 16726843,
+      "patterns": [
+        {
+          "id": "sports_ring",
+          "pattern": "ring",
+          "count": 20,
+          "spreadDeg": 0,
+          "speed": 240,
+          "radius": 5,
+          "damage": 5,
+          "lifetimeMs": 3600
+        },
+        {
+          "id": "sports_fan",
+          "pattern": "fan",
+          "count": 6,
+          "spreadDeg": 14,
+          "speed": 300,
+          "radius": 6,
+          "damage": 7,
+          "lifetimeMs": 3200
+        },
+        {
+          "id": "sports_line",
+          "pattern": "line",
+          "count": 1,
+          "spreadDeg": 0,
+          "speed": 520,
+          "radius": 8,
+          "damage": 10,
+          "lifetimeMs": 2200
+        }
+      ]
+    },
+    "6": {
+      "intervalMs": 3600,
+      "initialDelayMs": 1800,
+      "color": 16726843,
+      "patterns": [
+        {
+          "id": "rollcall_fan",
+          "pattern": "fan",
+          "count": 8,
+          "spreadDeg": 10,
+          "speed": 250,
+          "radius": 6,
+          "damage": 6,
+          "lifetimeMs": 3800
+        },
+        {
+          "id": "rollcall_ring",
+          "pattern": "ring",
+          "count": 16,
+          "spreadDeg": 0,
+          "speed": 200,
+          "radius": 6,
+          "damage": 6,
+          "lifetimeMs": 4000
+        },
+        {
+          "id": "rollcall_line",
+          "pattern": "line",
+          "count": 1,
+          "spreadDeg": 0,
+          "speed": 440,
+          "radius": 9,
+          "damage": 11,
+          "lifetimeMs": 2600
+        }
+      ]
+    },
+    "7": {
+      "intervalMs": 4200,
+      "initialDelayMs": 2200,
+      "color": 16726843,
+      "patterns": [
+        {
+          "id": "nailong_fan",
+          "pattern": "fan",
+          "count": 9,
+          "spreadDeg": 12,
+          "speed": 220,
+          "radius": 7,
+          "damage": 6,
+          "lifetimeMs": 4200
+        },
+        {
+          "id": "nailong_ring",
+          "pattern": "ring",
+          "count": 22,
+          "spreadDeg": 0,
+          "speed": 180,
+          "radius": 5,
+          "damage": 5,
+          "lifetimeMs": 4500
+        },
+        {
+          "id": "nailong_line",
+          "pattern": "line",
+          "count": 1,
+          "spreadDeg": 0,
+          "speed": 400,
+          "radius": 10,
+          "damage": 12,
+          "lifetimeMs": 2800
+        }
+      ]
+    },
+    "8": {
+      "intervalMs": 2800,
+      "initialDelayMs": 1500,
+      "color": 16726843,
+      "patterns": [
+        {
+          "id": "heart_ring",
+          "pattern": "ring",
+          "count": 26,
+          "spreadDeg": 0,
+          "speed": 260,
+          "radius": 5,
+          "damage": 6,
+          "lifetimeMs": 3800
+        },
+        {
+          "id": "heart_fan",
+          "pattern": "fan",
+          "count": 11,
+          "spreadDeg": 8,
+          "speed": 320,
+          "radius": 6,
+          "damage": 7,
+          "lifetimeMs": 3000
+        },
+        {
+          "id": "heart_line",
+          "pattern": "line",
+          "count": 1,
+          "spreadDeg": 0,
+          "speed": 560,
+          "radius": 9,
+          "damage": 13,
+          "lifetimeMs": 2200
+        }
+      ]
     }
-   ]
   },
-  "4": {
-   "id": "acid_sprinkler",
-   "name": "酸蚀喷灌设备",
-   "skillIntervalMs": 6000,
-   "skills": [
-    {
-     "id": "acid_pools",
-     "cooldownMs": 6000,
-     "initialDelayMs": 3000,
-     "count": 4,
-     "radius": 90,
-     "warningMs": 900,
-     "lifetimeMs": 15000,
-     "damage": 6,
-     "damageTickMs": 500,
-     "maxActive": 16
-    },
-    {
-     "id": "water_pools",
-     "cooldownMs": 7500,
-     "initialDelayMs": 6500,
-     "count": 4,
-     "radius": 100,
-     "warningMs": 700,
-     "lifetimeMs": 16000,
-     "slideSpeed": 400,
-     "maxActive": 16
-    }
-   ]
-  },
-  "5": {
-   "id": "sports_gear",
-   "name": "失控体育器材",
-   "skillIntervalMs": 7500,
-   "skills": [
-    {
-     "id": "ricochet_charge",
-     "cooldownMs": 15000,
-     "initialDelayMs": 5000,
-     "warningMs": 1000,
-     "speed": 520,
-     "bounceCount": 3,
-     "maxDurationMs": 6500,
-     "damage": 24,
-     "hitRadius": 48,
-     "damageTickMs": 500,
-     "invulnerable": true
-    },
-    {
-     "id": "leap_slam",
-     "cooldownMs": 13000,
-     "initialDelayMs": 10000,
-     "warningMs": 1300,
-     "flightMs": 700,
-     "targetOffsetRadius": 80,
-     "radius": 150,
-     "damage": 28,
-     "stunMs": 3000,
-     "flightHeight": 180
-    }
-   ]
-  },
-  "6": {
-   "id": "roll_call",
-   "name": "分身点名册",
-   "skillIntervalMs": 10000,
-   "skills": [
-    {
-     "id": "clones",
-     "cooldownMs": 22000,
-     "initialDelayMs": 5000,
-     "count": 3,
-     "hpDivisor": 3,
-     "spawnRadius": 170,
-     "durationMs": 14000,
-     "bossStunMs": 2000
-    },
-    {
-     "id": "transmute",
-     "cooldownMs": 18000,
-     "initialDelayMs": 12000,
-     "warningMs": 1000
-    }
-   ]
-  },
-  "7": {
-   "id": "nailong",
-   "name": "奶龙",
-   "skillIntervalMs": 7500,
-   "skills": [
-    {
-     "id": "rally",
-     "cooldownMs": 16000,
-     "initialDelayMs": 5000,
-     "durationMs": 5500,
-     "speedMultiplier": 1.9,
-     "aggroRadius": 5000,
-     "laughPulseMs": 550
-    },
-    {
-     "id": "blue_barrage",
-     "cooldownMs": 14000,
-     "initialDelayMs": 10000,
-     "roundsMin": 5,
-     "roundsMax": 7,
-     "roundIntervalMs": 450,
-     "count": 18,
-     "projectileSpeed": 210,
-     "projectileRadius": 7,
-     "damage": 12,
-     "lifetimeMs": 4200,
-     "volleyOffsetDeg": 10,
-     "color": 4238335
-    }
-   ]
-  },
-  "8": {
-   "id": "heart_demon",
-   "name": "心魔",
-   "skillIntervalMs": 8500,
-   "skills": [
-    {
-     "id": "mimic_chain",
-     "cooldownMs": 18000,
-     "initialDelayMs": 5000,
-     "count": 2,
-     "intervalMs": 1800,
-     "sourceFloorMin": 2,
-     "sourceFloorMax": 7,
-     "blackTint": 2236962
-    },
-    {
-     "id": "rewind",
-     "cooldownMs": 24000,
-     "initialDelayMs": 12000,
-     "historyMs": 3000,
-     "durationMs": 3000,
-     "snapshotIntervalMs": 100,
-     "tickIntervalMs": 1000,
-     "overlayAlpha": 0.24
-    },
-    {
-     "id": "player_shadow",
-     "cooldownMs": 22000,
-     "initialDelayMs": 17000,
-     "durationMs": 8500,
-     "visualScale": 3,
-     "followSpeed": 155,
-     "keepDistance": 220,
-     "weaponDamageMultiplier": 0.7,
-     "attackIntervalMultiplier": 1.3,
-     "blackTint": 1118481
-    }
-   ]
+  "feedback": {
+    "tickHz": 880,
+    "laughHz": 190,
+    "toneDurationMs": 100,
+    "toneGain": 0.12
   }
- },
- "feedback": {
-  "tickHz": 880,
-  "laughHz": 190,
-  "toneDurationMs": 100,
-  "toneGain": 0.12
- }
 }
