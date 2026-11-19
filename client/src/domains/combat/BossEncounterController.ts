@@ -343,8 +343,7 @@ export class BossEncounterController {
   }
   private weaponSnapshot(): ShadowWeapon {
     const s = this.session,
-      w = s.weapon,
-      stats = s.stats
+      { weapon: w, stats } = s.shadowWeapon()
     return {
       textureKey: this.playerSnapshot(),
       artKey: w.artKey,

@@ -227,7 +227,7 @@ export class CombatSession {
       this.enemies,
       this.player,
       this.terrain,
-      () => this.audio.fire(),
+      (weapon) => this.audio.fire(weapon),
     )
     this.feedback = new CombatFeedback(scene, this.bus, this.clock, cfg, (id) =>
       id === this.player.model.id
@@ -407,7 +407,11 @@ export class CombatSession {
     }
     this.weapons.applyVortices(fields, (this.clock.nowMs - before) / 1000)
     this.player.aim(this.aim.x, this.aim.y, this.weapons.firing)
-    this.player.advanceStamina(this.clock.nowMs - before, this.weapons.firing)
+    // 0 耗武器（近战）按住攻击键不应该阻止回能：没有消耗就没有“停火回能”的理由。
+    this.player.advanceStamina(
+      this.clock.nowMs - before,
+      this.weapons.firing && this.weapon.staminaCost > 0,
+    )
     this.weapons.update(this.stats, this.weapon)
   }
   update(delta: number): void {
@@ -750,8 +754,12 @@ export class CombatSession {
       { key: 'bulletSpeed', label: '弹丸速度', format: display },
       { key: 'spreadDeg', label: '散布', format: (v) => display(v) + '°' },
     ]
+    const hidden =
+      this.weapon.mode === 'melee'
+        ? new Set<keyof EffectiveStats>(['bulletSpeed', 'spreadDeg', 'pellets'])
+        : new Set<keyof EffectiveStats>()
     return metrics
-      .filter((m) => after[m.key] !== this.stats[m.key])
+      .filter((m) => !hidden.has(m.key) && after[m.key] !== this.stats[m.key])
       .map((m) => ({
         label: m.label,
         before: m.format(this.stats[m.key]),
@@ -761,6 +769,25 @@ export class CombatSession {
   rewardDescription(r: RewardDef): string {
     const changes = this.rewardChanges(r).map((c) => c.label + ' ' + c.before + ' → ' + c.after)
     return r.description + '\n' + changes.join('；')
+  }
+
+  /**
+   * 影分身首领借用的武器快照。玩家持近战时回退到起始手枪：
+   * 近战的 `bulletSpeed`/`pellets` 不是可射击参数，直接快照会让影子开不出弹。
+   */
+  shadowWeapon(): { weapon: WeaponDef; stats: EffectiveStats } {
+    if (this.weapon.mode !== 'melee') return { weapon: this.weapon, stats: this.stats }
+    const weapon = this.cfg.weapons.find((w) => w.id === 'pencil')!
+    const stats = deriveStats(
+      this.bundle.balance,
+      this.cfg,
+      weapon,
+      this.rewardDefs,
+      this.rewards.stacks,
+      this.permanent,
+      this.temporaryAttackSpeedPct,
+    )
+    return { weapon, stats }
   }
   destroy(): void {
     if (this.disposed) return

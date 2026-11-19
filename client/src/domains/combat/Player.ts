@@ -5,18 +5,30 @@ import type { GameClock } from '@/core/time'
 import type { TypedBus } from '@/core/events'
 import type { Unsubscribe } from '@/core/events'
 import type { CombatEvents } from './events'
-import type { CombatConfig, WeaponDef } from './config'
+import {
+  publicWeaponVisual,
+  type CombatConfig,
+  type PublicWeaponId,
+  type WeaponDef,
+  type WeaponMode,
+} from './config'
 import { PlayerModel, staminaAfterRegen } from './PlayerModel'
 import { advancePlayerMovement, type MovementVector } from './MovementForces'
-import { aimBand, aimFrame, equippedMuzzle, shotRecoil } from './AimPose'
+import { aimBand, aimFrame, equippedGrip, shotRecoil } from './AimPose'
 import type { PlayerPort } from './EnemyBridge'
 import type { BalanceConfig } from '@/core/config'
-import { GOOSE_ART, RED_BERRY_ART } from '@/core/assetManifest'
+import { GOOSE_ART, PUBLIC_WEAPON_ART, RED_BERRY_ART } from '@/core/assetManifest'
 import { GooseView } from './GooseView'
 import { gooseDirection, gooseFrame, goosePose, type GooseDirection } from './GoosePose'
 import { RedBerryView } from './RedBerryView'
 import { redBerryFrame, redBerryPose } from './RedBerryPose'
 type Art = (typeof D1_ART)[number]
+/**
+ * 新生手上武器贴图的额外缩放。
+ * 公共单图是 48×32，按角色 1.3 倍直接挂会明显大于旧整帧图里的枪；
+ * 0.5 后尺寸与原来的持枪动画接近。枪口计算也用同一个系数。
+ */
+const HELD_WEAPON_SCALE = 0.5
 export const PLAYER_ART = {
   pulseRun: D1_ART.find((a) => a.group === 'pulse_run')!,
   pulseShoot: D1_ART.find((a) => a.group === 'pulse_shoot')!,
@@ -52,6 +64,8 @@ export class Player {
   readonly model: PlayerModel
   readonly body: Phaser.Physics.Arcade.Body
   readonly sprite: Phaser.GameObjects.Sprite
+  /** 新生专用的“手上武器贴图”；高于角色贴图，独立于动画帧。 */
+  private readonly weaponSprite: Phaser.GameObjects.Image
   readonly anchor: Phaser.GameObjects.Zone
   private readonly keys: Record<string, Phaser.Input.Keyboard.Key>
   private aimX = 0
@@ -67,6 +81,9 @@ export class Player {
   private runAnimationMs = 0
   private aimBandValue = 1
   private weaponIdValue: WeaponDef['id'] = 'pencil'
+  private weaponVisualIdValue: PublicWeaponId = 'pencil'
+  private weaponModeValue: WeaponMode = 'projectile'
+  private attackPoseMsValue: number
   maxStamina: number
   stamina: number
   private energyRegenPct = 0
@@ -82,6 +99,7 @@ export class Player {
   ) {
     this.maxStamina = cfg.player.maxStamina
     this.stamina = this.maxStamina
+    this.attackPoseMsValue = cfg.player.attackPoseMs
     this.model = new PlayerModel(
       balance.baseline.player,
       clock,
@@ -122,6 +140,9 @@ export class Player {
       textureKeyFor(scene, PLAYER_ART.shoot.key),
       cfg.player.gunIdleFrame,
     )
+    this.weaponSprite = scene.add
+      .image(x, y, textureKeyFor(scene, PUBLIC_WEAPON_ART.pencil.texture))
+      .setVisible(false)
     // 初始朝右，整帧姿态由鼠标所在的方向档决定。
     this.aimX = x + 1
     this.aimY = y
@@ -154,6 +175,28 @@ export class Player {
 
   setWeapon(weapon: WeaponDef): void {
     this.weaponIdValue = weapon.id
+    this.weaponVisualIdValue = publicWeaponVisual(weapon.visualId ?? weapon.id)
+    this.weaponModeValue = weapon.mode
+    this.attackPoseMsValue =
+      weapon.mode === 'melee'
+        ? (weapon.swingMs ?? this.cfg.player.attackPoseMs)
+        : this.cfg.player.attackPoseMs
+    this.weaponSprite.setTexture(
+      textureKeyFor(this.sprite.scene, PUBLIC_WEAPON_ART[this.weaponVisualIdValue].texture),
+    )
+  }
+
+  /** 当前武器是否近战；表现层据此切换挥剑图。 */
+  get weaponMode(): WeaponMode {
+    return this.weaponModeValue
+  }
+
+  /**
+   * 近战挥砍方向：从**玩家中心**指向鼠标。
+   * 不用 `angle`：那个角度从枪口算起，长枪/长尺会让近战弧线偏到一边。
+   */
+  get meleeAngle(): number {
+    return Math.atan2(this.aimY - this.feetY, this.aimX - this.x)
   }
 
   /** 只换美术，存档身份和角色战斗数值继续由宿主决定。 */
@@ -326,32 +369,40 @@ export class Player {
     const art = this.cfg.aimArt
     const elapsed =
       this.clock.nowMs < this.model.attackUntilMs
-        ? Math.max(0, this.clock.nowMs - (this.model.attackUntilMs - this.cfg.player.attackPoseMs))
+        ? Math.max(0, this.clock.nowMs - (this.model.attackUntilMs - this.attackPoseMsValue))
         : null
     const pose = aimFrame(art, this.aimBandValue, this.moving, this.runAnimationMs)
-    const recoil = shotRecoil(art, elapsed, this.cfg.player.attackPoseMs, this.facingLeft)
+    const recoil = shotRecoil(art, elapsed, this.attackPoseMsValue, this.facingLeft)
     return {
       ...pose,
       position: { x: this.x + recoil.x, y: this.feetY + recoil.y },
-      key: 'player_' + this.weaponIdValue + '_aim_' + pose.sheet + '_' + pose.state,
+      // 新生只保留原有的一套瞄准动画；武器不再按 id 换整帧图，改为手上叠贴图。
+      key: 'player_pencil_aim_' + pose.sheet + '_' + pose.state,
     }
   }
   muzzle(): { x: number; y: number } {
     if (this.goose) return this.goosePose().muzzle
     if (this.redBerry) return this.redBerryPose().muzzle
     const pose = this.visualPose()
-    const weaponMuzzle =
-      this.weaponIdValue === 'pencil'
-        ? undefined
-        : this.cfg.gunMuzzles[this.weaponIdValue + 'Shoot']![0]
-    return equippedMuzzle(
+    const art = PUBLIC_WEAPON_ART[this.weaponVisualIdValue]
+    const scale = this.cfg.player.visualScale * art.visualScale * HELD_WEAPON_SCALE
+    const grip = equippedGrip(
       this.cfg.aimArt,
       pose,
       pose.position,
       this.cfg.player.visualScale,
       this.facingLeft,
-      weaponMuzzle,
     )
+    // 枪口固定落在「手 → 鼠标」射线上：与 `drawHeldWeapon` 用同一个变换。
+    const aimAngle = Math.atan2(this.aimY - grip.y, this.aimX - grip.x)
+    const flipY = Math.cos(aimAngle) < 0
+    const localX = (art.muzzle[0] - art.grip[0]) * scale
+    const localY = (art.muzzle[1] - art.grip[1]) * scale * (flipY ? -1 : 1)
+    const length = Math.hypot(localX, localY)
+    return {
+      x: grip.x + Math.cos(aimAngle) * length,
+      y: grip.y + Math.sin(aimAngle) * length,
+    }
   }
   draw(): void {
     this.model.syncState(this.moving)
@@ -371,14 +422,15 @@ export class Player {
       const action = !this.model.alive ? 'death' : hurt ? 'hurt' : attack ? 'shoot' : this.moving ? 'run' : 'idle'
       const elapsed = !this.model.alive ? this.clock.realNowMs - this.deathAtMs
         : hurt ? this.clock.nowMs - this.model.hurtAtMs
-        : attack ? this.clock.nowMs - (this.model.attackUntilMs - this.cfg.player.attackPoseMs)
+        : attack ? this.clock.nowMs - (this.model.attackUntilMs - this.attackPoseMsValue)
         : this.moving ? this.runAnimationMs : this.clock.nowMs
-      const duration = hurt ? this.cfg.player.hurtMs : attack ? this.cfg.player.attackPoseMs : undefined
+      const duration = hurt ? this.cfg.player.hurtMs : attack ? this.attackPoseMsValue : undefined
       const pose = this.redBerryPose({ x: vx, y: vy })
       this.berryAimAngle = pose.angle
       this.redBerry.draw(pose, redBerryFrame(action, elapsed, duration),
-        this.cfg.player.visualScale * RED_BERRY_ART.visualScale, this.weaponIdValue, this.model.alive,
+        this.cfg.player.visualScale * RED_BERRY_ART.visualScale, this.weaponVisualIdValue, this.model.alive,
         hurt && this.clock.nowMs - this.model.hurtAtMs < this.cfg.feedback.hurtFlashMs)
+      this.weaponSprite.setVisible(false)
       this.shadow.setPosition(vx, vy).setDepth(this.feetY - 1)
       return
     }
@@ -388,13 +440,14 @@ export class Player {
       // 死亡后玩法时钟立即暂停；倒地收尾仅使用表现时间，不推进任何战斗状态。
       const elapsed = !this.model.alive ? this.clock.realNowMs - this.deathAtMs
         : hurt ? this.clock.nowMs - this.model.hurtAtMs
-        : attack ? this.clock.nowMs - (this.model.attackUntilMs - this.cfg.player.attackPoseMs)
+        : attack ? this.clock.nowMs - (this.model.attackUntilMs - this.attackPoseMsValue)
         : this.moving ? this.runAnimationMs : this.clock.nowMs
-      const duration = hurt ? this.cfg.player.hurtMs : attack ? this.cfg.player.attackPoseMs : undefined
+      const duration = hurt ? this.cfg.player.hurtMs : attack ? this.attackPoseMsValue : undefined
       this.goose.draw({ x: vx, y: vy }, this.gooseFacing, gooseFrame(action, elapsed, duration),
         this.cfg.player.visualScale * GOOSE_ART.visualScale, { x: this.aimX, y: this.aimY },
-        this.weaponIdValue, this.model.alive,
+        this.weaponVisualIdValue, this.model.alive,
         hurt && this.clock.nowMs - this.model.hurtAtMs < this.cfg.feedback.hurtFlashMs)
+      this.weaponSprite.setVisible(false)
       this.shadow.setPosition(vx, vy).setDepth(this.feetY - 1)
       return
     }
@@ -411,11 +464,8 @@ export class Player {
       .setScale(this.cfg.player.visualScale)
       .setOrigin(this.facingLeft ? 1 - anchorX : anchorX, anchorY)
     if (hurt) {
-      // These whole-body hurt sheets already include the equipped weapon and both arms.
-      const hurtArt =
-        this.weaponIdValue === 'pencil'
-          ? PLAYER_ART.hurt
-          : (D1_ART.find((a) => a.group === this.weaponIdValue + '_hurt') ?? PLAYER_ART.pulseHurt)
+      // 新生只保留原有受击动画；不再按武器换整帧图。
+      const hurtArt = PLAYER_ART.hurt
       const frames = D1_ANIMS.find((a) => a.textureKey === hurtArt.key)!.frames
       const progress = Phaser.Math.Clamp(
         (this.clock.nowMs - this.model.hurtAtMs) / this.cfg.player.hurtMs,
@@ -440,7 +490,45 @@ export class Player {
     if (hurt && this.clock.nowMs - this.model.hurtAtMs < this.cfg.feedback.hurtFlashMs)
       this.sprite.setTint(0xffb5b5)
     else this.sprite.clearTint()
+    this.drawHeldWeapon(pose, hurt)
     this.shadow.setPosition(vx, vy).setDepth(this.feetY - 1)
+  }
+
+  /** 把当前武器贴图固定接在瞄准动画的手上；枪层高于角色层。 */
+  private drawHeldWeapon(
+    pose: ReturnType<Player['visualPose']>,
+    hurt: boolean,
+  ): void {
+    if (!this.model.alive || hurt) {
+      this.weaponSprite.setVisible(false)
+      return
+    }
+    const art = PUBLIC_WEAPON_ART[this.weaponVisualIdValue]
+    const scale = this.cfg.player.visualScale * art.visualScale * HELD_WEAPON_SCALE
+    const grip = equippedGrip(
+      this.cfg.aimArt,
+      pose,
+      pose.position,
+      this.cfg.player.visualScale,
+      this.facingLeft,
+    )
+    const aimAngle = Math.atan2(this.aimY - grip.y, this.aimX - grip.x)
+    const flipY = Math.cos(aimAngle) < 0
+    const localX = (art.muzzle[0] - art.grip[0]) * scale
+    const localY = (art.muzzle[1] - art.grip[1]) * scale * (flipY ? -1 : 1)
+    const rotation = aimAngle - Math.atan2(localY, localX)
+    this.weaponSprite
+      .setTexture(textureKeyFor(this.sprite.scene, art.texture))
+      .setOrigin(art.grip[0] / art.size[0], art.grip[1] / art.size[1])
+      .setPosition(grip.x, grip.y)
+      .setScale(scale)
+      .setFlip(false, flipY)
+      .setRotation(rotation)
+      .setDepth(this.feetY + 0.1)
+      .setVisible(true)
+      .setAlpha(1)
+      .clearTint()
+    this.weaponSprite.texture.setFilter(Phaser.Textures.FilterMode.NEAREST)
   }
   clearMovementInertia(): void {
     this.controlVelocity = { x: 0, y: 0 }
@@ -459,10 +547,10 @@ export class Player {
     return redBerryPose({
       feet, aim: { x: this.aimX, y: this.aimY },
       scale: this.cfg.player.visualScale * RED_BERRY_ART.visualScale,
-      weapon: this.weaponIdValue, moving: this.moving && this.model.alive,
+      weapon: this.weaponVisualIdValue, moving: this.moving && this.model.alive,
       runElapsedMs: this.runAnimationMs,
-      attackElapsedMs: attack ? this.clock.nowMs - (this.model.attackUntilMs - this.cfg.player.attackPoseMs) : null,
-      attackDurationMs: this.cfg.player.attackPoseMs, previousAngle: this.berryAimAngle,
+      attackElapsedMs: attack ? this.clock.nowMs - (this.model.attackUntilMs - this.attackPoseMsValue) : null,
+      attackDurationMs: this.attackPoseMsValue, previousAngle: this.berryAimAngle,
     })
   }
   destroy(): void {
@@ -472,6 +560,7 @@ export class Player {
     this.goose?.destroy()
     this.redBerry?.destroy()
     this.sprite.destroy()
+    this.weaponSprite.destroy()
     this.shadow.destroy()
     this.anchor.destroy()
   }

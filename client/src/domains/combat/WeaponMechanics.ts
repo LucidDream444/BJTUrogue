@@ -1,5 +1,5 @@
 import type { HitResult } from '@/core/actor/damage'
-import type { WeaponDef } from './config'
+import type { WeaponDef, WeaponStatusDef } from './config'
 
 export interface WeaponTarget {
   id: number
@@ -21,6 +21,8 @@ export interface PoisonState {
   damage: number
   tick: number
   lastFrame: number
+  /** 本次状态的总时长，供 UI 画进度环（不同毒武器时长不同）。 */
+  durationMs: number
 }
 
 /** Independent of projectile lifetime and immune to pooled actor reuse (IDs never repeat). */
@@ -33,31 +35,66 @@ export class WeaponStatuses {
   ) {}
 
   poison(id: number, sourceId: number, weapon: WeaponDef, nowMs: number): void {
+    this.poisonWith(
+      id,
+      sourceId,
+      {
+        kind: 'poison',
+        durationMs: weapon.poisonDurationMs!,
+        tickMs: weapon.poisonTickMs!,
+        tickDamage: weapon.poisonTickDamage!,
+      },
+      nowMs,
+    )
+  }
+
+  chill(id: number, weapon: WeaponDef, nowMs: number): void {
+    this.chillWith(
+      id,
+      { kind: 'slow', durationMs: weapon.slowDurationMs!, slowMultiplier: weapon.slowMultiplier! },
+      nowMs,
+    )
+  }
+
+  /** 新武器的配置化状态入口。 */
+  apply(id: number, sourceId: number, status: WeaponStatusDef, nowMs: number): void {
+    if (status.kind === 'poison') this.poisonWith(id, sourceId, status, nowMs)
+    else this.chillWith(id, status, nowMs)
+  }
+
+  private poisonWith(
+    id: number,
+    sourceId: number,
+    status: WeaponStatusDef,
+    nowMs: number,
+  ): void {
     if (!this.port.target(id)) return
     const active = this.poisons.get(id)
     if (active && active.untilMs >= nowMs) {
-      active.untilMs = nowMs + weapon.poisonDurationMs!
-      active.damage = Math.max(active.damage, weapon.poisonTickDamage!)
+      active.untilMs = nowMs + status.durationMs
+      active.durationMs = status.durationMs
+      active.damage = Math.max(active.damage, status.tickDamage!)
       return
     }
     if (!active && this.poisons.size >= this.capacity) return
     this.poisons.set(id, {
       id,
       sourceId,
-      untilMs: nowMs + weapon.poisonDurationMs!,
-      nextTickMs: nowMs + weapon.poisonTickMs!,
-      tickMs: weapon.poisonTickMs!,
-      damage: weapon.poisonTickDamage!,
+      untilMs: nowMs + status.durationMs,
+      nextTickMs: nowMs + status.tickMs!,
+      tickMs: status.tickMs!,
+      damage: status.tickDamage!,
       tick: 0,
       lastFrame: -1,
+      durationMs: status.durationMs,
     })
   }
 
-  chill(id: number, weapon: WeaponDef, nowMs: number): void {
+  private chillWith(id: number, status: WeaponStatusDef, nowMs: number): void {
     if (!this.port.target(id) || (!this.chills.has(id) && this.chills.size >= this.capacity)) return
-    const until = nowMs + weapon.slowDurationMs!
+    const until = nowMs + status.durationMs
     this.chills.set(id, until)
-    this.port.slow(id, weapon.slowMultiplier!, until)
+    this.port.slow(id, status.slowMultiplier!, until)
   }
 
   step(nowMs: number, frameId: number, onTick: (target: WeaponTarget) => void): void {
@@ -85,6 +122,66 @@ export class WeaponStatuses {
     this.chills.clear()
     this.poisons.clear()
   }
+}
+
+/** 归一化到 (-π, π]，供扇形判定使用。 */
+export function angleDelta(a: number, b: number): number {
+  let d = a - b
+  while (d > Math.PI) d -= Math.PI * 2
+  while (d <= -Math.PI) d += Math.PI * 2
+  return d
+}
+
+/**
+ * 近战扇形判定：距离 + 夹角 + 墙体视线。
+ * `blocked` 与 `splashTargets` / `chainTargets` 同一套语义（墙/关着的门挡刀）。
+ */
+export function arcTargets(
+  targets: readonly WeaponTarget[],
+  origin: { x: number; y: number },
+  angle: number,
+  range: number,
+  arcRad: number,
+  padding: number,
+  blocked: (from: { x: number; y: number }, to: WeaponTarget) => boolean,
+): WeaponTarget[] {
+  const half = Math.max(0, arcRad) / 2
+  return targets.filter((t) => {
+    const dx = t.x - origin.x,
+      dy = t.y - origin.y,
+      distance = Math.hypot(dx, dy)
+    if (distance > range + t.radius + padding) return false
+    if (distance > 1e-6 && Math.abs(angleDelta(Math.atan2(dy, dx), angle)) > half) return false
+    return !blocked(origin, t)
+  })
+}
+
+/** 追踪转向：把当前角度朝目标角度转，单帧最多转 `maxTurn` 弧度。 */
+export function homingTurn(current: number, desired: number, maxTurn: number): number {
+  const delta = angleDelta(desired, current)
+  return current + Math.max(-maxTurn, Math.min(maxTurn, delta))
+}
+
+/** 分裂弹的角度分布：放射状均分，或沿父弹方向的扇形。 */
+export function splitAngles(
+  baseAngle: number,
+  count: number,
+  spreadRad: number,
+  radial: boolean,
+): number[] {
+  if (!Number.isInteger(count) || count <= 0) return []
+  if (radial) return Array.from({ length: count }, (_, i) => (i / count) * Math.PI * 2)
+  if (count === 1) return [baseAngle]
+  return Array.from(
+    { length: count },
+    (_, i) => baseAngle + (i / (count - 1) - 0.5) * spreadRad,
+  )
+}
+
+/** 吸血量：按实际伤害比例，受单次上限约束。 */
+export function lifestealHeal(applied: number, ratio: number, maxPerHit?: number): number {
+  if (!(applied > 0) || !(ratio > 0)) return 0
+  return Math.min(maxPerHit ?? Infinity, applied * ratio)
 }
 
 /** Continuous circle hit fraction; fast rail shots cannot tunnel through small enemies. */
