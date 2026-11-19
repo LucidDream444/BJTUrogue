@@ -273,6 +273,8 @@ export interface SplitterDef {
   kind: 'splitter'
   displayName: string
   threatLevel: number
+  /** 房间怪物点数成本。固定值，不随楼层或难度变化。 */
+  monsterPoints: number
   hpMode: 'shots'
   aggroRadius: number
   loseTargetRadius: number
@@ -285,6 +287,8 @@ export interface TankDef {
   kind: 'tank'
   displayName: string
   threatLevel: number
+  /** 房间怪物点数成本。固定值，不随楼层或难度变化。 */
+  monsterPoints: number
   hpMode: 'ttkSeconds'
   ttkSeconds: number
   contactFactor: number
@@ -321,6 +325,8 @@ export interface GrabberDef {
   kind: 'grabber'
   displayName: string
   threatLevel: number
+  /** 房间怪物点数成本。固定值，不随楼层或难度变化。 */
+  monsterPoints: number
   hpMode: 'shots'
   /** 几发基线子弹的血量。**双重职责**：既是它的血条，也是抓取条（见上） */
   hpValue: number
@@ -341,6 +347,8 @@ export interface SprayerDef {
   kind: 'sprayer'
   displayName: string
   threatLevel: number
+  /** 房间怪物点数成本。固定值，不随楼层或难度变化。 */
+  monsterPoints: number
   hpMode: 'shots'
   hpValue: number
   speed: number
@@ -379,6 +387,8 @@ export interface SprayerDef {
 export interface AnimalEnemyDef {
   displayName: string
   threatLevel: number
+  /** 房间怪物点数成本。固定值，不随楼层或难度变化。 */
+  monsterPoints: number
   hpMode: 'shots'
   hpValue: number
   speed: number
@@ -934,6 +944,19 @@ function validateAi(raw: unknown, path: string): AiConfig {
   }
 }
 
+/**
+ * 怪物点数是一枚**固定面额**：挂在敌人模板上，不参与难度乘法。
+ *
+ * 难度只缩放房间总预算，单个怪的成本保持不变。否则同一个模板在简单/困难下
+ * 会换成不同面额，房间组合失去可比性，也无法用点数解释“这一间为什么更贵”。
+ */
+function validateMonsterPoints(raw: Record<string, unknown>, path: string): number {
+  const points = needNumber(raw.monsterPoints, `${path}.monsterPoints`, { min: 1, max: 99 })
+  if (!Number.isInteger(points))
+    throw new ConfigError(`${path}.monsterPoints`, `必须是整数，拿到 ${points}`)
+  return points
+}
+
 function validateTextureKey(key: string, path: string, expectKind: string): string {
   const entry = findAsset(key)
   if (!entry) {
@@ -1019,6 +1042,7 @@ function validateSplitter(raw: unknown): SplitterDef {
     kind: 'splitter',
     displayName: needString(r.displayName, `${path}.displayName`),
     threatLevel: needNumber(r.threatLevel, `${path}.threatLevel`, { min: 1, max: 5 }),
+    monsterPoints: validateMonsterPoints(r, path),
     hpMode: 'shots',
     aggroRadius: needNumber(r.aggroRadius, `${path}.aggroRadius`, { min: 1 }),
     loseTargetRadius: needNumber(r.loseTargetRadius, `${path}.loseTargetRadius`, { min: 1 }),
@@ -1133,6 +1157,7 @@ function validateTank(raw: unknown): TankDef {
     kind: 'tank',
     displayName: needString(r.displayName, `${path}.displayName`),
     threatLevel: needNumber(r.threatLevel, `${path}.threatLevel`, { min: 1, max: 5 }),
+    monsterPoints: validateMonsterPoints(r, path),
     hpMode: 'ttkSeconds',
     ttkSeconds: needNumber(r.ttkSeconds, `${path}.ttkSeconds`, { min: 0.1 }),
     contactFactor: needNumber(r.contactFactor, `${path}.contactFactor`, { min: 0.1 }),
@@ -1275,6 +1300,7 @@ function validateAnimal(raw: unknown, kind: 'muscovy' | 'nightmare_cat'): Animal
   return {
     displayName: needString(r.displayName, `${path}.displayName`),
     threatLevel: needNumber(r.threatLevel, `${path}.threatLevel`, { min: 1, max: 5 }),
+    monsterPoints: validateMonsterPoints(r, path),
     hpMode: 'shots', hpValue: positive('hpValue'), speed: positive('speed'),
     radius: positive('radius'), visualScale: positive('visualScale'),
     textureKey: validateTextureKey(needString(r.textureKey, `${path}.textureKey`), `${path}.textureKey`, 'image'),
@@ -1351,6 +1377,7 @@ function validateSprayer(raw: unknown): SprayerDef {
     hpMode: 'shots',
     displayName: needString(r.displayName, `${path}.displayName`),
     threatLevel: needNumber(r.threatLevel, `${path}.threatLevel`, { min: 1, max: 5 }),
+    monsterPoints: validateMonsterPoints(r, path),
     hpValue: positive(r, 'hpValue', ''),
     speed: positive(r, 'speed', ''),
     radius: positive(r, 'radius', ''),
@@ -1440,6 +1467,7 @@ function validateGrabber(raw: unknown): GrabberDef {
     kind: 'grabber',
     displayName: needString(r.displayName, `${path}.displayName`),
     threatLevel: needNumber(r.threatLevel, `${path}.threatLevel`, { min: 1, max: 5 }),
+    monsterPoints: validateMonsterPoints(r, path),
     hpMode: 'shots',
     hpValue: needNumber(r.hpValue, `${path}.hpValue`, { min: 0.1 }),
     speed: needNumber(r.speed, `${path}.speed`, { min: 1 }),
