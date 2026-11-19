@@ -199,6 +199,8 @@ class DreamCombatArena extends Phaser.Scene {
     keyboard.addCapture(['SPACE', 'TAB', 'OPEN_BRACKET', 'CLOSED_BRACKET'])
     const keys = ['ONE', 'TWO', 'THREE', 'FOUR', 'FIVE', 'SIX']
     keys.forEach((key, index) => keyboard.on(`keydown-${key}`, () => this.equip(index)))
+    keyboard.on('keydown-COMMA', () => this.cycleWeapon(-1))
+    keyboard.on('keydown-PERIOD', () => this.cycleWeapon(1))
     keyboard.on('keydown-OPEN_BRACKET', () => this.selectCharacter(-1))
     keyboard.on('keydown-CLOSED_BRACKET', () => this.selectCharacter(1))
     keyboard.on('keydown-TAB', () => this.selectCharacter(1))
@@ -217,7 +219,15 @@ class DreamCombatArena extends Phaser.Scene {
 
   private equip(index: number): void {
     const weapon = this.cfg.weapons[index]
-    if (weapon && this.session?.equip(weapon.id, true)) this.weapon = index
+    if (weapon && this.session?.equip(weapon.id, true)) {
+      this.weapon = index
+      this.notice.setText(`武器 ${index + 1}/${this.cfg.weapons.length}：${weapon.name} · ${weapon.mode}`)
+    }
+  }
+
+  private cycleWeapon(direction: number): void {
+    const total = this.cfg.weapons.length
+    this.equip((this.weapon + direction + total) % total)
   }
 
   private selectCharacter(direction: number): void {
@@ -312,7 +322,7 @@ class DreamCombatArena extends Phaser.Scene {
     this.hud.setText([
       `D1 梦境实战场 · ${CHARACTERS[this.character]!.name} · ${session.weapon.name} · ${scenario} · frame ${session.clock.frameId}`,
       `HP ${Math.ceil(model.hp)}/${model.maxHp}  护盾 ${Math.ceil(model.shield)}/${model.maxShield}  能量 ${Math.ceil(player.stamina)}/${player.maxStamina}  保护${this.protectedMode ? '开' : '关'}  障碍${this.obstacles ? '开' : '关'}  ${session.clock.paused ? '已暂停（P继续）' : '运行中'}`,
-      `WASD 移动 / 鼠标左键射击    1–6 六把枪    [ ] 或 Tab 三角色    P/空格 暂停/继续`,
+      `WASD 移动 / 鼠标左键射击    1–6 前六把    , . 循环 36 把    [ ] 或 Tab 三角色    P/空格 暂停/继续`,
       `B 番鸭＋课本    C 双猫＋课本    M 混合    0 清场    O 障碍开关    I 保护开关    H/R 回满重置    Esc 菜单`,
       `存活/待生成 ${session.enemies.remaining}  旋风场 ${this.fields.size}  敌方受伤事件 ${this.unitHits}  玩家受伤 ${this.playerHits}  账本 ${session.enemies.ledgerPairs}  真实物理体 ${this.physics.world.bodies.size}`,
     ])
@@ -360,6 +370,6 @@ class DreamCombatArena extends Phaser.Scene {
 
 export const arena: ArenaDefinition = {
   displayName: 'D1 小红果与梦境新敌人实战',
-  description: '真实角色/六枪/番鸭/双旋风猫；1–6换枪、Tab换角色、B/C/M刷新、O障碍、I保护、H/R回满重置。',
+  description: '真实角色/36 把武器/番鸭/双旋风猫；1–6 前六把、, . 循环、Tab 换角色、B/C/M 刷新、O 障碍、I 保护、H/R 回满重置。',
   scene: DreamCombatArena,
 }

@@ -40,6 +40,10 @@ export interface BulletContactPort extends EffectTargetPort {
   bulletRayContact(shotId: number, enemyId: number, damage: number): HitResult
   meleeContact(id: number, target: Phaser.GameObjects.GameObject, damage: number): HitResult
   pulseContact(id: number, target: Phaser.GameObjects.GameObject, damage: number): HitResult
+  /** 玩家武器击退：走 D3 的速度意图，不直接写 body。 */
+  knockback(id: number, vx: number, vy: number, durationMs: number): void
+  /** 近战消弹：扇形内关闭敌方弹丸，返回销毁数量。 */
+  destroyShotsInArc(x: number, y: number, range: number, angle: number, arcRad: number): number
   release(id: number): void
 }
 /** Composition adapter: only the existing D3 public contract, never EnemyModel state. */
@@ -132,6 +136,12 @@ export class EnemyBridge implements BulletContactPort {
   }
   pulseContact(id: number, target: Phaser.GameObjects.GameObject, damage: number): HitResult {
     return this.system.pulseContact(id, target, damage)
+  }
+  knockback(id: number, vx: number, vy: number, durationMs: number): void {
+    this.system.applyKnockback(id, vx, vy, durationMs)
+  }
+  destroyShotsInArc(x: number, y: number, range: number, angle: number, arcRad: number): number {
+    return this.system.destroyShotsInArc(x, y, range, angle, arcRad)
   }
   target(id: number): WeaponTarget | null {
     return this.system.weaponTarget(id)

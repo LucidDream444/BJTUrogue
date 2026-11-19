@@ -701,8 +701,13 @@ export class EnemySystem implements ActorEventSink {
       }
       const baseX = model.velIntent.x, baseY = model.velIntent.y
       const pull = vortexFields.length ? enemyVortexPull(model.id, entry.view.body.center, vortexFields) : null
-      model.velIntent.x += pull?.x ?? 0
-      model.velIntent.y += pull?.y ?? 0
+      const kbLeft = model.knockbackUntilMs - nowMs
+      const kbScale =
+        kbLeft > 0 && model.state !== 'flung'
+          ? kbLeft / Math.max(1, model.knockbackUntilMs - model.knockbackStartedMs)
+          : 0
+      model.velIntent.x += (pull?.x ?? 0) + model.knockbackVx * kbScale
+      model.velIntent.y += (pull?.y ?? 0) + model.knockbackVy * kbScale
       entry.view.applyVelocityIntent()
       model.velIntent.x = baseX
       model.velIntent.y = baseY
@@ -1902,6 +1907,50 @@ export class EnemySystem implements ActorEventSink {
     if (!e?.model.alive) return
     e.model.weaponSlowMultiplier = multiplier
     e.model.weaponSlowUntilMs = untilMs
+  }
+
+  /**
+   * 玩家武器的击退。**不直接写 body 速度**：`applyVelocityIntent()` 每步都会覆盖它。
+   * 冲量存进 model，物理步里和 `velIntent` 合流后按剩余时间线性衰减。
+   */
+  applyKnockback(id: number, vx: number, vy: number, durationMs: number): void {
+    const model = this.byId.get(id)?.model
+    if (!model?.alive || !Number.isFinite(vx) || !Number.isFinite(vy)) return
+    if (!Number.isFinite(durationMs) || durationMs <= 0) return
+    const nowMs = this.clock.nowMs
+    model.knockbackVx = vx
+    model.knockbackVy = vy
+    model.knockbackStartedMs = nowMs
+    model.knockbackUntilMs = nowMs + durationMs
+  }
+
+  /**
+   * 近战消弹：把扇形范围内的敌方弹丸直接关掉（不改变阵营，只销毁）。
+   * 返回值用于表现层反馈（命中几发）。
+   */
+  destroyShotsInArc(
+    x: number,
+    y: number,
+    range: number,
+    angle: number,
+    arcRad: number,
+  ): number {
+    const half = Math.max(0, arcRad) / 2
+    const cosHalf = Math.cos(half)
+    const cos = Math.cos(angle)
+    const sin = Math.sin(angle)
+    let destroyed = 0
+    for (const shot of this.radialShots.shots) {
+      if (!shot.active) continue
+      const dx = shot.x - x
+      const dy = shot.y - y
+      const distance = Math.hypot(dx, dy)
+      if (distance > range + shot.radius) continue
+      if (distance > 1e-6 && (dx * cos + dy * sin) / distance < cosHalf) continue
+      shot.active = false
+      destroyed++
+    }
+    return destroyed
   }
 
   /** Pulse shot has one exact impact, without armor tick damage or vulnerability amplification. */

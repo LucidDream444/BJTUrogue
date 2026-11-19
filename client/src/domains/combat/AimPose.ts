@@ -107,6 +107,33 @@ export function aimFrame(c: AimArtConfig, band: number, moving: boolean, elapsed
   }
 }
 
+/**
+ * 手部（武器握点）的世界坐标。和 `equippedMuzzle` 同一套帧/锚点/镜像变换，
+ * 只是取的是 `grips` 而不是 `muzzles`。给“武器贴图直接叠在现有动画手上”用。
+ */
+export function equippedGrip(
+  c: AimArtConfig,
+  pose: ReturnType<typeof aimFrame>,
+  feet: { x: number; y: number },
+  scale: number,
+  flip: boolean,
+): { x: number; y: number } {
+  const { sheet, frame, state } = pose
+  const dy = state === 'stand' ? c.standWaistY - c.waistY[sheet][frame]! : 0
+  const [ox, oy] = c.render.offset
+  return gunMuzzlePosition(
+    feet,
+    c.render,
+    [
+      (c.anchor[0] * c.frameWidth + ox) / c.render.frameWidth,
+      (c.anchor[1] * c.frameHeight + oy) / c.render.frameHeight,
+    ],
+    [c.grips[sheet][frame]![0] + ox, c.grips[sheet][frame]![1] + oy + dy],
+    scale,
+    flip,
+  )
+}
+
 /** Same rigid weapon transform used by build_equipped_poses.py; no second muzzle approximation. */
 export function equippedMuzzle(
   c: AimArtConfig,
