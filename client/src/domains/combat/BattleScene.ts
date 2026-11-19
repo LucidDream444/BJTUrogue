@@ -858,6 +858,19 @@ export class BattleScene extends Phaser.Scene {
       fireIntervalMs: rank.fireIntervalMs,
       range: rank.range,
       maxCharges: rank.maxCharges,
+      beatPeriodMs: rank.beatPeriodMs,
+      beatHitWindowMs: rank.beatHitWindowMs,
+      songCooldownMs: rank.songCooldownMs,
+      maxStacks: rank.maxStacks,
+      stackDurationMs: rank.stackDurationMs,
+      redDamage: rank.redDamage,
+      redDamagePerStackPct: rank.redDamagePerStackPct,
+      redRadius: rank.redRadius,
+      damageBonusPctPerStack: rank.damageBonusPctPerStack,
+      moveSpeedPctPerStack: rank.moveSpeedPctPerStack,
+      shieldPerStack: rank.shieldPerStack,
+      blueShieldRestore: rank.blueShieldRestore,
+      manaCost: rank.manaCost,
     })
   }
 
@@ -914,7 +927,7 @@ export class BattleScene extends Phaser.Scene {
   }
 
   private skillLabLines(
-    kind: 'haste' | 'dash' | 'summon',
+    kind: 'haste' | 'dash' | 'summon' | 'performance',
     rank: {
       cooldownMs: number
       durationMs: number
@@ -929,6 +942,19 @@ export class BattleScene extends Phaser.Scene {
       fireIntervalMs: number
       range: number
       maxCharges: number
+      beatPeriodMs: number
+      beatHitWindowMs: number
+      songCooldownMs: number
+      maxStacks: number
+      stackDurationMs: number
+      redDamage: number
+      redDamagePerStackPct: number
+      redRadius: number
+      damageBonusPctPerStack: number
+      moveSpeedPctPerStack: number
+      shieldPerStack: number
+      blueShieldRestore: number
+      manaCost: number
     },
   ): string[] {
     if (kind === 'haste') {
@@ -944,6 +970,14 @@ export class BattleScene extends Phaser.Scene {
         `参考书 ${rank.durationMs / 1000}s · 射程 ${rank.range}px`,
         `书页 ${rank.pageDamage} 伤害 / ${rank.fireIntervalMs}ms`,
         `充能 ${rank.maxCharges}`,
+      ]
+    }
+    if (kind === 'performance') {
+      return [
+        '无冷却 · 魔力耗尽或 F1 停止',
+        `节拍 ${rank.beatPeriodMs}ms · 命中窗 ${rank.beatHitWindowMs}ms`,
+        `红歌 ${rank.redDamage} 伤害 / max${rank.maxStacks}层`,
+        `蓝歌护盾 ${rank.blueShieldRestore} · 每首 ${rank.manaCost} 魔力`,
       ]
     }
     const lines = [
@@ -2279,7 +2313,7 @@ export class BattleScene extends Phaser.Scene {
     if (k) {
       // 这几个键默认会让页面滚动（`Scale.RESIZE` 下画布就是整页）—— 不捕获的话
       // 按一下空格整页就跳。
-      k.addCapture(['TAB', 'SPACE', 'ESC', 'UP', 'DOWN', 'ENTER', 'X'])
+      k.addCapture(['TAB', 'SPACE', 'F1', 'ESC', 'UP', 'DOWN', 'ENTER', 'X'])
       k.on('keydown-TAB', (event: KeyboardEvent) => {
         if (!event.repeat) this.encounterCodex?.handleTab()
       })
@@ -2292,11 +2326,20 @@ export class BattleScene extends Phaser.Scene {
         else if (this.shopWorld.cancelReplacement()) return
         else this.togglePauseMenu()
       })
-      k.on('keydown-SPACE', () => {
+      k.on('keydown-SPACE', (event: KeyboardEvent) => {
         if (this.grabbing || this.session.clock.paused || this.flow?.phase !== 'playing') return
+        if (event.repeat) return
+        if (this.session.isPerforming()) {
+          this.session.playPerformanceSong('red')
+          return
+        }
         const pointer = this.input.activePointer
         const aim = this.cameras.main.getWorldPoint(pointer.x, pointer.y)
         this.session.activateSkill({ x: aim.x, y: aim.y })
+      })
+      k.on('keydown-F1', (event: KeyboardEvent) => {
+        if (event.repeat || this.session.clock.paused || this.flow?.phase !== 'playing') return
+        this.session.stopPerformance()
       })
       k.on('keydown-UP', () => {
         if (this.encounterCodex?.isOpen) this.encounterCodex.handleMoveSelection(-1)

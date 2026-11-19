@@ -1,11 +1,47 @@
+import { readFileSync } from 'node:fs'
+import { fileURLToPath } from 'node:url'
 import { describe, expect, it } from 'vitest'
 import {
   CHARACTER_VOICE_CHARACTER_IDS,
   CHARACTER_VOICE_CUES,
   CHARACTER_VOICE_PROFILES,
+  PERFORMANCE_LOOP,
   characterVoiceKey,
   findAsset,
 } from './assetManifest'
+
+function pcmWavInfo(buffer: Buffer): {
+  sampleRate: number
+  channels: number
+  bitsPerSample: number
+  frames: number
+} {
+  let offset = 12
+  let sampleRate = 0
+  let channels = 0
+  let bitsPerSample = 0
+  let dataBytes = 0
+  while (offset + 8 <= buffer.length) {
+    const id = buffer.toString('ascii', offset, offset + 4)
+    const size = buffer.readUInt32LE(offset + 4)
+    const body = offset + 8
+    if (id === 'fmt ') {
+      channels = buffer.readUInt16LE(body + 2)
+      sampleRate = buffer.readUInt32LE(body + 4)
+      bitsPerSample = buffer.readUInt16LE(body + 14)
+    } else if (id === 'data') {
+      dataBytes = size
+      break
+    }
+    offset = body + size + (size & 1)
+  }
+  return {
+    sampleRate,
+    channels,
+    bitsPerSample,
+    frames: dataBytes / Math.max(1, channels * bitsPerSample / 8),
+  }
+}
 
 describe('character voice manifest', () => {
   const readyKeys = new Set([
@@ -47,11 +83,23 @@ describe('character voice manifest', () => {
     const keys = CHARACTER_VOICE_CHARACTER_IDS.flatMap((characterId) =>
       CHARACTER_VOICE_CUES.map((cue) => characterVoiceKey(characterId, cue)),
     )
-    expect(new Set(keys).size).toBe(keys.length - 2)
+    expect(new Set(keys).size).toBe(keys.length - (CHARACTER_VOICE_CHARACTER_IDS.length - 1))
     for (const characterId of CHARACTER_VOICE_CHARACTER_IDS) {
       expect(characterVoiceKey(characterId, 'boss_kill')).toBe(
         'voice_player_all_boss_kill',
       )
     }
+  })
+})
+
+describe('演奏家大鹅音乐循环', () => {
+  it('音频是 60 BPM 的四小节循环，总长正好 16 秒', () => {
+    const path = fileURLToPath(
+      new URL('../../public/assets/audio/bgm/bgm_performer_stage_loop_4bar_60bpm.wav', import.meta.url),
+    )
+    const info = pcmWavInfo(readFileSync(path))
+    expect(info).toMatchObject({ channels: 1, sampleRate: 22_050, bitsPerSample: 16 })
+    expect(PERFORMANCE_LOOP).toMatchObject({ bpm: 60, beatMs: 1000, beats: 16 })
+    expect((info.frames / info.sampleRate) * 1000).toBe(PERFORMANCE_LOOP.durationMs)
   })
 })

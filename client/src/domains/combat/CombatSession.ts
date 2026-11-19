@@ -31,6 +31,7 @@ import {
 import type { CombatEvents } from './events'
 import { CharacterSkill, type SkillStatus } from './CharacterSkill'
 import type { MovementVector } from './MovementForces'
+import type { SongColor } from './GoosePerformance'
 export type PauseReason =
   | 'user'
   | 'hidden'
@@ -77,6 +78,9 @@ export class CombatSession {
   stats: EffectiveStats
   private permanent: PermanentRunStats
   private temporaryAttackSpeedPct = 0
+  private temporaryMoveSpeedPct = 0
+  private temporaryDamagePct = 0
+  private skillShieldCapacity = 0
   private skill: CharacterSkill | null = null
   kills = 0
   private dead = false
@@ -94,7 +98,6 @@ export class CombatSession {
     readonly rewardDefs: RewardDef[],
     readonly difficulty: Difficulty,
     private stageConfig: StageCollisionConfig,
-    floor = 1,
   ) {
     this.terrain = new TerrainMap(cfg, stageConfig.navigationCellSize)
     const firstRoom = stageGeometry(stageConfig, 1, cfg.arena.width, cfg.arena.height)
@@ -122,6 +125,8 @@ export class CombatSession {
       this.rewards.stacks,
       this.permanent,
       0,
+      0,
+      0,
     )
     scene.physics.world.resume()
     scene.physics.world.setBounds(0, 0, cfg.arena.width, cfg.arena.height)
@@ -138,7 +143,6 @@ export class CombatSession {
       this.bus,
       this.clock,
       bundle,
-      cfg,
       difficulty,
       () => this.player.view(),
       cfg.arena.seed,
@@ -170,7 +174,6 @@ export class CombatSession {
         },
       },
       cfg.encounter,
-      floor,
     )
     for (const rect of this.terrain.water) {
       const zone = scene.add.zone(
@@ -300,11 +303,10 @@ export class CombatSession {
    * 和强化都不在这里清），清掉的只是这一层留下的**子弹与地面掉落物** ——
    * 那些东西的坐标属于旧那一层，带下去只会散在新房间的地板上。
    */
-  loadFloor(stageConfig: StageCollisionConfig, floor = 1): void {
+  loadFloor(stageConfig: StageCollisionConfig): void {
     this.enemies.clearLiquid()
     this.enemies.clearVortices()
     this.vortices.clear()
-    this.enemies.setFloor(floor)
     this.stageConfig = stageConfig
     this.enterStage(1)
   }
@@ -368,7 +370,12 @@ export class CombatSession {
       this.enemies.grabPress()
       return
     }
-    if (!this.clock.paused && this.player.model.alive) this.weapons.firing = true
+    if (this.clock.paused || !this.player.model.alive) return
+    if (this.skill?.isPerforming()) {
+      this.playPerformanceSong('blue')
+      return
+    }
+    this.weapons.firing = true
   }
   private onUp(): void {
     this.weapons.stopFiring()
@@ -414,7 +421,8 @@ export class CombatSession {
     // 0 耗武器（近战）按住攻击键不应该阻止回能：没有消耗就没有“停火回能”的理由。
     this.player.advanceStamina(
       this.clock.nowMs - before,
-      this.weapons.firing && this.weapon.staminaCost > 0,
+      (this.weapons.firing && this.weapon.staminaCost > 0) ||
+        this.skill?.isPerforming() === true,
     )
     this.weapons.update(this.stats, this.weapon)
   }
@@ -426,6 +434,7 @@ export class CombatSession {
     }
     this.enemies.update(delta)
     this.skill?.update(this.clock.nowMs)
+    this.audio.setPerformanceActive(this.skill?.isPerforming() ?? false)
     this.drops.update()
     this.player.draw()
     this.weapons.resolveTerrain()
@@ -646,6 +655,8 @@ export class CombatSession {
       this.rewards.stacks,
       this.permanent,
       this.temporaryAttackSpeedPct,
+      this.temporaryMoveSpeedPct,
+      this.temporaryDamagePct,
     )
     this.player.model.applyRunStartStats(
       this.stats.maxHp,
@@ -654,11 +665,15 @@ export class CombatSession {
     )
     this.player.applyRunStartStaminaLimit(this.stats.maxStamina)
     this.player.applyEnergyRegenBonus(this.permanent.energyRegenPct)
-    this.player.model.applyMaxShield(this.permanent.maxShield)
+    this.player.model.applyMaxShield(this.permanent.maxShield + this.skillShieldCapacity)
   }
   configureCharacterSkill(config: CharacterSkillConfig): void {
     this.skill?.destroy()
     this.temporaryAttackSpeedPct = 0
+    this.temporaryMoveSpeedPct = 0
+    this.temporaryDamagePct = 0
+    this.skillShieldCapacity = 0
+    this.player.model.applyMaxShield(this.permanent.maxShield)
     this.skill = new CharacterSkill(
       {
         scene: this.scene,
@@ -673,6 +688,21 @@ export class CombatSession {
           this.temporaryAttackSpeedPct = pct
           this.recompute()
         },
+        setTemporaryMoveSpeed: (pct) => {
+          this.temporaryMoveSpeedPct = pct
+          this.recompute()
+        },
+        setTemporaryDamage: (pct) => {
+          this.temporaryDamagePct = pct
+          this.recompute()
+        },
+        setSkillShieldCapacity: (amount) => {
+          this.skillShieldCapacity = Math.max(0, amount)
+          this.player.model.applyMaxShield(this.permanent.maxShield + this.skillShieldCapacity)
+        },
+        restoreSkillShield: (amount) => {
+          this.player.model.restoreFromPickup('shield', amount)
+        },
       },
       config,
     )
@@ -680,8 +710,26 @@ export class CombatSession {
   activateSkill(aim: { x: number; y: number }): boolean {
     if (this.bossMovementLocked()) return false
     const activated = this.skill?.activate(aim) ?? false
-    if (activated) this.voice.play('skill')
+    if (activated) {
+      this.weapons.stopFiring()
+      this.audio.setPerformanceActive(this.skill?.isPerforming() === true)
+      this.voice.play('skill')
+    }
     return activated
+  }
+  playPerformanceSong(color: SongColor): boolean {
+    if (this.bossMovementLocked() || this.clock.paused || this.clock.frozen) return false
+    const played = this.skill?.playSong(color) !== null
+    this.audio.setPerformanceActive(this.skill?.isPerforming() === true)
+    return played
+  }
+  isPerforming(): boolean {
+    return this.skill?.isPerforming() ?? false
+  }
+  stopPerformance(): boolean {
+    const stopped = this.skill?.stopPerformance() ?? false
+    if (stopped) this.audio.setPerformanceActive(false)
+    return stopped
   }
   clearRoomSkillObjects(): void {
     this.skill?.clearRoom()
@@ -709,6 +757,8 @@ export class CombatSession {
       this.rewards.stacks,
       this.permanent,
       this.temporaryAttackSpeedPct,
+      this.temporaryMoveSpeedPct,
+      this.temporaryDamagePct,
     )
     this.player.model.applyStats(this.stats.maxHp, this.stats.moveSpeed, this.stats.iframeMs)
     this.player.applyStaminaLimit(this.stats.maxStamina)
@@ -741,6 +791,8 @@ export class CombatSession {
       next,
       this.permanent,
       this.temporaryAttackSpeedPct,
+      this.temporaryMoveSpeedPct,
+      this.temporaryDamagePct,
     )
     const display = (value: number) => Number(value.toFixed(2)).toString()
     const metrics: {

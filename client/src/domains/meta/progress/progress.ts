@@ -85,7 +85,7 @@ export function skillUpgradeCost(
   return skill.upgradeCosts[level - 1] ?? null
 }
 
-/** 三个角色共用的唯一技能升级入口。 */
+/** 所有角色共用的唯一技能升级入口。 */
 export function buySkillUpgrade(
   draft: ProfileData,
   meta: MetaConfig,

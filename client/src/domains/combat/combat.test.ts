@@ -181,18 +181,23 @@ describe('expanded weapon roster', () => {
 })
 
 describe('pulse loadout balance', () => {
-  it('includes all six weapons with reduced cannon stamina cost', () => {
+  it('includes all six legacy weapons with a playable cannon stamina cost', () => {
     expect(cfg.weapons.map((w) => w.id)).toEqual(
       expect.arrayContaining(['pencil', 'pulse', 'venom', 'flare', 'rail', 'smg']),
     )
-    expect(cfg.weapons.find((w) => w.id === 'pulse')!.staminaCost).toBe(18)
+    expect(cfg.weapons.find((w) => w.id === 'pulse')!.staminaCost).toBe(14)
   })
-  it('boosted cannon impact uses the configured boss ratio and remains single-shot after pistol multishot', () => {
+  it('cannon damage is target-independent and remains single-shot after pistol multishot', () => {
     const gun = cfg.weapons.find((w) => w.id === 'pulse')!
     const before = deriveStats(bundle.balance, cfg, gun, defs, new Map())
-    expect(before.damage).toBe(cfg.encounter.bossHp * gun.bossDamageRatio!)
-    // Raising enemy health must not silently raise the player's cannon impact too.
-    expect(before.damage).toBeCloseTo(117)
+    expect(before.damage).toBe(24)
+    expect(deriveStats(
+      bundle.balance,
+      { ...cfg, encounter: { ...cfg.encounter, bossHp: 9999 } },
+      gun,
+      defs,
+      new Map(),
+    ).damage).toBe(24)
     expect(before.pellets).toBe(1)
     const after = deriveStats(
       bundle.balance,
@@ -207,9 +212,9 @@ describe('pulse loadout balance', () => {
     expect(after.pellets).toBe(1)
     expect(after.damage).toBeCloseTo(before.damage * 1.2)
   })
-  it('rejects missing cannon ratios and invalid boss health', () => {
+  it('rejects missing cannon mechanics and invalid boss health', () => {
     const bad = structuredClone(cfg)
-    delete bad.weapons[1]!.bossDamageRatio
+    delete bad.weapons[1]!.chainTargets
     expect(() => parseCombatConfig(bad)).toThrow()
     expect(() =>
       parseCombatConfig({ ...cfg, encounter: { ...cfg.encounter, bossHp: 0 } }),
