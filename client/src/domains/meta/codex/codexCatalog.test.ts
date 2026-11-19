@@ -84,7 +84,7 @@ describe('怪物图鉴目录', () => {
     const entries = buildCodexEntries(config, 'normal')
     const duck = entries.find((entry) => entry.id === 'muscovy')!
     const cat = entries.find((entry) => entry.id === 'nightmare_cat')!
-    expect(duck.stats.find((value) => value.label === '冲刺距离')?.value).toBe(`${config.enemies.enemies.muscovy.charge.dashDistance} px`)
+    expect(duck.stats.find((value) => value.label === '冲刺距离')?.value).toBe(`${config.enemies.enemies.muscovy.charge.dashDistance}px`)
     expect(duck.role).toContain('其他敌人')
     expect(cat.role).toContain('双方飞行子弹')
     expect(cat.lorePlaceholder).toContain('去掉黑化')
@@ -105,15 +105,15 @@ describe('怪物图鉴目录', () => {
     expect(grabber.combatNotes.join('')).toContain('长按不代替连点')
     expect(entries.find((entry) => entry.id === 'muscovy')!.combatNotes.join('')).toContain('冲刺敌我不分')
     const cat = entries.find((entry) => entry.id === 'nightmare_cat')!
-    expect(cat.combatNotes.join('')).toContain('187 px/s')
-    expect(cat.combatNotes.join('')).toContain('2.7 rad/s')
+    expect(cat.combatNotes.join('')).toContain('187px/s')
+    expect(cat.combatNotes.join('')).toContain('2.7rad/s')
     const paper = entries.find((entry) => entry.id === 'stage2-boss')!
-    expect(paper.combatNotes.join('')).toContain(`单次攻击伤害 ${Math.round(config.enemies.stage2Boss.projectile.damage * config.difficulty.difficulties.hard.enemyDamage * 1.5)}`)
-    expect(paper.combatNotes.join('')).toContain('第 1 层生命 900')
-    expect(paper.combatNotes.join('')).toContain('每 8 秒')
+    expect(paper.combatNotes.join('')).toContain(`单次攻击伤害${Math.round(config.enemies.stage2Boss.projectile.damage * config.difficulty.difficulties.hard.enemyDamage * 1.5)}`)
+    expect(paper.combatNotes.join('')).toContain('第1层生命900')
+    expect(paper.combatNotes.join('')).toContain('每8秒')
     const final = entries.find((entry) => entry.id === 'heart-demon')!
     expect(final.combatNotes.join('')).toContain('近身范围下砸')
-    expect(final.combatNotes.join('')).toContain('第 3 层生命 1800')
+    expect(final.combatNotes.join('')).toContain('第3层生命1800')
     expect(codexEncounterConfig({ encounter: { bossHp: 'oops' } })).toBeUndefined()
   })
 
@@ -136,17 +136,39 @@ describe('怪物图鉴目录', () => {
       const boss = table.bosses[String(index + 2)]!
       const entry = entries.find((candidate) => candidate.id === id)!
       expect(entry.name).toBe(boss.name)
-      expect(entry.combatNotes.filter((note) => note.startsWith('技能 '))).toHaveLength(boss.skills.length)
+      expect(entry.combatNotes.filter((note) => note.startsWith('技能'))).toHaveLength(boss.skills.length)
       expect(entry.combatNotes.join('')).not.toContain('技能记录正在整理')
     }
-    expect(bossSkillNotes(table, 2, 1).join('')).toContain('8～12 只')
+    expect(bossSkillNotes(table, 2, 1).join('')).toContain('8～12只')
     expect(bossSkillNotes(table, 4, 1).join('')).toContain('强制直线滑出')
-    expect(bossSkillNotes(table, 8, 1).join('')).toContain('3 秒')
+    expect(bossSkillNotes(table, 8, 1).join('')).toContain('3秒')
     table.bosses['3']!.skills.find((skill) => skill.id === 'radial')!.damage = 27
     const kite = buildCodexEntries(bundle(), 'normal', undefined, table).find((entry) => entry.id === 'stage2-boss')!
     expect(kite.stats.find((stat) => stat.label === '基础单发伤害')?.value).toBe('27')
-    expect(kite.combatNotes.join('')).toContain('每发 27 点伤害')
+    expect(kite.combatNotes.join('')).toContain('每发27点伤害')
     expect(codexBossSkillConfig({ schemaVersion: 1, bosses: {} })).toBeUndefined()
+  })
+
+  it('战斗笔记一页内，且英文/数字旁没有空格', () => {
+    const raw = JSON.parse(readFileSync(fileURLToPath(new URL('../../../../public/config/boss-skills.json', import.meta.url)), 'utf8'))
+    const table = codexBossSkillConfig(raw)!
+    const encounter = codexEncounterConfig({ encounter: {
+      bossHp: 900, bossHpPerStage: 300, bossDamageMultiplier: 1.5,
+      bossReinforcements: { cooldownMs: 8000, spawnCount: 2, maxAlive: 6 },
+    } })!
+    const entries = buildCodexEntries(bundle(), 'normal', encounter, table)
+    for (const entry of entries) {
+      const notes = entry.combatNotes.join('\n\n')
+      expect(notes.length, `${entry.id} 的战斗笔记 ${notes.length} 字`).toBeLessThanOrEqual(180)
+      for (const value of [
+        entry.variant,
+        entry.role,
+        entry.lorePlaceholder,
+        ...entry.stats.map((stat) => stat.value),
+        ...entry.combatNotes,
+      ])
+        expect(value, entry.id).not.toMatch(/[ \t]/)
+    }
   })
 
   it('列表选择首尾环绕', () => {
