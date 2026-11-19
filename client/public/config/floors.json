@@ -1,19 +1,66 @@
 {
-  "schemaVersion": 1,
-  "_comment": "★ 新增（2026-10-22）：**一局里每一层走哪一张平面图**，按顺序 —— 第 1 项是第 1 层。在这之前一局几层共用同一张图（几何写死在一份 floor-plan.json 里），「第几层」只是个计数；现在它决定走的是哪一层楼。红线 2：加一层楼 = 在这里加一行 + 丢一份平面图进去，不改代码。",
+  "schemaVersion": 2,
+  "_comment": "★ 2026-11-19：一局 = 1F 出发层 + 第 1/2/3 层 + 8F 心魔最终战。第 1/3 层从 2F/4F/5F/6F 抽，第 2 层固定 3F（商店），7F 不进产品。每个候选图必须有楼梯间 + 恰好 1 间 fixed:boss；第 2 层候选必须有 fixed:shop，第 1/3 层候选不能有商店。首领池见 boss-pools.json。",
   "_owner": "D2。字段定义归 D2（C2 契约），消费方是 D1（BattleScene 按这张表取几何：换层时整层换掉）。",
-  "_length_comment": "⚠️ **条数 MUST 等于 combat.json 的 arena.maxStages（一局几层）。** 两个数分开是因为它们管的不是同一件事：这一张说「哪一层走哪张图」，那一个说「一局几层」（D1 的玩法旋钮，首领数、楼梯间里那个「上一层」的入口按它算）。对不上时 `parseFloorsConfig` 当场炸，不报错地跑下去的症状是「第 3 层怎么又长这样」。",
-  "_files_comment": "⚠️ 这里写的每个文件名**还必须出现在代码的 `FLOOR_PLAN_FILES` 里**（`client/src/domains/procgen/gen/floorPlan.ts`）—— 那一串是 preload 时真的去加载的文件，而加载必须在读这张表**之前**发生（先有鸡才有蛋），所以它是常量。写了没加载的文件时 `floorPlansForRun()` 会当场报出来并指回那一串。",
-  "_box_comment": "八张图均声明footprint=(0,0,263,73)，换层仅更换内容，不改变TerrainMap与物理世界外框。",
-  "_today_comment": "2026-11-02：正式流程八层，1F→2F→3F→4F→5F→6F→7F→梦境8F；保留1F和7F无首领，YF804为最终心魔房。楼层条数与combat.json arena.maxStages=8一致。8F几何派生自6F，不是现实楼层照片测绘。",
-  "floors": [
-    "floor-plan-yf1.json",
-    "floor-plan-yf2.json",
-    "floor-plan-yf3.json",
-    "floor-plan-yf4.json",
-    "floor-plan-yf5.json",
-    "floor-plan.json",
-    "floor-plan-yf7.json",
-    "floor-plan-yf8.json"
+  "_files_comment": "⚠️ 这里写的每个文件名还必须出现在代码的 FLOOR_PLAN_FILES（client/src/domains/procgen/gen/floorPlan.ts）里。7F 只在 excluded 里，文件仍保留给测试场。",
+  "prologue": {
+    "file": "floor-plan-yf1.json",
+    "label": "1F"
+  },
+  "pool": [
+    {
+      "file": "floor-plan-yf2.json",
+      "label": "2F"
+    },
+    {
+      "file": "floor-plan-yf3.json",
+      "label": "3F"
+    },
+    {
+      "file": "floor-plan-yf4.json",
+      "label": "4F"
+    },
+    {
+      "file": "floor-plan-yf5.json",
+      "label": "5F"
+    },
+    {
+      "file": "floor-plan.json",
+      "label": "6F"
+    }
+  ],
+  "layers": [
+    {
+      "candidates": [
+        "floor-plan-yf2.json",
+        "floor-plan-yf4.json",
+        "floor-plan-yf5.json",
+        "floor-plan.json"
+      ]
+    },
+    {
+      "candidates": [
+        "floor-plan-yf3.json"
+      ],
+      "requireShop": true
+    },
+    {
+      "candidates": [
+        "floor-plan-yf2.json",
+        "floor-plan-yf4.json",
+        "floor-plan-yf5.json",
+        "floor-plan.json"
+      ]
+    }
+  ],
+  "finale": {
+    "file": "floor-plan-yf8.json",
+    "label": "最终战"
+  },
+  "excluded": [
+    {
+      "file": "floor-plan-yf7.json",
+      "reason": "本轮不用 7F；7F 的奶龙已并入第 3 层首领池，测试场仍可加载"
+    }
   ]
 }

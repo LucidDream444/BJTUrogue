@@ -31,7 +31,9 @@
  */
 
 import { ConfigError } from '@/core/config'
+import { Rng } from '@/core/rng'
 import { floorsConfigFromCache, need, needArray, needNumber, needObject } from '../config'
+import type { FloorsConfig, FloorPlanRef } from '../config'
 import type { Point, RoomKind, Rect } from '../model/types'
 import { ROOM_KINDS } from '../model/types'
 import { containsPoint, rectFromTopLeft } from '../model/rect'
@@ -803,17 +805,54 @@ export function floorPlanFromCache(
   return parseFloorPlan(needLoadedPlan(cache, name), metrics)
 }
 
+/** 一局的某一张平面图（文件 + label + 已解析）。 */
+export interface RunFloorPlan {
+  readonly file: string
+  readonly label: string
+  readonly plan: FloorPlan
+}
+
+/** 一局的完整地图计划：1F 出发层 + 3 层 + 8F 最终战。 */
+export interface RunFloorPlans {
+  readonly prologue: RunFloorPlan
+  readonly layers: readonly RunFloorPlan[]
+  readonly finale: RunFloorPlan
+}
+
+function bossCount(plan: FloorPlan): number {
+  return plan.rooms.filter((room) => room.fixed === 'boss').length
+}
+
+function shopCount(plan: FloorPlan): number {
+  return plan.rooms.filter((room) => room.fixed === 'shop').length
+}
+
 /**
- * **整局**每一层的平面图，按层号排（第 1 项 = 第 1 层）。开屏 / 建关卡时取一次。
+ * 校验一张「会参与一局」的平面图：必须有楼梯间；层候选/最终战必须恰好一间首领房；
+ * 第 2 层候选必须有商店，第 1/3 层候选不能有商店。
  *
- * ★ 新增（2026-10-22）：在这之前「几何整局一份」，`BattleScene` 只留一个
- * `this.plan`，换层只换内容。现在一局三层三张图（`floors.json`：第 1 层逸夫楼 1F、
- * 第 2 层 3F、第 3 层 6F），换层要**整层换掉几何**，所以取回来的是一串。
+ * 这些是**候选资格**，不是单张 `parseFloorPlan` 的职责 —— 1F 出发层和 7F
+ * 都可以没有首领房，但只有「进池」的图才要求。
+ */
+function validateRunCandidate(plan: FloorPlan, file: string, role: string): void {
+  if (!plan.stairwell) throw new ConfigError(`floorPlan.${file}`, `${role}缺少楼梯间（stairwell）`)
+  const bosses = bossCount(plan)
+  if (bosses !== 1) {
+    throw new ConfigError(
+      `floorPlan.${file}.rooms`,
+      `${role}必须恰好有一间 fixed:'boss' 的首领房，实际 ${bosses} 间（${file}）`,
+    )
+  }
+}
+
+/**
+ * **整局**的地图计划：先解析并校验所有候选，再按 `runSeed` 抽三张层图。
  *
- * 三层校验叠在一起，缺一层就会变成别的症状：
- * 1. `floors.json` 的条数 == `combat.json` 的 `arena.maxStages`（`parseFloorsConfig`）
+ * 校验叠在一起，缺一层就会变成别的症状：
+ * 1. `floors.json` 的层数 == `combat.json` 的 `arena.maxStages`（`parseFloorsConfig`）
  * 2. 每个文件名**缓存里真的有**（`needLoadedPlan`，报错会指回 `FLOOR_PLAN_FILES`）
  * 3. 每份都解析得出来（`parseFloorPlan` 那一整套几何校验）
+ * 4. **所有候选**（不是只抽中的三张）都有楼梯间/首领房/商店资格
  *
  * ⚠️ **不在这查「几层的包围盒一不一样」**：那是 `BattleScene.applyArena()` 的
  * 活（TerrainMap 的行列数与物理世界边界在 `CombatSession` 构造时就定了，
@@ -824,8 +863,61 @@ export function floorPlansForRun(
   cache: { get(key: string): unknown },
   metrics: FloorPlanMetrics,
   expectedFloors: number,
-): readonly FloorPlan[] {
-  return floorsConfigFromCache(cache, expectedFloors).floors.map((name) =>
-    floorPlanFromCache(cache, metrics, name),
-  )
+  runSeed: number,
+): RunFloorPlans {
+  const config: FloorsConfig = floorsConfigFromCache(cache, expectedFloors)
+  const parsed = new Map<string, RunFloorPlan>()
+  const parse = (ref: FloorPlanRef): RunFloorPlan => {
+    const existing = parsed.get(ref.file)
+    if (existing) return existing
+    const entry = { file: ref.file, label: ref.label, plan: floorPlanFromCache(cache, metrics, ref.file) }
+    parsed.set(ref.file, entry)
+    return entry
+  }
+
+  const prologue = parse(config.prologue)
+  if (!prologue.plan.stairwell)
+    throw new ConfigError(`floorPlan.${prologue.file}`, `出发层缺少楼梯间（stairwell）`)
+
+  const pool = config.pool.map((ref) => parse(ref))
+  for (const entry of pool) validateRunCandidate(entry.plan, entry.file, '层候选')
+
+  config.layers.forEach((layer, index) => {
+    for (const file of layer.candidates) {
+      const entry = parsed.get(file)
+      if (!entry) throw new ConfigError(`floors.layers[${index}].candidates`, `候选没有在 pool 里解析：${file}`)
+      const shops = shopCount(entry.plan)
+      if (layer.requireShop && shops < 1)
+        throw new ConfigError(
+          `floorPlan.${file}.rooms`,
+          `第 ${index + 1} 层要求候选带 fixed:'shop' 的商店房，实际 ${shops} 间`,
+        )
+      if (!layer.requireShop && shops > 0)
+        throw new ConfigError(
+          `floorPlan.${file}.rooms`,
+          `第 ${index + 1} 层不是商店层，候选不能带 fixed:'shop' 房间，实际 ${shops} 间`,
+        )
+    }
+  })
+
+  const finale = parse(config.finale)
+  validateRunCandidate(finale.plan, finale.file, '最终战')
+  if (config.excluded.some((entry) => !FLOOR_PLAN_FILES.includes(entry.file)))
+    throw new ConfigError('floors.excluded', `排除表里有未加载的平面图：${config.excluded.map((e) => e.file).join(' / ')}`)
+
+  const rng = new Rng((runSeed ^ 0x4c415945) >>> 0)
+  const used = new Set<string>()
+  const layers: RunFloorPlan[] = []
+  for (const [index, layer] of config.layers.entries()) {
+    const available = layer.candidates.filter((file) => !used.has(file))
+    if (available.length === 0)
+      throw new ConfigError(`floors.layers[${index}].candidates`, `第 ${index + 1} 层没有可用的候选（都已用过）`)
+    const file = available.length === 1 ? available[0]! : available[rng.between(0, available.length - 1)]!
+    const entry = parsed.get(file)
+    if (!entry) throw new ConfigError(`floors.layers[${index}].candidates`, `候选没有被解析：${file}`)
+    used.add(file)
+    layers.push(entry)
+  }
+
+  return { prologue, layers, finale }
 }

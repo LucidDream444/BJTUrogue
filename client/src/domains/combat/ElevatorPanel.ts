@@ -3,14 +3,12 @@ import { ARCHIVE_ART, findAsset, imageUrl } from '@/core/assetManifest'
 import { ARCHIVE_THEME as A, THEME } from '../meta/ui/theme'
 
 export interface FloorRow {
-  readonly floor: number
+  /** 选它要去第几层（1—3）；1F 不占电梯选项。 */
+  readonly target: number
+  /** 行文案，例如「第 1 层」。 */
+  readonly label: string
   readonly here: boolean
   readonly unlocked: boolean
-  /**
-   * 这一行**写什么**（默认「第 N 层」）。★ 2026-11-04：末层不叫「第 8 层」，
-   * 叫「异常」—— 它不是这栋楼的第八层。文案由调用方给，面板不自己拼。
-   */
-  readonly title: string
 }
 
 export class ElevatorPanel {
@@ -18,6 +16,7 @@ export class ElevatorPanel {
   private readonly style = document.createElement('style')
   private readonly onChoose: (floor: number) => void
   private rows: readonly FloorRow[] = []
+  private currentLabel = '—' 
   private previousFocus: HTMLElement | null = null
   /** Esc/continue walking dismisses this visit; leaving the elevator resets it. */
   private dismissed = false
@@ -84,8 +83,8 @@ export class ElevatorPanel {
       event.stopImmediatePropagation()
       event.preventDefault()
       if (!event.repeat) {
-        const row = this.rows.find((row) => row.floor === Number(event.key))
-        if (row?.unlocked && !row.here) this.pick(row.floor)
+        const row = this.rows.find((row) => row.target === Number(event.key))
+        if (row?.unlocked && !row.here) this.pick(row.target)
       }
     } else if (event.key === 'Escape') {
       event.stopImmediatePropagation()
@@ -108,7 +107,7 @@ export class ElevatorPanel {
   }
 
   private pick(floor: number): void {
-    const row = this.rows.find((row) => row.floor === floor)
+    const row = this.rows.find((row) => row.target === floor)
     if (this.root.hidden || !row?.unlocked || row.here) return
     this.hide()
     this.onChoose(floor)
@@ -119,16 +118,18 @@ export class ElevatorPanel {
     this.dismissed = true
   }
 
-  show(rows: readonly FloorRow[]): void {
+  show(rows: readonly FloorRow[], currentLabel = '—'): void {
     const same =
+      currentLabel === this.currentLabel &&
       rows.length === this.rows.length &&
       rows.every(
         (r, i) =>
-          r.floor === this.rows[i]!.floor &&
+          r.target === this.rows[i]!.target &&
           r.here === this.rows[i]!.here &&
           r.unlocked === this.rows[i]!.unlocked,
       )
     this.rows = rows
+    this.currentLabel = currentLabel
     if (this.dismissed && same) return
     this.dismissed = false
     const opening = this.root.hidden
@@ -144,21 +145,20 @@ export class ElevatorPanel {
   }
 
   private render(): void {
-    const here = this.rows.find((row) => row.here)
     const available = this.rows.filter((row) => row.unlocked && !row.here).length
     const list = this.rows
       .map((row) => {
         const disabled = row.here || !row.unlocked
         return (
-          `<button type="button" class="d1-elevator-row" data-floor="${row.floor}" data-here="${row.here}" data-unlocked="${row.unlocked}"${disabled ? ' disabled' : ''}${row.here ? ' aria-current="location"' : ''} aria-label="第 ${row.floor} 层，${row.here ? '当前楼层' : row.unlocked ? '可前往' : '未解锁'}">` +
-          `<span class="d1-elevator-name"><span class="d1-elevator-number" aria-hidden="true">${String(row.floor).padStart(2, '0')}</span>${row.title}</span>` +
+          `<button type="button" class="d1-elevator-row" data-floor="${row.target}" data-here="${row.here}" data-unlocked="${row.unlocked}"${disabled ? ' disabled' : ''}${row.here ? ' aria-current="location"' : ''} aria-label="${row.label}，${row.here ? '当前楼层' : row.unlocked ? '可前往' : '未解锁'}">` +
+          `<span class="d1-elevator-name">${row.label}</span>` +
           `<span class="d1-elevator-tag">${row.here ? '◆ 当前' : row.unlocked ? '前往 ↗' : '未解锁'}</span></button>`
         )
       })
       .join('')
     this.root.innerHTML = `<section class="d1-elevator-content">
       <header class="d1-elevator-header"><div><h1 id="d1-elevator-title">楼层导览</h1><span class="d1-elevator-kicker">课后勇者 / 校园电梯</span></div><button type="button" class="d1-elevator-close">继续步行 ×</button></header>
-      <div class="d1-elevator-body"><aside class="d1-elevator-guide"><p class="d1-elevator-current-label">当前楼层 / CURRENT</p><p class="d1-elevator-current">${here ? String(here.floor).padStart(2, '0') : '—'}<span>F</span></p><img class="d1-elevator-seal" src="${artUrl(ARCHIVE_ART.seal)}" alt="" draggable="false"><h2>下一站，去哪里？</h2><p class="d1-elevator-intro">已到达的楼层与当前可到达的下一层可乘梯前往。<br><strong>${available ? '选择一层，继续探索。' : '暂时没有其他可前往的楼层。'}</strong></p></aside>
+      <div class="d1-elevator-body"><aside class="d1-elevator-guide"><p class="d1-elevator-current-label">当前楼层 / CURRENT</p><p class="d1-elevator-current">${this.currentLabel}</p><img class="d1-elevator-seal" src="${artUrl(ARCHIVE_ART.seal)}" alt="" draggable="false"><h2>下一站，去哪里？</h2><p class="d1-elevator-intro">已到达的楼层与当前可到达的下一层可乘梯前往。<br><strong>${available ? '选择一层，继续探索。' : '暂时没有其他可前往的楼层。'}</strong></p></aside>
       <div class="d1-elevator-directory"><div class="d1-elevator-directory-title"><b>楼层目录</b><span>${available} 层可前往 / 共 ${this.rows.length} 层</span></div><div class="d1-elevator-list">${list}</div></div></div>
       <p class="d1-elevator-footer">点击楼层或按对应数字键 1–9 前往<br>WASD 继续移动 · 走出电梯自动关闭 · Esc 收起面板</p></section>`
     this.root.querySelector('.d1-elevator-close')?.addEventListener('click', () => this.dismiss())
