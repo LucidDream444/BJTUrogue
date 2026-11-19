@@ -36,7 +36,7 @@ export interface CharacterCombatModifiers {
   energyRegenPct: number
 }
 
-export type CharacterSkillKind = 'haste' | 'dash' | 'summon'
+export type CharacterSkillKind = 'haste' | 'dash' | 'summon' | 'performance'
 
 export interface CharacterSkillLevelDef {
   name: string
@@ -54,6 +54,19 @@ export interface CharacterSkillLevelDef {
   fireIntervalMs: number
   range: number
   maxCharges: number
+  beatPeriodMs: number
+  beatHitWindowMs: number
+  songCooldownMs: number
+  maxStacks: number
+  stackDurationMs: number
+  redDamage: number
+  redDamagePerStackPct: number
+  redRadius: number
+  damageBonusPctPerStack: number
+  moveSpeedPctPerStack: number
+  shieldPerStack: number
+  blueShieldRestore: number
+  manaCost: number
 }
 
 export interface CharacterSkillDef {
@@ -141,8 +154,10 @@ export function parseMetaConfig(raw: unknown): MetaConfig {
 function parseCharacterSkill(raw: unknown, where: string): CharacterSkillDef {
   const skill = needRecord(raw, where)
   const kind = skill.kind
-  if (kind !== 'haste' && kind !== 'dash' && kind !== 'summon') {
-    throw new MetaConfigError(`${where}.kind 只认 haste / dash / summon，拿到 ${String(kind)}`)
+  if (kind !== 'haste' && kind !== 'dash' && kind !== 'summon' && kind !== 'performance') {
+    throw new MetaConfigError(
+      `${where}.kind 只认 haste / dash / summon / performance，拿到 ${String(kind)}`,
+    )
   }
   if (!Array.isArray(skill.levels) || skill.levels.length !== 4) {
     throw new MetaConfigError(`${where}.levels 必须恰好有 4 级`)
@@ -159,7 +174,11 @@ function parseCharacterSkill(raw: unknown, where: string): CharacterSkillDef {
     const def: CharacterSkillLevelDef = {
       name: needString(level.name, `${p}.name`),
       description: needString(level.description, `${p}.description`),
-      cooldownMs: needNumber(level.cooldownMs, `${p}.cooldownMs`, 1),
+      cooldownMs: needNumber(
+        level.cooldownMs,
+        `${p}.cooldownMs`,
+        kind === 'performance' ? 0 : 1,
+      ),
       durationMs: optionalNumber(level.durationMs, `${p}.durationMs`),
       attackSpeedPct: optionalNumber(level.attackSpeedPct, `${p}.attackSpeedPct`),
       distance: optionalNumber(level.distance, `${p}.distance`),
@@ -178,6 +197,31 @@ function parseCharacterSkill(raw: unknown, where: string): CharacterSkillDef {
       fireIntervalMs: optionalNumber(level.fireIntervalMs, `${p}.fireIntervalMs`),
       range: optionalNumber(level.range, `${p}.range`),
       maxCharges: optionalNumber(level.maxCharges, `${p}.maxCharges`),
+      beatPeriodMs: optionalNumber(level.beatPeriodMs, `${p}.beatPeriodMs`),
+      beatHitWindowMs: optionalNumber(level.beatHitWindowMs, `${p}.beatHitWindowMs`),
+      songCooldownMs: optionalNumber(level.songCooldownMs, `${p}.songCooldownMs`),
+      maxStacks: optionalNumber(level.maxStacks, `${p}.maxStacks`),
+      stackDurationMs: optionalNumber(level.stackDurationMs, `${p}.stackDurationMs`),
+      redDamage: optionalNumber(level.redDamage, `${p}.redDamage`),
+      redDamagePerStackPct: optionalNumber(
+        level.redDamagePerStackPct,
+        `${p}.redDamagePerStackPct`,
+      ),
+      redRadius: optionalNumber(level.redRadius, `${p}.redRadius`),
+      damageBonusPctPerStack: optionalNumber(
+        level.damageBonusPctPerStack,
+        `${p}.damageBonusPctPerStack`,
+      ),
+      moveSpeedPctPerStack: optionalNumber(
+        level.moveSpeedPctPerStack,
+        `${p}.moveSpeedPctPerStack`,
+      ),
+      shieldPerStack: optionalNumber(level.shieldPerStack, `${p}.shieldPerStack`),
+      blueShieldRestore: optionalNumber(
+        level.blueShieldRestore,
+        `${p}.blueShieldRestore`,
+      ),
+      manaCost: optionalNumber(level.manaCost, `${p}.manaCost`),
     }
     if (kind === 'haste' && (def.durationMs <= 0 || def.attackSpeedPct <= 0)) {
       throw new MetaConfigError(`${p} 是攻速技能，必须有 durationMs 与 attackSpeedPct`)
@@ -208,6 +252,27 @@ function parseCharacterSkill(raw: unknown, where: string): CharacterSkillDef {
     }
     if (i === 3 && kind === 'summon' && def.maxCharges !== 2) {
       throw new MetaConfigError(`${p} 的第三阶必须开放两层充能`)
+    }
+    if (
+      kind === 'performance' &&
+      (def.cooldownMs !== 0 ||
+        def.beatPeriodMs <= 0 ||
+        def.beatHitWindowMs <= 0 ||
+        def.beatHitWindowMs >= def.beatPeriodMs ||
+        def.songCooldownMs < 0 ||
+        !Number.isInteger(def.maxStacks) ||
+        def.maxStacks < 1 ||
+        def.stackDurationMs <= 0 ||
+        def.redDamage <= 0 ||
+        def.redDamagePerStackPct < 0 ||
+        def.redRadius <= 0 ||
+        def.damageBonusPctPerStack < 0 ||
+        def.moveSpeedPctPerStack < 0 ||
+        def.shieldPerStack < 0 ||
+        def.blueShieldRestore <= 0 ||
+        def.manaCost <= 0)
+    ) {
+      throw new MetaConfigError(`${p} 是演奏技能，节拍、叠层或歌曲数值不完整`)
     }
     return def
   })
