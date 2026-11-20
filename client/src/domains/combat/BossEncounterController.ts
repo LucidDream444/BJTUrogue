@@ -359,9 +359,10 @@ export class BossEncounterController {
     const rotate = ((pattern.angleStepDeg ?? 0) * burstIndex * Math.PI) / 180
     const aimed = Math.atan2(player.y - boss.y, player.x - boss.x) + rotate
     const spreadRad = (pattern.spreadDeg * Math.PI) / 180
+    const speedScale = 1 + (pattern.speedStepPct ?? 0) * (burstIndex % 2 === 0 ? 1 : -1)
     const volley: BossSkillVolley = {
       count: pattern.count,
-      speed: pattern.speed,
+      speed: pattern.speed * speedScale,
       radius: pattern.radius,
       damage: Math.round(pattern.damage * this.port.damageMultiplier),
       lifetimeMs: pattern.lifetimeMs,
@@ -369,7 +370,7 @@ export class BossEncounterController {
       ...(pattern.pattern === 'ring'
         ? { angleOffsetRad: rotate }
         : { angleRad: aimed, spreadRad }),
-      ...(pattern.speedEnd !== undefined ? { speedEnd: pattern.speedEnd } : {}),
+      ...(pattern.speedEnd !== undefined ? { speedEnd: pattern.speedEnd * speedScale } : {}),
       ...(pattern.speedRampMs !== undefined ? { speedRampMs: pattern.speedRampMs } : {}),
       ...(pattern.bounceCount !== undefined ? { bounceCount: pattern.bounceCount } : {}),
       ...(pattern.pattern === 'line' && pattern.lineSpacingPx !== undefined
