@@ -1,0 +1,206 @@
+{
+  "schemaVersion": 1,
+  "_comment": "D1 独立白箱射击试玩。仅测试场加载，不改变正式奖励或枪械。数值是试验起点。",
+  "world": { "width": 1280, "height": 720, "padding": 42 },
+  "tuning": {
+    "seed": 20261120,
+    "playerSpeed": 260,
+    "playerRadius": 14,
+    "fireIntervalMs": 190,
+    "bulletSpeed": 610,
+    "bulletDamage": 10,
+    "bulletRadius": 4,
+    "bulletLifeMs": 1800,
+    "maxBullets": 300,
+    "maxEffects": 180,
+    "maxDeltaMs": 33.333333,
+    "muzzleDistance": 24,
+    "enemyHp": 34,
+    "enemyRadius": 17,
+    "enemyCount": 18,
+    "enemyRespawnMs": 1050,
+    "enemyMotionRadius": 32,
+    "enemyMotionSpeed": 0.8,
+    "critChance": 0.35,
+    "critMultiplier": 1.75,
+    "splitChance": 0.75,
+    "splitDamageRatio": 0.55,
+    "splitCount": 2,
+    "splitSpreadRad": 1.2,
+    "homingRange": 330,
+    "homingTurnRate": 5.2,
+    "bounceCount": 3,
+    "bounceDamageBonus": 0.25,
+    "pierceCount": 3,
+    "scatterCount": 3,
+    "scatterAngleRad": 0.2,
+    "scatterDamageRatio": 0.7,
+    "lightningDamage": 14,
+    "lightningCooldownMs": 240,
+    "skillCooldownMs": 1900,
+    "chainCount": 3,
+    "chainRange": 175,
+    "chainDamageRatio": 0.55,
+    "returnAfterMs": 460,
+    "returnSpeedScale": 1.2,
+    "orbitRadius": 88,
+    "orbitSpeed": 5.5,
+    "orbitLifeMs": 1900,
+    "orbitEveryShots": 3,
+    "orbitDamageRatio": 0.55,
+    "blackholeRadius": 140,
+    "blackholeDurationMs": 1300,
+    "blackholeCooldownMs": 1900,
+    "blackholePull": 160,
+    "blackholeDamage": 38,
+    "explosionRadius": 88,
+    "explosionDamageRatio": 0.6,
+    "hitEffectMs": 180,
+    "lightningEffectMs": 260,
+    "explosionEffectMs": 420,
+    "damageNumberMs": 600,
+    "muzzleEffectMs": 95
+  },
+  "presets": [
+    {
+      "id": "swarm",
+      "name": "裂变蜂群",
+      "short": "追着怪群跑",
+      "accent": "#ffc66d",
+      "color": 16762477,
+      "description": "一发打中，分出两颗追击弹。追击弹还能暴击，绕过目标后继续追上去。",
+      "cards": [
+        {
+          "id": "split",
+          "name": "裂变弹",
+          "icon": "split",
+          "text": "主弹命中后，75% 概率分出两颗小弹。小弹不会再次分裂。"
+        },
+        {
+          "id": "homing",
+          "name": "追踪弹头",
+          "icon": "homing",
+          "text": "子弹缓慢转向附近目标；追击弹也会寻找敌人。"
+        },
+        {
+          "id": "crit",
+          "name": "会心一击",
+          "icon": "crit",
+          "text": "35% 概率暴击，造成 175% 伤害，亮色大弹一眼可见。"
+        }
+      ]
+    },
+    {
+      "id": "ricochet",
+      "name": "跳弹风暴",
+      "short": "把墙变成火力",
+      "accent": "#78ddff",
+      "color": 7921151,
+      "description": "三发扇射，弹墙以后继续穿透。试着朝墙射一轮，看漏掉的子弹回到怪群里。",
+      "cards": [
+        {
+          "id": "bounce",
+          "name": "弹力弹头",
+          "icon": "bounce",
+          "text": "子弹最多弹墙三次，每次反弹后的首次命中更痛。"
+        },
+        {
+          "id": "pierce",
+          "name": "贯通射击",
+          "icon": "pierce",
+          "text": "同一颗子弹能连续击中三名不同目标。"
+        },
+        {
+          "id": "scatter",
+          "name": "散射增幅",
+          "icon": "scatter",
+          "text": "一次开火打出三颗扇形弹，弹墙后也能继续命中。"
+        }
+      ]
+    },
+    {
+      "id": "thunder",
+      "name": "暴击雷网",
+      "short": "一个目标，带倒一片",
+      "accent": "#c4a0ff",
+      "color": 12886271,
+      "description": "暴击叫下一道雷，再顺着附近目标传开。按 Q 主动落雷，鼠标瞄准怪群试试。",
+      "cards": [
+        {
+          "id": "crit",
+          "name": "会心一击",
+          "icon": "crit",
+          "text": "主弹暴击会同时带来额外伤害与落雷机会。"
+        },
+        {
+          "id": "lightning",
+          "name": "磁暴电涌",
+          "icon": "lightning",
+          "text": "暴击引落雷电；按 Q 可额外主动放雷。"
+        },
+        {
+          "id": "chain",
+          "name": "高压接力",
+          "icon": "chain",
+          "text": "落雷最多向附近三名敌人连锁，优先打未命中过的目标。"
+        }
+      ]
+    },
+    {
+      "id": "return",
+      "name": "回旋星环",
+      "short": "射出去，还能再来一次",
+      "accent": "#88f1bd",
+      "color": 8974781,
+      "description": "弹丸飞出去后回到你身边，返程可再次命中。每三次开火还会出现一颗护身星弹。",
+      "cards": [
+        {
+          "id": "return",
+          "name": "回旋弹",
+          "icon": "return",
+          "text": "弹丸折返追随玩家，出程和返程各能命中一次。"
+        },
+        {
+          "id": "orbit",
+          "name": "环绕星弹",
+          "icon": "orbit",
+          "text": "每三次射击生成一颗短暂环绕的星弹，靠近目标也有伤害。"
+        },
+        {
+          "id": "pierce",
+          "name": "贯通射击",
+          "icon": "pierce",
+          "text": "出程穿一排，移动后让返程再扫一排。"
+        }
+      ]
+    },
+    {
+      "id": "singularity",
+      "name": "黑洞聚爆",
+      "short": "先聚起来，再一起炸",
+      "accent": "#ff9c9e",
+      "color": 16751774,
+      "description": "命中生成短暂引力场，把附近目标拉到一起，随后爆开。分裂小弹清理剩余目标。",
+      "cards": [
+        {
+          "id": "blackhole",
+          "name": "引力弹芯",
+          "icon": "blackhole",
+          "text": "主弹命中生成引力场，吸住附近目标，短暂延迟后引爆。"
+        },
+        {
+          "id": "explosion",
+          "name": "爆裂余波",
+          "icon": "explosion",
+          "text": "主弹命中同时打出小范围溅射，打密集目标更有效。"
+        },
+        {
+          "id": "split",
+          "name": "裂变弹",
+          "icon": "split",
+          "text": "爆心外还有敌人？分裂小弹继续追击。"
+        }
+      ]
+    }
+  ]
+}

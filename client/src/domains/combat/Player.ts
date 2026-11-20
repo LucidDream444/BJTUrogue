@@ -87,6 +87,7 @@ export class Player {
   maxStamina: number
   stamina: number
   private energyRegenPct = 0
+  private lastEnergySpendAt = -Infinity
   private readonly shadow: Phaser.GameObjects.Ellipse
   constructor(
     scene: Phaser.Scene,
@@ -298,9 +299,9 @@ export class Player {
   applyEnergyRegenBonus(pct: number): void {
     this.energyRegenPct = Math.max(0, pct)
   }
-  advanceStamina(deltaMs: number, firing: boolean): void {
+  advanceStamina(deltaMs: number, firing: boolean, blocked = false): void {
     if (
-      firing ||
+      blocked ||
       !this.model.alive ||
       this.clock.paused ||
       this.clock.frozen ||
@@ -310,7 +311,7 @@ export class Player {
     this.stamina = staminaAfterRegen(
       this.stamina,
       this.maxStamina,
-      this.cfg.player.staminaRegenPerSec,
+      this.cfg.player.staminaRegenPerSec * (!firing && this.cfg.talents && this.clock.nowMs-this.lastEnergySpendAt>=this.cfg.talents.stoppedRegenDelayMs ? this.cfg.talents.stoppedRegenScale : 1),
       this.energyRegenPct,
       deltaMs,
     )
@@ -331,6 +332,7 @@ export class Player {
   }
 
   spendStamina(amount: number): boolean {
+    if(amount>0)this.lastEnergySpendAt=this.clock.nowMs
     if (
       !Number.isFinite(amount) ||
       amount < 0 ||

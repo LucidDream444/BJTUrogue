@@ -1,0 +1,790 @@
+{
+  "schemaVersion": 1,
+  "designStatus": "proposal_only_not_game_runtime",
+  "auditedCommit": "f9403496471e714f2c17ca75ba802a647d09808a",
+  "scope": "Source inspection and arithmetic; no game-play simulation or player validation.",
+  "baseline": {
+    "weaponCount": 36,
+    "rewardCount": 7,
+    "combatLayers": 3,
+    "baseHp": 50,
+    "maxEnergy": 500,
+    "regenWhileNotFiring": 6,
+    "bossHp": [
+      900,
+      1200,
+      1500
+    ],
+    "finalBossHp": 1800,
+    "currentShopBasePrices": {
+      "health": 1,
+      "energy": 1,
+      "upgrade": 1,
+      "weapon": 1
+    },
+    "existingEnergyReward": {
+      "headline": "能量上限 +20",
+      "actualBaseCapacityGain": 100
+    }
+  },
+  "proposal": {
+    "contentCount": 36,
+    "contentIds": [
+      "E1",
+      "E2",
+      "E3",
+      "E4",
+      "E5",
+      "EA",
+      "K1",
+      "K2",
+      "K3",
+      "K4",
+      "K5",
+      "KA",
+      "C1",
+      "C2",
+      "C3",
+      "C4",
+      "C5",
+      "CA",
+      "S1",
+      "S2",
+      "S3",
+      "S4",
+      "S5",
+      "SA",
+      "U1",
+      "U2",
+      "U3",
+      "U4",
+      "U5",
+      "U6",
+      "U7",
+      "U8",
+      "R1",
+      "R2",
+      "R3",
+      "R4"
+    ],
+    "mvpCount": 18,
+    "mvpIds": [
+      "E1",
+      "E2",
+      "E3",
+      "E4",
+      "E5",
+      "EA",
+      "K1",
+      "K2",
+      "K3",
+      "K4",
+      "K5",
+      "KA",
+      "U1",
+      "U2",
+      "U3",
+      "U4",
+      "U5",
+      "U6"
+    ],
+    "ordinaryDrawPoolEntries": 28,
+    "automaticAwakenings": 4,
+    "riskEntries": 4,
+    "mainlineChoiceNodes": 10,
+    "optionalEliteChoicesMax": 3,
+    "shopGrowthPurchasesMax": 1,
+    "proposedShop": {
+      "health": 18,
+      "energy": 12,
+      "upgrade": 40,
+      "weapon": 55
+    },
+    "fullStockPrice": 180
+  },
+  "floorAllocation": [
+    {
+      "file": "floor-plan-yf2.json",
+      "drawable": 7,
+      "randomKinds": {
+        "main": 3,
+        "elite": 2,
+        "reward": 1,
+        "chest": 1
+      },
+      "fixedKinds": {
+        "boss": 1,
+        "reward": 1,
+        "elevator": 3
+      }
+    },
+    {
+      "file": "floor-plan-yf4.json",
+      "drawable": 12,
+      "randomKinds": {
+        "main": 5,
+        "elite": 3,
+        "reward": 2,
+        "chest": 2
+      },
+      "fixedKinds": {
+        "boss": 1,
+        "reward": 2,
+        "elevator": 3
+      }
+    },
+    {
+      "file": "floor-plan-yf5.json",
+      "drawable": 12,
+      "randomKinds": {
+        "main": 5,
+        "elite": 3,
+        "reward": 2,
+        "chest": 2
+      },
+      "fixedKinds": {
+        "boss": 1,
+        "reward": 2,
+        "elevator": 3
+      }
+    },
+    {
+      "file": "floor-plan.json",
+      "drawable": 12,
+      "randomKinds": {
+        "main": 5,
+        "elite": 3,
+        "reward": 2,
+        "chest": 2
+      },
+      "fixedKinds": {
+        "boss": 1,
+        "reward": 2,
+        "elevator": 3
+      }
+    },
+    {
+      "file": "floor-plan-yf3.json",
+      "drawable": 10,
+      "randomKinds": {
+        "main": 4,
+        "elite": 2,
+        "reward": 2,
+        "chest": 2
+      },
+      "fixedKinds": {
+        "boss": 1,
+        "reward": 2,
+        "shop": 1,
+        "elevator": 3
+      }
+    }
+  ],
+  "modelAssumptions": {
+    "accuracy": 0.7,
+    "dutyCycle": 0.6,
+    "baseDps": 40,
+    "note": "Hypothetical budget samples, not outputs from named card combinations."
+  },
+  "budgetScenarios": [
+    {
+      "phase": "unmodified_reference",
+      "damageBonus": 0,
+      "rateBonus": 0,
+      "derivedRatio": 0,
+      "bossHp": 900,
+      "multiplier": 1,
+      "nominalDps": 40,
+      "effectiveDps": 16.8,
+      "modelTtkSeconds": 53.5714
+    },
+    {
+      "phase": "end_layer_1_budget",
+      "damageBonus": 0.2,
+      "rateBonus": 0.15,
+      "derivedRatio": 0.3,
+      "bossHp": 900,
+      "multiplier": 1.794,
+      "nominalDps": 71.76,
+      "effectiveDps": 30.1392,
+      "modelTtkSeconds": 29.8614
+    },
+    {
+      "phase": "end_layer_2_budget",
+      "damageBonus": 0.4,
+      "rateBonus": 0.3,
+      "derivedRatio": 0.45,
+      "bossHp": 1200,
+      "multiplier": 2.639,
+      "nominalDps": 105.56,
+      "effectiveDps": 44.3352,
+      "modelTtkSeconds": 27.0665
+    },
+    {
+      "phase": "end_layer_3_budget",
+      "damageBonus": 0.5,
+      "rateBonus": 0.45,
+      "derivedRatio": 0.6,
+      "bossHp": 1500,
+      "multiplier": 3.48,
+      "nominalDps": 139.2,
+      "effectiveDps": 58.464,
+      "modelTtkSeconds": 25.6568
+    },
+    {
+      "phase": "heart_demon_budget",
+      "damageBonus": 0.5,
+      "rateBonus": 0.45,
+      "derivedRatio": 0.6,
+      "bossHp": 1800,
+      "multiplier": 3.48,
+      "nominalDps": 139.2,
+      "effectiveDps": 58.464,
+      "modelTtkSeconds": 30.7882
+    },
+    {
+      "phase": "strong_build_budget",
+      "damageBonus": 0.6,
+      "rateBonus": 0.55,
+      "derivedRatio": 0.85,
+      "bossHp": 1800,
+      "multiplier": 4.588,
+      "nominalDps": 183.52,
+      "effectiveDps": 77.0784,
+      "modelTtkSeconds": 23.3528
+    }
+  ],
+  "namedElectricBuild": {
+    "selectedNodes": [
+      "E1",
+      "E3",
+      "U1",
+      "E4",
+      "U2",
+      "E3:II",
+      "U1:II",
+      "U2:II",
+      "E4:II",
+      "U3"
+    ],
+    "automaticAwakening": "EA",
+    "assumptions": "Pistol; fully maintained E4 mark; every third primary attack completes E3; no enemies for extra chain jumps; no energy shortage; student haste used on cooldown. Analytical estimate, not a battle simulation.",
+    "cases": [
+      {
+        "character": "no_haste_bonus",
+        "damageFactor": 1.534,
+        "rateFactor": 1.24,
+        "derivedFactor": 1.6,
+        "multiplier": 3.0435,
+        "nominalDps": 121.7382,
+        "heartDemonModelTtkSeconds": 35.2043
+      },
+      {
+        "character": "student_skill_level_1_time_average",
+        "damageFactor": 1.534,
+        "rateFactor": 1.4067,
+        "derivedFactor": 1.6,
+        "multiplier": 3.4525,
+        "nominalDps": 138.1009,
+        "heartDemonModelTtkSeconds": 31.0332
+      }
+    ]
+  },
+  "energyScenarios": [
+    {
+      "name": "current_smg_base_no_regen_while_firing",
+      "rateScale": 1,
+      "costReduction": 0,
+      "onHitRegen": 0,
+      "firingRegen": 0,
+      "grossPerSecond": 14.2857,
+      "netPerSecond": 14.2857,
+      "emptyAfterSeconds": 35
+    },
+    {
+      "name": "current_smg_rate_cap_no_regen_while_firing",
+      "rateScale": 2.5,
+      "costReduction": 0,
+      "onHitRegen": 0,
+      "firingRegen": 0,
+      "grossPerSecond": 35.7143,
+      "netPerSecond": 35.7143,
+      "emptyAfterSeconds": 14
+    },
+    {
+      "name": "proposed_smg_rate_cap_regen",
+      "rateScale": 2.5,
+      "costReduction": 0,
+      "onHitRegen": 0,
+      "firingRegen": 6,
+      "grossPerSecond": 35.7143,
+      "netPerSecond": 29.7143,
+      "emptyAfterSeconds": 16.8269
+    },
+    {
+      "name": "proposed_smg_rate_cap_two_efficiency_cards",
+      "rateScale": 2.5,
+      "costReduction": 0.3,
+      "onHitRegen": 0,
+      "firingRegen": 6,
+      "grossPerSecond": 25,
+      "netPerSecond": 19,
+      "emptyAfterSeconds": 26.3158
+    },
+    {
+      "name": "proposed_smg_rate_cap_efficiency_and_six_on_hit_regen",
+      "rateScale": 2.5,
+      "costReduction": 0.3,
+      "onHitRegen": 6,
+      "firingRegen": 6,
+      "grossPerSecond": 25,
+      "netPerSecond": 13,
+      "emptyAfterSeconds": 38.4615
+    }
+  ],
+  "rawWeapons": [
+    {
+      "id": "pencil",
+      "name": "手枪",
+      "mode": "projectile",
+      "rawSingleHitDamage": 10,
+      "rawActivationsPerSecond": 4,
+      "rawPelletDps": 40,
+      "rawEnergyPerSecond": 8,
+      "traits": [],
+      "caveat": "Raw nominal fields only; ignores burst cadence, multi-hit, beam ticks, frame damage, native statuses, chains, accuracy and movement. Not a weapon ranking."
+    },
+    {
+      "id": "pulse",
+      "name": "星核重炮",
+      "mode": "projectile",
+      "rawSingleHitDamage": 117,
+      "rawActivationsPerSecond": 0.8333,
+      "rawPelletDps": 97.5,
+      "rawEnergyPerSecond": 15,
+      "traits": [],
+      "caveat": "Raw nominal fields only; ignores burst cadence, multi-hit, beam ticks, frame damage, native statuses, chains, accuracy and movement. Not a weapon ranking."
+    },
+    {
+      "id": "venom",
+      "name": "幽影毒炮",
+      "mode": "projectile",
+      "rawSingleHitDamage": 26,
+      "rawActivationsPerSecond": 1.7391,
+      "rawPelletDps": 45.2174,
+      "rawEnergyPerSecond": 17.3913,
+      "traits": [],
+      "caveat": "Raw nominal fields only; ignores burst cadence, multi-hit, beam ticks, frame damage, native statuses, chains, accuracy and movement. Not a weapon ranking."
+    },
+    {
+      "id": "flare",
+      "name": "黄金爆裂炮",
+      "mode": "projectile",
+      "rawSingleHitDamage": 54,
+      "rawActivationsPerSecond": 1.0526,
+      "rawPelletDps": 56.8421,
+      "rawEnergyPerSecond": 16.8421,
+      "traits": [],
+      "caveat": "Raw nominal fields only; ignores burst cadence, multi-hit, beam ticks, frame damage, native statuses, chains, accuracy and movement. Not a weapon ranking."
+    },
+    {
+      "id": "rail",
+      "name": "黄铜贯星枪",
+      "mode": "projectile",
+      "rawSingleHitDamage": 64,
+      "rawActivationsPerSecond": 0.9091,
+      "rawPelletDps": 58.1818,
+      "rawEnergyPerSecond": 12.7273,
+      "traits": [],
+      "caveat": "Raw nominal fields only; ignores burst cadence, multi-hit, beam ticks, frame damage, native statuses, chains, accuracy and movement. Not a weapon ranking."
+    },
+    {
+      "id": "smg",
+      "name": "冰蓝冲锋枪",
+      "mode": "projectile",
+      "rawSingleHitDamage": 9.5,
+      "rawActivationsPerSecond": 9.5238,
+      "rawPelletDps": 90.4762,
+      "rawEnergyPerSecond": 14.2857,
+      "traits": [],
+      "caveat": "Raw nominal fields only; ignores burst cadence, multi-hit, beam ticks, frame damage, native statuses, chains, accuracy and movement. Not a weapon ranking."
+    },
+    {
+      "id": "pencil_knife",
+      "name": "铅笔刀",
+      "mode": "melee",
+      "rawSingleHitDamage": 7,
+      "rawActivationsPerSecond": 6.1538,
+      "rawPelletDps": 43.0769,
+      "rawEnergyPerSecond": 0,
+      "traits": [],
+      "caveat": "Raw nominal fields only; ignores burst cadence, multi-hit, beam ticks, frame damage, native statuses, chains, accuracy and movement. Not a weapon ranking."
+    },
+    {
+      "id": "ruler_sword",
+      "name": "直尺剑",
+      "mode": "melee",
+      "rawSingleHitDamage": 12,
+      "rawActivationsPerSecond": 4.2105,
+      "rawPelletDps": 50.5263,
+      "rawEnergyPerSecond": 0,
+      "traits": [],
+      "caveat": "Raw nominal fields only; ignores burst cadence, multi-hit, beam ticks, frame damage, native statuses, chains, accuracy and movement. Not a weapon ranking."
+    },
+    {
+      "id": "pointer_rapier",
+      "name": "教鞭",
+      "mode": "melee",
+      "rawSingleHitDamage": 16,
+      "rawActivationsPerSecond": 3.4783,
+      "rawPelletDps": 55.6522,
+      "rawEnergyPerSecond": 0,
+      "traits": [],
+      "caveat": "Raw nominal fields only; ignores burst cadence, multi-hit, beam ticks, frame damage, native statuses, chains, accuracy and movement. Not a weapon ranking."
+    },
+    {
+      "id": "compass",
+      "name": "圆规",
+      "mode": "melee",
+      "rawSingleHitDamage": 21,
+      "rawActivationsPerSecond": 2.6667,
+      "rawPelletDps": 56,
+      "rawEnergyPerSecond": 0,
+      "traits": [],
+      "caveat": "Raw nominal fields only; ignores burst cadence, multi-hit, beam ticks, frame damage, native statuses, chains, accuracy and movement. Not a weapon ranking."
+    },
+    {
+      "id": "eraser_maul",
+      "name": "黑板擦重锤",
+      "mode": "melee",
+      "rawSingleHitDamage": 35,
+      "rawActivationsPerSecond": 1.6,
+      "rawPelletDps": 56,
+      "rawEnergyPerSecond": 0,
+      "traits": [
+        "knockback"
+      ],
+      "caveat": "Raw nominal fields only; ignores burst cadence, multi-hit, beam ticks, frame damage, native statuses, chains, accuracy and movement. Not a weapon ranking."
+    },
+    {
+      "id": "broom",
+      "name": "扫帚",
+      "mode": "melee",
+      "rawSingleHitDamage": 15,
+      "rawActivationsPerSecond": 2.5,
+      "rawPelletDps": 37.5,
+      "rawEnergyPerSecond": 0,
+      "traits": [
+        "knockback"
+      ],
+      "caveat": "Raw nominal fields only; ignores burst cadence, multi-hit, beam ticks, frame damage, native statuses, chains, accuracy and movement. Not a weapon ranking."
+    },
+    {
+      "id": "scissors",
+      "name": "剪刀",
+      "mode": "melee",
+      "rawSingleHitDamage": 7.5,
+      "rawActivationsPerSecond": 3.6364,
+      "rawPelletDps": 27.2727,
+      "rawEnergyPerSecond": 0,
+      "traits": [
+        "multiHit"
+      ],
+      "caveat": "Raw nominal fields only; ignores burst cadence, multi-hit, beam ticks, frame damage, native statuses, chains, accuracy and movement. Not a weapon ranking."
+    },
+    {
+      "id": "glowstick",
+      "name": "荧光棒",
+      "mode": "melee",
+      "rawSingleHitDamage": 8,
+      "rawActivationsPerSecond": 6.1538,
+      "rawPelletDps": 49.2308,
+      "rawEnergyPerSecond": 0,
+      "traits": [
+        "destroyShot"
+      ],
+      "caveat": "Raw nominal fields only; ignores burst cadence, multi-hit, beam ticks, frame damage, native statuses, chains, accuracy and movement. Not a weapon ranking."
+    },
+    {
+      "id": "mop",
+      "name": "拖把",
+      "mode": "melee",
+      "rawSingleHitDamage": 13,
+      "rawActivationsPerSecond": 2.3529,
+      "rawPelletDps": 30.5882,
+      "rawEnergyPerSecond": 0,
+      "traits": [],
+      "caveat": "Raw nominal fields only; ignores burst cadence, multi-hit, beam ticks, frame damage, native statuses, chains, accuracy and movement. Not a weapon ranking."
+    },
+    {
+      "id": "bug_swatter",
+      "name": "电蚊拍",
+      "mode": "melee",
+      "rawSingleHitDamage": 18,
+      "rawActivationsPerSecond": 2,
+      "rawPelletDps": 36,
+      "rawEnergyPerSecond": 0,
+      "traits": [
+        "chain"
+      ],
+      "caveat": "Raw nominal fields only; ignores burst cadence, multi-hit, beam ticks, frame damage, native statuses, chains, accuracy and movement. Not a weapon ranking."
+    },
+    {
+      "id": "eraser_shotgun",
+      "name": "橡皮霰弹枪",
+      "mode": "projectile",
+      "rawSingleHitDamage": 9,
+      "rawActivationsPerSecond": 1.25,
+      "rawPelletDps": 67.5,
+      "rawEnergyPerSecond": 10,
+      "traits": [],
+      "caveat": "Raw nominal fields only; ignores burst cadence, multi-hit, beam ticks, frame damage, native statuses, chains, accuracy and movement. Not a weapon ranking."
+    },
+    {
+      "id": "set_square_sniper",
+      "name": "三角板狙击枪",
+      "mode": "projectile",
+      "rawSingleHitDamage": 55,
+      "rawActivationsPerSecond": 0.9091,
+      "rawPelletDps": 50,
+      "rawEnergyPerSecond": 10.9091,
+      "traits": [
+        "pierce"
+      ],
+      "caveat": "Raw nominal fields only; ignores burst cadence, multi-hit, beam ticks, frame damage, native statuses, chains, accuracy and movement. Not a weapon ranking."
+    },
+    {
+      "id": "auto_pencil_smg",
+      "name": "自动铅笔冲锋枪",
+      "mode": "projectile",
+      "rawSingleHitDamage": 7.5,
+      "rawActivationsPerSecond": 1.6667,
+      "rawPelletDps": 12.5,
+      "rawEnergyPerSecond": 2,
+      "traits": [
+        "burst"
+      ],
+      "caveat": "Raw nominal fields only; ignores burst cadence, multi-hit, beam ticks, frame damage, native statuses, chains, accuracy and movement. Not a weapon ranking."
+    },
+    {
+      "id": "chem_sprayer",
+      "name": "化学喷瓶",
+      "mode": "projectile",
+      "rawSingleHitDamage": 3.5,
+      "rawActivationsPerSecond": 1.4286,
+      "rawPelletDps": 40,
+      "rawEnergyPerSecond": 8.5714,
+      "traits": [],
+      "caveat": "Raw nominal fields only; ignores burst cadence, multi-hit, beam ticks, frame damage, native statuses, chains, accuracy and movement. Not a weapon ranking."
+    },
+    {
+      "id": "cryo_sprayer",
+      "name": "液氮喷枪",
+      "mode": "projectile",
+      "rawSingleHitDamage": 3,
+      "rawActivationsPerSecond": 1.5385,
+      "rawPelletDps": 36.9231,
+      "rawEnergyPerSecond": 7.6923,
+      "traits": [],
+      "caveat": "Raw nominal fields only; ignores burst cadence, multi-hit, beam ticks, frame damage, native statuses, chains, accuracy and movement. Not a weapon ranking."
+    },
+    {
+      "id": "laser_pointer",
+      "name": "激光教鞭",
+      "mode": "beam",
+      "rawSingleHitDamage": 30,
+      "rawActivationsPerSecond": 1.4286,
+      "rawPelletDps": 42.8571,
+      "rawEnergyPerSecond": 12.8571,
+      "traits": [
+        "pierce"
+      ],
+      "caveat": "Raw nominal fields only; ignores burst cadence, multi-hit, beam ticks, frame damage, native statuses, chains, accuracy and movement. Not a weapon ranking."
+    },
+    {
+      "id": "basketball_boomerang",
+      "name": "回旋篮球",
+      "mode": "projectile",
+      "rawSingleHitDamage": 22,
+      "rawActivationsPerSecond": 1,
+      "rawPelletDps": 22,
+      "rawEnergyPerSecond": 7,
+      "traits": [
+        "boomerang",
+        "pierce"
+      ],
+      "caveat": "Raw nominal fields only; ignores burst cadence, multi-hit, beam ticks, frame damage, native statuses, chains, accuracy and movement. Not a weapon ranking."
+    },
+    {
+      "id": "paper_plane",
+      "name": "纸飞机",
+      "mode": "projectile",
+      "rawSingleHitDamage": 8,
+      "rawActivationsPerSecond": 4.4444,
+      "rawPelletDps": 35.5556,
+      "rawEnergyPerSecond": 8.8889,
+      "traits": [
+        "homing"
+      ],
+      "caveat": "Raw nominal fields only; ignores burst cadence, multi-hit, beam ticks, frame damage, native statuses, chains, accuracy and movement. Not a weapon ranking."
+    },
+    {
+      "id": "tennis_ball",
+      "name": "弹跳网球",
+      "mode": "projectile",
+      "rawSingleHitDamage": 18,
+      "rawActivationsPerSecond": 1.4286,
+      "rawPelletDps": 25.7143,
+      "rawEnergyPerSecond": 8.5714,
+      "traits": [
+        "bounce"
+      ],
+      "caveat": "Raw nominal fields only; ignores burst cadence, multi-hit, beam ticks, frame damage, native statuses, chains, accuracy and movement. Not a weapon ranking."
+    },
+    {
+      "id": "model_rocket",
+      "name": "模型火箭",
+      "mode": "projectile",
+      "rawSingleHitDamage": 30,
+      "rawActivationsPerSecond": 0.7143,
+      "rawPelletDps": 21.4286,
+      "rawEnergyPerSecond": 10.7143,
+      "traits": [
+        "splash"
+      ],
+      "caveat": "Raw nominal fields only; ignores burst cadence, multi-hit, beam ticks, frame damage, native statuses, chains, accuracy and movement. Not a weapon ranking."
+    },
+    {
+      "id": "grenade_launcher",
+      "name": "榴弹发射器",
+      "mode": "projectile",
+      "rawSingleHitDamage": 25,
+      "rawActivationsPerSecond": 1,
+      "rawPelletDps": 25,
+      "rawEnergyPerSecond": 10,
+      "traits": [
+        "fuse"
+      ],
+      "caveat": "Raw nominal fields only; ignores burst cadence, multi-hit, beam ticks, frame damage, native statuses, chains, accuracy and movement. Not a weapon ranking."
+    },
+    {
+      "id": "arc_emitter",
+      "name": "电弧发射器",
+      "mode": "projectile",
+      "rawSingleHitDamage": 18,
+      "rawActivationsPerSecond": 1.1111,
+      "rawPelletDps": 20,
+      "rawEnergyPerSecond": 13.3333,
+      "traits": [
+        "chain"
+      ],
+      "caveat": "Raw nominal fields only; ignores burst cadence, multi-hit, beam ticks, frame damage, native statuses, chains, accuracy and movement. Not a weapon ranking."
+    },
+    {
+      "id": "split_dart",
+      "name": "分裂飞镖",
+      "mode": "projectile",
+      "rawSingleHitDamage": 14,
+      "rawActivationsPerSecond": 1.25,
+      "rawPelletDps": 17.5,
+      "rawEnergyPerSecond": 8.75,
+      "traits": [
+        "split"
+      ],
+      "caveat": "Raw nominal fields only; ignores burst cadence, multi-hit, beam ticks, frame damage, native statuses, chains, accuracy and movement. Not a weapon ranking."
+    },
+    {
+      "id": "lifesteal_syringe",
+      "name": "吸血针筒",
+      "mode": "projectile",
+      "rawSingleHitDamage": 12,
+      "rawActivationsPerSecond": 2,
+      "rawPelletDps": 24,
+      "rawEnergyPerSecond": 10,
+      "traits": [
+        "lifesteal"
+      ],
+      "caveat": "Raw nominal fields only; ignores burst cadence, multi-hit, beam ticks, frame damage, native statuses, chains, accuracy and movement. Not a weapon ranking."
+    },
+    {
+      "id": "nail_gun",
+      "name": "图钉枪",
+      "mode": "projectile",
+      "rawSingleHitDamage": 5,
+      "rawActivationsPerSecond": 2.8571,
+      "rawPelletDps": 42.8571,
+      "rawEnergyPerSecond": 8.5714,
+      "traits": [
+        "pierce"
+      ],
+      "caveat": "Raw nominal fields only; ignores burst cadence, multi-hit, beam ticks, frame damage, native statuses, chains, accuracy and movement. Not a weapon ranking."
+    },
+    {
+      "id": "bubble_gun",
+      "name": "泡泡枪",
+      "mode": "projectile",
+      "rawSingleHitDamage": 5,
+      "rawActivationsPerSecond": 5.5556,
+      "rawPelletDps": 27.7778,
+      "rawEnergyPerSecond": 5.5556,
+      "traits": [
+        "pierce"
+      ],
+      "caveat": "Raw nominal fields only; ignores burst cadence, multi-hit, beam ticks, frame damage, native statuses, chains, accuracy and movement. Not a weapon ranking."
+    },
+    {
+      "id": "double_barrel",
+      "name": "双管猎枪",
+      "mode": "projectile",
+      "rawSingleHitDamage": 18,
+      "rawActivationsPerSecond": 1.4286,
+      "rawPelletDps": 51.4286,
+      "rawEnergyPerSecond": 11.4286,
+      "traits": [
+        "knockback"
+      ],
+      "caveat": "Raw nominal fields only; ignores burst cadence, multi-hit, beam ticks, frame damage, native statuses, chains, accuracy and movement. Not a weapon ranking."
+    },
+    {
+      "id": "magnetic_frisbee",
+      "name": "磁力飞盘",
+      "mode": "projectile",
+      "rawSingleHitDamage": 16,
+      "rawActivationsPerSecond": 1.25,
+      "rawPelletDps": 20,
+      "rawEnergyPerSecond": 7.5,
+      "traits": [
+        "bounce",
+        "homing"
+      ],
+      "caveat": "Raw nominal fields only; ignores burst cadence, multi-hit, beam ticks, frame damage, native statuses, chains, accuracy and movement. Not a weapon ranking."
+    },
+    {
+      "id": "sonic_horn",
+      "name": "声波喇叭",
+      "mode": "projectile",
+      "rawSingleHitDamage": 5,
+      "rawActivationsPerSecond": 1.1111,
+      "rawPelletDps": 16.6667,
+      "rawEnergyPerSecond": 10,
+      "traits": [
+        "knockback"
+      ],
+      "caveat": "Raw nominal fields only; ignores burst cadence, multi-hit, beam ticks, frame damage, native statuses, chains, accuracy and movement. Not a weapon ranking."
+    },
+    {
+      "id": "firework_launcher",
+      "name": "烟花发射器",
+      "mode": "projectile",
+      "rawSingleHitDamage": 24,
+      "rawActivationsPerSecond": 0.8333,
+      "rawPelletDps": 20,
+      "rawEnergyPerSecond": 10,
+      "traits": [
+        "split",
+        "splash"
+      ],
+      "caveat": "Raw nominal fields only; ignores burst cadence, multi-hit, beam ticks, frame damage, native statuses, chains, accuracy and movement. Not a weapon ranking."
+    }
+  ]
+}

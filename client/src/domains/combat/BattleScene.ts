@@ -1,3 +1,4 @@
+import { TalentHud } from './TalentHud'
 import Phaser from 'phaser'
 import {
   preloadAssets,
@@ -609,6 +610,8 @@ export class BattleScene extends Phaser.Scene {
         this.goToFloor(target, here?.room.kind === 'elevator' ? here.room.id : null)
       })
       this.rewardPanel = new RewardPanel(this.session)
+      const talentHud = new TalentHud(this.session)
+      this.events.once(Phaser.Scenes.Events.SHUTDOWN,()=>talentHud.destroy())
       this.gallery = new AssetGallery(this, () => this.toggleGallery())
       this.makeHud()
       this.cursor = new GameCursor(this)
@@ -644,8 +647,8 @@ export class BattleScene extends Phaser.Scene {
           return
         const unit = this.roomById(event.roomId)
         if (unit === null) return
-        const bonus = this.session.grantRandomWeapon()
-        const label = bonus ? '获得随机武器：' + bonus.name + ' · ' : ''
+        const bonus: {name:string}|null = null
+        const label = ''
         if (unit.room.kind !== 'boss') {
           this.notice.setText(label + `强化已生效 · 门开了（绿色）· 走廊里随便走，挑一间推门进去`)
           return
@@ -815,6 +818,7 @@ export class BattleScene extends Phaser.Scene {
       this.refreshStairPads()
       // 电梯面板这时是关着的（玩家不在电梯间里），建出来就行 —— 走进去才弹。
       this.notice.setText(this.floorBrief())
+      this.time.delayedCall(0,()=>this.session.offerOpeningTalent())
     } catch (e) {
       this.showFatal(e)
     }
@@ -1465,6 +1469,7 @@ export class BattleScene extends Phaser.Scene {
    * 后者是按旧的大竞技场调的，撒在一间教室里等于怪全糊在玩家脸上。
    */
   private spawnRoomEnemies(unit: DungeonRoom): void {
+    this.session.beginTalentRoom(unit.room.id,unit.room.kind==='boss')
     const cx = this.session.player.x,
       cy = this.session.player.y
     // ⚠️ **离玩家进这间房时站的位置太近的刷怪点要跳过。**
@@ -1711,6 +1716,7 @@ export class BattleScene extends Phaser.Scene {
     this.session.rewards.forgetFloor()
     this.shopWorld.leaveRoom()
     this.session.loadFloor(this.stageConfig)
+    this.session.setTalentFloor(this.layer,this.zone==='finale')
     this.ledger?.setDepth(this.layer)
     if (fromElevator !== null) this.spawnAtElevator(fromElevator)
     this.syncRoomState()
@@ -2364,6 +2370,7 @@ export class BattleScene extends Phaser.Scene {
       this.exitUp?.destroy()
       this.exitDown?.destroy()
       this.cursor?.destroy()
+      this.loadout?.destroy()
       this.skillHud?.destroy()
       this.loot?.destroy()
       this.shopWorld?.destroy()

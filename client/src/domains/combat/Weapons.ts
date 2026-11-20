@@ -1,3 +1,4 @@
+import type { TalentWeaponHooks, TalentAttack } from './TalentRun'
 import Phaser from 'phaser'
 import { deflectVortexVelocity, type VortexSnapshot } from '@/core/vortex'
 import { ASSETS, PROJECTILE_ART } from '@/core/assetManifest'
@@ -30,6 +31,12 @@ interface Projectile {
   body: Phaser.Physics.Arcade.Body
   weapon: WeaponDef
   damage: number
+  baseDamage: number
+  launchSpeed: number
+  critical: boolean
+  talentHitIds: Set<number>
+  childBudget: { count: number }
+  bounceBonus: boolean
   pending: boolean
   hitIds: Set<number>
   previous: { x: number; y: number }
@@ -62,6 +69,9 @@ interface Swing {
   segments: number
   segmentIntervalMs: number
   segmentDamageRatio: number
+  baseDamage: number
+  critical: boolean
+  talentHitIds: Set<number>
   hit: Set<number>
 }
 
@@ -97,6 +107,8 @@ export class Weapons {
   private lastWeapon: WeaponDef
   private swing: Swing | null = null
   private burst: BurstState | null = null
+  private lastAttackScale = 1
+  private pendingSplits: { weapon: WeaponDef; damage: number; angle: number; x: number; y: number; depth: number; speed: number; count: number; spread: number; radial: boolean; budget: {count:number} }[] = []
   firing = false
   shots = 0
   firedAtMs = -Infinity
@@ -110,6 +122,7 @@ export class Weapons {
     private readonly player: Player,
     private readonly terrain: TerrainMap,
     private readonly onShot: (weapon: WeaponDef) => void,
+    private readonly talentHooks?: TalentWeaponHooks,
   ) {
     this.world = scene.physics.world
     this.lastWeapon = cfg.weapons[0]!
@@ -128,6 +141,12 @@ export class Weapons {
         body,
         weapon: cfg.weapons[0]!,
         damage: 0,
+        baseDamage: 0,
+        launchSpeed: 0,
+        critical: false,
+        talentHitIds: new Set(),
+        childBudget: {count:0},
+        bounceBonus: false,
         pending: false,
         hitIds: new Set(),
         nextPierceSpecialMs: 0,
@@ -173,6 +192,7 @@ export class Weapons {
     const now = this.clock.nowMs
     for (const b of this.bullets)
       if (b.slot.active && (b.pending || now - b.slot.bornMs >= b.slot.lifeMs)) this.recycle(b)
+    this.flushSplits(now)
     this.updateFuse(now)
     for (const b of this.bullets) if (b.slot.active && b.pending) this.recycle(b)
     this.updateBurst(now)
@@ -187,7 +207,7 @@ export class Weapons {
       return
     }
     if (this.burst) return
-    if (!this.canFire(now) || this.player.stamina < weapon.staminaCost) return
+    if (!this.canFire(now) || this.player.stamina < weapon.staminaCost * (this.talentHooks?.state.costScale(now) ?? 1)) return
 
     const burst = this.trait(weapon, 'burst')
     if (burst) {
@@ -196,7 +216,7 @@ export class Weapons {
       if (burst.count > 1)
         this.burst = {
           weapon,
-          stats,
+          stats: {...stats,damage:stats.damage*this.lastAttackScale},
           angle: this.player.angle,
           remaining: burst.count - 1,
           intervalMs: burst.intervalMs,
@@ -248,7 +268,7 @@ export class Weapons {
       this.burst = null
       return
     }
-    if (!this.fireVolley(b.stats, b.weapon, b.angle, now)) {
+    if (!this.fireVolley(b.stats, b.weapon, b.angle, now, true)) {
       this.burst = null
       return
     }
@@ -283,12 +303,19 @@ export class Weapons {
     weapon: WeaponDef,
     angle: number,
     now: number,
+    followup = false,
   ): boolean {
-    if (this.player.stamina < weapon.staminaCost) return false
-    const count = weapon.id === 'pulse' ? 1 : stats.pellets
+    const cost = weapon.staminaCost * (this.talentHooks?.state.costScale(now) ?? 1)
+    if (this.player.stamina < cost) return false
+    const state = this.talentHooks?.state
+    const extra = weapon.effect !== 'explosion' && weapon.effect !== 'energy' ? (state?.p('scatter','extra') ?? 0) : 0
+    const baseCount = weapon.id === 'pulse' ? 1 : stats.pellets
+    const count = Math.min(this.cfg.limits.pellets, baseCount + extra)
     const slots = this.pool.acquire(count, now, stats.lifeMs)
     if (!slots.length) return false
-    this.player.spendStamina(weapon.staminaCost)
+    this.player.spendStamina(cost)
+    this.lastAttackScale = followup ? 1 : (state?.attack(now) ?? 1)
+    const damage = stats.damage * this.lastAttackScale
     this.shots++
     this.onShot(weapon)
     this.firedAtMs = now
@@ -296,18 +323,22 @@ export class Weapons {
     this.player.model.attackUntilMs = now + this.attackPoseMs(weapon)
     const muzzle = this.player.muzzle()
     this.fx.muzzle(weapon, muzzle.x, muzzle.y, this.player.angle)
-    for (const slot of slots) {
+    if (!followup) this.talentHooks?.attack({sourceId:slots[0]!.id,weapon,damage,x:muzzle.x,y:muzzle.y,angle,critical:false,secondary:false})
+    const budget = {count:0}
+    for (const [index,slot] of slots.entries()) {
+      const additional = index >= baseCount
       const spread = this.rng.floatBetween(-stats.spreadDeg / 2, stats.spreadDeg / 2)
       this.initProjectile(
         slot,
-        weapon,
-        stats.damage,
-        angle + (spread * Math.PI) / 180,
+        additional ? this.secondaryWeapon(weapon) : weapon,
+        damage * (additional ? state!.p('scatter','ratio') : 1),
+        angle + (additional ? (index-baseCount===0 ? -1 : 1)*state!.p('scatter','spreadRad') : (spread * Math.PI) / 180),
         muzzle.x,
         muzzle.y,
         now,
         0,
         stats.bulletSpeed,
+        budget,
       )
     }
     return true
@@ -323,12 +354,20 @@ export class Weapons {
     now: number,
     depth: number,
     speed: number,
+    budget: {count:number} = {count:0},
   ): void {
     const b = this.bullets[this.pool.slots.indexOf(slot)]!
     const fuse = this.trait(weapon, 'fuse')
     const boomerang = this.trait(weapon, 'boomerang')
     b.weapon = weapon
-    b.damage = damage
+    const crit = weapon.talentNoProcs ? {critical:false,ratio:1} : this.talentHooks?.state.crit(this.player.model) ?? {critical:false,ratio:1}
+    b.baseDamage = damage
+    b.launchSpeed = speed
+    b.damage = damage * crit.ratio
+    b.critical = crit.critical
+    b.talentHitIds.clear()
+    b.childBudget = budget
+    b.bounceBonus = false
     b.pending = false
     b.hitIds.clear()
     b.depth = depth
@@ -352,8 +391,9 @@ export class Weapons {
       .setScale(1)
       .setRotation(weapon.id === 'pulse' || !this.legacy.has(weapon.id) ? angle : 0)
       .setDepth(2000)
-    if (weapon.id === 'pencil') b.sprite.clearTint()
+    if (weapon.id === 'pencil' && !weapon.talentSecondary) b.sprite.clearTint()
     else b.sprite.setTint(weapon.color)
+    if (b.critical) b.sprite.setTint(0xffdf92).setScale(1.18)
     const r = weapon.projectileRadius ?? this.cfg.projectiles.radius
     b.body.setCircle(r, b.sprite.width / 2 - r, b.sprite.height / 2 - r)
     this.world.add(b.body)
@@ -373,7 +413,7 @@ export class Weapons {
       weapon.mode !== 'melee' ||
       this.swing ||
       !this.canFire(now) ||
-      this.player.stamina < weapon.staminaCost
+      this.player.stamina < weapon.staminaCost * (this.talentHooks?.state.costScale(now) ?? 1)
     )
       return
     const multi = this.trait(weapon, 'multiHit')
@@ -383,15 +423,21 @@ export class Weapons {
     const angle = this.player.meleeAngle
     const x = this.player.x
     const y = this.player.feetY
-    this.player.spendStamina(weapon.staminaCost)
+    this.player.spendStamina(weapon.staminaCost * (this.talentHooks?.state.costScale(now) ?? 1))
     this.gate.fired(now, stats.cooldownMs)
     this.shots++
     this.onShot(weapon)
     this.player.model.attackUntilMs = now + swingMs
+    const damage = stats.damage * (this.talentHooks?.state.attack(now) ?? 1)
+    const crit = this.talentHooks?.state.crit(this.player.model) ?? {critical:false,ratio:1}
+    this.talentHooks?.attack({sourceId:allocActorId(),weapon,damage,x,y,angle,critical:crit.critical,secondary:false})
     this.swing = {
       weapon,
       sourceId: 0,
-      damage: stats.damage,
+      damage: damage * crit.ratio,
+      baseDamage: damage,
+      critical: crit.critical,
+      talentHitIds:new Set(),
       angle,
       x,
       y,
@@ -441,6 +487,10 @@ export class Weapons {
             target.y,
             Math.atan2(target.y - swing.y, target.x - swing.x),
           )
+          if (!swing.talentHitIds.has(target.id)) {
+            swing.talentHitIds.add(target.id)
+            this.talentHooks?.hit({sourceId:swing.sourceId,weapon,damage:swing.baseDamage,targetId:target.id,x:target.x,y:target.y,angle:swing.angle,critical:swing.critical,secondary:false})
+          }
           this.applyHitTraits(weapon, target, target.x, target.y, all, damage, result.applied)
         }
       }
@@ -454,9 +504,9 @@ export class Weapons {
   }
 
   private updateBeam(now: number, stats: EffectiveStats, weapon: WeaponDef): void {
-    if (!this.canFire(now) || this.player.stamina < weapon.staminaCost) return
+    if (!this.canFire(now) || this.player.stamina < weapon.staminaCost * (this.talentHooks?.state.costScale(now) ?? 1)) return
     this.gate.fired(now, stats.cooldownMs)
-    this.player.spendStamina(weapon.staminaCost)
+    this.player.spendStamina(weapon.staminaCost * (this.talentHooks?.state.costScale(now) ?? 1))
     this.shots++
     this.onShot(weapon)
     this.player.model.attackUntilMs = now + this.attackPoseMs(weapon)
@@ -474,13 +524,17 @@ export class Weapons {
       .sort((a, b) => a.t - b.t)
     const pierce = this.trait(weapon, 'pierce')?.targets ?? 1
     const source = allocActorId()
+    const damage = stats.damage * (this.talentHooks?.state.attack(now) ?? 1)
+    const crit = this.talentHooks?.state.crit(this.player.model) ?? {critical:false,ratio:1}
+    this.talentHooks?.attack({sourceId:source,weapon,damage,x:muzzle.x,y:muzzle.y,angle,critical:crit.critical,secondary:false})
     let count = 0
     for (const hit of hits) {
       if (count >= pierce) break
       const x = muzzle.x + (end.x - muzzle.x) * hit.t
       const y = muzzle.y + (end.y - muzzle.y) * hit.t
-      const result = this.port.hit(hit.target.id, source, stats.damage, null)
+      const result = this.port.hit(hit.target.id, source, damage * crit.ratio, null)
       if (result.applied > 0) {
+        this.talentHooks?.hit({sourceId:source,weapon,damage,targetId:hit.target.id,x,y,angle,critical:crit.critical,secondary:false})
         this.fx.impact(weapon, x, y, angle)
         this.applyHitTraits(weapon, hit.target, x, y, all, stats.damage, result.applied, angle)
       }
@@ -548,7 +602,10 @@ export class Weapons {
     if (boomerang) {
       if (b.phase === 'out' && b.returnAtMs > 0 && now >= b.returnAtMs) {
         b.phase = 'back'
+        if (this.talentHooks) this.talentHooks.state.diagnostics.returns++
         b.hitIds.clear()
+        b.talentHitIds.clear()
+        this.port.release(b.slot.id)
       }
       if (b.phase === 'back') {
         const dx = this.player.x - b.body.center.x
@@ -560,7 +617,7 @@ export class Weapons {
           return
         }
         const speed =
-          Math.hypot(b.body.velocity.x, b.body.velocity.y) * (boomerang.returnSpeedScale ?? 1)
+          b.launchSpeed * (boomerang.returnSpeedScale ?? 1)
         const angle = Math.atan2(dy, dx)
         b.body.setVelocity(Math.cos(angle) * speed, Math.sin(angle) * speed)
         b.angle = angle
@@ -619,37 +676,43 @@ export class Weapons {
     b.angle = Math.atan2(ry, rx)
     b.sprite.setRotation(b.angle)
     b.bounces++
+    if (this.talentHooks) this.talentHooks.state.diagnostics.bounces++
+    b.bounceBonus = true
     b.nextWallAtMs = now + 30
   }
 
   private splitProjectile(b: Projectile, x: number, y: number): void {
     const split = this.trait(b.weapon, 'split')
-    if (!split || b.splitDone || b.depth >= (split.maxDepth ?? 1)) return
+    if (!split || b.splitDone || b.depth >= (split.maxDepth ?? 1) || b.weapon.talentSecondary) return
     b.splitDone = true
-    const now = this.clock.nowMs
-    const slots = this.pool.acquire(
-      split.count,
-      now,
-      Math.max(300, b.slot.lifeMs * 0.6),
-    )
-    if (!slots.length) return
-    const speed = Math.hypot(b.body.velocity.x, b.body.velocity.y) * 0.9
-    const spread = ((split.spreadDeg ?? 18) * Math.PI) / 180
-    const angles = splitAngles(b.angle, slots.length, spread, split.radial ?? false)
-    for (let i = 0; i < slots.length; i++) {
-      const angle = angles[i]!
-      this.initProjectile(
-        slots[i]!,
-        b.weapon,
-        b.damage * split.damageRatio,
-        angle,
-        x,
-        y,
-        now,
-        b.depth + 1,
-        speed,
-      )
+    if (split.chance !== undefined && this.talentHooks && !this.talentHooks.state.roll(split.chance)) return
+    const count = Math.max(0,Math.min(split.count,(this.talentHooks?.state.rules?.maxChildrenPerAttack ?? split.count) - b.childBudget.count))
+    if (!count) return
+    b.childBudget.count += count
+    this.pendingSplits.push({weapon:b.weapon,damage:b.baseDamage * split.damageRatio,angle:b.angle,x,y,depth:b.depth+1,speed:Math.hypot(b.body.velocity.x,b.body.velocity.y),count,spread:(split.spreadDeg ?? 18)*Math.PI/180,radial:split.radial??false,budget:b.childBudget})
+    if (this.talentHooks) this.talentHooks.state.diagnostics.splits++
+  }
+  private flushSplits(now:number):void {
+    const jobs=this.pendingSplits;this.pendingSplits=[]
+    for(const job of jobs){
+      const slots=this.pool.acquire(job.count,now,job.weapon.lifeMs)
+      const angles=splitAngles(job.angle,slots.length,job.spread,job.radial)
+      for(let i=0;i<slots.length;i++)this.initProjectile(slots[i]!,job.weapon.talentSplit?this.secondaryWeapon(job.weapon):job.weapon,job.damage,angles[i]!,job.x,job.y,now,job.depth,job.speed,job.budget)
     }
+  }
+  spawnTalentProjectile(event:TalentAttack,options:{angle:number;damage:number;speed:number;lifeMs:number;noProcs?:boolean;color?:number}):void {
+    const now=this.clock.nowMs,slots=this.pool.acquire(1,now,options.lifeMs)
+    if(!slots.length)return
+    const weapon=this.secondaryWeapon(event.weapon,options.color,options.noProcs)
+    this.initProjectile(slots[0]!,weapon,options.damage,options.angle,event.x,event.y,now,1,options.speed)
+  }
+
+  private secondaryWeapon(base:WeaponDef,color?:number,noProcs=false):WeaponDef {
+    const original=this.cfg.weapons.find((weapon)=>weapon.id==='pencil')!
+    const modified=this.talentHooks?.state.weapon(original)??original
+    const traits:WeaponTrait[]=[]
+    for(const trait of [...(modified.traits??[]),...(base.traits??[])])if(['bounce','homing','pierce','boomerang'].includes(trait.kind)&&!traits.some((owned)=>owned.kind===trait.kind))traits.push(trait)
+    return {...original,name:base.name,color:color??base.color,mode:'projectile',effect:'bullet',staminaCost:0,talentModified:true,talentSecondary:true,talentNoProcs:noProcs,traits}
   }
 
   private contact(a: Phaser.GameObjects.GameObject, target: Phaser.GameObjects.GameObject): void {
@@ -657,7 +720,7 @@ export class Weapons {
     if (
       !b?.slot.active ||
       b.pending ||
-      b.weapon.id !== 'pencil' ||
+      b.weapon.id !== 'pencil' || b.weapon.talentModified ||
       this.clock.paused ||
       this.clock.frozen
     )
@@ -707,8 +770,14 @@ export class Weapons {
         const x = from.x + (to.x - from.x) * hit.t
         const y = from.y + (to.y - from.y) * hit.t
         // Pencil keeps the contact/armor-tick path through the overlap callback.
-        const result = this.port.bulletRayContact(b.slot.id, target.id, b.damage)
-        if (weapon.id === 'pencil') {
+        const damage = b.damage * (b.bounceBonus ? 1 + (this.talentHooks?.state.p('bounce','ratio') ?? 0) : 1)
+        const result = this.port.bulletRayContact(b.slot.id, target.id, damage)
+        if (result.applied > 0 && !b.talentHitIds.has(target.id)) {
+          b.talentHitIds.add(target.id)
+          b.bounceBonus = false
+          if (!weapon.talentNoProcs) this.talentHooks?.hit({sourceId:b.slot.id,weapon,damage:b.baseDamage,targetId:target.id,x,y,angle:b.angle,critical:b.critical,secondary:b.depth>0||weapon.talentSecondary===true})
+        }
+        if (weapon.id === 'pencil' && !weapon.talentModified) {
           if (result.consumed) {
             b.pending = true
             b.body.stop()
@@ -743,6 +812,7 @@ export class Weapons {
           if (this.legacy.has(weapon.id)) this.specialImpact(b, target, targets, x, y)
         }
         if (b.hitIds.size >= this.pierceCount(weapon)) {
+          if (this.trait(weapon,'boomerang') && b.phase === 'out') { b.returnAtMs = now; break }
           b.pending = true
           b.body.stop()
           break
@@ -875,6 +945,7 @@ export class Weapons {
     this.stopFiring()
     this.swing = null
     this.burst = null
+    this.pendingSplits = []
     for (const b of this.bullets) if (b.slot.active) this.recycle(b)
     this.statuses.clear()
     this.fx.clear()
