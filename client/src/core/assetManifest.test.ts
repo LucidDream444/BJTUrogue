@@ -2,10 +2,13 @@ import { readFileSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
 import { describe, expect, it } from 'vitest'
 import {
+  ASSETS,
+  BOSS_ROSTER_ART,
   CHARACTER_VOICE_CHARACTER_IDS,
   CHARACTER_VOICE_CUES,
   CHARACTER_VOICE_PROFILES,
   PERFORMANCE_LOOP,
+  audioUrls,
   characterVoiceKey,
   findAsset,
 } from './assetManifest'
@@ -101,5 +104,27 @@ describe('演奏家大鹅音乐循环', () => {
     expect(info).toMatchObject({ channels: 1, sampleRate: 22_050, bitsPerSample: 16 })
     expect(PERFORMANCE_LOOP).toMatchObject({ bpm: 60, beatMs: 1000, beats: 16 })
     expect((info.frames / info.sampleRate) * 1000).toBe(PERFORMANCE_LOOP.durationMs)
+  })
+})
+
+
+describe('首领施法音频清单', () => {
+  it('音频路径是不带扩展名的基名，URL 只补一次扩展名', () => {
+    for (const entry of ASSETS.filter((asset) => asset.kind === 'audio')) {
+      expect(entry.path, entry.key).not.toMatch(/\.(mp3|ogg|wav)$/)
+      for (const url of audioUrls(entry)) {
+        expect(url, entry.key).toMatch(/\.(mp3|ogg|wav)$/)
+        expect(url, entry.key).not.toMatch(/\.(mp3|ogg|wav)\.(mp3|ogg|wav)$/)
+      }
+    }
+  })
+
+  it('七位常规首领都指向实际存在的施法音频', () => {
+    for (const art of Object.values(BOSS_ROSTER_ART)) {
+      const entry = findAsset(art.audio)
+      expect(entry, art.audio).toBeDefined()
+      expect(audioUrls(entry!)).toEqual([`assets/audio/sfx/boss/${art.audio}.mp3`])
+      expect(() => readFileSync(fileURLToPath(new URL(`../../public/${audioUrls(entry!)[0]}`, import.meta.url)))).not.toThrow()
+    }
   })
 })
