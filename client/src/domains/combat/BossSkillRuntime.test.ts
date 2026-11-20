@@ -314,7 +314,7 @@ describe('酸池、水面与体育器材', () => {
 })
 
 describe('点名册与奶龙', () => {
-  it('三个分身各为当前HP的1/3，只有真身伤害回本体，真身打破后晕2秒', () => {
+  it('三个分身各为当前HP的1/3，打任何分身都不扣本体；真身打破后晕2秒', () => {
     const f = fixture()
     f.port.rng = new FixedRng(0)
     f.runtime.castSkill(100, 6, 'clones', 0)
@@ -326,20 +326,23 @@ describe('点名册与奶龙', () => {
     expect(f.boss.hp).toBe(900)
     f.units.get(101)!.hp = 200
     f.step(200)
-    expect(f.boss.hp).toBe(800)
+    expect(f.boss.hp).toBe(900)
     f.units.delete(101)
     f.step(300)
-    expect(f.boss.hp).toBe(600)
+    expect(f.boss.hp).toBe(900)
     expect(f.units.size).toBe(1)
     expect(f.appearance.get(100)).toEqual({})
     expect(f.invulnerability.get(100)).toBe(300)
     expect(f.stuns.get(100)).toBe(2300)
     expect(f.runtime.busyUntil).toBe(2300)
   })
-  it('分身超时恢复本体并撤销无敌，清理不产生额外杀敌伤害', () => {
+  it('分身不会超时自动结束；清理时才恢复本体并撤销无敌', () => {
     const f = fixture()
     f.runtime.castSkill(100, 6, 'clones', 0)
     f.step(14000)
+    expect(f.units.size).toBe(4)
+    expect(f.appearance.get(100)).toEqual({ hidden: true })
+    f.runtime.clear(14000)
     expect(f.units.size).toBe(1)
     expect(f.appearance.get(100)).toEqual({})
     expect(f.controls.get(100)).toBe(14000)

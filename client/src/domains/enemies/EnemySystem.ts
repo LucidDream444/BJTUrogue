@@ -1649,7 +1649,7 @@ export class EnemySystem implements ActorEventSink {
     const statuses = []
     for (const [id, stage] of this.bossStages) {
       const model = this.byId.get(id)?.model
-      if (!model?.alive || this.eliteBosses.has(id)) continue
+      if (!model?.alive || this.eliteBosses.has(id) || this.bossAppearances.get(id)?.hidden) continue
       statuses.push({
         id,
         stage,
@@ -1681,7 +1681,9 @@ export class EnemySystem implements ActorEventSink {
       if (!model.alive || model.hp <= 0 || !view.body) continue
       result.push({ id: model.id, x: view.body.center.x, y: view.body.center.y,
         hp: model.hp, maxHp: model.maxHp, kind: model.enemyKind, gen: model.gen,
-        bossStage: this.bossStages.get(model.id), radius: view.body.halfWidth,
+        bossStage: this.bossStages.get(model.id),
+        cloneBossStage: this.cloneBossStages.get(model.id),
+        radius: view.body.halfWidth,
         vx: view.body.velocity.x, vy: view.body.velocity.y })
     }
     return result
@@ -1848,6 +1850,10 @@ export class EnemySystem implements ActorEventSink {
     // Phaser 3.90 keeps this reset baseline at runtime but omits it from its public types.
     const autoFrame = (body as Phaser.Physics.Arcade.Body & { autoFrame: Phaser.Math.Vector2 }).autoFrame
     autoFrame.copy(body.position)
+  }
+
+  clearBossShots(): void {
+    this.radialShots.clear()
   }
 
   fireBossVolley(id: number, volley: BossVolley): number {

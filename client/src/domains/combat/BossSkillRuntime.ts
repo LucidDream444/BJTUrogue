@@ -18,7 +18,7 @@ export interface BossFloorSkills {
   skills: readonly BossSkillSpec[]
 }
 
-export type BossBarragePattern = 'ring' | 'fan' | 'line'
+export type BossBarragePattern = 'ring' | 'fan' | 'line' | 'ring_gap' | 'scatter'
 
 export interface BossBarrageSpec {
   id: string
@@ -46,6 +46,8 @@ export interface BossBarrageSpec {
   lineSpacingPx?: number
   /** 连发之间交替加快/放慢的幅度（0.12 = ±12%）。 */
   speedStepPct?: number
+  /** 环形弹幕正对玩家方向留出的缺口角度；0 = 完整环。 */
+  gapDeg?: number
 }
 
 export interface BossBarrageConfig {
@@ -175,8 +177,8 @@ export function parseBossSkillsTable(raw: unknown): BossSkillsTable {
       if (barrageIds.has(id)) throw new Error(`${patternPath}.id 重复`)
       barrageIds.add(id)
       const pattern = text(source.pattern, `${patternPath}.pattern`)
-      if (!['ring', 'fan', 'line'].includes(pattern))
-        throw new Error(`${patternPath}.pattern 必须是 ring/fan/line`)
+      if (!['ring', 'fan', 'line', 'ring_gap', 'scatter'].includes(pattern))
+        throw new Error(`${patternPath}.pattern 必须是 ring/fan/line/ring_gap/scatter`)
       const count = number(source.count, `${patternPath}.count`, true)
       if (!Number.isInteger(count)) throw new Error(`${patternPath}.count 必须是整数`)
       const optional = (key: string, positive = false): number | undefined => {
@@ -220,6 +222,7 @@ export function parseBossSkillsTable(raw: unknown): BossSkillsTable {
           ? { lineSpacingPx: optional('lineSpacingPx')! }
           : {}),
         ...(speedStepPct !== undefined ? { speedStepPct } : {}),
+        ...(source.gapDeg !== undefined ? { gapDeg: optional('gapDeg')! } : {}),
       }
     })
     barrages[floor] = { intervalMs, initialDelayMs, color, patterns }
@@ -239,6 +242,8 @@ export interface BossSkillUnit {
   vx: number
   vy: number
   bossStage?: number
+  /** Set on mirrored clones; profile used for their barrage table. */
+  cloneBossStage?: number
 }
 
 export interface BossSkillAppearance {
@@ -260,6 +265,8 @@ export interface BossSkillVolley {
   color?: number
   angleRad?: number
   spreadRad?: number
+  /** Explicit angles, used by ring gaps / cross-like patterns. */
+  anglesRad?: readonly number[]
   /** Ring-only rotation; ignored when angleRad is set. */
   angleOffsetRad?: number
   speedEnd?: number
@@ -435,13 +442,10 @@ export class BossSkillRuntime {
       const group = this.clones[i]!
       const owner = this.unit(group.bossId)
       const real = this.unit(group.trueId)
-      if (real !== undefined) {
-        group.lastTrue = { x: real.x, y: real.y }
-        // 真分身承受的伤害回到本体；假分身不改变首领血量。
-        if (owner !== undefined)
-          this.port.setUnitHp(owner.id, Math.min(owner.hp, group.initialHp - Math.max(0, group.cloneHp - real.hp)))
-      }
-      if (owner !== undefined && real !== undefined && nowMs < group.expiresMs) continue
+      if (real !== undefined) group.lastTrue = { x: real.x, y: real.y }
+      // Only killing the clone that contains the true body ends the phase. A fake
+      // clone's HP is its own; damaging it must never move the boss health bar.
+      if (owner !== undefined && real !== undefined) continue
       this.restoreCloneGroup(group, nowMs, real === undefined && owner !== undefined)
       this.clones.splice(i, 1)
     }
@@ -701,7 +705,6 @@ export class BossSkillRuntime {
     const owner = this.unit(group.bossId)
     const real = this.unit(group.trueId)
     if (owner !== undefined) {
-      if (stunned) this.port.setUnitHp(owner.id, Math.min(owner.hp, group.initialHp - group.cloneHp))
       const position = real ?? group.lastTrue
       const safe = this.port.safeSpawn(position.x, position.y, owner.radius)
       this.port.setUnitPosition(owner.id, safe.x, safe.y)
