@@ -42,6 +42,8 @@ export class PlayerModel extends ActorModel<PlayerState> {
   shield: number
   deathCause: 'water' | 'damage' | null = null
   hurtAtMs = -Infinity
+  /** Last time any damage (shield or health, including liquid) actually landed. */
+  lastDamageAtMs = -Infinity
   private absorbedDamage = 0
   onShieldBreak: ((overflow:number)=>number) | null = null
   onHurt: ((req: HitRequest, hpDamage: number, shieldDamage: number) => void) | null = null
@@ -137,8 +139,12 @@ export class PlayerModel extends ActorModel<PlayerState> {
   }
 
   protected override onDamageApplied(req: HitRequest, applied: number): void {
-    if (req.hitKey.startsWith('liquid-drain:')) return
+    if (req.hitKey.startsWith('liquid-drain:')) {
+      this.lastDamageAtMs = this.clock.nowMs
+      return
+    }
     if (applied + this.absorbedDamage <= 0) return
+    this.lastDamageAtMs = this.clock.nowMs
     this.hurtAtMs = this.clock.nowMs
     this.attackUntilMs = 0
     this.onHurt?.(req, applied, this.absorbedDamage)
@@ -176,6 +182,31 @@ export class PlayerModel extends ActorModel<PlayerState> {
     this.maxShield = next
     this.shield = Math.min(next, this.shield + gainedCapacity)
   }
+  /**
+   * Slow passive shield recovery after a quiet period. Uses the game clock's
+   * logical time; paused/frozen frames and any recently landed damage block it.
+   * Returns the amount actually restored (0 when capped or still in the delay).
+   */
+  advanceShield(nowMs: number, deltaMs: number, regenPerSec: number, delayMs: number): number {
+    if (
+      !this.alive ||
+      this.clock.paused ||
+      this.clock.frozen ||
+      !Number.isFinite(deltaMs) ||
+      deltaMs <= 0 ||
+      !Number.isFinite(regenPerSec) ||
+      regenPerSec <= 0 ||
+      !Number.isFinite(delayMs) ||
+      delayMs < 0 ||
+      nowMs - this.lastDamageAtMs < delayMs ||
+      this.shield >= this.maxShield
+    )
+      return 0
+    const before = this.shield
+    this.shield = Math.min(this.maxShield, this.shield + (regenPerSec * deltaMs) / 1000)
+    return this.shield - before
+  }
+
   /** Recovery is applied only after consuming an enemy drop. Returns the actual amount restored. */
   restoreFromPickup(kind: 'health' | 'shield', amount: number): number {
     if (

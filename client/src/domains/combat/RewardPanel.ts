@@ -11,7 +11,7 @@ export class RewardPanel {
   private previousFocus:HTMLElement|null=null
   private readonly onKey=(event:KeyboardEvent):void=>{
     if(this.root.hidden)return
-    if(['Digit1','Digit2','Digit3','Numpad1','Numpad2','Numpad3','KeyR','Tab','Escape','Space','Enter'].includes(event.code)){
+    if(['Digit1','Digit2','Digit3','Digit4','Digit5','Numpad1','Numpad2','Numpad3','Numpad4','Numpad5','KeyR','Tab','Escape','Space','Enter'].includes(event.code)){
       event.stopImmediatePropagation()
       if(event.code!=='Enter')event.preventDefault()
     }
@@ -22,8 +22,8 @@ export class RewardPanel {
       buttons[(index+(event.shiftKey?-1:1)+buttons.length)%buttons.length]?.focus()
     }else if(event.code==='KeyR')this.reroll()
     else{
-      const index=['Digit1','Digit2','Digit3'].indexOf(event.code)
-      const number=index>=0?index:['Numpad1','Numpad2','Numpad3'].indexOf(event.code)
+      const index=['Digit1','Digit2','Digit3','Digit4','Digit5'].indexOf(event.code)
+      const number=index>=0?index:['Numpad1','Numpad2','Numpad3','Numpad4','Numpad5'].indexOf(event.code)
       const reward=this.session.rewards.offered[number]
       if(reward)this.select(reward.id)
     }
@@ -61,7 +61,7 @@ export class RewardPanel {
     const subtitle=document.createElement('p');subtitle.textContent='选择一个天赋 · 立即生效 · 本局持续保留'
     const location=document.createElement('div');location.className='tr-location';location.innerHTML='<i></i><span></span><small>战斗已暂停</small>';location.querySelector('span')!.textContent=this.session.rewardLocation
     header.append(eyebrow,title,subtitle,location)
-    const choices=document.createElement('div');choices.className='tr-choices'
+    const choices=document.createElement('div');choices.className='tr-choices';choices.dataset.count=String(options.length)
     const ownedKinds=new Set(talents.owned.map((r)=>r.talent!.kind))
     options.forEach((reward,index)=>{
       const button=document.createElement('button');button.type='button';button.className='tr-card';button.dataset.rewardId=reward.id;button.dataset.category=reward.category??'utility'
@@ -88,7 +88,7 @@ export class RewardPanel {
     for(const reward of talents.owned){const chip=document.createElement('span');chip.className='tr-chip';chip.innerHTML=talentIcon(reward.talent!.kind);chip.append(document.createTextNode(reward.name));chips.append(chip)}
     build.append(buildLabel,chips)
     const footer=document.createElement('footer');footer.className='tr-footer'
-    const hint=document.createElement('span');hint.textContent='点击卡片，或按 1 / 2 / 3 选择'
+    const hint=document.createElement('span');hint.textContent='点击卡片，或按 1–'+options.length+' 选择'
     const refresh=document.createElement('button');refresh.type='button';refresh.className='tr-refresh';refresh.dataset.action='reroll';refresh.disabled=rewards.rerollsLeft<=0;refresh.innerHTML='<kbd>R</kbd><span></span><b>↻</b>';refresh.querySelector('span')!.textContent='换一组 · 剩余 '+rewards.rerollsLeft+' 次';refresh.addEventListener('click',()=>this.reroll())
     footer.append(hint,refresh);sheet.append(header,choices,build,footer);this.root.append(sheet)
     choices.querySelector<HTMLButtonElement>('button')?.focus({preventScroll:true})

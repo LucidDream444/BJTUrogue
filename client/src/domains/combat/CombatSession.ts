@@ -1,5 +1,6 @@
 import { TalentRun, talentApplicable } from './TalentRun'
 import { TalentCombat } from './TalentCombat'
+import { TalentAuraView } from './TalentAuraView'
 import Phaser from 'phaser'
 import { GameClock } from '@/core/time'
 import { Rng } from '@/core/rng'
@@ -88,6 +89,7 @@ export class CombatSession {
   private dead = false
   readonly talents: TalentRun
   readonly talentCombat: TalentCombat
+  readonly talentAura: TalentAuraView | null
   private talentLayer = 0
   private talentFinale = false
   private talentBoss = false
@@ -262,6 +264,9 @@ export class CombatSession {
       new Rng(cfg.arena.seed + 2),
     )
     this.talentCombat = new TalentCombat({scene,clock:this.clock,run:this.talents,player:this.player,enemies:this.enemies,terrain:this.terrain,drops:this.drops,spawn:(event,options)=>this.weapons.spawnTalentProjectile(event,options)})
+    this.talentAura = cfg.talentFx
+      ? new TalentAuraView(scene, this.clock, this.talents, this.player, cfg.talentFx)
+      : null
     this.player.model.onShieldBreak = (overflow)=>this.talentCombat.shieldBreak(overflow)
     this.unsubs.push(
       this.bus.on('enemy_vortex_started', (field) => { this.vortices.set(field.fieldId, field) }),
@@ -454,12 +459,19 @@ export class CombatSession {
       this.weapons.clear()
     }
     this.enemies.update(delta)
+    this.player.model.advanceShield(
+      this.clock.nowMs,
+      Math.min(100, Math.max(0, delta)),
+      this.cfg.player.shieldRegenPerSec,
+      this.cfg.player.shieldRegenDelayMs,
+    )
     this.skill?.update(this.clock.nowMs)
     this.audio.setPerformanceActive(this.skill?.isPerforming() ?? false)
     this.talentCombat.update()
     this.talentCombat.draw()
     this.drops.update()
     this.player.draw()
+    this.talentAura?.update()
     this.weapons.resolveTerrain()
     this.weapons.draw()
     this.feedback.update()
@@ -804,6 +816,7 @@ export class CombatSession {
     this.recompute()
     if(reward.talent?.kind==='glass')this.player.model.hp=Math.max(1,Math.min(this.player.model.maxHp,previousHp/previousMax*this.player.model.maxHp))
     this.talentCombat.acquired()
+    if(reward.talent)this.talentAura?.acquire(reward.talent.kind)
     this.bus.emit('reward_selected',{runId:this.runId,roomId:token,rewardId:id,stacks:this.rewards.stacks.get(id)!})
     this.voice.play('reward')
     if(this.rewardHost!==null){
@@ -940,6 +953,7 @@ export class CombatSession {
     this.voice.destroy()
     this.audio.destroy()
     this.talentCombat.destroy()
+    this.talentAura?.destroy()
     this.weapons.destroy()
     this.drops.destroy()
     this.feedback.destroy()

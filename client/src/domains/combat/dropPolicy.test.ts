@@ -22,8 +22,8 @@ describe('enemy recovery drops', () => {
   })
   it('gives stamina most of the distribution and still supports health and shield', () => {
     expect(roll(0, 0.649999)).toEqual({ kind: 'stamina', amount: 75 })
-    expect(roll(0, 0.65)).toEqual({ kind: 'health', amount: 30 })
-    expect(roll(0, 0.849999)).toEqual({ kind: 'health', amount: 30 })
+    expect(roll(0, 0.65)).toEqual({ kind: 'health', amount: 10 })
+    expect(roll(0, 0.849999)).toEqual({ kind: 'health', amount: 10 })
     expect(roll(0, 0.850001)).toEqual({ kind: 'shield', amount: 25 })
   })
   it('matches the intended 32.5% stamina drop probability across a seeded sample', () => {

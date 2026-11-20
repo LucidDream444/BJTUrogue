@@ -142,6 +142,82 @@ describe('360-degree radial projectiles', () => {
     expect(pool.shots[0]).toBe(slot)
   })
 
+  it('ramps from slow to fast without changing direction', () => {
+    const pool = new RadialProjectiles(cfg)
+    pool.emitCustom(1, 0, 0, 0, {
+      count: 1,
+      speed: 100,
+      speedEnd: 400,
+      speedRampMs: 1000,
+      radius: 5,
+      damage: 1,
+      lifetimeMs: 5000,
+      angleRad: 0,
+    })
+    const shot = pool.shots[0]!
+    pool.step(500, null, always, always, () => {})
+    expect(shot.speed).toBeCloseTo(250)
+    expect(shot.vx).toBeCloseTo(250)
+    expect(shot.vy).toBeCloseTo(0)
+    pool.step(1000, null, always, always, () => {})
+    expect(shot.speed).toBeCloseTo(400)
+    expect(shot.vx).toBeCloseTo(400)
+  })
+
+  it('bounces off a blocking surface once and spends the bounce', () => {
+    const pool = new RadialProjectiles({ ...cfg, maxActive: 8 })
+    pool.emitCustom(1, 0, 0, 0, {
+      count: 1,
+      speed: 100,
+      radius: 5,
+      damage: 1,
+      lifetimeMs: 5000,
+      angleRad: 0,
+      bounceCount: 1,
+    })
+    const shot = pool.shots[0]!
+    const wallAt50 = (_x0: number, _y0: number, x1: number) => x1 <= 50
+    pool.step(600, null, always, wallAt50, () => {})
+    expect(shot.active).toBe(true)
+    expect(shot.vx).toBeLessThan(0)
+    expect(shot.bounceLeft).toBe(0)
+    expect(shot.x).toBe(cfg.spawnRadius)
+    pool.step(1200, null, always, wallAt50, () => {})
+    expect(shot.active).toBe(true)
+    expect(shot.x).toBeLessThan(cfg.spawnRadius)
+  })
+
+  it('offsets line-pattern bullets perpendicular to their shared direction', () => {
+    const pool = new RadialProjectiles(cfg)
+    pool.emitCustom(1, 0, 0, 0, {
+      count: 3,
+      speed: 100,
+      radius: 5,
+      damage: 1,
+      lifetimeMs: 5000,
+      angleRad: 0,
+      spreadRad: 0,
+      lineSpacingPx: 20,
+    })
+    const shots = pool.shots.filter((shot) => shot.active).sort((a, b) => a.y - b.y)
+    expect(shots.map((shot) => shot.y)).toEqual([-20, 0, 20])
+    expect(shots.every((shot) => shot.vx === 100 && shot.vy === 0)).toBe(true)
+  })
+
+  it('rotates a ring by the burst offset', () => {
+    const pool = new RadialProjectiles(cfg)
+    pool.emitCustom(1, 0, 0, 0, {
+      count: 4,
+      speed: 100,
+      radius: 5,
+      damage: 1,
+      lifetimeMs: 5000,
+      angleOffsetRad: Math.PI / 4,
+    })
+    const first = pool.shots[0]!
+    expect(Math.atan2(first.vy, first.vx)).toBeCloseTo(Math.PI / 4)
+  })
+
   it('rejects invalid projectile counts, pool capacity, and attack timing in the config', () => {
     for (const change of [
       (r: ReturnType<typeof raw>) => {

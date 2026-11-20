@@ -64,6 +64,7 @@ import type { GameClock } from '@/core/time'
 import type { GameEvents, EnemyKind, TypedBus } from '@/core/events'
 import { Rng } from '@/core/rng'
 import {
+  deriveBossSpeed,
   deriveGrabber,
   deriveSplitterGeneration,
   deriveTank,
@@ -1591,9 +1592,13 @@ export class EnemySystem implements ActorEventSink {
         stats: {
           ...spec.stats,
           maxHp,
-          ...(ranged
-            ? { speed: ranged.speed * this.diffMods.enemySpeed, radius: ranged.radius }
-            : {}),
+          speed: deriveBossSpeed(
+            this.bundle.enemies,
+            bossId,
+            stage,
+            this.diffMods.enemySpeed,
+          ),
+          ...(ranged ? { radius: ranged.radius } : {}),
         },
       },
       x,
