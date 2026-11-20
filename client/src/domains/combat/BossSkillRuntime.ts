@@ -44,6 +44,8 @@ export interface BossBarrageSpec {
   bounceCount?: number
   /** 直线弹幕的平行间距；0 表示全部从同一点射出。 */
   lineSpacingPx?: number
+  /** 连发之间交替加快/放慢的幅度（0.12 = ±12%）。 */
+  speedStepPct?: number
 }
 
 export interface BossBarrageConfig {
@@ -187,6 +189,12 @@ export function parseBossSkillsTable(raw: unknown): BossSkillsTable {
       const bounceCount = optional('bounceCount')
       if (bounceCount !== undefined && (!Number.isInteger(bounceCount) || bounceCount < 0))
         throw new Error(`${patternPath}.bounceCount 必须是非负整数`)
+      let speedStepPct: number | undefined
+      if (source.speedStepPct !== undefined) {
+        if (typeof source.speedStepPct !== 'number' || !Number.isFinite(source.speedStepPct) || Math.abs(source.speedStepPct) > 1)
+          throw new Error(`${patternPath}.speedStepPct 必须是 -1—1 的有限数`)
+        speedStepPct = source.speedStepPct
+      }
       return {
         id,
         pattern: pattern as BossBarragePattern,
@@ -211,6 +219,7 @@ export function parseBossSkillsTable(raw: unknown): BossSkillsTable {
         ...(source.lineSpacingPx !== undefined
           ? { lineSpacingPx: optional('lineSpacingPx')! }
           : {}),
+        ...(speedStepPct !== undefined ? { speedStepPct } : {}),
       }
     })
     barrages[floor] = { intervalMs, initialDelayMs, color, patterns }

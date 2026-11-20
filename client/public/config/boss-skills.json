@@ -273,10 +273,11 @@
           "lifetimeMs": 4200,
           "speedEnd": 300,
           "speedRampMs": 900,
-          "bursts": 2,
+          "bursts": 4,
           "burstIntervalMs": 120,
           "angleStepDeg": 6,
-          "bounceCount": 1
+          "bounceCount": 1,
+          "speedStepPct": 0.12
         },
         {
           "id": "frost_ring",
@@ -289,10 +290,11 @@
           "lifetimeMs": 4600,
           "speedEnd": 200,
           "speedRampMs": 1200,
-          "bursts": 2,
+          "bursts": 4,
           "burstIntervalMs": 150,
           "angleStepDeg": 9,
-          "bounceCount": 1
+          "bounceCount": 1,
+          "speedStepPct": 0.1
         },
         {
           "id": "frost_line",
@@ -305,11 +307,12 @@
           "lifetimeMs": 3000,
           "speedEnd": 520,
           "speedRampMs": 800,
-          "bursts": 3,
+          "bursts": 5,
           "burstIntervalMs": 100,
           "angleStepDeg": 4,
           "bounceCount": 2,
-          "lineSpacingPx": 24
+          "lineSpacingPx": 24,
+          "speedStepPct": 0.15
         }
       ]
     },
@@ -329,10 +332,11 @@
           "lifetimeMs": 4400,
           "speedEnd": 220,
           "speedRampMs": 1100,
-          "bursts": 2,
+          "bursts": 4,
           "burstIntervalMs": 150,
           "angleStepDeg": 10,
-          "bounceCount": 1
+          "bounceCount": 1,
+          "speedStepPct": 0.12
         },
         {
           "id": "kite_fan",
@@ -345,10 +349,11 @@
           "lifetimeMs": 3800,
           "speedEnd": 310,
           "speedRampMs": 800,
-          "bursts": 2,
+          "bursts": 4,
           "burstIntervalMs": 120,
           "angleStepDeg": 6,
-          "bounceCount": 1
+          "bounceCount": 1,
+          "speedStepPct": 0.1
         },
         {
           "id": "kite_line",
@@ -361,11 +366,12 @@
           "lifetimeMs": 2800,
           "speedEnd": 560,
           "speedRampMs": 750,
-          "bursts": 3,
+          "bursts": 5,
           "burstIntervalMs": 90,
           "angleStepDeg": 5,
           "bounceCount": 2,
-          "lineSpacingPx": 22
+          "lineSpacingPx": 22,
+          "speedStepPct": 0.14
         }
       ]
     },
@@ -385,10 +391,11 @@
           "lifetimeMs": 4600,
           "speedEnd": 270,
           "speedRampMs": 900,
-          "bursts": 3,
+          "bursts": 4,
           "burstIntervalMs": 120,
           "angleStepDeg": 5,
-          "bounceCount": 1
+          "bounceCount": 1,
+          "speedStepPct": 0.1
         },
         {
           "id": "acid_ring",
@@ -401,10 +408,11 @@
           "lifetimeMs": 5000,
           "speedEnd": 190,
           "speedRampMs": 1300,
-          "bursts": 2,
+          "bursts": 4,
           "burstIntervalMs": 160,
           "angleStepDeg": 9,
-          "bounceCount": 0
+          "bounceCount": 0,
+          "speedStepPct": 0.12
         },
         {
           "id": "acid_line",
@@ -417,11 +425,12 @@
           "lifetimeMs": 3200,
           "speedEnd": 480,
           "speedRampMs": 900,
-          "bursts": 3,
+          "bursts": 5,
           "burstIntervalMs": 110,
           "angleStepDeg": 4,
           "bounceCount": 2,
-          "lineSpacingPx": 28
+          "lineSpacingPx": 28,
+          "speedStepPct": 0.16
         }
       ]
     },
@@ -441,10 +450,11 @@
           "lifetimeMs": 4000,
           "speedEnd": 270,
           "speedRampMs": 900,
-          "bursts": 2,
+          "bursts": 5,
           "burstIntervalMs": 130,
           "angleStepDeg": 8,
-          "bounceCount": 1
+          "bounceCount": 1,
+          "speedStepPct": 0.14
         },
         {
           "id": "sports_fan",
@@ -457,10 +467,11 @@
           "lifetimeMs": 3600,
           "speedEnd": 350,
           "speedRampMs": 700,
-          "bursts": 3,
+          "bursts": 5,
           "burstIntervalMs": 100,
           "angleStepDeg": 6,
-          "bounceCount": 2
+          "bounceCount": 2,
+          "speedStepPct": 0.12
         },
         {
           "id": "sports_line",
@@ -473,11 +484,12 @@
           "lifetimeMs": 2800,
           "speedEnd": 600,
           "speedRampMs": 650,
-          "bursts": 4,
+          "bursts": 6,
           "burstIntervalMs": 85,
           "angleStepDeg": 5,
           "bounceCount": 2,
-          "lineSpacingPx": 26
+          "lineSpacingPx": 26,
+          "speedStepPct": 0.18
         }
       ]
     },
@@ -497,10 +509,11 @@
           "lifetimeMs": 4200,
           "speedEnd": 300,
           "speedRampMs": 850,
-          "bursts": 3,
+          "bursts": 4,
           "burstIntervalMs": 110,
           "angleStepDeg": 6,
-          "bounceCount": 1
+          "bounceCount": 1,
+          "speedStepPct": 0.12
         },
         {
           "id": "rollcall_ring",
@@ -513,10 +526,11 @@
           "lifetimeMs": 4400,
           "speedEnd": 230,
           "speedRampMs": 1100,
-          "bursts": 2,
+          "bursts": 4,
           "burstIntervalMs": 150,
           "angleStepDeg": 10,
-          "bounceCount": 1
+          "bounceCount": 1,
+          "speedStepPct": 0.1
         },
         {
           "id": "rollcall_line",
@@ -529,11 +543,12 @@
           "lifetimeMs": 3000,
           "speedEnd": 520,
           "speedRampMs": 800,
-          "bursts": 3,
+          "bursts": 5,
           "burstIntervalMs": 100,
           "angleStepDeg": 4,
           "bounceCount": 2,
-          "lineSpacingPx": 24
+          "lineSpacingPx": 24,
+          "speedStepPct": 0.15
         }
       ]
     },
@@ -553,10 +568,11 @@
           "lifetimeMs": 4600,
           "speedEnd": 280,
           "speedRampMs": 950,
-          "bursts": 3,
+          "bursts": 5,
           "burstIntervalMs": 120,
           "angleStepDeg": 6,
-          "bounceCount": 1
+          "bounceCount": 1,
+          "speedStepPct": 0.14
         },
         {
           "id": "nailong_ring",
@@ -569,10 +585,11 @@
           "lifetimeMs": 4800,
           "speedEnd": 210,
           "speedRampMs": 1200,
-          "bursts": 3,
+          "bursts": 5,
           "burstIntervalMs": 140,
           "angleStepDeg": 9,
-          "bounceCount": 1
+          "bounceCount": 1,
+          "speedStepPct": 0.12
         },
         {
           "id": "nailong_line",
@@ -585,11 +602,12 @@
           "lifetimeMs": 3200,
           "speedEnd": 540,
           "speedRampMs": 800,
-          "bursts": 4,
+          "bursts": 6,
           "burstIntervalMs": 95,
           "angleStepDeg": 4,
           "bounceCount": 2,
-          "lineSpacingPx": 26
+          "lineSpacingPx": 26,
+          "speedStepPct": 0.18
         }
       ]
     },
@@ -609,10 +627,11 @@
           "lifetimeMs": 4200,
           "speedEnd": 250,
           "speedRampMs": 1000,
-          "bursts": 3,
+          "bursts": 4,
           "burstIntervalMs": 130,
           "angleStepDeg": 8,
-          "bounceCount": 2
+          "bounceCount": 2,
+          "speedStepPct": 0.12
         },
         {
           "id": "heart_fan",
@@ -628,7 +647,8 @@
           "bursts": 4,
           "burstIntervalMs": 100,
           "angleStepDeg": 5,
-          "bounceCount": 2
+          "bounceCount": 2,
+          "speedStepPct": 0.12
         },
         {
           "id": "heart_line",
@@ -641,11 +661,12 @@
           "lifetimeMs": 3000,
           "speedEnd": 620,
           "speedRampMs": 700,
-          "bursts": 4,
+          "bursts": 5,
           "burstIntervalMs": 90,
           "angleStepDeg": 4,
           "bounceCount": 3,
-          "lineSpacingPx": 24
+          "lineSpacingPx": 24,
+          "speedStepPct": 0.16
         }
       ]
     },
@@ -665,10 +686,11 @@
           "lifetimeMs": 4600,
           "speedEnd": 280,
           "speedRampMs": 950,
-          "bursts": 3,
+          "bursts": 5,
           "burstIntervalMs": 120,
           "angleStepDeg": 6,
-          "bounceCount": 1
+          "bounceCount": 1,
+          "speedStepPct": 0.16
         },
         {
           "id": "nailong_ring",
@@ -681,10 +703,11 @@
           "lifetimeMs": 4800,
           "speedEnd": 210,
           "speedRampMs": 1200,
-          "bursts": 3,
+          "bursts": 5,
           "burstIntervalMs": 140,
           "angleStepDeg": 9,
-          "bounceCount": 1
+          "bounceCount": 1,
+          "speedStepPct": 0.14
         },
         {
           "id": "nailong_line",
@@ -697,11 +720,12 @@
           "lifetimeMs": 3200,
           "speedEnd": 540,
           "speedRampMs": 800,
-          "bursts": 4,
+          "bursts": 6,
           "burstIntervalMs": 95,
           "angleStepDeg": 4,
           "bounceCount": 2,
-          "lineSpacingPx": 26
+          "lineSpacingPx": 26,
+          "speedStepPct": 0.2
         }
       ]
     }
