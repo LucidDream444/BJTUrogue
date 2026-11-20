@@ -162,7 +162,7 @@ describe('独立技能冷却与总间隔', () => {
   })
 })
 
-describe('课业重压与考卷纸鸢', () => {
+describe('牛来与咕咕嘎嘎', () => {
   it('校园减速同时影响玩家、首领本人和场上全部怪物', () => {
     const f = fixture()
     const enemy = f.addMinion('muscovy')

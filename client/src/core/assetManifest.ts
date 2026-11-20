@@ -239,7 +239,7 @@ export const BOSS_ROSTER_ART: Readonly<Record<number, BossRosterArt>> = {
   2: {
     idle: 'boss_bull_idle', skill: 'boss_bull_skill',
     idleFrames: 1, skillFrames: 1, idleFrameRate: 1, skillFrameRate: 1,
-    displayScale: 0.95, audio: 'sfx_boss_bull_skill', audioGain: 2.0,
+    displayScale: 0.95, audio: 'sfx_boss_bull_skill', audioGain: 1.0,
   },
   3: {
     idle: 'boss_pigeon_idle', skill: 'boss_pigeon_skill',

@@ -4,7 +4,7 @@
   "bosses": {
     "2": {
       "id": "coursework",
-      "name": "课业重压",
+      "name": "牛来",
       "skillIntervalMs": 6500,
       "skills": [
         {
@@ -29,7 +29,7 @@
     },
     "3": {
       "id": "paper_kite",
-      "name": "考卷纸鸢",
+      "name": "咕咕嘎嘎",
       "skillIntervalMs": 6500,
       "skills": [
         {
@@ -70,7 +70,7 @@
     },
     "4": {
       "id": "acid_sprinkler",
-      "name": "酸蚀喷灌设备",
+      "name": "巴巴博一",
       "skillIntervalMs": 6000,
       "skills": [
         {
@@ -100,7 +100,7 @@
     },
     "5": {
       "id": "sports_gear",
-      "name": "失控体育器材",
+      "name": "刀盾狗",
       "skillIntervalMs": 7500,
       "skills": [
         {
@@ -132,7 +132,7 @@
     },
     "6": {
       "id": "roll_call",
-      "name": "分身点名册",
+      "name": "圆头耄耋",
       "skillIntervalMs": 10000,
       "skills": [
         {
@@ -264,9 +264,9 @@
       "patterns": [
         {
           "id": "frost_fan",
-          "pattern": "fan",
-          "count": 11,
-          "spreadDeg": 8,
+          "pattern": "custom",
+          "count": 10,
+          "spreadDeg": 0,
           "speed": 220,
           "radius": 6,
           "damage": 5,
@@ -277,7 +277,21 @@
           "burstIntervalMs": 120,
           "angleStepDeg": 6,
           "bounceCount": 1,
-          "speedStepPct": 0.12
+          "speedStepPct": 0.12,
+          "anglesDeg": [
+            -72,
+            -56,
+            -40,
+            -24,
+            -8,
+            8,
+            24,
+            40,
+            56,
+            72
+          ],
+          "spawnRadius": 70,
+          "spawnAngleDeg": 0
         },
         {
           "id": "frost_ring",
@@ -341,9 +355,9 @@
         },
         {
           "id": "kite_fan",
-          "pattern": "fan",
-          "count": 13,
-          "spreadDeg": 8,
+          "pattern": "custom",
+          "count": 9,
+          "spreadDeg": 0,
           "speed": 240,
           "radius": 6,
           "damage": 5,
@@ -354,7 +368,19 @@
           "burstIntervalMs": 120,
           "angleStepDeg": 6,
           "bounceCount": 1,
-          "speedStepPct": 0.1
+          "speedStepPct": 0.1,
+          "anglesDeg": [
+            -75,
+            -55,
+            -35,
+            0,
+            35,
+            55,
+            75,
+            -15,
+            15
+          ],
+          "spawnRadius": 55
         },
         {
           "id": "kite_line",
@@ -418,12 +444,12 @@
         },
         {
           "id": "acid_line",
-          "pattern": "line",
-          "count": 7,
+          "pattern": "custom",
+          "count": 6,
           "spreadDeg": 0,
           "speed": 120,
-          "radius": 11,
-          "damage": 9,
+          "radius": 13,
+          "damage": 10,
           "lifetimeMs": 3200,
           "speedEnd": 480,
           "speedRampMs": 900,
@@ -432,7 +458,16 @@
           "angleStepDeg": 4,
           "bounceCount": 2,
           "lineSpacingPx": 28,
-          "speedStepPct": 0.16
+          "speedStepPct": 0.16,
+          "anglesDeg": [
+            -55,
+            -33,
+            -11,
+            11,
+            33,
+            55
+          ],
+          "spawnRadius": 90
         }
       ]
     },
@@ -461,9 +496,9 @@
         },
         {
           "id": "sports_fan",
-          "pattern": "fan",
-          "count": 15,
-          "spreadDeg": 7,
+          "pattern": "custom",
+          "count": 8,
+          "spreadDeg": 0,
           "speed": 280,
           "radius": 6,
           "damage": 5,
@@ -473,8 +508,20 @@
           "bursts": 5,
           "burstIntervalMs": 100,
           "angleStepDeg": 6,
-          "bounceCount": 2,
-          "speedStepPct": 0.12
+          "bounceCount": 3,
+          "speedStepPct": 0.12,
+          "anglesDeg": [
+            0,
+            45,
+            90,
+            135,
+            180,
+            225,
+            270,
+            315
+          ],
+          "spawnRadius": 80,
+          "spawnAngleDeg": 90
         },
         {
           "id": "sports_line",
@@ -503,9 +550,9 @@
       "patterns": [
         {
           "id": "rollcall_fan",
-          "pattern": "fan",
-          "count": 14,
-          "spreadDeg": 8,
+          "pattern": "custom",
+          "count": 12,
+          "spreadDeg": 0,
           "speed": 230,
           "radius": 6,
           "damage": 5,
@@ -516,7 +563,22 @@
           "burstIntervalMs": 110,
           "angleStepDeg": 6,
           "bounceCount": 1,
-          "speedStepPct": 0.12
+          "speedStepPct": 0.12,
+          "anglesDeg": [
+            0,
+            30,
+            60,
+            90,
+            120,
+            150,
+            180,
+            210,
+            240,
+            270,
+            300,
+            330
+          ],
+          "spawnRadius": 60
         },
         {
           "id": "rollcall_ring",
@@ -598,8 +660,8 @@
         },
         {
           "id": "nailong_line",
-          "pattern": "line",
-          "count": 7,
+          "pattern": "custom",
+          "count": 8,
           "spreadDeg": 0,
           "speed": 130,
           "radius": 10,
@@ -612,7 +674,19 @@
           "angleStepDeg": 4,
           "bounceCount": 2,
           "lineSpacingPx": 26,
-          "speedStepPct": 0.18
+          "speedStepPct": 0.18,
+          "anglesDeg": [
+            -82,
+            -66,
+            -50,
+            -34,
+            34,
+            50,
+            66,
+            82
+          ],
+          "spawnRadius": 105,
+          "spawnAngleDeg": 30
         }
       ]
     },
@@ -641,9 +715,9 @@
         },
         {
           "id": "heart_fan",
-          "pattern": "scatter",
-          "count": 17,
-          "spreadDeg": 45,
+          "pattern": "custom",
+          "count": 8,
+          "spreadDeg": 0,
           "speed": 240,
           "radius": 6,
           "damage": 5,
@@ -654,7 +728,18 @@
           "burstIntervalMs": 100,
           "angleStepDeg": 5,
           "bounceCount": 2,
-          "speedStepPct": 0.12
+          "speedStepPct": 0.12,
+          "anglesDeg": [
+            -62,
+            -46,
+            -30,
+            -14,
+            14,
+            30,
+            46,
+            62
+          ],
+          "spawnRadius": 75
         },
         {
           "id": "heart_line",
@@ -718,8 +803,8 @@
         },
         {
           "id": "nailong_line",
-          "pattern": "line",
-          "count": 7,
+          "pattern": "custom",
+          "count": 9,
           "spreadDeg": 0,
           "speed": 130,
           "radius": 10,
@@ -732,7 +817,20 @@
           "angleStepDeg": 4,
           "bounceCount": 2,
           "lineSpacingPx": 26,
-          "speedStepPct": 0.2
+          "speedStepPct": 0.2,
+          "anglesDeg": [
+            -64,
+            -48,
+            -32,
+            -16,
+            0,
+            16,
+            32,
+            48,
+            64
+          ],
+          "spawnRadius": 110,
+          "spawnAngleDeg": 0
         }
       ]
     }

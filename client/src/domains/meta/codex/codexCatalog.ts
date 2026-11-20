@@ -241,7 +241,7 @@ export function buildCodexEntries(
   })
 
   entries.push({
-    id: 'first-boss', category: '首领', name: '课业重压', variant: '第 1 层首领池',
+    id: 'first-boss', category: '首领', name: '牛来', variant: '第 1 层首领池',
     role: '教材与未交作业堆成的梦魇 · 预警后范围下砸', threatLevel: tank.threatLevel,
     textureKey: bossArt(2).key, visualScale: bossArt(2).scale,
     hasArt: hasDeliveredArt(bossArt(2).key),
@@ -290,9 +290,9 @@ export function buildCodexEntries(
   })
 
   const extraBosses = [
-    { floor: 4, id: 'acid-boss', name: '酸蚀喷灌设备', role: '酸池与积水覆盖战场，持续伤害并扰乱走位' },
-    { floor: 5, id: 'sports-boss', name: '失控体育器材', role: '无敌反弹冲撞与范围跳砸，敌我都会遭殃' },
-    { floor: 6, id: 'rollcall-boss', name: '分身点名册', role: '辨认真身的分身战，并将全场小怪统一变形' },
+    { floor: 4, id: 'acid-boss', name: '巴巴博一', role: '酸池与积水覆盖战场，持续伤害并扰乱走位' },
+    { floor: 5, id: 'sports-boss', name: '刀盾狗', role: '无敌反弹冲撞与范围跳砸，敌我都会遭殃' },
+    { floor: 6, id: 'rollcall-boss', name: '圆头耄耋', role: '辨认真身的分身战，并将全场小怪统一变形' },
     { floor: 7, id: 'banana-cat-boss', name: '香蕉猫', role: '用笑声驱使怪群，并连续发射环形弹幕' },
     { floor: 8, id: 'fat-cat-boss', name: '肥嘟嘟', role: '连续弹幕与强化怪群' },
   ] as const
