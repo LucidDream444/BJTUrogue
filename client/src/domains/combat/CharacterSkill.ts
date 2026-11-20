@@ -68,6 +68,15 @@ interface SkillDeps {
  * 技能等级只决定当前传入的数值和是否拥有最终机制；这里不认识 D4 的存档结构。
  */
 export class CharacterSkill {
+  private cooldownScale = 1
+  setCooldownScale(scale:number):void {
+    if(scale===this.cooldownScale)return
+    const now=this.deps.clock.nowMs,ratio=scale/this.cooldownScale
+    if(this.nextReadyAt>now)this.nextReadyAt=now+(this.nextReadyAt-now)*ratio
+    if(Number.isFinite(this.rechargeAt)&&this.rechargeAt>now)this.rechargeAt=now+(this.rechargeAt-now)*ratio
+    this.performance?.setCooldownScale(scale,now)
+    this.cooldownScale=scale
+  }
   private nextReadyAt = 0
   private buffUntil = 0
   private buffAttackSpeedPct = 0
@@ -319,7 +328,7 @@ export class CharacterSkill {
   private activateHaste(now: number): boolean {
     this.buffAttackSpeedPct = this.cfg.attackSpeedPct
     this.buffUntil = now + this.cfg.durationMs
-    this.nextReadyAt = now + this.cfg.cooldownMs
+    this.nextReadyAt = now + this.cfg.cooldownMs * this.cooldownScale
     this.deps.setTemporaryAttackSpeed(this.buffAttackSpeedPct)
     return true
   }
@@ -359,7 +368,7 @@ export class CharacterSkill {
       player.model.protectedUntilMs,
       now + this.cfg.iframeMs,
     )
-    this.nextReadyAt = now + this.cfg.cooldownMs
+    this.nextReadyAt = now + this.cfg.cooldownMs * this.cooldownScale
     this.flashDash(start, {
       x: start.x + dirX * safeDistance,
       y: start.y + dirY * safeDistance,
@@ -407,7 +416,7 @@ export class CharacterSkill {
     if (this.charges <= 0) return false
     this.charges -= 1
     if (this.charges < this.cfg.maxCharges && this.rechargeAt === Infinity) {
-      this.rechargeAt = now + this.cfg.cooldownMs
+      this.rechargeAt = now + this.cfg.cooldownMs * this.cooldownScale
     }
     const image = this.deps.scene.add
       .image(aim.x, aim.y, textureKeyFor(this.deps.scene, SKILL_ART.referenceBook))
@@ -425,7 +434,7 @@ export class CharacterSkill {
   private updateCharges(now: number): void {
     if (this.charges >= this.cfg.maxCharges || now < this.rechargeAt) return
     this.charges += 1
-    this.rechargeAt = this.charges < this.cfg.maxCharges ? now + this.cfg.cooldownMs : Infinity
+    this.rechargeAt = this.charges < this.cfg.maxCharges ? now + this.cfg.cooldownMs * this.cooldownScale : Infinity
   }
 
   private nearestTarget(x: number, y: number): WeaponTarget | null {

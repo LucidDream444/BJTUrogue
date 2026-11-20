@@ -43,6 +43,7 @@ export class PlayerModel extends ActorModel<PlayerState> {
   deathCause: 'water' | 'damage' | null = null
   hurtAtMs = -Infinity
   private absorbedDamage = 0
+  onShieldBreak: ((overflow:number)=>number) | null = null
   onHurt: ((req: HitRequest, hpDamage: number, shieldDamage: number) => void) | null = null
   constructor(
     stats: ActorStats,
@@ -130,8 +131,9 @@ export class PlayerModel extends ActorModel<PlayerState> {
     this.shield -= absorbed
     this.absorbedDamage = absorbed
     this.hurtUntilMs = this.clock.nowMs + this.hurtMs
-    this.protectedUntilMs = this.clock.nowMs + this.iframeMs
-    return amount - absorbed
+    this.protectedUntilMs = Math.max(this.protectedUntilMs,this.clock.nowMs + this.iframeMs)
+    const overflow=amount-absorbed
+    return this.shield===0 ? this.onShieldBreak?.(overflow) ?? overflow : overflow
   }
 
   protected override onDamageApplied(req: HitRequest, applied: number): void {
@@ -141,7 +143,7 @@ export class PlayerModel extends ActorModel<PlayerState> {
     this.attackUntilMs = 0
     this.onHurt?.(req, applied, this.absorbedDamage)
     this.hurtUntilMs = this.clock.nowMs + this.hurtMs
-    this.protectedUntilMs = this.clock.nowMs + this.iframeMs
+    this.protectedUntilMs = Math.max(this.protectedUntilMs,this.clock.nowMs + this.iframeMs)
   }
   syncState(moving: boolean): void {
     this.state = !this.alive

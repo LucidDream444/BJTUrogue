@@ -52,6 +52,13 @@ export interface PerformanceSnapshot {
 }
 
 export class GoosePerformance {
+  private cooldownScale = 1
+  setCooldownScale(scale:number,now:number):void{
+    if(scale===this.cooldownScale)return
+    const ratio=scale/this.cooldownScale
+    for(const color of ['red','blue'] as const)if(this.nextInput[color]>now)this.nextInput[color]=now+(this.nextInput[color]-now)*ratio
+    this.cooldownScale=scale
+  }
   private active = false
   private startedAtMs = 0
   private redStacksValue = 0
@@ -117,7 +124,7 @@ export class GoosePerformance {
   ): SongEffect | null {
     this.update(nowMs)
     if (!this.canPress(color, nowMs)) return null
-    this.nextInput[color] = nowMs + this.cfg.songCooldownMs
+    this.nextInput[color] = nowMs + this.cfg.songCooldownMs * this.cooldownScale
 
     const onBeat = this.isOnBeat(nowMs)
     if (onBeat) {

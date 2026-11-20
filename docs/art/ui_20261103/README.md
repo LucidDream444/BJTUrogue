@@ -51,3 +51,9 @@
 ## 组员拉取
 
 图片沿用 Git LFS。首次使用执行 `git lfs install`，随后 `git pull origin main` 和 `git lfs pull`。没有新增游戏 npm 依赖或存档迁移。浏览器检查报告随本目录交付；报告中的截图仍为作者本地验证证据。
+
+## 武器与主动技能 HUD（未提交的新一轮修改）
+
+战斗底部两槽武器卡与技能状态条复用深蓝/银边/冰蓝主题；武器形象保持原始比例，空槽不显示假武器。费用、名称、等级、状态来自现有CombatSession，充能倒计时只在显示层规整。`bottomHudLayout.ts`统一布局，避免窄屏武器与技能重叠；短横屏保留顶部状态提示空间，屏幕定位沿用相机逆缩放。面板绘制只在状态改变时更新。
+
+验证报告 `hud-verification.json`；本地截图 `artifacts/archive-ui/hud-ready.png`、`hud-cooldown.png`及各宽度截图。新增8个纯布局检查，连同背包/成长/架构共46项测试通过。用户要求本轮先不提交。

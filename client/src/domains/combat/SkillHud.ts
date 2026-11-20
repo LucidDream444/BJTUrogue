@@ -1,11 +1,16 @@
 import Phaser from 'phaser'
+import { ARCHIVE_ART } from '@/core/assetManifest'
+import { textureKeyFor } from '@/core/assets'
+import { ARCHIVE_THEME as A } from '../meta/ui/theme'
 import type { CombatSession } from './CombatSession'
 import type { PerformanceSnapshot } from './GoosePerformance'
+import { BOTTOM_HUD, bottomHudLayout } from './bottomHudLayout'
+import { hudText, paintHudPlate, placeHud } from './CombatHudSkin'
 
-/** 屏幕底部的单技能状态条。所有角色共用同一种排版。 */
+/** Three dedicated text rows keep skill name, state and effects from colliding. */
 export class SkillHud {
   private readonly root: Phaser.GameObjects.Container
-  private readonly panel: Phaser.GameObjects.Rectangle
+  private readonly panel: Phaser.GameObjects.Graphics
   private readonly title: Phaser.GameObjects.Text
   private readonly state: Phaser.GameObjects.Text
   private readonly detail: Phaser.GameObjects.Text
@@ -20,36 +25,37 @@ export class SkillHud {
   private readonly beat: Phaser.GameObjects.Arc
   private readonly target: Phaser.GameObjects.Arc
 
+  private readonly level: Phaser.GameObjects.Text
+  private readonly key: Phaser.GameObjects.Rectangle
+  private readonly icon: Phaser.GameObjects.Image
+  private readonly keyLabel: Phaser.GameObjects.Text
+  private signature = ''
+  private ready: boolean | null = null
   constructor(
     private readonly scene: Phaser.Scene,
     private readonly session: CombatSession,
   ) {
-    // 屏幕 HUD 高于按世界 y 排序的实体、家具及世界标注。
     this.root = scene.add.container(0, 0).setScrollFactor(0).setDepth(5012)
-    this.panel = scene.add
-      .rectangle(0, 0, 330, 64, 0x15231b, 0.92)
-      .setOrigin(0)
-      .setStrokeStyle(1, 0x756144)
-    this.title = scene.add.text(12, 9, '', {
-      fontFamily: 'Microsoft YaHei',
-      fontSize: '14px',
-      color: '#eddfbf',
-    })
-    this.state = scene.add.text(12, 31, '', {
-      fontFamily: 'Microsoft YaHei',
-      fontSize: '12px',
-      color: '#efd198',
-    })
-    this.detail = scene.add
-      .text(318, 10, '', {
-        fontFamily: 'Microsoft YaHei',
-        fontSize: '11px',
-        color: '#a8b69d',
-        align: 'right',
-      })
-      .setOrigin(1, 0)
-    this.root.add([this.panel, this.title, this.state, this.detail])
-
+    this.panel = scene.add.graphics()
+    this.icon = scene.add
+      .image(33, 30, textureKeyFor(scene, ARCHIVE_ART.book))
+      .setDisplaySize(36, 38)
+    this.key = scene.add.rectangle(34, 63, 48, 19, A.ink).setStrokeStyle(1, A.brass)
+    this.keyLabel = hudText(scene, 34, 63, 'SPACE', 10, A.muted).setOrigin(0.5)
+    this.title = hudText(scene, 70, 12, '', 15, A.paper)
+    this.level = hudText(scene, 338, 13, '', 12, A.muted).setOrigin(1, 0)
+    this.state = hudText(scene, 70, 37, '', 13, A.energy)
+    this.detail = hudText(scene, 70, 60, '', 11, A.muted)
+    this.root.add([
+      this.panel,
+      this.icon,
+      this.key,
+      this.keyLabel,
+      this.title,
+      this.level,
+      this.state,
+      this.detail,
+    ])
     const width = 560
     this.performanceRoot = scene.add.container(0, 0).setScrollFactor(0).setDepth(5013)
     this.performancePanel = scene.add
@@ -85,13 +91,9 @@ export class SkillHud {
         color: '#d7e4ec',
       })
       .setOrigin(1, 0)
-    this.track = scene.add
-      .rectangle(26, 78, width - 52, 7, 0x273846, 1)
-      .setOrigin(0, 0.5)
+    this.track = scene.add.rectangle(26, 78, width - 52, 7, 0x273846, 1).setOrigin(0, 0.5)
     this.beat = scene.add.circle(26, 78, 10, 0xffdf8b, 1)
-    this.target = scene.add
-      .circle(width - 26, 78, 10, 0x000000, 0)
-      .setStrokeStyle(3, 0xffdf8b, 0.9)
+    this.target = scene.add.circle(width - 26, 78, 10, 0x000000, 0).setStrokeStyle(3, 0xffdf8b, 0.9)
     this.performanceRoot.add([
       this.performancePanel,
       this.performanceTitle,
@@ -104,8 +106,8 @@ export class SkillHud {
       this.target,
     ])
     this.performanceRoot.setVisible(false)
+    this.update()
   }
-
   update(): void {
     const status = this.session.skillStatus()
     if (!status) {
@@ -123,21 +125,33 @@ export class SkillHud {
     }
     this.performanceRoot.setVisible(false)
     this.root.setVisible(true)
-    const camera = this.scene.cameras.main
-    const scale = Math.min(1, (camera.width - 36) / 690)
-    this.root
-      .setScale(scale / camera.zoom)
-      .setPosition(
-        camera.width * camera.originX * (1 - 1 / camera.zoom) +
-          (camera.width - 330 * scale) / (2 * camera.zoom),
-        camera.height * camera.originY * (1 - 1 / camera.zoom) +
-          (camera.height - 16 - 64 * scale) / camera.zoom,
-      )
-    this.title.setText(`${status.name}  Lv.${status.level}`)
-    this.state.setText(status.state)
-    this.detail.setText(status.detail)
-    this.state.setColor(status.ready ? '#efd198' : '#a8b69d')
-    this.panel.setStrokeStyle(1, status.ready ? 0xd5b274 : 0x756144)
+    const c = this.scene.cameras.main
+    placeHud(this.root, c, bottomHudLayout(c.width, c.height).skill)
+    const signature = JSON.stringify(status)
+    if (signature === this.signature) return
+    this.signature = signature
+    if (this.ready !== status.ready) {
+      this.ready = status.ready
+      paintHudPlate(this.panel, 0, BOTTOM_HUD.skillWidth, BOTTOM_HUD.height, status.ready)
+      this.key.setStrokeStyle(1, status.ready ? A.cyan : A.brass)
+      this.icon.setAlpha(status.ready ? 1 : 0.5)
+      this.keyLabel.setColor(status.ready ? A.energy : A.muted)
+    }
+    this.title.setText(status.name)
+    this.title.setScale(Math.min(1, 210 / Math.max(1, this.title.width)))
+    this.level.setText(`Lv.${status.level}`)
+    this.state.setText(status.state.replace(/^Space\s*/, ''))
+    this.state
+      .setScale(Math.min(1, 267 / Math.max(1, this.state.width)))
+      .setColor(status.ready ? A.energy : A.muted)
+    // Presentation rounding only: prevents fractional recharge seconds spilling beyond the panel.
+    this.detail.setText(
+      status.detail.replace(
+        /(\d+)\.(\d{2,})s/g,
+        (_, whole: string, fraction: string) => `${Number(`${whole}.${fraction}`).toFixed(1)}s`,
+      ),
+    )
+    this.detail.setScale(Math.min(1, 267 / Math.max(1, this.detail.width)))
   }
 
   private layoutPerformance(): void {
@@ -190,7 +204,6 @@ export class SkillHud {
   }
 
   destroy(): void {
-    for (const child of [...this.root.list]) child.destroy()
     this.root.destroy()
     for (const child of [...this.performanceRoot.list]) child.destroy()
     this.performanceRoot.destroy()

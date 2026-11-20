@@ -1,138 +1,945 @@
 {
-  "schemaVersion": 1,
+  "schemaVersion": 2,
   "rewards": [
     {
-      "id": "lunch",
-      "name": "强健体魄",
-      "category": "survival",
-      "icon": "heart",
-      "headline": "生命上限 +10",
-      "description": "提升生命上限；当前生命仍通过拾取爱心恢复。",
-      "weight": 12,
-      "maxStacks": 0,
-      "effects": [
-        {
-          "stat": "maxHp",
-          "amount": 0.2
-        }
-      ],
-      "weapons": [],
-      "requires": [],
-      "excludes": []
-    },
-    {
-      "id": "sharp",
-      "name": "强化弹头",
-      "category": "firepower",
-      "icon": "icon_crosshair",
-      "headline": "基础伤害 +20%",
-      "description": "强化所携带武器的伤害，按各武器基础伤害叠加。",
-      "weight": 12,
-      "maxStacks": 0,
-      "effects": [
-        {
-          "stat": "damage",
-          "amount": 0.2
-        }
-      ],
-      "weapons": [],
-      "requires": [],
-      "excludes": []
-    },
-    {
-      "id": "tempo",
-      "name": "快速击发",
-      "category": "firepower",
-      "icon": "energy",
-      "headline": "攻击频率 +15%",
-      "description": "缩短连续射击间隔；加成按基础攻击频率叠加。",
-      "weight": 12,
-      "maxStacks": 8,
-      "effects": [
-        {
-          "stat": "fireRate",
-          "amount": 0.15
-        }
-      ],
-      "weapons": [],
-      "requires": [],
-      "excludes": []
-    },
-    {
-      "id": "double_shot",
-      "name": "多重射击",
+      "id": "split",
+      "name": "分裂弹",
+      "headline": "命中后，再追一枪",
+      "description": "主弹首次命中时，有50%概率分出一颗造成50%伤害的追击弹。追击弹可追踪、暴击，但不会再次分裂。",
       "category": "firepower",
       "icon": "star_badge",
-      "headline": "每次射击 +1 弹丸",
-      "description": "一次射击发出更多子弹，整次射击仍消耗 4 点能量。",
       "weight": 10,
-      "maxStacks": 3,
-      "effects": [
-        {
-          "stat": "pellets",
-          "amount": 1
-        }
-      ],
-      "weapons": ["pencil"],
+      "maxStacks": 1,
+      "weapons": [],
       "requires": [],
-      "excludes": []
+      "excludes": [],
+      "effects": [],
+      "talent": {
+        "kind": "split",
+        "capability": "projectile",
+        "params": {
+          "chance": 0.5,
+          "count": 1,
+          "ratio": 0.5,
+          "spreadDeg": 22
+        },
+        "synergy": [
+          "homing",
+          "critical",
+          "lightning"
+        ]
+      }
     },
     {
-      "id": "reserves",
-      "name": "充沛能量",
+      "id": "bounce",
+      "name": "弹力弹头",
+      "headline": "把墙壁也变成火力",
+      "description": "子弹额外弹墙2次；弹墙后的命中伤害提高25%，不刷新子弹寿命。",
+      "category": "firepower",
+      "icon": "star_badge",
+      "weight": 10,
+      "maxStacks": 1,
+      "weapons": [],
+      "requires": [],
+      "excludes": [],
+      "effects": [],
+      "talent": {
+        "kind": "bounce",
+        "capability": "projectile",
+        "params": {
+          "extra": 2,
+          "ratio": 0.25,
+          "max": 6
+        },
+        "synergy": [
+          "homing",
+          "pierce"
+        ]
+      }
+    },
+    {
+      "id": "pierce",
+      "name": "贯通射击",
+      "headline": "一枪，打穿一排",
+      "description": "子弹额外穿透2名敌人；同一段飞行不会重复命中同一目标。",
+      "category": "firepower",
+      "icon": "star_badge",
+      "weight": 10,
+      "maxStacks": 1,
+      "weapons": [],
+      "requires": [],
+      "excludes": [],
+      "effects": [],
+      "talent": {
+        "kind": "pierce",
+        "capability": "projectile",
+        "params": {
+          "extra": 2,
+          "max": 8
+        },
+        "synergy": [
+          "scatter",
+          "bounce",
+          "return"
+        ]
+      }
+    },
+    {
+      "id": "homing",
+      "name": "追踪弹头",
+      "headline": "打偏了，也有第二次机会",
+      "description": "子弹缓慢转向附近可见目标，分裂追击弹同样生效。",
+      "category": "firepower",
+      "icon": "star_badge",
+      "weight": 10,
+      "maxStacks": 1,
+      "weapons": [],
+      "requires": [],
+      "excludes": [],
+      "effects": [],
+      "talent": {
+        "kind": "homing",
+        "capability": "projectile",
+        "params": {
+          "range": 300,
+          "turnRate": 3.5
+        },
+        "synergy": [
+          "split",
+          "bounce"
+        ]
+      }
+    },
+    {
+      "id": "critical",
+      "name": "会心一击",
+      "headline": "让每次命中都有惊喜",
+      "description": "暴击率提高20个百分点，暴击伤害提高至175%。近战和光束同样生效。",
+      "category": "firepower",
+      "icon": "star_badge",
+      "weight": 10,
+      "maxStacks": 1,
+      "weapons": [],
+      "requires": [],
+      "excludes": [],
+      "effects": [],
+      "talent": {
+        "kind": "critical",
+        "capability": "any",
+        "params": {
+          "chance": 0.2,
+          "multiplier": 1.75
+        },
+        "synergy": [
+          "lightning",
+          "moving_shield"
+        ]
+      }
+    },
+    {
+      "id": "scatter",
+      "name": "散射增幅",
+      "headline": "一发子弹，三条弹道",
+      "description": "每次射击追加2颗小弹丸，各造成45%伤害，不增加能耗。小弹可暴击，不会再次分裂。",
+      "category": "firepower",
+      "icon": "star_badge",
+      "weight": 10,
+      "maxStacks": 1,
+      "weapons": [],
+      "requires": [],
+      "excludes": [],
+      "effects": [],
+      "talent": {
+        "kind": "scatter",
+        "capability": "ballistic",
+        "params": {
+          "extra": 2,
+          "ratio": 0.45,
+          "spreadRad": 0.17
+        },
+        "synergy": [
+          "pierce",
+          "homing",
+          "critical"
+        ]
+      }
+    },
+    {
+      "id": "sword_wave",
+      "name": "刀光回响",
+      "headline": "每一刀，都能飞出去",
+      "description": "每次近战挥砍追加一道200像素剑气，造成单段伤害的35%。",
+      "category": "firepower",
+      "icon": "star_badge",
+      "weight": 10,
+      "maxStacks": 1,
+      "weapons": [],
+      "requires": [],
+      "excludes": [],
+      "effects": [],
+      "talent": {
+        "kind": "sword_wave",
+        "capability": "melee",
+        "params": {
+          "range": 200,
+          "ratio": 0.35,
+          "speed": 580
+        },
+        "synergy": [
+          "critical",
+          "echo"
+        ]
+      }
+    },
+    {
+      "id": "splash",
+      "name": "爆裂余波",
+      "headline": "命中一个，震到一圈",
+      "description": "主弹首次命中时，对附近其他敌人造成30%溅射；原生爆炸武器的爆炸范围提高25%。",
+      "category": "firepower",
+      "icon": "star_badge",
+      "weight": 10,
+      "maxStacks": 1,
+      "weapons": [],
+      "requires": [],
+      "excludes": [],
+      "effects": [],
+      "talent": {
+        "kind": "splash",
+        "capability": "projectile",
+        "params": {
+          "radius": 70,
+          "ratio": 0.3,
+          "nativeScale": 1.25,
+          "cooldownMs": 120
+        },
+        "synergy": [
+          "blackhole",
+          "scatter"
+        ]
+      }
+    },
+    {
+      "id": "charged",
+      "name": "蓄势重击",
+      "headline": "停一下，下一枪更重",
+      "description": "停火0.8秒后，下一次主攻击伤害提高60%。连发和多段近战共享一次蓄势。",
+      "category": "firepower",
+      "icon": "star_badge",
+      "weight": 10,
+      "maxStacks": 1,
+      "weapons": [],
+      "requires": [],
+      "excludes": [],
+      "effects": [],
+      "talent": {
+        "kind": "charged",
+        "capability": "any",
+        "params": {
+          "delayMs": 800,
+          "ratio": 0.6
+        },
+        "synergy": [
+          "critical",
+          "return"
+        ]
+      }
+    },
+    {
+      "id": "ramp",
+      "name": "火力全开",
+      "headline": "按住扳机，越打越快",
+      "description": "持续攻击时，攻速每秒提高8%，最多40%；停火1秒后清除。",
+      "category": "firepower",
+      "icon": "star_badge",
+      "weight": 10,
+      "maxStacks": 1,
+      "weapons": [],
+      "requires": [],
+      "excludes": [],
+      "effects": [],
+      "talent": {
+        "kind": "ramp",
+        "capability": "any",
+        "params": {
+          "perSecond": 0.08,
+          "max": 0.4,
+          "resetMs": 1000
+        },
+        "synergy": [
+          "efficiency",
+          "opening"
+        ]
+      }
+    },
+    {
+      "id": "lightning",
+      "name": "磁暴电涌",
+      "headline": "暴击之后，天降雷电",
+      "description": "暴击率提高10个百分点。暴击或成功释放技能时，在目标附近落下一道12伤害的雷电。",
+      "category": "firepower",
+      "icon": "star_badge",
+      "weight": 10,
+      "maxStacks": 1,
+      "weapons": [],
+      "requires": [],
+      "excludes": [],
+      "effects": [],
+      "talent": {
+        "kind": "lightning",
+        "capability": "any",
+        "params": {
+          "chance": 0.1,
+          "damage": 12,
+          "radius": 45,
+          "cooldownMs": 250,
+          "skillCooldownMs": 1000
+        },
+        "synergy": [
+          "critical",
+          "chain",
+          "cooldown"
+        ]
+      }
+    },
+    {
+      "id": "bravery",
+      "name": "一身是胆",
+      "headline": "技能一开，越战越强",
+      "description": "每次成功释放技能，伤害提高8%，最多5层；清房保留2层，战斗中低于25%生命时直接满层。",
+      "category": "firepower",
+      "icon": "star_badge",
+      "weight": 10,
+      "maxStacks": 1,
+      "weapons": [],
+      "requires": [],
+      "excludes": [],
+      "effects": [],
+      "talent": {
+        "kind": "bravery",
+        "capability": "skill",
+        "params": {
+          "perStack": 0.08,
+          "maxStacks": 5,
+          "retain": 2,
+          "hpThreshold": 0.25
+        },
+        "synergy": [
+          "cooldown",
+          "lightning"
+        ]
+      }
+    },
+    {
+      "id": "cooldown",
+      "name": "快速冷却",
+      "headline": "让技能更常登场",
+      "description": "主动技能冷却缩短20%；充能型技能缩短补充时间。",
+      "category": "utility",
+      "icon": "star_badge",
+      "weight": 10,
+      "maxStacks": 1,
+      "weapons": [],
+      "requires": [],
+      "excludes": [],
+      "effects": [],
+      "talent": {
+        "kind": "cooldown",
+        "capability": "skill",
+        "params": {
+          "ratio": 0.2
+        },
+        "synergy": [
+          "bravery",
+          "lightning",
+          "skill_haste"
+        ]
+      }
+    },
+    {
+      "id": "skill_haste",
+      "name": "临场发挥",
+      "headline": "技能之后，接上火力",
+      "description": "成功释放技能后3秒内，攻击频率提高30%，主攻击能耗降低30%。",
+      "category": "firepower",
+      "icon": "star_badge",
+      "weight": 10,
+      "maxStacks": 1,
+      "weapons": [],
+      "requires": [],
+      "excludes": [],
+      "effects": [],
+      "talent": {
+        "kind": "skill_haste",
+        "capability": "skill",
+        "params": {
+          "durationMs": 3000,
+          "rate": 0.3,
+          "costReduction": 0.3
+        },
+        "synergy": [
+          "cooldown",
+          "ramp"
+        ]
+      }
+    },
+    {
+      "id": "poison",
+      "name": "腐蚀子弹",
+      "headline": "换个目标，让毒继续打",
+      "description": "主攻击命中附加3秒中毒，每0.5秒造成3伤害；再次命中刷新时长，不叠层。",
+      "category": "firepower",
+      "icon": "star_badge",
+      "weight": 10,
+      "maxStacks": 1,
+      "weapons": [],
+      "requires": [],
+      "excludes": [],
+      "effects": [],
+      "talent": {
+        "kind": "poison",
+        "capability": "any",
+        "params": {
+          "durationMs": 3000,
+          "tickMs": 500,
+          "damage": 3
+        },
+        "synergy": [
+          "spread",
+          "ice"
+        ]
+      }
+    },
+    {
+      "id": "spread",
+      "name": "墨迹传染",
+      "headline": "打倒一个，留下麻烦",
+      "description": "击杀带有中毒或减速的敌人时，把状态传给附近2名敌人；无状态时传播2秒轻度减速。传播只延续一代。",
+      "category": "firepower",
+      "icon": "star_badge",
+      "weight": 10,
+      "maxStacks": 1,
+      "weapons": [],
+      "requires": [],
+      "excludes": [],
+      "effects": [],
+      "talent": {
+        "kind": "spread",
+        "capability": "any",
+        "params": {
+          "targets": 2,
+          "radius": 180,
+          "durationMs": 2000,
+          "slow": 0.85
+        },
+        "synergy": [
+          "poison",
+          "ice"
+        ]
+      }
+    },
+    {
+      "id": "ice",
+      "name": "冰碎回响",
+      "headline": "减速之后，再碎一圈",
+      "description": "首次命中附加1秒轻度减速；后续命中已减速目标时，溅出3枚各3伤害的冰片。",
+      "category": "firepower",
+      "icon": "star_badge",
+      "weight": 10,
+      "maxStacks": 1,
+      "weapons": [],
+      "requires": [],
+      "excludes": [],
+      "effects": [],
+      "talent": {
+        "kind": "ice",
+        "capability": "any",
+        "params": {
+          "durationMs": 1000,
+          "slow": 0.85,
+          "count": 3,
+          "damage": 3,
+          "cooldownMs": 500,
+          "range": 180
+        },
+        "synergy": [
+          "spread",
+          "poison"
+        ]
+      }
+    },
+    {
+      "id": "kill_wave",
+      "name": "打扫战场",
+      "headline": "连杀清场，顺手回能",
+      "description": "每击杀5名敌人，释放一次12伤害的近身冲击波并恢复10能量。每房最多触发3次。",
+      "category": "firepower",
+      "icon": "star_badge",
+      "weight": 10,
+      "maxStacks": 1,
+      "weapons": [],
+      "requires": [],
+      "excludes": [],
+      "effects": [],
+      "talent": {
+        "kind": "kill_wave",
+        "capability": "any",
+        "params": {
+          "kills": 5,
+          "damage": 12,
+          "radius": 140,
+          "energy": 10,
+          "maxPerRoom": 3
+        },
+        "synergy": [
+          "blackhole",
+          "splash"
+        ]
+      }
+    },
+    {
+      "id": "moving_shield",
+      "name": "疾步生甲",
+      "headline": "边走边打，边打边回盾",
+      "description": "暴击后移速提高20%，持续2秒；战斗中每移动180像素恢复1盾，每秒最多1盾、每房最多5盾。",
       "category": "survival",
-      "icon": "energy",
-      "headline": "能量上限 +20",
-      "description": "扩大射击能量储备，能量仍按每秒 6 点恢复。",
+      "icon": "star_badge",
       "weight": 8,
-      "maxStacks": 0,
-      "effects": [
-        {
-          "stat": "maxStamina",
-          "amount": 0.2
-        }
-      ],
+      "maxStacks": 1,
       "weapons": [],
       "requires": [],
-      "excludes": []
+      "excludes": [],
+      "effects": [],
+      "talent": {
+        "kind": "moving_shield",
+        "capability": "shield",
+        "params": {
+          "distance": 180,
+          "shield": 1,
+          "cooldownMs": 1000,
+          "maxPerRoom": 5,
+          "speed": 0.2,
+          "durationMs": 2000
+        },
+        "synergy": [
+          "full_shield",
+          "critical"
+        ]
+      }
     },
     {
-      "id": "sneakers",
-      "name": "轻盈步伐",
-      "category": "utility",
-      "icon": "skill_orb_speed",
-      "headline": "移动速度 +8%",
-      "description": "更快拉开距离、躲开近身攻击，移动不消耗能量。",
-      "weight": 6,
-      "maxStacks": 5,
-      "effects": [
-        {
-          "stat": "move",
-          "amount": 0.08
-        }
-      ],
+      "id": "shield_gate",
+      "name": "刚毅护盾",
+      "headline": "破盾那一下，稳稳接住",
+      "description": "护盾被打破时，本次攻击的溢出伤害不再扣生命，并获得0.4秒保护；8秒内最多触发一次。",
+      "category": "survival",
+      "icon": "star_badge",
+      "weight": 8,
+      "maxStacks": 1,
       "weapons": [],
       "requires": [],
-      "excludes": []
+      "excludes": [],
+      "effects": [],
+      "talent": {
+        "kind": "shield_gate",
+        "capability": "shield",
+        "params": {
+          "cooldownMs": 8000,
+          "protectionMs": 400
+        },
+        "synergy": [
+          "moving_shield",
+          "shield_battery"
+        ]
+      }
     },
     {
-      "id": "grace",
-      "name": "从容应对",
-      "category": "utility",
-      "icon": "shield",
-      "headline": "受击保护 +0.1 秒",
-      "description": "受到有效伤害后的保护时间更长，减少连续受击。",
-      "weight": 6,
-      "maxStacks": 3,
-      "effects": [
-        {
-          "stat": "iframeMs",
-          "amount": 100
-        }
-      ],
+      "id": "full_shield",
+      "name": "满盾开火",
+      "headline": "护住自己，也护住火力",
+      "description": "护盾满值时，主攻击伤害提高25%。零护盾上限不算满盾。",
+      "category": "firepower",
+      "icon": "star_badge",
+      "weight": 10,
+      "maxStacks": 1,
       "weapons": [],
       "requires": [],
-      "excludes": []
+      "excludes": [],
+      "effects": [],
+      "talent": {
+        "kind": "full_shield",
+        "capability": "shield",
+        "params": {
+          "ratio": 0.25
+        },
+        "synergy": [
+          "moving_shield",
+          "shield_gate"
+        ]
+      }
+    },
+    {
+      "id": "shield_battery",
+      "name": "应急电池",
+      "headline": "破盾之后，立刻反攻",
+      "description": "护盾被打破时恢复35能量，并击退身边普通敌人；8秒内最多触发一次。",
+      "category": "survival",
+      "icon": "star_badge",
+      "weight": 8,
+      "maxStacks": 1,
+      "weapons": [],
+      "requires": [],
+      "excludes": [],
+      "effects": [],
+      "talent": {
+        "kind": "shield_battery",
+        "capability": "shield",
+        "params": {
+          "energy": 35,
+          "radius": 130,
+          "strength": 240,
+          "durationMs": 160,
+          "cooldownMs": 8000
+        },
+        "synergy": [
+          "shield_gate",
+          "moving_shield"
+        ]
+      }
+    },
+    {
+      "id": "kill_rush",
+      "name": "越战越勇",
+      "headline": "连杀不断，脚步不停",
+      "description": "每次击杀提高5%移速与攻速，最多5层；5秒无击杀后，每秒失去一层，清房清除。",
+      "category": "firepower",
+      "icon": "star_badge",
+      "weight": 10,
+      "maxStacks": 1,
+      "weapons": [],
+      "requires": [],
+      "excludes": [],
+      "effects": [],
+      "talent": {
+        "kind": "kill_rush",
+        "capability": "any",
+        "params": {
+          "perStack": 0.05,
+          "maxStacks": 5,
+          "delayMs": 5000,
+          "decayMs": 1000
+        },
+        "synergy": [
+          "kill_wave",
+          "efficiency"
+        ]
+      }
+    },
+    {
+      "id": "lunch_drop",
+      "name": "战地午餐",
+      "headline": "击杀之后，留一口补给",
+      "description": "击杀敌人有8%概率掉落恢复2生命的小爱心，每房最多3个。",
+      "category": "survival",
+      "icon": "star_badge",
+      "weight": 8,
+      "maxStacks": 1,
+      "weapons": [],
+      "requires": [],
+      "excludes": [],
+      "effects": [],
+      "talent": {
+        "kind": "lunch_drop",
+        "capability": "any",
+        "params": {
+          "chance": 0.08,
+          "heal": 2,
+          "maxPerRoom": 3
+        },
+        "synergy": [
+          "kill_wave",
+          "glass"
+        ]
+      }
+    },
+    {
+      "id": "efficiency",
+      "name": "节能装置",
+      "headline": "火力不停，能量更省",
+      "description": "主攻击能耗降低25%；近战实际命中额外恢复2能量，每0.5秒最多一次。",
+      "category": "utility",
+      "icon": "star_badge",
+      "weight": 10,
+      "maxStacks": 1,
+      "weapons": [],
+      "requires": [],
+      "excludes": [],
+      "effects": [],
+      "talent": {
+        "kind": "efficiency",
+        "capability": "any",
+        "params": {
+          "ratio": 0.25,
+          "energy": 2,
+          "cooldownMs": 500
+        },
+        "synergy": [
+          "ramp",
+          "scatter"
+        ]
+      }
+    },
+    {
+      "id": "room_recovery",
+      "name": "复习资料",
+      "headline": "清完这一间，带着状态走",
+      "description": "首次清除战斗房时，恢复4生命与30能量。回访不会重复恢复。",
+      "category": "survival",
+      "icon": "star_badge",
+      "weight": 8,
+      "maxStacks": 1,
+      "weapons": [],
+      "requires": [],
+      "excludes": [],
+      "effects": [],
+      "talent": {
+        "kind": "room_recovery",
+        "capability": "any",
+        "params": {
+          "heal": 4,
+          "energy": 30
+        },
+        "synergy": [
+          "glass",
+          "opening"
+        ]
+      }
+    },
+    {
+      "id": "glass",
+      "name": "玻璃大炮",
+      "headline": "火力拉满，容错让出",
+      "description": "主攻击伤害提高40%，最大生命降低20%。选择时按比例调整当前生命，至少保留1生命。",
+      "category": "firepower",
+      "icon": "star_badge",
+      "weight": 10,
+      "maxStacks": 1,
+      "weapons": [],
+      "requires": [],
+      "excludes": [],
+      "effects": [],
+      "talent": {
+        "kind": "glass",
+        "capability": "any",
+        "params": {
+          "damage": 0.4,
+          "hpReduction": 0.2
+        },
+        "synergy": [
+          "shield_gate",
+          "charged"
+        ]
+      }
+    },
+    {
+      "id": "last_stand",
+      "name": "最后一口气",
+      "headline": "越危险，越有爆发",
+      "description": "低于35%生命时，暴击率提高25个百分点、移速提高15%；获得时立即恢复5生命。",
+      "category": "firepower",
+      "icon": "star_badge",
+      "weight": 10,
+      "maxStacks": 1,
+      "weapons": [],
+      "requires": [],
+      "excludes": [],
+      "effects": [],
+      "talent": {
+        "kind": "last_stand",
+        "capability": "any",
+        "params": {
+          "threshold": 0.35,
+          "chance": 0.25,
+          "speed": 0.15,
+          "heal": 5
+        },
+        "synergy": [
+          "lightning",
+          "bravery"
+        ]
+      }
+    },
+    {
+      "id": "echo",
+      "name": "双倍快乐",
+      "headline": "每四次攻击，再送一枪",
+      "description": "每第4次主攻击追加一发60%伤害的追击弹，不耗能。近战与光束也能触发，回响弹不会再产生回响。",
+      "category": "firepower",
+      "icon": "star_badge",
+      "weight": 10,
+      "maxStacks": 1,
+      "weapons": [],
+      "requires": [],
+      "excludes": [],
+      "effects": [],
+      "talent": {
+        "kind": "echo",
+        "capability": "any",
+        "params": {
+          "every": 4,
+          "ratio": 0.6,
+          "speed": 600,
+          "range": 520
+        },
+        "synergy": [
+          "homing",
+          "critical"
+        ]
+      }
+    },
+    {
+      "id": "opening",
+      "name": "下课铃响",
+      "headline": "进门五秒，火力开场",
+      "description": "每场战斗开始后的前5秒，攻速提高50%、耗能降低50%；首次清房后恢复1盾。",
+      "category": "firepower",
+      "icon": "star_badge",
+      "weight": 10,
+      "maxStacks": 1,
+      "weapons": [],
+      "requires": [],
+      "excludes": [],
+      "effects": [],
+      "talent": {
+        "kind": "opening",
+        "capability": "any",
+        "params": {
+          "durationMs": 5000,
+          "rate": 0.5,
+          "costReduction": 0.5,
+          "shield": 1
+        },
+        "synergy": [
+          "ramp",
+          "room_recovery"
+        ]
+      }
+    },
+    {
+      "id": "return",
+      "name": "回旋弹",
+      "headline": "射出去，再扫回来",
+      "description": "子弹飞出0.46秒后向你折返，出程与返程各能命中同一目标一次。",
+      "category": "firepower",
+      "icon": "star_badge",
+      "weight": 10,
+      "maxStacks": 1,
+      "weapons": [],
+      "requires": [],
+      "excludes": [],
+      "effects": [],
+      "talent": {
+        "kind": "return",
+        "capability": "projectile",
+        "params": {
+          "outMs": 460,
+          "speedScale": 1.2
+        },
+        "synergy": [
+          "pierce",
+          "homing"
+        ]
+      }
+    },
+    {
+      "id": "orbit",
+      "name": "环绕星弹",
+      "headline": "持续射击，星弹护身",
+      "description": "每3次主攻击生成一颗短暂环绕的星弹，接触造成55%单发伤害；同一颗星弹只命中每名敌人一次。",
+      "category": "firepower",
+      "icon": "star_badge",
+      "weight": 10,
+      "maxStacks": 1,
+      "weapons": [],
+      "requires": [],
+      "excludes": [],
+      "effects": [],
+      "talent": {
+        "kind": "orbit",
+        "capability": "any",
+        "params": {
+          "every": 3,
+          "ratio": 0.55,
+          "radius": 86,
+          "speed": 5.5,
+          "durationMs": 1900,
+          "maxAlive": 5
+        },
+        "synergy": [
+          "pierce",
+          "blackhole"
+        ]
+      }
+    },
+    {
+      "id": "blackhole",
+      "name": "引力弹芯",
+      "headline": "把怪聚好，一起引爆",
+      "description": "主攻击命中生成短暂引力场，拉近附近敌人，1.3秒后造成38范围伤害；每1.9秒最多触发一次。",
+      "category": "firepower",
+      "icon": "star_badge",
+      "weight": 10,
+      "maxStacks": 1,
+      "weapons": [],
+      "requires": [],
+      "excludes": [],
+      "effects": [],
+      "talent": {
+        "kind": "blackhole",
+        "capability": "any",
+        "params": {
+          "radius": 140,
+          "durationMs": 1300,
+          "pull": 150,
+          "damage": 38,
+          "cooldownMs": 1900
+        },
+        "synergy": [
+          "splash",
+          "chain",
+          "kill_wave"
+        ]
+      }
+    },
+    {
+      "id": "chain",
+      "name": "高压接力",
+      "headline": "每道雷，都能继续传",
+      "description": "主攻击每第3次有效命中释放8伤害电弧；已有磁暴电涌时，落雷额外连锁附近3名敌人。",
+      "category": "firepower",
+      "icon": "star_badge",
+      "weight": 10,
+      "maxStacks": 1,
+      "weapons": [],
+      "requires": [],
+      "excludes": [],
+      "effects": [],
+      "talent": {
+        "kind": "chain",
+        "capability": "any",
+        "params": {
+          "every": 3,
+          "damage": 8,
+          "targets": 3,
+          "radius": 180,
+          "ratio": 0.55,
+          "cooldownMs": 250
+        },
+        "synergy": [
+          "lightning",
+          "blackhole"
+        ]
+      }
     }
   ]
 }
