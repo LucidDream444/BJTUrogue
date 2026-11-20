@@ -19,6 +19,18 @@ import type { CombatSession } from './CombatSession'
 import { bossArenaContainsCircle, bossArenaPoint } from './BossArenaBounds'
 import type { BossHazardCommand } from './BossHazards'
 
+/** Sampled outline of 妈 used by 牛来's character-shaped barrage. */
+const MA_GLYPH_POINTS: readonly (readonly [number, number])[] = [
+  [-0.583,-0.75],[-0.417,-0.75],[-0.583,-0.583],[-0.083,-0.583],[0.083,-0.583],[0.25,-0.583],[0.417,-0.583],[0.583,-0.583],
+  [-0.75,-0.417],[-0.583,-0.417],[-0.417,-0.417],[-0.25,-0.417],[-0.083,-0.417],[0.083,-0.417],[0.417,-0.417],[0.583,-0.417],
+  [-0.583,-0.25],[-0.25,-0.25],[-0.083,-0.25],[0.083,-0.25],[0.417,-0.25],[0.583,-0.25],
+  [-0.583,-0.083],[-0.417,-0.083],[-0.25,-0.083],[-0.083,-0.083],[0.083,-0.083],[0.25,-0.083],[0.417,-0.083],[0.583,-0.083],
+  [-0.75,0.083],[-0.583,0.083],[-0.417,0.083],[0.583,0.083],
+  [-0.583,0.25],[-0.417,0.25],[-0.083,0.25],[0.083,0.25],[0.25,0.25],[0.417,0.25],[0.583,0.25],
+  [-0.583,0.417],[-0.417,0.417],[-0.25,0.417],[0.583,0.417],
+  [-0.75,0.583],[-0.583,0.583],[-0.25,0.583],[0.25,0.583],[0.417,0.583],[0.583,0.583],
+]
+
 export interface BossEncounterOptions {
   bounds(): { left: number; top: number; right: number; bottom: number }
   sfxVolume(): number
@@ -518,6 +530,12 @@ export class BossEncounterController {
         const radius = i % 2 === 0 ? outer : inner
         shots.push({ x: Math.cos(angle) * radius, y: Math.sin(angle) * radius, angleRad: aimed })
       }
+    } else if (pattern.formation === 'ma') {
+      const scale = Math.max(1, spacing * 2)
+      const centerX = fx * start
+      const centerY = fy * start
+      for (const [gx, gy] of MA_GLYPH_POINTS)
+        shots.push({ x: centerX + gx * scale, y: centerY + gy * scale, angleRad: aimed })
     } else if (pattern.formation === 'rectangle') {
       const width = spacing * 2.4
       const height = spacing * 1.4
