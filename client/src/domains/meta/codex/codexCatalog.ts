@@ -242,7 +242,7 @@ export function buildCodexEntries(
 
   entries.push({
     id: 'first-boss', category: '首领', name: '牛来', variant: '第 1 层首领池',
-    role: '教材与未交作业堆成的梦魇 · 预警后范围下砸', threatLevel: tank.threatLevel,
+    role: '召唤纸团与全场减速 · 预警后范围下砸', threatLevel: tank.threatLevel,
     textureKey: bossArt(2).key, visualScale: bossArt(2).scale,
     hasArt: hasDeliveredArt(bossArt(2).key),
     stats: [

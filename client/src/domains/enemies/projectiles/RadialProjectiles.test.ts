@@ -218,6 +218,24 @@ describe('360-degree radial projectiles', () => {
     expect(Math.atan2(first.vy, first.vx)).toBeCloseTo(Math.PI / 4)
   })
 
+  it('supports spatial formation shots with per-bullet position, radius and speed', () => {
+    const pool = new RadialProjectiles(cfg)
+    pool.emitCustom(1, 0, 0, 0, {
+      count: 2,
+      speed: 100,
+      radius: 5,
+      damage: 1,
+      lifetimeMs: 5000,
+      shots: [
+        { x: -20, y: 0, angleRad: 0, radius: 18, speed: 40 },
+        { x: -20, y: 24, angleRad: 0, radius: 6, speed: 120 },
+      ],
+    })
+    const shots = pool.shots.filter((shot) => shot.active).sort((a, b) => a.y - b.y)
+    expect(shots[0]).toMatchObject({ x: -20, y: 0, radius: 18, speed: 40, vx: 40 })
+    expect(shots[1]).toMatchObject({ x: -20, y: 24, radius: 6, speed: 120, vx: 120 })
+  })
+
   it('rejects invalid projectile counts, pool capacity, and attack timing in the config', () => {
     for (const change of [
       (r: ReturnType<typeof raw>) => {

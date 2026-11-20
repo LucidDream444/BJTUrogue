@@ -22,6 +22,16 @@ export interface RadialShot {
   color?: number
 }
 
+export interface BossVolleyShot {
+  x: number
+  y: number
+  angleRad: number
+  speed?: number
+  radius?: number
+  damage?: number
+  lifetimeMs?: number
+}
+
 export interface BossVolley {
   count: number
   speed: number
@@ -36,6 +46,7 @@ export interface BossVolley {
   angleOffsetRad?: number
   spawnRadius?: number
   spawnAngleOffsetRad?: number
+  shots?: readonly BossVolleyShot[]
   speedEnd?: number
   speedRampMs?: number
   bounceCount?: number
@@ -87,9 +98,18 @@ export class RadialProjectiles {
     const bounceCount = volley.bounceCount ?? 0
     const lineSpacingPx = volley.lineSpacingPx ?? 0
     const explicitAngles = volley.anglesRad
-    const count = explicitAngles ? explicitAngles.length : volley.count
+    const shots = volley.shots
+    const count = shots ? shots.length : explicitAngles ? explicitAngles.length : volley.count
     if (!Number.isInteger(count) || count <= 0 ||
       ![volley.speed, volley.radius, volley.lifetimeMs, speedEnd].every((value) => Number.isFinite(value) && value > 0) ||
+      (shots?.some((shot) =>
+        !Number.isFinite(shot.x) || !Number.isFinite(shot.y) ||
+        !Number.isFinite(shot.angleRad) ||
+        (shot.speed !== undefined && (!Number.isFinite(shot.speed) || shot.speed <= 0)) ||
+        (shot.radius !== undefined && (!Number.isFinite(shot.radius) || shot.radius <= 0)) ||
+        (shot.damage !== undefined && (!Number.isFinite(shot.damage) || shot.damage < 0)) ||
+        (shot.lifetimeMs !== undefined && (!Number.isFinite(shot.lifetimeMs) || shot.lifetimeMs <= 0)),
+      ) ?? false) ||
       !Number.isFinite(volley.damage) || volley.damage < 0 ||
       !Number.isFinite(speedRampMs) || speedRampMs < 0 ||
       !Number.isInteger(bounceCount) || bounceCount < 0 ||
@@ -100,11 +120,14 @@ export class RadialProjectiles {
     let emitted = 0
     for (const shot of this.shots) {
       if (shot.active) continue
-      const angle = explicitAngles
-        ? explicitAngles[emitted]!
-        : volley.angleRad === undefined
-          ? (volley.angleOffsetRad ?? offset) + (emitted / count) * Math.PI * 2
-          : volley.angleRad + (emitted - (count - 1) / 2) * (volley.spreadRad ?? 0)
+      const spec = shots?.[emitted]
+      const angle = spec
+        ? spec.angleRad
+        : explicitAngles
+          ? explicitAngles[emitted]!
+          : volley.angleRad === undefined
+            ? (volley.angleOffsetRad ?? offset) + (emitted / count) * Math.PI * 2
+            : volley.angleRad + (emitted - (count - 1) / 2) * (volley.spreadRad ?? 0)
       const dx = Math.cos(angle),
         dy = Math.sin(angle)
       const lineOffset = lineSpacingPx * (emitted - (count - 1) / 2)
@@ -112,22 +135,23 @@ export class RadialProjectiles {
       const py = Math.sin(angle + Math.PI / 2) * lineOffset
       const spawnAngle = angle + (volley.spawnAngleOffsetRad ?? 0)
       const spawnRadius = volley.spawnRadius ?? this.cfg.spawnRadius
+      const shotSpeed = spec?.speed ?? volley.speed
       Object.assign(shot, {
         active: true,
         id: this.nextId++,
         ownerId,
-        x: x + Math.cos(spawnAngle) * spawnRadius + px,
-        y: y + Math.sin(spawnAngle) * spawnRadius + py,
-        vx: dx * volley.speed,
-        vy: dy * volley.speed,
-        damage: volley.damage,
-        radius: volley.radius,
-        speed: volley.speed,
-        speedStart: volley.speed,
-        speedEnd,
+        x: spec ? x + spec.x : x + Math.cos(spawnAngle) * spawnRadius + px,
+        y: spec ? y + spec.y : y + Math.sin(spawnAngle) * spawnRadius + py,
+        vx: dx * shotSpeed,
+        vy: dy * shotSpeed,
+        damage: spec?.damage ?? volley.damage,
+        radius: spec?.radius ?? volley.radius,
+        speed: shotSpeed,
+        speedStart: shotSpeed,
+        speedEnd: spec?.speed ?? speedEnd,
         speedRampMs,
         bounceLeft: bounceCount,
-        lifetimeMs: volley.lifetimeMs,
+        lifetimeMs: spec?.lifetimeMs ?? volley.lifetimeMs,
         color: volley.color,
         bornAtMs: nowMs,
         updatedAtMs: nowMs,
