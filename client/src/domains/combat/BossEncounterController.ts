@@ -53,7 +53,12 @@ export class BossEncounterController {
     fired: number
     nextAt: number
   } | null = null
+  /** Clone ids have their own slower barrage clock and rotation. */
+  private readonly cloneBarrageNext = new Map<number, number>()
+  private readonly cloneBarrageIndex = new Map<number, number>()
   private redAlpha = 0
+  private rewindActive = false
+  private activeStage = 0
   private weaponOwner: number | null = null
   private disposed = false
   /** 奶龙三段技能语音；每次释放技能随机一段。 */
@@ -197,9 +202,19 @@ export class BossEncounterController {
       },
       screenRewind: (active, alpha) => {
         this.redAlpha = active ? alpha : 0
+        this.rewindActive = active
         if (active) {
           this.flight = null
           this.ghost.setVisible(false)
+          // Time rewind must give the player a clean screen: remove all boss bullets
+          // and suppress every barrage until rewind ends.
+          e.clearBossShots()
+          this.barrageBurst = null
+          this.cloneBarrageNext.clear()
+          this.cloneBarrageIndex.clear()
+        } else {
+          const interval = this.config.barrages[String(this.activeStage)]?.intervalMs ?? 0
+          this.nextBarrageAtMs = this.session.clock.nowMs + interval
         }
         for (const u of e.skillUnits()) e.setUnitAnimationPaused(u.id, active)
       },
@@ -247,7 +262,13 @@ export class BossEncounterController {
     if (this.disposed || this.scene.sound.locked || this.options.sfxVolume() <= 0) return
     const art = bossArt(stage)
     if (!art.audio) return
-    const sounds = this.bossSkillAudio.get(art.audio)
+    let sounds = this.bossSkillAudio.get(art.audio)
+    // Lazy fallback: if the cache was not ready when the controller was built, add
+    // the sound at the first cast instead of silently staying mute.
+    if (!sounds && this.scene.cache.audio.exists(art.audio)) {
+      sounds = [this.scene.sound.add(art.audio), this.scene.sound.add(art.audio)]
+      this.bossSkillAudio.set(art.audio, sounds)
+    }
     if (!sounds?.length) return
     this.stopBossSkillAudio()
     const sound = sounds[Math.floor(Math.random() * sounds.length)]!
@@ -280,15 +301,20 @@ export class BossEncounterController {
       this.barrageIndex = 0
       this.nextBarrageAtMs = now + (barrages?.initialDelayMs ?? 0)
       this.barrageBurst = null
+      this.cloneBarrageNext.clear()
+      this.cloneBarrageIndex.clear()
     }
     const dt = Math.max(0, Math.min(1000 / 30, now - this.lastAt))
     this.lastAt = now
     this.session.bossForcedVelocity = null
+    this.activeStage = stage
     const elite = this.session.enemies.isEliteBoss(boss.id)
+    if (!elite && stage === 9) this.heart.update(now, dt, boss.id)
     const commands = elite ? [] : this.runtime.update(now, dt, boss.id, stage)
     for (const command of commands) this.apply(command)
     // 弹幕独立于技能冷却：技能正在释放时这里照样按自己的固定间隔开火。
-    if (barrages) {
+    const clonePhase = this.port.units().some((unit) => unit.cloneBossStage === stage)
+    if (barrages && !clonePhase && !this.rewindActive) {
       // 先开新的一串；同一帧再放第一轮，避免初始延迟被多算一帧。
       if (!this.barrageBurst && now >= this.nextBarrageAtMs) {
         const pattern = barrages.patterns[this.barrageIndex % barrages.patterns.length]!
@@ -311,9 +337,31 @@ export class BossEncounterController {
         else burst.nextAt = now + (burst.pattern.burstIntervalMs ?? 0)
       }
     }
+    // Clones (耄耋猫影分身) each own a slower barrage clock. The hidden boss does not
+    // fire while the clone phase is active.
+    if (barrages && clonePhase && !this.rewindActive) {
+      this.barrageBurst = null
+      const clones = this.port.units().filter((unit) => unit.cloneBossStage === stage)
+      const alive = new Set(clones.map((unit) => unit.id))
+      for (const id of [...this.cloneBarrageNext.keys()])
+        if (!alive.has(id)) {
+          this.cloneBarrageNext.delete(id)
+          this.cloneBarrageIndex.delete(id)
+        }
+      const interval = barrages.intervalMs * 2
+      for (const clone of clones) {
+        if (!this.cloneBarrageNext.has(clone.id))
+          this.cloneBarrageNext.set(clone.id, now + interval)
+        if (now < (this.cloneBarrageNext.get(clone.id) ?? Infinity)) continue
+        const index = this.cloneBarrageIndex.get(clone.id) ?? 0
+        const pattern = barrages.patterns[index % barrages.patterns.length]!
+        this.fireBarrage(clone, pattern, 0, barrages.color)
+        this.cloneBarrageIndex.set(clone.id, (index + 1) % barrages.patterns.length)
+        this.cloneBarrageNext.set(clone.id, now + interval)
+      }
+    }
     // The paper kite's basic ring is owned by the configured scheduler.
     if (stage === 3 && !elite) this.session.enemies.skills.setBossManualAttacks(boss.id, true)
-    if (stage === 9 && !elite) this.heart.update(now, dt, boss.id)
     this.view.update(now)
     this.ghost.setVisible(false)
     if (this.flight && now >= this.flight.start && now < this.flight.end) {
@@ -357,19 +405,42 @@ export class BossEncounterController {
   ): void {
     const player = this.session.player
     const rotate = ((pattern.angleStepDeg ?? 0) * burstIndex * Math.PI) / 180
-    const aimed = Math.atan2(player.y - boss.y, player.x - boss.x) + rotate
+    const aimedBase = Math.atan2(player.y - boss.y, player.x - boss.x)
+    const aimed = aimedBase + rotate
     const spreadRad = (pattern.spreadDeg * Math.PI) / 180
+    const angles: number[] = []
+    if (pattern.pattern === 'ring' || pattern.pattern === 'ring_gap') {
+      const gap = pattern.pattern === 'ring_gap' ? (pattern.gapDeg ?? 60) : (pattern.gapDeg ?? 0)
+      const halfGap = (gap * Math.PI) / 360
+      for (let i = 0; i < pattern.count; i++) {
+        const angle = rotate + (i * Math.PI * 2) / pattern.count
+        if (gap <= 0) {
+          angles.push(angle)
+          continue
+        }
+        const delta = Math.abs(Math.atan2(Math.sin(angle - aimedBase), Math.cos(angle - aimedBase)))
+        if (delta >= halfGap) angles.push(angle)
+      }
+    } else if (pattern.pattern === 'fan') {
+      for (let i = 0; i < pattern.count; i++)
+        angles.push(aimed + (i - (pattern.count - 1) / 2) * spreadRad)
+    } else if (pattern.pattern === 'line') {
+      for (let i = 0; i < pattern.count; i++) angles.push(aimed)
+    } else {
+      // Scatter: independent random directions inside the declared spread.
+      for (let i = 0; i < pattern.count; i++)
+        angles.push(aimed + this.port.rng.floatBetween(-spreadRad, spreadRad))
+    }
+    if (!angles.length) return
     const speedScale = 1 + (pattern.speedStepPct ?? 0) * (burstIndex % 2 === 0 ? 1 : -1)
     const volley: BossSkillVolley = {
-      count: pattern.count,
+      count: angles.length,
       speed: pattern.speed * speedScale,
       radius: pattern.radius,
       damage: Math.round(pattern.damage * this.port.damageMultiplier),
       lifetimeMs: pattern.lifetimeMs,
       color,
-      ...(pattern.pattern === 'ring'
-        ? { angleOffsetRad: rotate }
-        : { angleRad: aimed, spreadRad }),
+      anglesRad: angles,
       ...(pattern.speedEnd !== undefined ? { speedEnd: pattern.speedEnd * speedScale } : {}),
       ...(pattern.speedRampMs !== undefined ? { speedRampMs: pattern.speedRampMs } : {}),
       ...(pattern.bounceCount !== undefined ? { bounceCount: pattern.bounceCount } : {}),
@@ -552,7 +623,11 @@ export class BossEncounterController {
     this.barrageIndex = 0
     this.nextBarrageAtMs = 0
     this.barrageBurst = null
+    this.cloneBarrageNext.clear()
+    this.cloneBarrageIndex.clear()
     this.redAlpha = 0
+    this.rewindActive = false
+    this.activeStage = 0
     this.screen.clear()
     this.weapon.setVisible(false)
     this.weaponOwner = null

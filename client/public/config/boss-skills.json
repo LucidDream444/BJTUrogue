@@ -258,7 +258,7 @@
   },
   "barrages": {
     "2": {
-      "intervalMs": 3400,
+      "intervalMs": 6800,
       "initialDelayMs": 1600,
       "color": 16726843,
       "patterns": [
@@ -281,7 +281,7 @@
         },
         {
           "id": "frost_ring",
-          "pattern": "ring",
+          "pattern": "ring_gap",
           "count": 28,
           "spreadDeg": 0,
           "speed": 160,
@@ -294,7 +294,8 @@
           "burstIntervalMs": 150,
           "angleStepDeg": 9,
           "bounceCount": 1,
-          "speedStepPct": 0.1
+          "speedStepPct": 0.1,
+          "gapDeg": 55
         },
         {
           "id": "frost_line",
@@ -317,7 +318,7 @@
       ]
     },
     "3": {
-      "intervalMs": 3000,
+      "intervalMs": 6000,
       "initialDelayMs": 1400,
       "color": 16726843,
       "patterns": [
@@ -376,15 +377,15 @@
       ]
     },
     "4": {
-      "intervalMs": 3800,
+      "intervalMs": 7600,
       "initialDelayMs": 2000,
       "color": 16726843,
       "patterns": [
         {
           "id": "acid_fan",
-          "pattern": "fan",
+          "pattern": "scatter",
           "count": 13,
-          "spreadDeg": 7,
+          "spreadDeg": 40,
           "speed": 200,
           "radius": 7,
           "damage": 5,
@@ -399,7 +400,7 @@
         },
         {
           "id": "acid_ring",
-          "pattern": "ring",
+          "pattern": "ring_gap",
           "count": 24,
           "spreadDeg": 0,
           "speed": 150,
@@ -412,7 +413,8 @@
           "burstIntervalMs": 160,
           "angleStepDeg": 9,
           "bounceCount": 0,
-          "speedStepPct": 0.12
+          "speedStepPct": 0.12,
+          "gapDeg": 95
         },
         {
           "id": "acid_line",
@@ -435,13 +437,13 @@
       ]
     },
     "5": {
-      "intervalMs": 3200,
+      "intervalMs": 6400,
       "initialDelayMs": 1500,
       "color": 16726843,
       "patterns": [
         {
           "id": "sports_ring",
-          "pattern": "ring",
+          "pattern": "ring_gap",
           "count": 30,
           "spreadDeg": 0,
           "speed": 220,
@@ -454,7 +456,8 @@
           "burstIntervalMs": 130,
           "angleStepDeg": 8,
           "bounceCount": 1,
-          "speedStepPct": 0.14
+          "speedStepPct": 0.14,
+          "gapDeg": 28
         },
         {
           "id": "sports_fan",
@@ -494,7 +497,7 @@
       ]
     },
     "6": {
-      "intervalMs": 3600,
+      "intervalMs": 7200,
       "initialDelayMs": 1800,
       "color": 16726843,
       "patterns": [
@@ -517,7 +520,7 @@
         },
         {
           "id": "rollcall_ring",
-          "pattern": "ring",
+          "pattern": "ring_gap",
           "count": 26,
           "spreadDeg": 0,
           "speed": 190,
@@ -530,7 +533,8 @@
           "burstIntervalMs": 150,
           "angleStepDeg": 10,
           "bounceCount": 1,
-          "speedStepPct": 0.1
+          "speedStepPct": 0.1,
+          "gapDeg": 65
         },
         {
           "id": "rollcall_line",
@@ -553,7 +557,7 @@
       ]
     },
     "7": {
-      "intervalMs": 4200,
+      "intervalMs": 8400,
       "initialDelayMs": 2200,
       "color": 16726843,
       "patterns": [
@@ -576,7 +580,7 @@
         },
         {
           "id": "nailong_ring",
-          "pattern": "ring",
+          "pattern": "ring_gap",
           "count": 34,
           "spreadDeg": 0,
           "speed": 170,
@@ -589,7 +593,8 @@
           "burstIntervalMs": 140,
           "angleStepDeg": 9,
           "bounceCount": 1,
-          "speedStepPct": 0.12
+          "speedStepPct": 0.12,
+          "gapDeg": 70
         },
         {
           "id": "nailong_line",
@@ -612,13 +617,13 @@
       ]
     },
     "8": {
-      "intervalMs": 2800,
+      "intervalMs": 5600,
       "initialDelayMs": 1500,
       "color": 16726843,
       "patterns": [
         {
           "id": "heart_ring",
-          "pattern": "ring",
+          "pattern": "ring_gap",
           "count": 38,
           "spreadDeg": 0,
           "speed": 200,
@@ -631,13 +636,14 @@
           "burstIntervalMs": 130,
           "angleStepDeg": 8,
           "bounceCount": 2,
-          "speedStepPct": 0.12
+          "speedStepPct": 0.12,
+          "gapDeg": 80
         },
         {
           "id": "heart_fan",
-          "pattern": "fan",
+          "pattern": "scatter",
           "count": 17,
-          "spreadDeg": 6,
+          "spreadDeg": 45,
           "speed": 240,
           "radius": 6,
           "damage": 5,
@@ -671,7 +677,7 @@
       ]
     },
     "9": {
-      "intervalMs": 4200,
+      "intervalMs": 8400,
       "initialDelayMs": 2200,
       "color": 16726843,
       "patterns": [
@@ -694,7 +700,7 @@
         },
         {
           "id": "nailong_ring",
-          "pattern": "ring",
+          "pattern": "ring_gap",
           "count": 34,
           "spreadDeg": 0,
           "speed": 170,
@@ -707,7 +713,8 @@
           "burstIntervalMs": 140,
           "angleStepDeg": 9,
           "bounceCount": 1,
-          "speedStepPct": 0.14
+          "speedStepPct": 0.14,
+          "gapDeg": 45
         },
         {
           "id": "nailong_line",

@@ -10,6 +10,8 @@ export interface EnemySkillUnit {
   kind: EnemyKind
   gen: number
   bossStage?: number
+  /** Set on mirrored clones; profile used for their barrage table. */
+  cloneBossStage?: number
   radius: number
   vx: number
   vy: number

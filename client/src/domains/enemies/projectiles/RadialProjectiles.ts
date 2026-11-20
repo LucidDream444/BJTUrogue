@@ -31,6 +31,7 @@ export interface BossVolley {
   color?: number
   angleRad?: number
   spreadRad?: number
+  anglesRad?: readonly number[]
   /** Ring-only rotation; ignored when angleRad is set. */
   angleOffsetRad?: number
   speedEnd?: number
@@ -83,24 +84,28 @@ export class RadialProjectiles {
     const speedRampMs = volley.speedRampMs ?? 0
     const bounceCount = volley.bounceCount ?? 0
     const lineSpacingPx = volley.lineSpacingPx ?? 0
-    if (!Number.isInteger(volley.count) || volley.count <= 0 ||
+    const explicitAngles = volley.anglesRad
+    const count = explicitAngles ? explicitAngles.length : volley.count
+    if (!Number.isInteger(count) || count <= 0 ||
       ![volley.speed, volley.radius, volley.lifetimeMs, speedEnd].every((value) => Number.isFinite(value) && value > 0) ||
       !Number.isFinite(volley.damage) || volley.damage < 0 ||
       !Number.isFinite(speedRampMs) || speedRampMs < 0 ||
       !Number.isInteger(bounceCount) || bounceCount < 0 ||
       !Number.isFinite(lineSpacingPx) || lineSpacingPx < 0) return 0
     // Drop the whole volley on saturation so the ring never has arbitrary missing directions.
-    if (this.shots.reduce((free, shot) => free + Number(!shot.active), 0) < volley.count) return 0
+    if (this.shots.reduce((free, shot) => free + Number(!shot.active), 0) < count) return 0
     const offset = (this.volley++ * this.cfg.volleyOffsetDeg * Math.PI) / 180
     let emitted = 0
     for (const shot of this.shots) {
       if (shot.active) continue
-      const angle = volley.angleRad === undefined
-        ? (volley.angleOffsetRad ?? offset) + (emitted / volley.count) * Math.PI * 2
-        : volley.angleRad + (emitted - (volley.count - 1) / 2) * (volley.spreadRad ?? 0)
+      const angle = explicitAngles
+        ? explicitAngles[emitted]!
+        : volley.angleRad === undefined
+          ? (volley.angleOffsetRad ?? offset) + (emitted / count) * Math.PI * 2
+          : volley.angleRad + (emitted - (count - 1) / 2) * (volley.spreadRad ?? 0)
       const dx = Math.cos(angle),
         dy = Math.sin(angle)
-      const lineOffset = lineSpacingPx * (emitted - (volley.count - 1) / 2)
+      const lineOffset = lineSpacingPx * (emitted - (count - 1) / 2)
       const px = Math.cos(angle + Math.PI / 2) * lineOffset
       const py = Math.sin(angle + Math.PI / 2) * lineOffset
       Object.assign(shot, {
@@ -123,7 +128,7 @@ export class RadialProjectiles {
         bornAtMs: nowMs,
         updatedAtMs: nowMs,
       })
-      if (++emitted === volley.count) break
+      if (++emitted === count) break
     }
     return emitted
   }

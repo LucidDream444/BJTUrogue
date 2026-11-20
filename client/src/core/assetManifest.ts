@@ -239,37 +239,37 @@ export const BOSS_ROSTER_ART: Readonly<Record<number, BossRosterArt>> = {
   2: {
     idle: 'boss_bull_idle', skill: 'boss_bull_skill',
     idleFrames: 1, skillFrames: 1, idleFrameRate: 1, skillFrameRate: 1,
-    displayScale: 0.95, audio: 'sfx_boss_bull_skill', audioGain: 1.6,
+    displayScale: 0.95, audio: 'sfx_boss_bull_skill', audioGain: 2.0,
   },
   3: {
     idle: 'boss_pigeon_idle', skill: 'boss_pigeon_skill',
     idleFrames: 1, skillFrames: 24, idleFrameRate: 1, skillFrameRate: 12,
-    displayScale: 1.5, audio: 'sfx_boss_pigeon_skill', audioGain: 1.4,
+    displayScale: 1.5, audio: 'sfx_boss_pigeon_skill', audioGain: 2.0,
   },
   4: {
     idle: 'boss_barba_idle', skill: 'boss_barba_skill',
     idleFrames: 24, skillFrames: 24, idleFrameRate: 10, skillFrameRate: 12,
-    displayScale: 1.0, audio: 'sfx_boss_barba_skill', audioGain: 1.7,
+    displayScale: 1.0, audio: 'sfx_boss_barba_skill', audioGain: 2.0,
   },
   5: {
     idle: 'boss_shielddog_idle', skill: 'boss_shielddog_skill',
     idleFrames: 1, skillFrames: 1, idleFrameRate: 1, skillFrameRate: 1,
-    displayScale: 1.05, audio: 'sfx_boss_shielddog_skill', audioGain: 1.6,
+    displayScale: 1.05, audio: 'sfx_boss_shielddog_skill', audioGain: 2.0,
   },
   6: {
     idle: 'boss_roundcat_idle', skill: 'boss_roundcat_skill',
     idleFrames: 1, skillFrames: 13, idleFrameRate: 1, skillFrameRate: 12,
-    displayScale: 1.0, audio: 'sfx_boss_roundcat_skill', audioGain: 1.6,
+    displayScale: 1.0, audio: 'sfx_boss_roundcat_skill', audioGain: 2.0,
   },
   7: {
     idle: 'boss_bananacat_idle', skill: 'boss_bananacat_skill',
     idleFrames: 24, skillFrames: 22, idleFrameRate: 10, skillFrameRate: 12,
-    displayScale: 1.15, audio: 'sfx_boss_bananacat_skill', audioGain: 1.5,
+    displayScale: 1.15, audio: 'sfx_boss_bananacat_skill', audioGain: 2.0,
   },
   8: {
     idle: 'boss_fatcat_idle', skill: 'boss_fatcat_skill',
     idleFrames: 1, skillFrames: 1, idleFrameRate: 1, skillFrameRate: 1,
-    displayScale: 1.0, audio: 'sfx_boss_fatcat_skill', audioGain: 1.5,
+    displayScale: 1.0, audio: 'sfx_boss_fatcat_skill', audioGain: 2.0,
   },
 }
 

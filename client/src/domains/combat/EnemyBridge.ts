@@ -192,7 +192,7 @@ export class EnemyBridge implements BulletContactPort {
   get skills(): Pick<EnemySystem,
     'skillUnits' | 'setUnitPosition' | 'setUnitHp' | 'setUnitSpeedBoost' |
     'setBossInvulnerable' | 'setBossControlled' | 'setBossManualAttacks' | 'setUnitStunned' | 'setBossAppearance' |
-    'fireBossVolley' | 'skillDamage' | 'summonSkillEnemy' | 'spawnBossClone' | 'despawnSkillUnit' | 'transformMinions' | 'setUnitRally' | 'setUnitLaugh' | 'setBossSkillAnimation' | 'setUnitAnimationPaused'> {
+    'fireBossVolley' | 'clearBossShots' | 'skillDamage' | 'summonSkillEnemy' | 'spawnBossClone' | 'despawnSkillUnit' | 'transformMinions' | 'setUnitRally' | 'setUnitLaugh' | 'setBossSkillAnimation' | 'setUnitAnimationPaused'> {
     return this.system
   }
   grabStatus() {
