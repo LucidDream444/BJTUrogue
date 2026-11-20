@@ -44,7 +44,7 @@
     "bulletSpeedScale": 2,
     "moveScale": 1.7,
     "spreadScaleMin": 0.2,
-    "pellets": 9,
+    "pellets": 12,
     "iframeMs": 1200
   },
   "weapons": [
@@ -192,7 +192,7 @@
       "pierceTargets": 1,
       "slowMultiplier": 0.75,
       "slowDurationMs": 1200
-    },
+    },
     {
       "id": "pencil_knife",
       "name": "铅笔刀",
@@ -2476,5 +2476,35 @@
         49
       ]
     }
+  },
+  "talents": {
+    "maxOwned": 8,
+    "rerolls": 2,
+    "floorChoices": [
+      2,
+      3,
+      2
+    ],
+    "baseCritChance": 0.1,
+    "baseCritMultiplier": 1.5,
+    "maxCritChance": 0.7,
+    "maxRateScale": 2.5,
+    "maxCostReduction": 0.7,
+    "maxCooldownReduction": 0.35,
+    "maxQueuedHits": 96,
+    "maxVisuals": 100,
+    "maxFields": 3,
+    "maxOrbit": 6,
+    "maxChildrenPerAttack": 4,
+    "secondaryLifeMs": 1000,
+    "secondarySpeed": 600,
+    "defaultRange": 520,
+    "visualLifeMs": 300,
+    "numberLifeMs": 650,
+    "stoppedRegenDelayMs": 600,
+    "stoppedRegenScale": 2,
+    "commonProcCooldownMs": 100,
+    "blackholeStepMs": 80,
+    "synergyWeightScale": 1.6
   }
 }

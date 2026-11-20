@@ -20,7 +20,7 @@ const bundle = parseConfigBundle({
   enemies: read('enemies.json'),
 })
 const cfg = parseCombatConfig(read('combat.json')),
-  defs = parseRewards(read('rewards.json'))
+  defs = parseRewards(JSON.parse(readFileSync(new URL('./fixtures/legacy-rewards.json', import.meta.url), 'utf8')))
 describe('D1 movement and clock', () => {
   it('normalizes diagonal and decelerates without overshoot', () => {
     const a = moveVelocity(0, 0, 1, 0, 200, 1500, 2000, 1),

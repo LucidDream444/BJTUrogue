@@ -33,6 +33,11 @@ export class RecoveryDrops {
     const drop = rollRecoveryDrop(this.cfg, this.rng)
     if (!drop) return
     const { kind, amount } = drop
+    this.spawn(kind,amount,x,y)
+  }
+
+  spawn(kind: RecoveryKind, amount:number, x:number, y:number):void {
+    if (this.items.length >= this.cfg.maxActive || amount <= 0) return
     const art = STATUS_HUD_ART[kind]
     const image = this.scene.add.image(x, y, textureKeyFor(this.scene, art.icon))
     image
