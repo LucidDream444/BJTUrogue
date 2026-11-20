@@ -346,6 +346,8 @@ export interface CombatConfig {
     eliteBossHpScale: number
     /** Elite-room boss collision/hit radius in world pixels. */
     eliteBossRadius: number
+    /** Normal minions spawned alongside the elite-room boss. */
+    eliteEscortCount: number
     bossReinforcements: BossReinforcementsConfig
     bossX: number
     bossY: number
@@ -899,6 +901,8 @@ export function parseCombatConfig(raw: unknown): CombatConfig {
   for (const key of ['bossContactDamagePerTick', 'eliteBossVisualScale', 'eliteBossHpScale', 'eliteBossRadius'] as const)
     if (!Number.isFinite(c.encounter[key]) || c.encounter[key] <= 0)
       throw new Error(`encounter.${key}: 必须为正数`)
+  if (!Number.isInteger(c.encounter.eliteEscortCount) || c.encounter.eliteEscortCount < 0)
+    throw new Error('encounter.eliteEscortCount: 必须为非负整数')
   for (const scale of [c.encounter.bossVisualScaleMultiplier, c.encounter.bossHitRadiusMultiplier])
     if (!Number.isFinite(scale) || scale <= 0)
       throw new Error('encounter: Boss display and hit radius multipliers must be positive')

@@ -1527,6 +1527,17 @@ export class BattleScene extends Phaser.Scene {
         elite.profile, this.layer, elite.id, spot.x, spot.y, hp,
         false, this.cfg.encounter.bossDamageMultiplier, true,
       )
+      // An elite is still a room fight: keep a small escort so the player cannot
+      // simply circle one shrunken boss in an otherwise empty classroom.
+      for (let i = 0; i < this.cfg.encounter.eliteEscortCount; i++) {
+        const escort = at(i + 1)
+        this.session.enemies.spawn(
+          i % 2 === 0 ? 'splitter' : 'sprayer',
+          0,
+          escort.x + offset(i + 1),
+          escort.y + offset(i + 1),
+        )
+      }
       return
     }
     for (let i = 0; i < p.splitters; i++) {
