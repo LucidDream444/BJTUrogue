@@ -1977,15 +1977,15 @@
     ]
   },
   "drops": {
-    "chance": 0.5,
+    "chance": 0.3,
     "healthChance": 0.2,
-    "healthAmount": 10,
-    "shieldAmount": 25,
+    "healthAmount": 6,
+    "shieldAmount": 15,
     "pickupRadius": 28,
     "visualSize": 26,
     "maxActive": 64,
     "staminaChance": 0.65,
-    "staminaAmount": 75
+    "staminaAmount": 45
   },
   "terrain": {
     "navigationCellSize": 32,
@@ -2030,7 +2030,8 @@
         "y": 600
       }
     ],
-    "spawnSpread": 48
+    "spawnSpread": 48,
+    "eliteEscortCount": 4
   },
   "chest": {
     "interactRadius": 65,
