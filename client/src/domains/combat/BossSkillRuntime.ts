@@ -18,7 +18,7 @@ export interface BossFloorSkills {
   skills: readonly BossSkillSpec[]
 }
 
-export type BossBarragePattern = 'ring' | 'fan' | 'line' | 'ring_gap' | 'scatter' | 'custom'
+export type BossBarragePattern = 'ring' | 'fan' | 'line' | 'ring_gap' | 'scatter' | 'custom' | 'formation'
 
 export interface BossBarrageSpec {
   id: string
@@ -54,6 +54,23 @@ export interface BossBarrageSpec {
   spawnRadius?: number
   /** Rotate the spawn ring relative to the aimed direction (degrees). */
   spawnAngleDeg?: number
+  /** Spatial bullet formation for `pattern: 'formation'`. */
+  formation?: 'v' | 'cross' | 'arc' | 'wall' | 'big'
+  /** Gap between adjacent formation bullets (px). */
+  formationSpacing?: number
+  /** Opening angle of a V/arc formation (degrees). */
+  formationAngleDeg?: number
+}
+
+export interface BossVolleyShot {
+  /** Position relative to the boss center. */
+  x: number
+  y: number
+  angleRad: number
+  speed?: number
+  radius?: number
+  damage?: number
+  lifetimeMs?: number
 }
 
 export interface BossBarrageConfig {
@@ -183,8 +200,8 @@ export function parseBossSkillsTable(raw: unknown): BossSkillsTable {
       if (barrageIds.has(id)) throw new Error(`${patternPath}.id 重复`)
       barrageIds.add(id)
       const pattern = text(source.pattern, `${patternPath}.pattern`)
-      if (!['ring', 'fan', 'line', 'ring_gap', 'scatter', 'custom'].includes(pattern))
-        throw new Error(`${patternPath}.pattern 必须是 ring/fan/line/ring_gap/scatter/custom`)
+      if (!['ring', 'fan', 'line', 'ring_gap', 'scatter', 'custom', 'formation'].includes(pattern))
+        throw new Error(`${patternPath}.pattern 必须是 ring/fan/line/ring_gap/scatter/custom/formation`)
       const count = number(source.count, `${patternPath}.count`, true)
       if (!Number.isInteger(count)) throw new Error(`${patternPath}.count 必须是整数`)
       const optional = (key: string, positive = false): number | undefined => {
@@ -203,9 +220,12 @@ export function parseBossSkillsTable(raw: unknown): BossSkillsTable {
           throw new Error(`${patternPath}.anglesDeg 必须是非空有限数数组`)
         anglesDeg = source.anglesDeg as number[]
       }
-      for (const key of ['spawnRadius', 'spawnAngleDeg'] as const)
+      for (const key of ['spawnRadius', 'spawnAngleDeg', 'formationSpacing', 'formationAngleDeg'] as const)
         if (source[key] !== undefined && (typeof source[key] !== 'number' || !Number.isFinite(source[key])))
           throw new Error(`${patternPath}.${key} 必须是有限数`)
+      const formation = source.formation
+      if (formation !== undefined && !['v', 'cross', 'arc', 'wall', 'big'].includes(String(formation)))
+        throw new Error(`${patternPath}.formation 必须是 v/cross/arc/wall/big`)
       let speedStepPct: number | undefined
       if (source.speedStepPct !== undefined) {
         if (typeof source.speedStepPct !== 'number' || !Number.isFinite(source.speedStepPct) || Math.abs(source.speedStepPct) > 1)
@@ -241,6 +261,9 @@ export function parseBossSkillsTable(raw: unknown): BossSkillsTable {
         ...(anglesDeg !== undefined ? { anglesDeg } : {}),
         ...(source.spawnRadius !== undefined ? { spawnRadius: optional('spawnRadius', true)! } : {}),
         ...(source.spawnAngleDeg !== undefined ? { spawnAngleDeg: optional('spawnAngleDeg')! } : {}),
+        ...(formation !== undefined ? { formation: formation as 'v' | 'cross' | 'arc' | 'wall' | 'big' } : {}),
+        ...(source.formationSpacing !== undefined ? { formationSpacing: optional('formationSpacing', true)! } : {}),
+        ...(source.formationAngleDeg !== undefined ? { formationAngleDeg: optional('formationAngleDeg')! } : {}),
       }
     })
     barrages[floor] = { intervalMs, initialDelayMs, color, patterns }

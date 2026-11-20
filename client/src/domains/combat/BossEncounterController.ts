@@ -8,6 +8,7 @@ import {
   BossSkillRuntime,
   type BossBarrageSpec,
   type BossSkillPort,
+  type BossVolleyShot,
   type BossSkillUnit,
   type BossSkillVolley,
   type BossSkillsTable,
@@ -434,16 +435,21 @@ export class BossEncounterController {
       for (let i = 0; i < pattern.count; i++)
         angles.push(aimed + this.port.rng.floatBetween(-spreadRad, spreadRad))
     }
-    if (!angles.length) return
+    let shots: BossVolleyShot[] | undefined
+    if (pattern.pattern === 'formation') {
+      shots = this.formationShots(pattern, aimed)
+      if (!shots.length) return
+    }
+    if (!angles.length && !shots?.length) return
     const speedScale = 1 + (pattern.speedStepPct ?? 0) * (burstIndex % 2 === 0 ? 1 : -1)
     const volley: BossSkillVolley = {
-      count: angles.length,
+      count: shots?.length ?? angles.length,
       speed: pattern.speed * speedScale,
       radius: pattern.radius,
       damage: Math.round(pattern.damage * this.port.damageMultiplier),
       lifetimeMs: pattern.lifetimeMs,
       color,
-      anglesRad: angles,
+      ...(shots ? { shots } : { anglesRad: angles }),
       ...(pattern.spawnRadius !== undefined ? { spawnRadius: pattern.spawnRadius } : {}),
       ...(pattern.spawnAngleDeg !== undefined
         ? { spawnAngleOffsetRad: (pattern.spawnAngleDeg * Math.PI) / 180 }
@@ -456,6 +462,54 @@ export class BossEncounterController {
         : {}),
     }
     this.session.enemies.skills.fireBossVolley(boss.id, volley)
+  }
+
+  /** Arrange formation bullets in space; their velocity is the aimed direction. */
+  private formationShots(
+    pattern: BossBarrageSpec,
+    aimed: number,
+  ): BossVolleyShot[] {
+    const count = Math.max(1, pattern.count)
+    const spacing = Math.max(1, pattern.formationSpacing ?? 26)
+    const start = pattern.spawnRadius ?? 50
+    const open = ((pattern.formationAngleDeg ?? 60) * Math.PI) / 180
+    const fx = Math.cos(aimed), fy = Math.sin(aimed)
+    const px = -fy, py = fx
+    const shots: BossVolleyShot[] = []
+    const push = (forward: number, side: number): void => {
+      shots.push({ x: fx * forward + px * side, y: fy * forward + py * side, angleRad: aimed })
+    }
+    if (pattern.formation === 'v') {
+      const arm = Math.ceil(count / 2)
+      for (let i = 0; i < count; i++) {
+        const step = i % arm
+        const sideSign = i < arm ? -1 : 1
+        push(start + step * spacing, sideSign * step * spacing * Math.tan(open / 2))
+      }
+    } else if (pattern.formation === 'cross') {
+      push(start, 0)
+      for (let i = 1; i < count; i++) {
+        const arm = (i - 1) % 4
+        const step = Math.floor((i - 1) / 4) + 1
+        const side = arm % 2 === 0 ? (arm === 0 ? 1 : -1) : 0
+        const forward = arm % 2 === 1 ? (arm === 1 ? 1 : -1) : 0
+        push(start + forward * step * spacing, side * step * spacing)
+      }
+    } else if (pattern.formation === 'arc') {
+      for (let i = 0; i < count; i++) {
+        const t = count === 1 ? 0 : (i / (count - 1) - 0.5) * open
+        shots.push({ x: Math.cos(aimed + t) * start, y: Math.sin(aimed + t) * start, angleRad: aimed })
+      }
+    } else if (pattern.formation === 'wall') {
+      for (let i = 0; i < count; i++) push(start, (i - (count - 1) / 2) * spacing)
+    } else {
+      // big: one oversized slow projectile; count > 1 puts them in a tight cluster.
+      for (let i = 0; i < count; i++) {
+        const side = (i - (count - 1) / 2) * spacing * 0.15
+        push(start, side)
+      }
+    }
+    return shots
   }
 
   private apply(command: BossHazardCommand): void {
