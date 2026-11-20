@@ -270,9 +270,9 @@ export class BattleScene extends Phaser.Scene {
    * 所以「本层首领」在这三层里是**可有可无**的 —— 见 `bossDown()`。
    */
   private layer = 0
-  /** `'main'` = 1F/第 1—3 层；`'finale'` = 8F 心魔最终战。 */
+  /** `'main'` = 1F/第 1—2 层；`'finale'` = 奶龙最终战。 */
   private zone: 'main' | 'finale' = 'main'
-  /** 哪些层的池内首领已经死了（按层号 1—3）。第 3 层死后开最终传送阵。 */
+  /** 哪些层的池内首领已经死了（按层号 1—2）。第 2 层死后开最终传送阵。 */
   private readonly bossCleared = new Set<number>()
   /**
    * 本局每一层的种子（长度 = `floors()`）。整局共用一条 `runSeed` 派生出来，
@@ -312,7 +312,7 @@ export class BattleScene extends Phaser.Scene {
    */
   private elevatorPanel!: ElevatorPanel
   /**
-   * 第 3 层池内首领死后，首领房里的**最终传送阵**（通往 8F 心魔战）。
+   * 第 3 层池内首领死后，首领房里的**最终传送阵**（通往 8F 奶龙战）。
    * 组件复用 `AnomalyGate`（圆 + 六芒星），但不再有「走过几间房」的解锁条件。
    */
   private finalGate!: AnomalyGate
@@ -625,7 +625,7 @@ export class BattleScene extends Phaser.Scene {
         // 首领也不例外：**每一间都是「清完 → 开箱 → 门开」**，首领那间不再单独掉。
         if (event.kind === 'enemy' && event.bossLayer === this.layer) {
           if (event.finalBoss === true) {
-            this.notice.setText('心魔已击败')
+            this.notice.setText('奶龙已击败')
             this.flow?.recordFinalBossDeath()
           } else {
             this.bossCleared.add(this.layer)
@@ -654,7 +654,7 @@ export class BattleScene extends Phaser.Scene {
           return
         }
         // **本层的首领打完了**：层内没有"下一个首领"了，改亮「下一层」的入口。
-        // 第 3 层不亮楼梯 —— 出口是首领房里的最终传送阵；心魔房不参与。
+        // 最后一层不亮楼梯 —— 出口是首领房里的最终传送阵；奶龙最终房不参与。
         if (this.zone === 'finale') return
         if (this.layer >= this.floors) {
           this.refreshFinalGate()
@@ -1064,7 +1064,7 @@ export class BattleScene extends Phaser.Scene {
     if (fallbackNotice) {
       this.deathNotice.setText(
         this.gameWon
-          ? `心魔已击败 · 本局通关！\n按 R 重新开始`
+          ? `奶龙已击败 · 本局通关！\n按 R 重新开始`
           : this.session.player.model.deathCause === 'water'
             ? '落水身亡\n按 R 重新开始'
             : '你倒下了\n按 R 重新开始',
@@ -1507,6 +1507,28 @@ export class BattleScene extends Phaser.Scene {
     //    `budgetBase` 是 `t = 0`（出生点旁边那间）的值 —— 比值正好是强度倍数。
     const growth = unit.room.budget / this.rooms.budgetBase
     const p = roomPlan(this.bundle, this.cfg, this.difficulty, growth, this.layer)
+    // Elite rooms: one boss from the run's elite pool, shrunk and halved. It keeps
+    // movement + barrages but never casts configured skills.
+    if (unit.room.kind === 'elite' && this.bossPicks.elites.length > 0) {
+      const hash = [...unit.room.id].reduce(
+        (h, ch) => (((h << 5) - h) + ch.charCodeAt(0)) | 0,
+        this.runSeed,
+      )
+      const elite = this.bossPicks.elites[Math.abs(hash) % this.bossPicks.elites.length]!
+      const spot = at(0)
+      const hp = Math.max(
+        1,
+        Math.round(
+          (this.cfg.encounter.bossHp + (this.layer - 1) * this.cfg.encounter.bossHpPerStage) *
+            this.cfg.encounter.eliteBossHpScale,
+        ),
+      )
+      this.session.enemies.spawnBoss(
+        elite.profile, this.layer, elite.id, spot.x, spot.y, hp,
+        false, this.cfg.encounter.bossDamageMultiplier, true,
+      )
+      return
+    }
     for (let i = 0; i < p.splitters; i++) {
       const s = at(i)
       this.session.enemies.spawn(
@@ -1738,7 +1760,7 @@ export class BattleScene extends Phaser.Scene {
    * 「出生」只对第一次成立，于是换成「站在」。尾上那一截说的是楼梯间里有什么。
    */
   private floorBrief(): string {
-    if (this.zone === 'finale') return '最终战 · 心魔 · 对面的门里是心魔'
+    if (this.zone === 'finale') return '最终战 · 奶龙 · 对面的门里是奶龙'
     if (this.layer === 0) return '1F · 出发层 · 楼梯间里有上第 1 层的入口'
     const stairs = this.stairHint()
     return (
@@ -1916,9 +1938,9 @@ export class BattleScene extends Phaser.Scene {
     this.zone = 'main'
     this.loadFloor(fromElevator)
   }
-  /** 第 3 层池内首领死后，进 8F 心魔最终战。 */
+  /** 第 2 层池内首领死后，进入奶龙最终战。 */
   private enterFinale(): void {
-    if (this.zone !== 'main' || this.layer !== 3 || !this.bossCleared.has(3)) return
+    if (this.zone !== 'main' || this.layer !== this.floors || !this.bossCleared.has(this.floors)) return
     this.leaveFloor()
     this.zone = 'finale'
     this.loadFloor()
@@ -1926,23 +1948,27 @@ export class BattleScene extends Phaser.Scene {
   /** 第 3 层首领房里的最终传送阵：只在池内首领已死时出现。 */
   private refreshFinalGate(): void {
     this.finalGate.hide()
-    if (this.zone !== 'main' || this.layer !== 3 || !this.bossCleared.has(3)) return
+    if (this.zone !== 'main' || this.layer !== this.floors || !this.bossCleared.has(this.floors)) return
     const room = this.dungeon.rooms.find((unit) => unit.room.kind === 'boss')?.room.rect
     if (!room) return
     const radius = this.session.player.model.stats.radius
     const at = this.session.terrain.safeSpawn(room.x, room.y, radius, radius)
     this.finalGate.show(at.x, at.y)
-    this.finalGate.setState(true, 0, '最终战 · 心魔 · 走近按 F')
+    this.finalGate.setState(true, 0, '最终战 · 奶龙 · 走近按 F')
   }
   /** 当前区域的首领档位（1F/没有首领时为 null）。 */
   private currentBossProfile(): number | null {
     if (this.zone === 'finale') return this.bossPicks.finalBoss.profile
     if (this.layer < 1 || this.layer > this.floors) return null
+    if (this.activeRoom?.room.kind === 'elite') {
+      const elite = this.session.enemies.eliteBossProfile()
+      if (elite !== null) return elite
+    }
     return this.bossPicks.layers[this.layer - 1]?.profile ?? null
   }
   /** HUD / 小地图的区域标题。 */
   private areaTitle(): string {
-    if (this.zone === 'finale') return '最终战 · 心魔'
+    if (this.zone === 'finale') return '最终战 · 奶龙'
     if (this.layer === 0) return '1F · 出发层'
     return `第 ${this.layer} / ${this.floors} 层`
   }
@@ -2016,9 +2042,9 @@ export class BattleScene extends Phaser.Scene {
     this.clearEmitted = true
     this.gameWon = true
     this.endRun('cleared')
-    this.notice.setText(`心魔已击败 · 本局通关 · 按 R 开始新一局`)
+    this.notice.setText(`奶龙已击败 · 本局通关 · 按 R 开始新一局`)
   }
-  /** 第 `layer` 层抽到的首领名；最终战返回心魔。 */
+  /** 第 `layer` 层抽到的首领名；最终战返回奶龙。 */
   private bossName(layer = this.layer): string {
     if (this.zone === 'finale') return this.bossPicks.finalBoss.name
     if (layer < 1) return '首领'
@@ -2440,7 +2466,7 @@ export class BattleScene extends Phaser.Scene {
     this.session.enemies.despawnAll()
     this.session.bus.emit('run_result_ready', snapshot)
     if (!this.settlementAdapter) {
-      this.deathNotice.setText(outcome === 'cleared' ? '心魔已击败 · 按 R 重开' : '本局已结束 · 按 R 重开')
+      this.deathNotice.setText(outcome === 'cleared' ? '奶龙已击败 · 按 R 重开' : '本局已结束 · 按 R 重开')
         .setPosition(this.cameras.main.width / 2, this.cameras.main.height / 2).setVisible(true)
     }
   }

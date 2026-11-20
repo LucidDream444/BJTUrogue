@@ -20,8 +20,8 @@ describe('校园动物正式房间计划', () => {
     expect(hard.muscovies).toBeGreaterThanOrEqual(later.muscovies)
     expect(hard.nightmareCats).toBeGreaterThanOrEqual(later.nightmareCats)
   })
-  it('最终战位于第 3 层之后，并提供唯一配置收益引用', () => {
-    expect(cfg.arena.maxStages).toBe(3)
-    expect(cfg.arena.finale).toMatchObject({ floor: 3, finalRewardId: 'run_clear', heartDemonHp: 1800 })
+  it('最终战位于第 2 层之后，并提供唯一配置收益引用', () => {
+    expect(cfg.arena.maxStages).toBe(2)
+    expect(cfg.arena.finale).toMatchObject({ floor: 2, finalRewardId: 'run_clear', heartDemonHp: 1800 })
   })
 })

@@ -6,7 +6,7 @@ import { BossSkillRuntime, parseBossSkillsTable, type BossSkillAppearance, type 
 const rawTable = (): Record<string, unknown> => JSON.parse(readFileSync(new URL('../../../public/config/boss-skills.json', import.meta.url), 'utf8'))
 const table = parseBossSkillsTable(rawTable())
 
-function fixture(stage = 8, rng = new Rng(20261105)) {
+function fixture(stage = 9, rng = new Rng(20261105)) {
   const units = new Map<number, BossSkillUnit>()
   const boss: BossSkillUnit = { id: 100, x: 0, y: 0, hp: 900, maxHp: 900, kind: 'tank', gen: 0, radius: 20, vx: 0, vy: 0, bossStage: stage }
   units.set(100, boss)
@@ -54,10 +54,10 @@ function fixture(stage = 8, rng = new Rng(20261105)) {
 }
 
 describe('首领技能配置', () => {
-  it('正式七位首领配置完整解析', () => {
-    expect(Object.keys(table.bosses)).toEqual(['2', '3', '4', '5', '6', '7', '8'])
-    expect(table.bosses['8']!.skills.map((skill) => skill.id)).toEqual(['mimic_chain', 'rewind', 'player_shadow'])
-    expect(Object.keys(table.barrages)).toEqual(['2', '3', '4', '5', '6', '7', '8'])
+  it('正式八位首领配置完整解析', () => {
+    expect(Object.keys(table.bosses)).toEqual(['2', '3', '4', '5', '6', '7', '8', '9'])
+    expect(table.bosses['9']!.skills.map((skill) => skill.id)).toEqual(['mimic_chain', 'rewind', 'player_shadow'])
+    expect(Object.keys(table.barrages)).toEqual(['2', '3', '4', '5', '6', '7', '8', '9'])
     for (const floor of Object.keys(table.barrages)) {
       const patterns = table.barrages[floor]!.patterns
       expect(patterns, floor).toHaveLength(3)
@@ -148,7 +148,7 @@ describe('独立技能冷却与总间隔', () => {
     expect(f.casts).toHaveLength(count)
     expect(count).toBe(3)
   })
-  it('心魔第八层不自动放前六位或自己的技能，手动盗取仍执行定时任务', () => {
+  it('最终奶龙不自动放前六位或自己的技能，手动盗取仍执行定时任务', () => {
     const f = fixture()
     f.step(100000)
     expect(f.casts).toEqual([])
@@ -194,18 +194,17 @@ describe('课业重压与考卷纸鸢', () => {
     f.runtime.castSkill(100, 2, 'paper_summon', 1); f.step(1)
     expect(f.units.size).toBe(18)
   })
-  it('瞬移三次后连接三落点形成闭环，线有预警、触碰节拍和明确到期', () => {
+  it('以玩家为中心生成大三角形，三次瞬移后回到原位', () => {
     const f = fixture()
     f.runtime.castSkill(100, 3, 'triangle', 0)
     f.step(650); f.step(1300); f.step(1950)
-    expect(f.moves).toHaveLength(3)
+    // 3 teleports + 1 return to the pre-cast origin.
+    expect(f.moves).toHaveLength(4)
+    expect(f.moves.at(-1)).toMatchObject({ x: 0, y: 0 })
     const lines = f.runtime.hazards.snapshot.filter((field) => field.kind === 'line')
     expect(lines).toHaveLength(3)
-    for (let i = 0; i < 3; i++) {
-      expect(lines[i]).toMatchObject({ x1: f.moves[i]!.x, y1: f.moves[i]!.y,
-        x2: f.moves[(i + 1) % 3]!.x, y2: f.moves[(i + 1) % 3]!.y,
-        damage: 27, activatesMs: 2600, expiresMs: 6100 })
-    }
+    for (const line of lines)
+      expect(line).toMatchObject({ damage: 27, activatesMs: 2600, expiresMs: 6100 })
     f.step(6100)
     expect(f.runtime.hazards.snapshot).toEqual([])
   })
@@ -356,7 +355,7 @@ describe('点名册与奶龙', () => {
     f.step(1000)
     expect(f.transforms).toHaveLength(1)
     expect(new Set([...f.units.values()].filter((unit) => unit.bossStage === undefined).map((unit) => unit.kind)).size).toBe(1)
-    expect(f.boss.bossStage).toBe(8)
+    expect(f.boss.bossStage).toBe(9)
   })
   it('笑声激励所有远近小怪加速追玩家，也覆盖期间新增的小怪', () => {
     const f = fixture()

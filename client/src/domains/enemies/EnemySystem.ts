@@ -41,7 +41,7 @@
  * 同理，不要把本系统的收尾工作挂在 WORLD_STEP 上（见 `shutdown()`）。
  */
 
-import { bossFootprint, type BossPresentationConfig } from './presentation/BossFootprint'
+import type { BossPresentationConfig } from './presentation/BossFootprint'
 import Phaser from 'phaser'
 import { Actor } from '@/core/actor/Actor'
 import {
@@ -333,6 +333,7 @@ export class EnemySystem implements ActorEventSink {
 
   /** 模型 id → 池槽位。sink 回调只给 id，得靠它找回表现对象 */
   private readonly finalBosses = new Set<number>()
+  private readonly eliteBosses = new Set<number>()
   private readonly bossStages = new Map<number, number>()
   private readonly bossIds = new Map<number, string>()
   private readonly bossLayers = new Map<number, number>()
@@ -456,6 +457,7 @@ export class EnemySystem implements ActorEventSink {
         this.cloneBossStages.delete(model.id)
         this.bossAppearances.delete(model.id)
         this.finalBosses.delete(model.id)
+        this.eliteBosses.delete(model.id)
         this.bossDamageMultipliers.delete(model.id)
         this.patrolOrigins.delete(model.id)
       },
@@ -1579,9 +1581,12 @@ export class EnemySystem implements ActorEventSink {
     maxHp: number,
     finalBoss = false,
     damageMultiplier = 1,
+    eliteBoss = false,
+    eliteRadius = 22,
+    eliteVisualScale = 0.24,
   ): boolean {
     const spec = this.specFor('tank', 0)
-    const ranged = stage === 3 ? this.bundle.enemies.stage2Boss : null
+    const ranged = stage === 3 && !eliteBoss ? this.bundle.enemies.stage2Boss : null
     return this.spawns.push({
       spec: {
         ...spec,
@@ -1595,18 +1600,20 @@ export class EnemySystem implements ActorEventSink {
           speed: deriveBossSpeed(
             this.bundle.enemies,
             bossId,
-            stage,
+            layer,
             this.diffMods.enemySpeed,
           ),
-          ...(ranged ? { radius: ranged.radius } : {}),
+          radius: eliteBoss ? eliteRadius : ranged ? ranged.radius : spec.stats.radius,
         },
       },
       x,
       y,
       bossStage: stage,
       bossId,
-      bossLayer: layer,
+      bossLayer: eliteBoss ? undefined : layer,
       finalBoss,
+      eliteBoss,
+      eliteVisualScale,
       bossDamageMultiplier: damageMultiplier,
       reason: 'wave',
       atMs: this.clock.nowMs,
@@ -1642,7 +1649,7 @@ export class EnemySystem implements ActorEventSink {
     const statuses = []
     for (const [id, stage] of this.bossStages) {
       const model = this.byId.get(id)?.model
-      if (!model?.alive) continue
+      if (!model?.alive || this.eliteBosses.has(id)) continue
       statuses.push({
         id,
         stage,
@@ -1660,7 +1667,9 @@ export class EnemySystem implements ActorEventSink {
     const e = this.byId.get(id)
     if (!e?.model.alive || !e.view.body.enable || this.bossAppearances.get(id)?.hidden) return null
     const radius = e.view.body.halfWidth *
-      (this.isBoss(id) || this.cloneBossStages.has(id) ? this.bossPresentation?.bossHitRadiusMultiplier ?? 1 : 1)
+      (this.isBoss(id) && !this.eliteBosses.has(id) || this.cloneBossStages.has(id)
+        ? this.bossPresentation?.bossHitRadiusMultiplier ?? 1
+        : 1)
     return { id, x: e.view.body.center.x, y: e.view.body.center.y, radius }
   }
 
@@ -1763,6 +1772,13 @@ export class EnemySystem implements ActorEventSink {
     return true
   }
 
+  setBossSkillAnimation(id: number, untilMs: number): boolean {
+    const model = this.byId.get(id)?.model
+    if (!model?.alive || !Number.isFinite(untilMs)) return false
+    model.skillAnimationUntilMs = untilMs
+    return true
+  }
+
   /** A different animation sheet must not shift the body's center or change its solid radius. */
   setPresentationTexture(id: number, key: string, frame?: number): void {
     const entry = this.byId.get(id)
@@ -1814,8 +1830,7 @@ export class EnemySystem implements ActorEventSink {
   }
 
   private defaultBossVisualScale(stage: number): number {
-    const base = stage === 3 ? this.bundle.enemies.stage2Boss.visualScale : this.bundle.enemies.enemies.tank.visualScale
-    return base * (this.bossPresentation?.bossVisualScaleMultiplier ?? 1)
+    return bossArt(stage).scale
   }
 
   private restoreBodyRadius(entry: Entry, radius: number): void {
@@ -2132,29 +2147,25 @@ export class EnemySystem implements ActorEventSink {
     // whole-floor navigation fallback could relocate a clone or summon across a wall.
     const position = skillPosition ?? this.safeSpawn?.(req.x, req.y, model.stats.radius) ?? req
     const portrait = req.bossStage === undefined ? null : bossArt(req.bossStage)
-    const baseVisualScale = req.bossStage === 3
-      ? this.bundle.enemies.stage2Boss.visualScale
-      : this.visualScaleFor(model.enemyKind, model.gen)
-    const footprint = req.bossStage !== undefined && this.bossPresentation
-      ? bossFootprint(model.stats.radius, baseVisualScale, this.bossPresentation)
-      : null
+    const elite = req.eliteBoss === true
+    const baseVisualScale = portrait
+      ? portrait.scale * (elite ? (req.eliteVisualScale ?? 0.24) : 1)
+      : req.bossStage === 3
+        ? this.bundle.enemies.stage2Boss.visualScale
+        : this.visualScaleFor(model.enemyKind, model.gen)
     entry.view.spawnAt({
       x: position.x,
       y: position.y,
       collideWorldBounds: this.nav !== null,
       textureKey: portrait?.key ?? this.textureKeyFor(model.enemyKind, model.gen),
-      visualScale: footprint?.visualScale ?? baseVisualScale,
+      visualScale: baseVisualScale,
       // 速度上限：Arcade 默认 maxVelocity 是 (10000,10000)，分离力 + 击退叠起来
       // 能把怪甩出房间。这只是兜底，不参与正常移动。
       speedCap: model.enemyKind === 'muscovy'
         ? Math.max(model.stats.speed * 3, this.bundle.enemies.enemies.muscovy.charge.dashSpeed)
         : model.stats.speed * 3,
     })
-    if (footprint) {
-      const radius = footprint.bodyTextureRadius
-      const frame = entry.view.frame
-      entry.view.body.setCircle(radius, frame.realWidth / 2 - radius, frame.realHeight / 2 - radius)
-    }
+    if (portrait) this.restoreBodyRadius(entry, model.stats.radius)
     this.syncPlacedBody(entry)
     // Bosses and textbooks share pool buckets. Never carry a boss tint into a normal enemy.
     entry.view.clearTint().setTint(portrait?.tint ?? 0xffffff)
@@ -2166,6 +2177,7 @@ export class EnemySystem implements ActorEventSink {
     if (req.bossId !== undefined) this.bossIds.set(model.id, req.bossId)
     if (req.bossLayer !== undefined) this.bossLayers.set(model.id, req.bossLayer)
     if (req.finalBoss) this.finalBosses.add(model.id)
+    if (req.eliteBoss) this.eliteBosses.add(model.id)
     if (req.bossStage !== undefined)
       this.bossDamageMultipliers.set(model.id, req.bossDamageMultiplier ?? 1)
     if (req.skillCapExempt) this.skillCapExempt.add(model.id)
@@ -2235,6 +2247,30 @@ export class EnemySystem implements ActorEventSink {
     if (this.cloneBossStages.has(model.id)) {
       const ai = this.bundle.enemies.enemies.tank.ai
       return makeSplitterBrain(model, { sepStrength: ai.separationStrength, sepPad: ai.separationPad })
+    }
+    if (this.eliteBosses.has(model.id)) {
+      const t = this.bundle.enemies.enemies.tank
+      // Elite bosses keep chase movement and barrages, but no slam/skill. A zero
+      // slam range makes the tank brain a pure chaser.
+      return makeTankBrain(model, {
+        sepStrength: t.ai.separationStrength,
+        sepPad: t.ai.separationPad,
+        slamRange: 0,
+        slamWindupMs: t.slam.windupMs,
+        slamCooldownMs: t.slam.cooldownMs,
+        slamRecoverMs: t.slam.recoverMs,
+        slamDamage: 0,
+        slamRadius: 0,
+        slamKnockback: 0,
+        slamHitstopMs: 0,
+        unstuckMs: t.antiPin.unstuckMs,
+        stuckSpeedThreshold: t.antiPin.stuckSpeedThreshold,
+        lateralEscapeMs: t.antiPin.lateralEscapeMs,
+        lateralSpeedMult: t.antiPin.lateralSpeedMult,
+        staggerMs: t.hitSlow.staggerMs,
+        staggerSpeedMult: t.hitSlow.staggerSpeedMult,
+        staggerCooldownMs: t.hitSlow.staggerCooldownMs,
+      })
     }
     if (model.enemyKind === 'muscovy') return makeMuscovyBrain(model, this.bundle.enemies.enemies.muscovy)
     if (model.enemyKind === 'nightmare_cat') return makeVortexCatBrain(model, this.bundle.enemies.enemies.nightmare_cat)
@@ -2605,10 +2641,20 @@ export class EnemySystem implements ActorEventSink {
   /** 池里活着的敌人（只读快照）。遍历时不要在里面刷怪 */
   /** Horizontal target direction for enemy presentation; zero retains its current facing. */
   isStage2Boss(id: number): boolean {
-    return this.bossStages.get(id) === 3 && !this.finalBosses.has(id)
+    return this.bossStages.get(id) === 3 && !this.finalBosses.has(id) && !this.eliteBosses.has(id)
   }
   isFinalBoss(id: number): boolean {
     return this.finalBosses.has(id)
+  }
+  isEliteBoss(id: number): boolean {
+    return this.eliteBosses.has(id)
+  }
+  /** Profile of the currently alive elite boss, if any. */
+  eliteBossProfile(): number | null {
+    for (const id of this.eliteBosses) {
+      if (this.byId.get(id)?.model.alive) return this.bossStages.get(id) ?? null
+    }
+    return null
   }
   isBoss(id: number): boolean {
     return this.bossStages.has(id)

@@ -221,6 +221,58 @@ export const NAILONG_ART = {
   laughFrameRate: 8,
 } as const
 
+export interface BossRosterArt {
+  idle: string
+  skill: string
+  idleFrames: number
+  skillFrames: number
+  idleFrameRate: number
+  skillFrameRate: number
+  /** Display scale for the 256px cell; elite bosses multiply this down. */
+  displayScale: number
+  audio: string
+  audioGain: number
+}
+
+/** 2—8 regular bosses; profile 9 is the final Nailong (existing art). */
+export const BOSS_ROSTER_ART: Readonly<Record<number, BossRosterArt>> = {
+  2: {
+    idle: 'boss_bull_idle', skill: 'boss_bull_skill',
+    idleFrames: 1, skillFrames: 1, idleFrameRate: 1, skillFrameRate: 1,
+    displayScale: 0.95, audio: 'sfx_boss_bull_skill', audioGain: 1.6,
+  },
+  3: {
+    idle: 'boss_pigeon_idle', skill: 'boss_pigeon_skill',
+    idleFrames: 1, skillFrames: 24, idleFrameRate: 1, skillFrameRate: 12,
+    displayScale: 1.5, audio: 'sfx_boss_pigeon_skill', audioGain: 1.4,
+  },
+  4: {
+    idle: 'boss_barba_idle', skill: 'boss_barba_skill',
+    idleFrames: 24, skillFrames: 24, idleFrameRate: 10, skillFrameRate: 12,
+    displayScale: 1.0, audio: 'sfx_boss_barba_skill', audioGain: 1.7,
+  },
+  5: {
+    idle: 'boss_shielddog_idle', skill: 'boss_shielddog_skill',
+    idleFrames: 1, skillFrames: 1, idleFrameRate: 1, skillFrameRate: 1,
+    displayScale: 1.05, audio: 'sfx_boss_shielddog_skill', audioGain: 1.6,
+  },
+  6: {
+    idle: 'boss_roundcat_idle', skill: 'boss_roundcat_skill',
+    idleFrames: 1, skillFrames: 13, idleFrameRate: 1, skillFrameRate: 12,
+    displayScale: 1.0, audio: 'sfx_boss_roundcat_skill', audioGain: 1.6,
+  },
+  7: {
+    idle: 'boss_bananacat_idle', skill: 'boss_bananacat_skill',
+    idleFrames: 24, skillFrames: 22, idleFrameRate: 10, skillFrameRate: 12,
+    displayScale: 1.15, audio: 'sfx_boss_bananacat_skill', audioGain: 1.5,
+  },
+  8: {
+    idle: 'boss_fatcat_idle', skill: 'boss_fatcat_skill',
+    idleFrames: 1, skillFrames: 1, idleFrameRate: 1, skillFrameRate: 1,
+    displayScale: 1.0, audio: 'sfx_boss_fatcat_skill', audioGain: 1.5,
+  },
+}
+
 /**
  * 第七层奶龙的三段技能语音：`nailong.mp3` 按 0—3s / 3—7s / 7—10s 切开。
  * 每次释放技能随机播其中一段；资源只有 mp3（源文件就是 mp3，未生成 ogg）。
@@ -232,8 +284,8 @@ export const NAILONG_SKILL_AUDIO = [
 ] as const
 
 function dreamAssets(): AssetEntry[] {
-  const sheet = (key: string, path: string, frameSize: number): AssetEntry => ({
-    key, path, placeholder: false, kind: 'spritesheet', width: frameSize, height: frameSize,
+  const sheet = (key: string, path: string, frameSize: number, frames = 1): AssetEntry => ({
+    key, path, placeholder: false, kind: 'spritesheet', width: frameSize * frames, height: frameSize,
     frameWidth: frameSize, frameHeight: frameSize,
   })
   return [
@@ -249,6 +301,11 @@ function dreamAssets(): AssetEntry[] {
     sheet(NIGHTMARE_CAT_ART.vortex, 'sprites/fx/fx_nightmare_cat_vortex.png', NIGHTMARE_CAT_ART.frameSize),
     sheet(NIGHTMARE_CAT_ART.void, 'sprites/fx/fx_nightmare_cat_void.png', NIGHTMARE_CAT_ART.frameSize),
     sheet(BOSS_FIRST_ART.texture, 'sprites/enemies/boss_first_body.png', BOSS_FIRST_ART.frameSize),
+    ...Object.values(BOSS_ROSTER_ART).flatMap((art): AssetEntry[] => [
+      sheet(art.idle, `sprites/enemies/bosses/${art.idle}.png`, 256, art.idleFrames),
+      sheet(art.skill, `sprites/enemies/bosses/${art.skill}.png`, 256, art.skillFrames),
+      { key: art.audio, path: `audio/sfx/boss/${art.audio}.mp3`, kind: 'audio', placeholder: false, codecs: ['mp3'] },
+    ]),
   ]
 }
 
@@ -1857,6 +1914,18 @@ export const ANIMS: readonly AnimDef[] = [
     frames: Array.from({ length: a.count }, (_, i) => a.start + i), frameRate: a.frameRate,
     repeat: a.loop ? -1 : 0,
   })),
+  ...Object.values(BOSS_ROSTER_ART).flatMap((art): AnimDef[] => [
+    {
+      animKey: `${art.idle}_loop`, textureKey: art.idle,
+      frames: Array.from({ length: art.idleFrames }, (_, i) => i),
+      frameRate: art.idleFrameRate, repeat: -1,
+    },
+    {
+      animKey: `${art.skill}_cast`, textureKey: art.skill,
+      frames: Array.from({ length: art.skillFrames }, (_, i) => i),
+      frameRate: art.skillFrameRate, repeat: 0,
+    },
+  ]),
   {
     animKey: 'enemy_sprayer_idle_loop',
     textureKey: SPRAYER_ART.texture,

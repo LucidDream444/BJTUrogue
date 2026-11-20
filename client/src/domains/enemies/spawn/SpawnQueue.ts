@@ -48,6 +48,8 @@ export interface SpawnRequest {
   bossId?: string
   bossLayer?: number
   finalBoss?: boolean
+  eliteBoss?: boolean
+  eliteVisualScale?: number
   bossDamageMultiplier?: number
   skillCapExempt?: boolean
   initialHpRatio?: number

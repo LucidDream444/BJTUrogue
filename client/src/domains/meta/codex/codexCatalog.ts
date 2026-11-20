@@ -16,7 +16,8 @@ import {
   type ConfigBundle,
   type Difficulty,
 } from '@/core/config'
-import { ANIMS, BOSS_FIRST_ART, FINAL_BOSS_ART, NAILONG_ART, STAGE2_BOSS_ART, findAsset } from '@/core/assetManifest'
+import { ANIMS, NAILONG_ART, findAsset } from '@/core/assetManifest'
+import { bossArt } from '@/domains/enemies/presentation/bossArt'
 import { bossSkillNotes, type CodexBossSkillTable } from './bossCodexNotes'
 
 export type CodexCategory = '普通敌人' | '首领'
@@ -242,8 +243,8 @@ export function buildCodexEntries(
   entries.push({
     id: 'first-boss', category: '首领', name: '课业重压', variant: '第 1 层首领池',
     role: '教材与未交作业堆成的梦魇 · 预警后范围下砸', threatLevel: tank.threatLevel,
-    textureKey: BOSS_FIRST_ART.texture, visualScale: tank.visualScale,
-    hasArt: hasDeliveredArt(BOSS_FIRST_ART.texture),
+    textureKey: bossArt(2).key, visualScale: bossArt(2).scale,
+    hasArt: hasDeliveredArt(bossArt(2).key),
     stats: [
       ...(encounter ? [{ label: '生命值', value: `${encounter.bossHp}` }] : []),
       { label: '攻击前摇', value: formatSeconds(tank.slam.windupMs) },
@@ -269,9 +270,9 @@ export function buildCodexEntries(
     variant: '第 1 层首领池',
     role: `远程首领 · 保持 ${boss.keepDistance}px 距离并释放环形弹幕`,
     threatLevel: 5,
-    textureKey: STAGE2_BOSS_ART.idle,
-    visualScale: boss.visualScale,
-    hasArt: hasDeliveredArt(STAGE2_BOSS_ART.idle),
+    textureKey: bossArt(3).key,
+    visualScale: bossArt(3).scale,
+    hasArt: hasDeliveredArt(bossArt(3).key),
     stats: [
       ...(encounter ? [{ label: '生命值', value: `${encounter.bossHp}` }] : []),
       { label: '移动速度', value: `${Math.round(boss.speed * modifiers.enemySpeed)} px/s` },
@@ -289,40 +290,41 @@ export function buildCodexEntries(
   })
 
   const extraBosses = [
-    { floor: 4, id: 'acid-boss', name: '酸蚀喷灌设备', textureKey: sprayer.textureKey, visualScale: sprayer.visualScale, role: '酸池与积水覆盖战场，持续伤害并扰乱走位', lore: '实验楼的老旧喷灌设备在梦里与化学实验台融成一体。它还在认真浇灌，只是养分变成了酸蚀的压力。' },
-    { floor: 5, id: 'sports-boss', name: '失控体育器材', textureKey: muscovy.textureKey, visualScale: muscovy.visualScale, role: '无敌反弹冲撞与范围跳砸，敌我都会遭殃', lore: '体育测试前夜，跳箱、实心球和永远跑不完的圈数挤在同一个噩梦里。器材室一开门，它们便全都活了。' },
-    { floor: 6, id: 'rollcall-boss', name: '分身点名册', textureKey: grabber.textureKey, visualScale: grabber.visualScale, role: '辨认真身的分身战，并将全场小怪统一变形', lore: '名字一行行变成了相同的面孔。点名册翻到哪里，哪里就传来熟悉却分不清来源的“到”。' },
-    { floor: 7, id: 'nailong-boss', name: '奶龙', textureKey: NAILONG_ART.texture, visualScale: tank.visualScale, role: '用笑声驱使怪群，并连续发射蓝色环形弹幕', lore: '我们北交为什么不能有自己的奶龙？考研累了就放声大笑吧，像奶龙一样大笑，笑出豪意，笑出文青。' },
+    { floor: 4, id: 'acid-boss', name: '酸蚀喷灌设备', role: '酸池与积水覆盖战场，持续伤害并扰乱走位' },
+    { floor: 5, id: 'sports-boss', name: '失控体育器材', role: '无敌反弹冲撞与范围跳砸，敌我都会遭殃' },
+    { floor: 6, id: 'rollcall-boss', name: '分身点名册', role: '辨认真身的分身战，并将全场小怪统一变形' },
+    { floor: 7, id: 'banana-cat-boss', name: '香蕉猫', role: '用笑声驱使怪群，并连续发射环形弹幕' },
+    { floor: 8, id: 'fat-cat-boss', name: '肥嘟嘟', role: '连续弹幕与强化怪群' },
   ] as const
   for (const entry of extraBosses) entries.push({
-    id: entry.id, category: '首领', name: entry.name, variant: entry.floor <= 5 ? '第 2 层首领池' : '第 3 层首领池',
-    role: entry.role, threatLevel: 5, textureKey: entry.textureKey, visualScale: entry.visualScale,
-    hasArt: hasDeliveredArt(entry.textureKey), stats: [
-      ...(encounter ? [{ label: '生命值', value: `${encounter.bossHp + (entry.floor <= 5 ? 1 : 2) * encounter.bossHpPerStage}` }] : []),
+    id: entry.id, category: '首领', name: entry.name, variant: '常规首领名册',
+    role: entry.role, threatLevel: 5, textureKey: bossArt(entry.floor).key, visualScale: bossArt(entry.floor).scale,
+    hasArt: hasDeliveredArt(bossArt(entry.floor).key), stats: [
+      ...(encounter ? [{ label: '生命值', value: `${encounter.bossHp + (entry.floor <= 6 ? 1 : 1) * encounter.bossHpPerStage}` }] : []),
       { label: '技能数量', value: `${bossSkills?.bosses[String(entry.floor)]?.skills.length ?? 2}` },
     ],
     combatNotes: [
       ...bossSkillNotes(bossSkills, entry.floor, modifiers.enemyDamage * (encounter?.bossDamageMultiplier ?? 1)),
-      ...bossNotes(encounter, tank.slam.damage * modifiers.enemyDamage, entry.floor <= 5 ? 2 : 3),
+      ...bossNotes(encounter, tank.slam.damage * modifiers.enemyDamage, 2),
     ],
-    lorePlaceholder: entry.lore,
+    lorePlaceholder: '',
   })
 
   entries.push({
-    id: 'heart-demon', category: '首领', name: '心魔', variant: '最终首领',
-    role: '考研梦魇 · 破裂考场钟盘、齿轮与批改试卷构成的最终心魔',
+    id: 'nailong-final', category: '首领', name: '奶龙', variant: '最终首领',
+    role: '最终形态 · 借用其他首领技能、时间倒转与玩家之影',
     threatLevel: entries.find((entry) => entry.id === 'stage2-boss')!.threatLevel,
-    textureKey: FINAL_BOSS_ART.idle, visualScale: boss.visualScale,
-    hasArt: hasDeliveredArt(FINAL_BOSS_ART.idle), stats: [
+    textureKey: NAILONG_ART.texture, visualScale: bossArt(9).scale,
+    hasArt: hasDeliveredArt(NAILONG_ART.texture), stats: [
       ...(encounter ? [{ label: '生命值', value: `${encounter?.heartDemonHp ?? encounter.bossHp + 3 * encounter.bossHpPerStage}` }] : []),
-      { label: '技能数量', value: `${bossSkills?.bosses['8']?.skills.length ?? 3}` },
+      { label: '技能数量', value: `${bossSkills?.bosses['9']?.skills.length ?? 3}` },
     ],
     combatNotes: [
-      ...bossSkillNotes(bossSkills, 8, modifiers.enemyDamage * (encounter?.bossDamageMultiplier ?? 1)),
+      ...bossSkillNotes(bossSkills, 9, modifiers.enemyDamage * (encounter?.bossDamageMultiplier ?? 1)),
       '近身范围下砸，下砸后短暂易伤；首领挡子弹。',
       ...bossNotes(encounter, tank.slam.damage * modifiers.enemyDamage, 3, encounter ? (encounter.heartDemonHp ?? encounter.bossHp + 3 * encounter.bossHpPerStage) : undefined),
     ],
-    lorePlaceholder: '它守在梦境最深处，把失败的恐惧变成钟表与试卷。打破心魔，让被困的北交学子回到黄昏的教室；只要自己也活下来，就能迎来梦醒。',
+    lorePlaceholder: '',
   })
 
   return entries.map((entry) => ({
