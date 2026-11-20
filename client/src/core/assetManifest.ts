@@ -304,7 +304,7 @@ function dreamAssets(): AssetEntry[] {
     ...Object.values(BOSS_ROSTER_ART).flatMap((art): AssetEntry[] => [
       sheet(art.idle, `sprites/enemies/bosses/${art.idle}.png`, 256, art.idleFrames),
       sheet(art.skill, `sprites/enemies/bosses/${art.skill}.png`, 256, art.skillFrames),
-      { key: art.audio, path: `audio/sfx/boss/${art.audio}.mp3`, kind: 'audio', placeholder: false, codecs: ['mp3'] },
+      { key: art.audio, path: `audio/sfx/boss/${art.audio}`, kind: 'audio', placeholder: false, codecs: ['mp3'] },
     ]),
   ]
 }
