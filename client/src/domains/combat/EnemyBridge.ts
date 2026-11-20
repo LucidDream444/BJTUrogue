@@ -82,6 +82,7 @@ export class EnemyBridge implements BulletContactPort {
       rngSeed: seed,
       nav,
       bossPresentation,
+      bossContactDamagePerTick: this.cfg.encounter.bossContactDamagePerTick,
       hooks: {
         // 咬击打到玩家身上：D3 算规则，D1 落到自己的模型上（见 PlayerPort.bite）
         onGrabBite: (amount, sourceId, nowMs) => player().bite?.(amount, sourceId, nowMs),

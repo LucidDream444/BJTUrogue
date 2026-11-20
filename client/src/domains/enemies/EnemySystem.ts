@@ -232,6 +232,8 @@ export interface EnemySystemOptions {
   rngSeed?: number
   hooks?: EnemySystemHooks
   bossPresentation?: BossPresentationConfig
+  /** Base boss contact tick damage; difficulty is applied at consumption. */
+  bossContactDamagePerTick?: number
 }
 
 /** 一帧的 AI 记账。抽出来是为了让「远处降频」这件事可断言、能在 HUD 上看到。 */
@@ -300,6 +302,7 @@ export class EnemySystem implements ActorEventSink {
   private solidHitTime?: SolidHitTime
   private readonly hooks: EnemySystemHooks
   private readonly bossPresentation?: BossPresentationConfig
+  private readonly bossContactDamagePerTick: number
   private readonly rng: Rng
 
   readonly radialShots: RadialProjectiles
@@ -396,6 +399,7 @@ export class EnemySystem implements ActorEventSink {
   constructor(opts: EnemySystemOptions) {
     this.scene = opts.scene
     this.bossPresentation = opts.bossPresentation
+    this.bossContactDamagePerTick = opts.bossContactDamagePerTick ?? 0
     this.bus = opts.bus
     this.clock = opts.clock
     this.bundle = opts.bundle
@@ -1508,6 +1512,8 @@ export class EnemySystem implements ActorEventSink {
 
   /** 接触伤害。**分裂怪按代际**（每一代不一样），其余按模板。 */
   private contactDamagePerTick(model: EnemyModel): number {
+    if (this.isBoss(model.id) || this.cloneBossStages.has(model.id))
+      return Math.round(this.bossContactDamagePerTick * this.diffMods.enemyDamage)
     if (model.enemyKind === 'splitter') {
       const gens = this.bundle.enemies.enemies.splitter.generations
       const g = gens[model.gen] ?? gens[gens.length - 1]!
