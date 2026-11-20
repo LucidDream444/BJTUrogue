@@ -349,7 +349,7 @@ export class BossEncounterController {
           this.cloneBarrageNext.delete(id)
           this.cloneBarrageIndex.delete(id)
         }
-      const interval = barrages.intervalMs * 2
+      const interval = barrages.intervalMs * 4
       for (const clone of clones) {
         if (!this.cloneBarrageNext.has(clone.id))
           this.cloneBarrageNext.set(clone.id, now + interval)
@@ -457,6 +457,13 @@ export class BossEncounterController {
       ...(pattern.speedEnd !== undefined ? { speedEnd: pattern.speedEnd * speedScale } : {}),
       ...(pattern.speedRampMs !== undefined ? { speedRampMs: pattern.speedRampMs } : {}),
       ...(pattern.bounceCount !== undefined ? { bounceCount: pattern.bounceCount } : {}),
+      ...(pattern.splitAfterMs !== undefined ? { splitAfterMs: pattern.splitAfterMs } : {}),
+      ...(pattern.splitCount !== undefined ? { splitCount: pattern.splitCount } : {}),
+      ...(pattern.splitSpeedScale !== undefined ? { splitSpeedScale: pattern.splitSpeedScale } : {}),
+      ...(pattern.splitDamageRatio !== undefined ? { splitDamageRatio: pattern.splitDamageRatio } : {}),
+      ...(pattern.splitSpreadDeg !== undefined
+        ? { splitSpreadRad: (pattern.splitSpreadDeg * Math.PI) / 180 }
+        : {}),
       ...(pattern.pattern === 'line' && pattern.lineSpacingPx !== undefined
         ? { lineSpacingPx: pattern.lineSpacingPx }
         : {}),
@@ -484,7 +491,8 @@ export class BossEncounterController {
       for (let i = 0; i < count; i++) {
         const step = i % arm
         const sideSign = i < arm ? -1 : 1
-        push(start + step * spacing, sideSign * step * spacing * Math.tan(open / 2))
+        // Tip leads the formation; the two arms trail behind it.
+        push(start + (arm - 1 - step) * spacing, sideSign * step * spacing * Math.tan(open / 2))
       }
     } else if (pattern.formation === 'cross') {
       push(start, 0)
@@ -502,6 +510,48 @@ export class BossEncounterController {
       }
     } else if (pattern.formation === 'wall') {
       for (let i = 0; i < count; i++) push(start, (i - (count - 1) / 2) * spacing)
+    } else if (pattern.formation === 'star') {
+      const outer = start + spacing * 1.6
+      const inner = Math.max(8, spacing * 0.65)
+      for (let i = 0; i < count; i++) {
+        const angle = aimed + (i * Math.PI * 2) / count
+        const radius = i % 2 === 0 ? outer : inner
+        shots.push({ x: Math.cos(angle) * radius, y: Math.sin(angle) * radius, angleRad: aimed })
+      }
+    } else if (pattern.formation === 'rectangle') {
+      const width = spacing * 2.4
+      const height = spacing * 1.4
+      const per = Math.max(1, Math.ceil(count / 4))
+      for (let i = 0; i < count; i++) {
+        const side = Math.min(3, Math.floor(i / per))
+        const t = (i % per) / Math.max(1, per - 1) - 0.5
+        let along = 0
+        let across = 0
+        if (side === 0) { along = t * width; across = -height / 2 }
+        else if (side === 1) { along = width / 2; across = t * height }
+        else if (side === 2) { along = -t * width; across = height / 2 }
+        else { along = -width / 2; across = -t * height }
+        shots.push({ x: fx * (start + along) + px * across, y: fy * (start + along) + py * across, angleRad: aimed })
+      }
+    } else if (pattern.formation === 'spiral') {
+      const turns = Math.PI * 2.4
+      for (let i = 0; i < count; i++) {
+        const t = count === 1 ? 0 : i / (count - 1)
+        const angle = aimed + t * turns
+        const radius = start * 0.35 + t * spacing * Math.max(2, count * 0.45)
+        shots.push({ x: Math.cos(angle) * radius, y: Math.sin(angle) * radius, angleRad: aimed })
+      }
+    } else if (pattern.formation === 'orbit') {
+      const radius = start
+      for (let i = 0; i < count; i++) {
+        const shape = (i * Math.PI * 2) / count
+        const angle = aimed + shape
+        shots.push({
+          x: Math.cos(angle) * radius,
+          y: Math.sin(angle) * radius,
+          angleRad: angle + Math.PI / 2,
+        })
+      }
     } else {
       // big: one oversized slow projectile; count > 1 puts them in a tight cluster.
       for (let i = 0; i < count; i++) {

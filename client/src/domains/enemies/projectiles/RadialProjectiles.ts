@@ -18,6 +18,11 @@ export interface RadialShot {
   speedEnd: number
   speedRampMs: number
   bounceLeft: number
+  splitAfterMs: number
+  splitCount: number
+  splitSpeedScale: number
+  splitDamageRatio: number
+  splitSpreadRad: number
   lifetimeMs: number
   color?: number
 }
@@ -47,6 +52,11 @@ export interface BossVolley {
   spawnRadius?: number
   spawnAngleOffsetRad?: number
   shots?: readonly BossVolleyShot[]
+  splitAfterMs?: number
+  splitCount?: number
+  splitSpeedScale?: number
+  splitDamageRatio?: number
+  splitSpreadRad?: number
   speedEnd?: number
   speedRampMs?: number
   bounceCount?: number
@@ -60,11 +70,28 @@ export interface ProjectileTarget {
   alive: boolean
 }
 
+interface PendingSplit {
+  ownerId: number
+  x: number
+  y: number
+  angle: number
+  speed: number
+  radius: number
+  damage: number
+  lifetimeMs: number
+  color?: number
+  count: number
+  speedScale: number
+  damageRatio: number
+  spreadRad: number
+}
+
 /** Fixed slots; swept collision prevents fast shots from passing through a player between frames. */
 export class RadialProjectiles {
   readonly shots: RadialShot[]
   private nextId = 1
   private volley = 0
+  private readonly pendingSplits: PendingSplit[] = []
 
   constructor(readonly cfg: RadialProjectileConfig) {
     this.shots = Array.from({ length: cfg.maxActive }, () => ({
@@ -84,6 +111,11 @@ export class RadialProjectiles {
       speedEnd: cfg.speed,
       speedRampMs: 0,
       bounceLeft: 0,
+      splitAfterMs: 0,
+      splitCount: 0,
+      splitSpeedScale: 1,
+      splitDamageRatio: 0,
+      splitSpreadRad: 0,
       lifetimeMs: cfg.lifetimeMs,
     }))
   }
@@ -151,6 +183,11 @@ export class RadialProjectiles {
         speedEnd: spec?.speed ?? speedEnd,
         speedRampMs,
         bounceLeft: bounceCount,
+        splitAfterMs: volley.splitAfterMs ?? 0,
+        splitCount: volley.splitCount ?? 0,
+        splitSpeedScale: volley.splitSpeedScale ?? 1,
+        splitDamageRatio: volley.splitDamageRatio ?? 0,
+        splitSpreadRad: volley.splitSpreadRad ?? 0,
         lifetimeMs: spec?.lifetimeMs ?? volley.lifetimeMs,
         color: volley.color,
         bornAtMs: nowMs,
@@ -205,6 +242,25 @@ export class RadialProjectiles {
       shot.x += shot.vx * dt
       shot.y += shot.vy * dt
       shot.updatedAtMs = nextAt
+      if (shot.splitAfterMs > 0 && shot.splitCount > 0 && ageMs >= shot.splitAfterMs) {
+        shot.active = false
+        this.pendingSplits.push({
+          ownerId: shot.ownerId,
+          x: shot.x,
+          y: shot.y,
+          angle: Math.atan2(shot.vy, shot.vx),
+          speed: shot.speed,
+          radius: shot.radius,
+          damage: shot.damage,
+          lifetimeMs: shot.lifetimeMs,
+          color: shot.color,
+          count: shot.splitCount,
+          speedScale: shot.splitSpeedScale,
+          damageRatio: shot.splitDamageRatio,
+          spreadRad: shot.splitSpreadRad,
+        })
+        continue
+      }
       if (!canTravel(x0, y0, shot.x, shot.y, shot.radius)) {
         if (shot.bounceLeft <= 0) {
           shot.active = false
@@ -230,6 +286,23 @@ export class RadialProjectiles {
         hit(shot)
       }
     }
+    if (this.pendingSplits.length) {
+      const splits = this.pendingSplits.splice(0)
+      for (const split of splits) {
+        const fullRing = split.spreadRad >= Math.PI * 1.999
+        this.emitCustom(split.ownerId, split.x, split.y, nowMs, {
+          count: split.count,
+          speed: split.speed * split.speedScale,
+          radius: split.radius * 0.72,
+          damage: split.damage * split.damageRatio,
+          lifetimeMs: split.lifetimeMs,
+          color: split.color,
+          ...(fullRing
+            ? { angleOffsetRad: split.angle }
+            : { angleRad: split.angle, spreadRad: split.spreadRad }),
+        })
+      }
+    }
   }
 
   removeOwner(id: number): void {
@@ -238,6 +311,7 @@ export class RadialProjectiles {
 
   clear(): void {
     for (const shot of this.shots) shot.active = false
+    this.pendingSplits.length = 0
     this.volley = 0
   }
 }

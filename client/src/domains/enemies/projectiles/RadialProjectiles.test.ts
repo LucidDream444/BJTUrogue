@@ -236,6 +236,28 @@ describe('360-degree radial projectiles', () => {
     expect(shots[1]).toMatchObject({ x: -20, y: 24, radius: 6, speed: 120, vx: 120 })
   })
 
+  it('splits a mother bullet into a child ring after its fuse', () => {
+    const pool = new RadialProjectiles(cfg)
+    pool.emitCustom(1, 0, 0, 0, {
+      count: 1,
+      speed: 100,
+      radius: 24,
+      damage: 20,
+      lifetimeMs: 5000,
+      angleRad: 0,
+      splitAfterMs: 500,
+      splitCount: 8,
+      splitSpeedScale: 1.2,
+      splitDamageRatio: 0.5,
+      splitSpreadRad: Math.PI * 2,
+    })
+    pool.step(600, null, always, always, () => {})
+    const children = pool.shots.filter((shot) => shot.active)
+    expect(children).toHaveLength(8)
+    expect(children.every((shot) => shot.damage === 10 && shot.radius === 24 * 0.72)).toBe(true)
+    expect(children.every((shot) => Math.abs(Math.hypot(shot.vx, shot.vy) - 120) < 1e-6)).toBe(true)
+  })
+
   it('rejects invalid projectile counts, pool capacity, and attack timing in the config', () => {
     for (const change of [
       (r: ReturnType<typeof raw>) => {

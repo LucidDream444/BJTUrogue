@@ -2001,6 +2001,7 @@
     "bossDamageMultiplier": 1.5,
     "bossVisualScaleMultiplier": 2,
     "bossHitRadiusMultiplier": 2,
+    "bossContactDamagePerTick": 6,
     "eliteBossVisualScale": 0.24,
     "eliteBossHpScale": 0.5,
     "eliteBossRadius": 20,

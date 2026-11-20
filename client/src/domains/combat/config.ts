@@ -338,6 +338,8 @@ export interface CombatConfig {
     bossDamageMultiplier: number
     bossVisualScaleMultiplier: number
     bossHitRadiusMultiplier: number
+    /** Contact damage per 100ms tick for any boss/clone/elite. */
+    bossContactDamagePerTick: number
     /** Elite-room boss display scale relative to its regular boss scale. */
     eliteBossVisualScale: number
     /** Elite-room boss max HP multiplier. */
@@ -894,7 +896,7 @@ export function parseCombatConfig(raw: unknown): CombatConfig {
     c.encounter.bossDamageMultiplier <= 0
   )
     throw new Error('encounter: Boss伤害倍率必须为正数')
-  for (const key of ['eliteBossVisualScale', 'eliteBossHpScale', 'eliteBossRadius'] as const)
+  for (const key of ['bossContactDamagePerTick', 'eliteBossVisualScale', 'eliteBossHpScale', 'eliteBossRadius'] as const)
     if (!Number.isFinite(c.encounter[key]) || c.encounter[key] <= 0)
       throw new Error(`encounter.${key}: 必须为正数`)
   for (const scale of [c.encounter.bossVisualScaleMultiplier, c.encounter.bossHitRadiusMultiplier])
