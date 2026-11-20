@@ -467,6 +467,8 @@ export interface Stage2BossDef {
 
 export interface EnemiesConfig {
   schemaVersion: number
+  /** Base movement speed by boss id; `default` covers ids without an override. */
+  bossSpeeds: { default: number; [bossId: string]: number }
   stage2Boss: Stage2BossDef
   enemies: {
     splitter: SplitterDef
@@ -611,6 +613,22 @@ export function deriveSplitterGeneration(
     trauma: def.trauma,
     particles: def.particles,
   }
+}
+
+/**
+ * Boss base speed. Layer 3 non-final bosses use the radial template's speed as
+ * the fallback; all other bosses use the tank template. The configured value is
+ * an absolute base speed, so difficulty is applied exactly once here.
+ */
+export function deriveBossSpeed(
+  enemies: EnemiesConfig,
+  bossId: string,
+  layer: number,
+  speedMultiplier: number,
+): number {
+  const fallback = layer === 3 ? enemies.stage2Boss.speed : enemies.enemies.tank.speed
+  const configured = enemies.bossSpeeds[bossId] ?? enemies.bossSpeeds.default ?? fallback
+  return Math.round(configured * speedMultiplier)
 }
 
 export function deriveTank(
@@ -876,8 +894,15 @@ export function validateEnemies(raw: unknown): EnemiesConfig {
   const muscovy = validateMuscovy(need(enemies.muscovy, 'enemies.enemies.muscovy'))
   const nightmare_cat = validateNightmareCat(need(enemies.nightmare_cat, 'enemies.enemies.nightmare_cat'))
 
+  const speedRaw = need(r.bossSpeeds, 'enemies.bossSpeeds') as Record<string, unknown>
+  const bossSpeeds: { default: number; [bossId: string]: number } = { default: 0 }
+  for (const [bossId, value] of Object.entries(speedRaw))
+    bossSpeeds[bossId] = needNumber(value, `enemies.bossSpeeds.${bossId}`, { min: 1 })
+  if (!('default' in speedRaw) || bossSpeeds.default <= 0)
+    throw new ConfigError('enemies.bossSpeeds.default', '必须提供正数默认首领速度')
   return {
     schemaVersion: needNumber(r.schemaVersion, 'enemies.schemaVersion', { min: 1 }),
+    bossSpeeds,
     stage2Boss: validateStage2Boss(r.stage2Boss),
     enemies: { splitter, tank, grabber, sprayer, muscovy, nightmare_cat },
   }

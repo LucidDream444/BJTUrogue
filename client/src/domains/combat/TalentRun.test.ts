@@ -32,8 +32,8 @@ describe('production independent talent catalog',()=>{
     const rewards=new RewardRun(defs,new Rng(123),rules)
     for(let i=0;i<8;i++){
       const offered=rewards.offer('room-'+i,'pencil',50,50)!
-      expect(offered.length).toBe(3)
-      expect(new Set(offered.map((def)=>def.id)).size).toBe(3)
+      expect(offered.length).toBe(rules.offerCount)
+      expect(new Set(offered.map((def)=>def.id)).size).toBe(rules.offerCount)
       expect(offered.every((def)=>!rewards.stacks.has(def.id))).toBe(true)
       rewards.choose(offered[0]!.id)
       rewards.forgetFloor()
@@ -117,5 +117,31 @@ describe('production independent talent catalog',()=>{
     expect(state.rules).toBeDefined()
     expect(deriveStats).toBeTypeOf('function')
     expect((rules as TalentRules).maxOwned).toBe(8)
+  })
+  it('offers four distinct cards and keeps categories diverse',()=>{
+    const rewards=new RewardRun(defs,new Rng(321),rules)
+    const offered=rewards.offer('four','pencil',50,50)!
+    expect(offered).toHaveLength(4)
+    expect(new Set(offered.map((r)=>r.id)).size).toBe(4)
+    expect(offered[0]!.category).toBe('firepower')
+    expect(new Set(offered.map((r)=>r.category)).size).toBeGreaterThanOrEqual(3)
+  })
+  it('rejects an offer count outside the supported range',()=>{
+    const raw=read('combat.json') as {talents:{offerCount:number}}
+    raw.talents.offerCount=1
+    expect(()=>parseCombatConfig(raw)).toThrow()
+    raw.talents.offerCount=6
+    expect(()=>parseCombatConfig(raw)).toThrow()
+    raw.talents.offerCount=4.5
+    expect(()=>parseCombatConfig(raw)).toThrow()
+  })
+  it('reports condition-driven aura state without changing combat values',()=>{
+    const state=run(['full_shield','last_stand','opening'])
+    const full={hp:50,maxHp:50,shield:5,maxShield:5}
+    expect(state.auraActive('full_shield',full,0,false)).toBe(true)
+    expect(state.auraActive('full_shield',{...full,shield:4},0,false)).toBe(false)
+    expect(state.auraActive('last_stand',{...full,hp:10},0,false)).toBe(true)
+    state.beginRoom('room',1000)
+    expect(state.auraActive('opening',full,1000,false)).toBe(true)
   })
 })

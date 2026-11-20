@@ -11,6 +11,8 @@ export class RewardRun {
   rerollsLeft: number
   private context: {roomId:string;weapon:WeaponId;hp:number;maxHp:number;benefit:(reward:RewardDef)=>boolean}|null=null
   constructor(readonly defs: readonly RewardDef[], readonly rng: RngLike, private readonly rules?: TalentRules) { this.rerollsLeft=rules?.rerolls??0 }
+  /** Production uses `talents.offerCount`; legacy fixtures without rules keep the old 3-card shape. */
+  private get offerCount(): number { return Math.max(2, Math.min(5, this.rules?.offerCount ?? 3)) }
   legal(weapon:WeaponId,hp:number,maxHp:number):RewardDef[]{
     const owned=this.defs.filter((r)=>r.talent&&(this.stacks.get(r.id)??0)>0).length
     return this.defs.filter((r)=>(r.maxStacks===0||(this.stacks.get(r.id)??0)<r.maxStacks)&&(!r.talent||owned<(this.rules?.maxOwned??Infinity))&&(!r.weapons.length||r.weapons.includes(weapon))&&r.requires.every((id)=>(this.stacks.get(id)??0)>0)&&!r.excludes.some((id)=>(this.stacks.get(id)??0)>0)&&!this.defs.some((other)=>(this.stacks.get(other.id)??0)>0&&other.excludes.includes(r.id))&&(!r.effects.length||!r.effects.every((e)=>e.stat==='heal')||hp<maxHp))
@@ -18,17 +20,21 @@ export class RewardRun {
   private draw(candidates:RewardDef[],avoid:ReadonlySet<string>=new Set()):RewardDef[]{
     const result:RewardDef[]=[]
     const owned=new Set(this.defs.filter((r)=>(this.stacks.get(r.id)??0)>0).map((r)=>r.talent?.kind))
-    while(result.length<3&&candidates.length){
+    const usedCategories=new Set(result.map((r)=>r.category))
+    while(result.length<this.offerCount&&candidates.length){
       const fresh=candidates.filter((r)=>!avoid.has(r.id))
       let pool=fresh.length?fresh:candidates
       // New pools offer attack and another use whenever both exist; legacy fixtures keep old draws.
       if(this.rules&&result.length===0&&pool.some((r)=>r.category==='firepower'))pool=pool.filter((r)=>r.category==='firepower')
-      else if(this.rules&&result.length===1&&pool.some((r)=>r.category!==result[0]!.category))pool=pool.filter((r)=>r.category!==result[0]!.category)
+      else if(this.rules&&result.length>0){
+        const diverse=pool.filter((r)=>!usedCategories.has(r.category))
+        if(diverse.length)pool=diverse
+      }
       const weight=(r:RewardDef):number=>r.weight*(r.talent?.synergy.some((kind)=>owned.has(kind))?(this.rules?.synergyWeightScale??1):1)
       let draw=this.rng.next()*pool.reduce((sum,r)=>sum+weight(r),0)
       let chosen=pool[pool.length-1]!
       for(const candidate of pool){draw-=weight(candidate);if(draw<0){chosen=candidate;break}}
-      result.push(chosen);candidates.splice(candidates.indexOf(chosen),1)
+      result.push(chosen);usedCategories.add(chosen.category);candidates.splice(candidates.indexOf(chosen),1)
     }
     return result
   }

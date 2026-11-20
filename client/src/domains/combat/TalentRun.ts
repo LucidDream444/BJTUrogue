@@ -6,7 +6,7 @@ export type TalentKind = typeof TALENT_KINDS[number]
 export type TalentCapability = 'any' | 'projectile' | 'ballistic' | 'melee' | 'shield' | 'skill'
 export interface TalentDef { kind: TalentKind; capability: TalentCapability; params: Record<string, number>; synergy: TalentKind[] }
 export interface TalentRules {
-  maxOwned: number; rerolls: number; synergyWeightScale: number; floorChoices: number[]
+  maxOwned: number; rerolls: number; offerCount: number; synergyWeightScale: number; floorChoices: number[]
   baseCritChance: number; baseCritMultiplier: number; maxCritChance: number
   maxRateScale: number; maxCostReduction: number; maxCooldownReduction: number
   maxQueuedHits: number; maxVisuals: number; maxFields: number; maxOrbit: number
@@ -96,6 +96,36 @@ export class TalentRun {
   skill(now: number): void { this.skillAt = now; this.braveryStacks = Math.min(this.p('bravery',this.inCombat?'maxStacks':'retain'), this.braveryStacks + 1) }
   critical(now: number): void { this.criticalAt = now; this.diagnostics.criticals++ }
   kill(now: number): void { this.lastKill = now; this.killDecayAt = now + this.p('kill_rush','delayMs'); this.killStacks = Math.min(this.p('kill_rush','maxStacks'), this.killStacks + 1) }
+  /**
+   * Pure visual-state query used by `TalentAuraView`: whether a condition-driven
+   * talent is currently doing something. No combat values are changed here.
+   */
+  auraActive(kind: TalentKind, player: TalentPlayerState, now: number, moving: boolean): boolean {
+    if (!this.has(kind)) return false
+    switch (kind) {
+      case 'full_shield':
+        return player.maxShield > 0 && player.shield >= player.maxShield
+      case 'last_stand':
+        return player.maxHp > 0 && player.hp / player.maxHp < this.p('last_stand', 'threshold')
+      case 'moving_shield':
+        return moving
+      case 'charged':
+        return now - this.lastAttack >= this.p('charged', 'delayMs')
+      case 'ramp':
+        return this.attacks > 0 && now - this.lastAttack < this.p('ramp', 'resetMs')
+      case 'bravery':
+        return this.braveryStacks > 0
+      case 'kill_rush':
+        return this.killStacks > 0
+      case 'opening':
+        return this.inCombat && now - this.roomStarted < this.p('opening', 'durationMs')
+      case 'skill_haste':
+        return now - this.skillAt < this.p('skill_haste', 'durationMs')
+      default:
+        return false
+    }
+  }
+
   crit(player: TalentPlayerState): { ratio: number; critical: boolean } {
     const chance = Math.min(this.rules?.maxCritChance ?? 0, (this.rules?.baseCritChance ?? 0) + this.p('critical','chance') + this.p('lightning','chance') + (player.hp / player.maxHp < this.p('last_stand','threshold') ? this.p('last_stand','chance') : 0))
     const critical = this.roll(chance)
