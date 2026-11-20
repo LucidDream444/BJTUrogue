@@ -1,0 +1,337 @@
+{
+  "schemaVersion": 2,
+  "date": "2026-11-20",
+  "designStatus": "independent_talents_v2_proposal_only",
+  "supersedes": "four_family_core_component_awakening_v1",
+  "auditedCommit": "f9403496471e714f2c17ca75ba802a647d09808a",
+  "scope": "Catalog consistency and analytical arithmetic only. No combat simulation, RNG draw implementation, engine integration or player validation.",
+  "currentGameBaseline": {
+    "weaponCount": 36,
+    "rewardCount": 7,
+    "combatLayers": 3,
+    "maxEnergy": 500,
+    "shield": 5,
+    "directPistolDpsBeforeProposedCrit": 40
+  },
+  "proposal": {
+    "talentCount": 30,
+    "firstReleaseCount": 18,
+    "firstReleaseIds": [
+      "T01",
+      "T02",
+      "T03",
+      "T04",
+      "T05",
+      "T06",
+      "T07",
+      "T09",
+      "T10",
+      "T11",
+      "T12",
+      "T13",
+      "T19",
+      "T20",
+      "T21",
+      "T24",
+      "T25",
+      "T30"
+    ],
+    "mainlineChoices": 8,
+    "phases": [
+      {
+        "phase": "prologue",
+        "choices": 1
+      },
+      {
+        "phase": "layer_1",
+        "choices": 2
+      },
+      {
+        "phase": "layer_2",
+        "choices": 3
+      },
+      {
+        "phase": "layer_3",
+        "choices": 2
+      }
+    ],
+    "maxDuplicatePerTalent": 1,
+    "baseCrit": 0.1,
+    "baseCritDamageMultiplier": 1.5
+  },
+  "criticalCases": [
+    {
+      "label": "base_crit",
+      "chance": 0.1,
+      "critMultiplier": 1.5,
+      "directDps": 42
+    },
+    {
+      "label": "T05_only",
+      "chance": 0.3,
+      "critMultiplier": 1.75,
+      "directDps": 49
+    },
+    {
+      "label": "T11_only_direct_damage_excludes_lightning",
+      "chance": 0.2,
+      "critMultiplier": 1.5,
+      "directDps": 44
+    },
+    {
+      "label": "T05_plus_T11_direct_damage_excludes_lightning",
+      "chance": 0.4,
+      "critMultiplier": 1.75,
+      "directDps": 52
+    }
+  ],
+  "buildModels": {
+    "assumptions": "Pistol at base cadence; every projectile and split bullet hits; full shield retained; no energy shortage; independent critical rolls; offensive case has full T10 ramp; excludes lightning, skills, movement, projectile-pool contention and T30 temporary haste. Upper-condition arithmetic, not expected observed gameplay DPS.",
+    "mixed": {
+      "ids": [
+        "T01",
+        "T04",
+        "T05",
+        "T11",
+        "T13",
+        "T19",
+        "T21",
+        "T25"
+      ],
+      "projectileDps": 81.25,
+      "ratioToProposedBaseCritDps": 1.934524
+    },
+    "offensive": {
+      "ids": [
+        "T01",
+        "T05",
+        "T06",
+        "T10",
+        "T11",
+        "T21",
+        "T25",
+        "T30"
+      ],
+      "projectileDps": 195.65,
+      "ratioToProposedBaseCritDps": 4.658333
+    },
+    "scatter": {
+      "pistolAllHitFactor": 1.9,
+      "sixPelletAllHitFactor": 1.15,
+      "note": "Additional small bullets do not replicate native explosions or split traits."
+    }
+  },
+  "cards": [
+    {
+      "id": "T01",
+      "name": "分裂弹",
+      "cardText": "远程子弹首次命中时，有 50% 概率分出一颗造成 50% 伤害的追击弹。",
+      "applicability": "实体弹丸 / 首版",
+      "firstRelease": true
+    },
+    {
+      "id": "T02",
+      "name": "弹力弹头",
+      "cardText": "子弹额外弹墙 2 次。弹墙后的下一次命中伤害提高 25%。",
+      "applicability": "实体弹丸 / 首版",
+      "firstRelease": true
+    },
+    {
+      "id": "T03",
+      "name": "贯通射击",
+      "cardText": "子弹额外穿透 2 名敌人。",
+      "applicability": "实体弹丸 / 首版",
+      "firstRelease": true
+    },
+    {
+      "id": "T04",
+      "name": "追踪弹头",
+      "cardText": "子弹轻微追踪附近敌人，更容易命中移动目标。",
+      "applicability": "实体弹丸 / 首版",
+      "firstRelease": true
+    },
+    {
+      "id": "T05",
+      "name": "会心一击",
+      "cardText": "暴击率提高 20 个百分点，暴击伤害从 150% 提高至 175%。",
+      "applicability": "主攻击 / 首版",
+      "firstRelease": true
+    },
+    {
+      "id": "T06",
+      "name": "散射增幅",
+      "cardText": "每次射击额外发射 2 颗小弹丸，各造成 45% 伤害，不增加本次能耗。",
+      "applicability": "普通射弹；排除光束、原生爆炸主弹 / 首版",
+      "firstRelease": true
+    },
+    {
+      "id": "T07",
+      "name": "刀光回响",
+      "cardText": "每次近战挥砍追加一道短程剑气，造成本次单段伤害的 35%。",
+      "applicability": "近战 / 首版",
+      "firstRelease": true
+    },
+    {
+      "id": "T08",
+      "name": "爆裂余波",
+      "cardText": "远程主弹首次命中时产生小范围爆炸，对周围敌人造成 30% 伤害。",
+      "applicability": "实体弹丸 / 第二批",
+      "firstRelease": false
+    },
+    {
+      "id": "T09",
+      "name": "蓄势重击",
+      "cardText": "停火 0.8 秒后，下一次攻击伤害提高 60%。近战同样有效。",
+      "applicability": "全武器 / 首版",
+      "firstRelease": true
+    },
+    {
+      "id": "T10",
+      "name": "火力全开",
+      "cardText": "连续攻击时，攻速每秒提高 8%，最多 40%；停火 1 秒后清除。",
+      "applicability": "全武器 / 首版",
+      "firstRelease": true
+    },
+    {
+      "id": "T11",
+      "name": "磁暴电涌",
+      "cardText": "暴击率提高 10 个百分点。暴击或释放技能时，落下一道造成 12 伤害的雷电。",
+      "applicability": "主攻击与技能 / 首版",
+      "firstRelease": true
+    },
+    {
+      "id": "T12",
+      "name": "一身是胆",
+      "cardText": "每次成功释放技能，伤害提高 8%，最多 5 层。清房保留 2 层；低于 25% 生命直接满层。",
+      "applicability": "有主动技能 / 首版",
+      "firstRelease": true
+    },
+    {
+      "id": "T13",
+      "name": "快速冷却",
+      "cardText": "主动技能冷却缩短 20%。",
+      "applicability": "有主动技能 / 首版",
+      "firstRelease": true
+    },
+    {
+      "id": "T14",
+      "name": "临场发挥",
+      "cardText": "释放技能后 3 秒内，攻击频率提高 30%，攻击能耗降低 30%。",
+      "applicability": "有主动技能 / 第二批",
+      "firstRelease": false
+    },
+    {
+      "id": "T15",
+      "name": "腐蚀子弹",
+      "cardText": "主攻击命中使敌人中毒，每 0.5 秒受到 3 点伤害，持续 3 秒。",
+      "applicability": "全武器 / 第二批",
+      "firstRelease": false
+    },
+    {
+      "id": "T16",
+      "name": "墨迹传染",
+      "cardText": "击杀敌人时，把其身上的中毒和减速传给附近 2 名敌人；没有状态也会附加 2 秒轻度减速。",
+      "applicability": "全武器 / 第二批",
+      "firstRelease": false
+    },
+    {
+      "id": "T17",
+      "name": "冰碎回响",
+      "cardText": "命中被减速的敌人会溅出 3 枚冰片，每枚造成 3 点伤害；没有减速时，首击先造成 1 秒轻度减速。",
+      "applicability": "全武器 / 第二批",
+      "firstRelease": false
+    },
+    {
+      "id": "T18",
+      "name": "打扫战场",
+      "cardText": "每击杀 5 名敌人，脚下释放一道 12 伤害的冲击波，同时恢复 10 能量。",
+      "applicability": "全武器 / 第二批",
+      "firstRelease": false
+    },
+    {
+      "id": "T19",
+      "name": "疾步生甲",
+      "cardText": "暴击后移速提高 20%，持续 2 秒。战斗中每实际移动 180 像素恢复 1 点护盾。",
+      "applicability": "全角色 / 首版",
+      "firstRelease": true
+    },
+    {
+      "id": "T20",
+      "name": "刚毅护盾",
+      "cardText": "护盾被打破时，本次攻击剩余伤害不再扣生命，并获得 0.4 秒保护。",
+      "applicability": "护盾上限大于 0 / 首版",
+      "firstRelease": true
+    },
+    {
+      "id": "T21",
+      "name": "满盾开火",
+      "cardText": "护盾处于满值时，主攻击伤害提高 25%。",
+      "applicability": "护盾上限大于 0 / 首版",
+      "firstRelease": true
+    },
+    {
+      "id": "T22",
+      "name": "应急电池",
+      "cardText": "护盾被打破时恢复 35 能量，并击退身边普通敌人。",
+      "applicability": "护盾上限大于 0 / 第二批",
+      "firstRelease": false
+    },
+    {
+      "id": "T23",
+      "name": "越战越勇",
+      "cardText": "连续击杀使移速提高 5%、攻击频率提高 5%，最多 5 层；5 秒无击杀后逐层消退。",
+      "applicability": "全武器 / 第二批",
+      "firstRelease": false
+    },
+    {
+      "id": "T24",
+      "name": "战地午餐",
+      "cardText": "普通敌人有 8% 概率掉落恢复 2 生命的小爱心。",
+      "applicability": "全角色 / 首版",
+      "firstRelease": true
+    },
+    {
+      "id": "T25",
+      "name": "节能装置",
+      "cardText": "主攻击能耗降低 25%；近战命中时额外恢复 2 能量。",
+      "applicability": "全武器 / 首版",
+      "firstRelease": true
+    },
+    {
+      "id": "T26",
+      "name": "复习资料",
+      "cardText": "每清一间战斗房，恢复 4 生命与 30 能量。",
+      "applicability": "全角色 / 第二批",
+      "firstRelease": false
+    },
+    {
+      "id": "T27",
+      "name": "玻璃大炮",
+      "cardText": "主攻击伤害提高 40%，最大生命降低 20%。",
+      "applicability": "全武器 / 第二批",
+      "firstRelease": false
+    },
+    {
+      "id": "T28",
+      "name": "最后一口气",
+      "cardText": "生命低于 35% 时，暴击率提高 25 个百分点、移速提高 15%；获得时立即恢复 5 生命。",
+      "applicability": "全武器 / 第二批",
+      "firstRelease": false
+    },
+    {
+      "id": "T29",
+      "name": "双倍快乐",
+      "cardText": "每 4 次攻击后，额外免费重复一次本次攻击，伤害为 60%。",
+      "applicability": "全武器 / 第二批",
+      "firstRelease": false
+    },
+    {
+      "id": "T30",
+      "name": "下课铃响",
+      "cardText": "进入战斗后的前 5 秒，攻速提高 50%、耗能降低 50%；清房后恢复 1 点护盾。",
+      "applicability": "全武器 / 首版",
+      "firstRelease": true
+    }
+  ],
+  "assertions": "passed"
+}

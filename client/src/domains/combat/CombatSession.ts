@@ -1,3 +1,5 @@
+import { TalentRun, talentApplicable } from './TalentRun'
+import { TalentCombat } from './TalentCombat'
 import Phaser from 'phaser'
 import { GameClock } from '@/core/time'
 import { Rng } from '@/core/rng'
@@ -84,6 +86,15 @@ export class CombatSession {
   private skill: CharacterSkill | null = null
   kills = 0
   private dead = false
+  readonly talents: TalentRun
+  readonly talentCombat: TalentCombat
+  private talentLayer = 0
+  private talentFinale = false
+  private talentBoss = false
+  private rewardHost: string | null = null
+  private rewardRemaining = 0
+  private rewardClaimFloor = ''
+  private rewardSequence = 0
   private disposed = false
   private readonly vortices = new Map<number, VortexSnapshot>()
   /** 首领技能的临时移动控制，全部使用游戏时间；不会改写玩家成长数值。 */
@@ -108,7 +119,8 @@ export class CombatSession {
       bundle.balance.baseline.player.radius,
     )
     this.weapon = cfg.weapons[0]!
-    this.rewards = new RewardRun(rewardDefs, new Rng(cfg.arena.seed))
+    this.rewards = new RewardRun(rewardDefs, new Rng(cfg.arena.seed), cfg.talents)
+    this.talents = new TalentRun(rewardDefs, this.rewards.stacks, cfg.talents, new Rng(cfg.arena.seed + 31))
     this.permanent = {
       maxHp: bundle.balance.baseline.player.maxHp,
       maxStamina: cfg.player.maxStamina,
@@ -143,6 +155,7 @@ export class CombatSession {
       this.bus,
       this.clock,
       bundle,
+      cfg,
       difficulty,
       () => this.player.view(),
       cfg.arena.seed,
@@ -234,6 +247,7 @@ export class CombatSession {
       this.player,
       this.terrain,
       (weapon) => this.audio.fire(weapon),
+      {state:this.talents,attack:(event)=>this.talentCombat.attack(event),hit:(event)=>this.talentCombat.hit(event)},
     )
     this.feedback = new CombatFeedback(scene, this.bus, this.clock, cfg, (id) =>
       id === this.player.model.id
@@ -247,6 +261,8 @@ export class CombatSession {
       this.player,
       new Rng(cfg.arena.seed + 2),
     )
+    this.talentCombat = new TalentCombat({scene,clock:this.clock,run:this.talents,player:this.player,enemies:this.enemies,terrain:this.terrain,drops:this.drops,spawn:(event,options)=>this.weapons.spawnTalentProjectile(event,options)})
+    this.player.model.onShieldBreak = (overflow)=>this.talentCombat.shieldBreak(overflow)
     this.unsubs.push(
       this.bus.on('enemy_vortex_started', (field) => { this.vortices.set(field.fieldId, field) }),
       this.bus.on('enemy_vortex_ended', ({ fieldId }) => { this.vortices.delete(fieldId) }),
@@ -261,6 +277,7 @@ export class CombatSession {
       }),
       this.bus.on('room_cleared', (e) => {
         if (e.runId !== this.runId || !this.player.model.alive) return
+        if (this.cfg.talents) { this.offerTalentRoom(e.roomId); return }
         const options = this.rewards.offer(
           e.roomId,
           this.weapon.id,
@@ -276,6 +293,7 @@ export class CombatSession {
       this.bus.on('entity_killed', (e) => {
         if (e.kind === 'enemy') {
           this.kills++
+          this.talentCombat.killed(e.id,e.x,e.y)
           this.drops.enemyDefeated(e.id, e.x, e.y)
           if (e.bossStage !== undefined) this.voice.play('boss_kill')
         } else {
@@ -307,6 +325,8 @@ export class CombatSession {
     this.enemies.clearLiquid()
     this.enemies.clearVortices()
     this.vortices.clear()
+    this.talentCombat.clear()
+    this.talents.inCombat = false
     this.stageConfig = stageConfig
     this.enterStage(1)
   }
@@ -421,10 +441,11 @@ export class CombatSession {
     // 0 耗武器（近战）按住攻击键不应该阻止回能：没有消耗就没有“停火回能”的理由。
     this.player.advanceStamina(
       this.clock.nowMs - before,
-      (this.weapons.firing && this.weapon.staminaCost > 0) ||
-        this.skill?.isPerforming() === true,
+      this.weapons.firing && this.weapon.staminaCost > 0,
+      this.skill?.isPerforming() === true,
     )
-    this.weapons.update(this.stats, this.weapon)
+    this.recompute()
+    this.weapons.update(this.stats, this.talents.weapon(this.weapon))
   }
   update(delta: number): void {
     if (!this.clock.paused) this.checkWater()
@@ -435,6 +456,8 @@ export class CombatSession {
     this.enemies.update(delta)
     this.skill?.update(this.clock.nowMs)
     this.audio.setPerformanceActive(this.skill?.isPerforming() ?? false)
+    this.talentCombat.update()
+    this.talentCombat.draw()
     this.drops.update()
     this.player.draw()
     this.weapons.resolveTerrain()
@@ -557,8 +580,11 @@ export class CombatSession {
   /** 商店购买强化：只改整局叠层并重算，不占用清房三选一的房间记录。 */
   applyShopReward(id: string): boolean {
     if (!this.player.model.alive || !this.canApplyShopReward(id)) return false
+    const hpRatio=this.player.model.hp/this.player.model.maxHp
     this.rewards.stacks.set(id, (this.rewards.stacks.get(id) ?? 0) + 1)
     this.recompute()
+    if(this.rewardDefs.find((reward)=>reward.id===id)?.talent?.kind==='glass')this.player.model.hp=Math.max(1,hpRatio*this.player.model.maxHp)
+    this.talentCombat.acquired()
     return true
   }
 
@@ -714,12 +740,15 @@ export class CombatSession {
       this.weapons.stopFiring()
       this.audio.setPerformanceActive(this.skill?.isPerforming() === true)
       this.voice.play('skill')
+      this.talentCombat.skill(aim)
     }
     return activated
   }
   playPerformanceSong(color: SongColor): boolean {
     if (this.bossMovementLocked() || this.clock.paused || this.clock.frozen) return false
-    const played = this.skill?.playSong(color) !== null
+    const result = this.skill?.playSong(color)
+    const played = result !== null && result !== undefined
+    if (played) this.talentCombat.skill(this.aim)
     this.audio.setPerformanceActive(this.skill?.isPerforming() === true)
     return played
   }
@@ -760,27 +789,75 @@ export class CombatSession {
       this.temporaryMoveSpeedPct,
       this.temporaryDamagePct,
     )
+    this.stats = this.talents.stats(this.stats,this.player.model,this.clock.nowMs)
+    this.stats.cooldownMs=Math.max(this.bundle.balance.baseline.bullet.fireIntervalMs*this.weapon.cooldownScale/this.cfg.limits.fireRateScale,this.stats.cooldownMs)
+    this.stats.moveSpeed=Math.min(this.bundle.balance.baseline.player.speed*this.cfg.limits.moveScale,this.stats.moveSpeed)
+    this.skill?.setCooldownScale(this.talents.skillScale())
     this.player.model.applyStats(this.stats.maxHp, this.stats.moveSpeed, this.stats.iframeMs)
     this.player.applyStaminaLimit(this.stats.maxStamina)
   }
   choose(id: string): boolean {
     if (!this.player.model.alive || !this.reasons.has('reward')) return false
-    const roomId = this.rewards.roomId,
-      r = this.rewards.choose(id)
-    if (!r || roomId === null) return false
+    const token=this.rewards.roomId,previousHp=this.player.model.hp,previousMax=this.player.model.maxHp
+    const reward=this.rewards.choose(id)
+    if(!reward||token===null)return false
     this.recompute()
-    this.bus.emit('reward_selected', {
-      runId: this.runId,
-      roomId,
-      rewardId: id,
-      stacks: this.rewards.stacks.get(id)!,
-    })
-    this.resume('reward')
-    this.bus.emit('reward_finished', { runId: this.runId, roomId, reason: 'selected' })
+    if(reward.talent?.kind==='glass')this.player.model.hp=Math.max(1,Math.min(this.player.model.maxHp,previousHp/previousMax*this.player.model.maxHp))
+    this.talentCombat.acquired()
+    this.bus.emit('reward_selected',{runId:this.runId,roomId:token,rewardId:id,stacks:this.rewards.stacks.get(id)!})
     this.voice.play('reward')
+    if(this.rewardHost!==null){
+      this.talents.claim(this.rewardClaimFloor)
+      this.rewardRemaining--
+      if(this.rewardRemaining>0){this.nextTalentOffer();return true}
+      this.finishTalentOffer()
+    }else{
+      this.resume('reward')
+      this.bus.emit('reward_finished',{runId:this.runId,roomId:token,reason:'selected'})
+    }
     return true
   }
+  setTalentFloor(layer:number,finale=false):void{this.talentLayer=layer;this.talentFinale=finale;this.talents.inCombat=false}
+  beginTalentRoom(roomId:string,boss=false):void{this.talentBoss=boss;this.talentCombat.beginRoom(this.talentLayer+':'+(this.talentFinale?'finale:':'main:')+roomId)}
+  offerOpeningTalent():void{
+    if(!this.cfg.talents||this.talents.claimed('opening')||this.rewards.roomId!==null)return
+    this.rewardHost='opening';this.rewardClaimFloor='opening';this.rewardRemaining=1;this.nextTalentOffer()
+  }
+  private offerTalentRoom(roomId:string):void{
+    this.talentCombat.finishRoom()
+    const rules=this.cfg.talents!,scope=String(this.talentLayer),quota=rules.floorChoices[this.talentLayer-1]??0,claimed=this.talents.claimed(scope)
+    const count=this.talentFinale?0:this.talentBoss?Math.max(0,quota-claimed):(claimed<quota-1?1:0)
+    if(!count||this.talents.owned.length>=rules.maxOwned){this.bus.emit('reward_finished',{runId:this.runId,roomId,reason:'empty'});return}
+    this.rewardHost=roomId;this.rewardClaimFloor=scope;this.rewardRemaining=Math.min(count,rules.maxOwned-this.talents.owned.length);this.nextTalentOffer()
+  }
+  private nextTalentOffer():void{
+    const token=this.rewardClaimFloor+':talent:'+this.rewardSequence++
+    const options=this.rewards.offer(token,this.weapon.id,this.player.model.hp,this.player.model.maxHp,(reward)=>this.rewardChanges(reward).length>0)
+    if(!options?.length){while(this.rewardRemaining-->0)this.talents.claim(this.rewardClaimFloor);this.finishTalentOffer();return}
+    this.pause('reward')
+    this.bus.emit('reward_offered',{runId:this.runId,roomId:token,ids:options.map((reward)=>reward.id)})
+  }
+  private finishTalentOffer():void{
+    const roomId=this.rewardHost
+    this.rewardHost=null;this.rewardRemaining=0
+    this.resume('reward')
+    if(roomId!==null)this.bus.emit('reward_finished',{runId:this.runId,roomId,reason:'selected'})
+  }
+  rerollRewards():boolean{
+    if(!this.reasons.has('reward')||this.rewards.roomId===null)return false
+    const roomId=this.rewards.roomId,options=this.rewards.reroll()
+    if(!options)return false
+    this.bus.emit('reward_offered',{runId:this.runId,roomId,ids:options.map((reward)=>reward.id)})
+    return true
+  }
+  get rewardLocation():string{return this.rewardClaimFloor==='opening'?'出发准备':this.talentFinale?'最终战':('第'+this.talentLayer+'层 · 战斗完成')}
+
   rewardChanges(r: RewardDef): { label: string; before: string; after: string }[] {
+    if (r.talent) {
+      const weapons=this.inventory.map((id)=>this.cfg.weapons.find((weapon)=>weapon.id===id)!).filter(Boolean)
+      if(this.talents.owned.length>=(this.cfg.talents?.maxOwned??Infinity)||!talentApplicable(r,weapons,this.player.model.maxShield,this.skill!==null))return []
+      return [{label:'新增能力',before:'未获得',after:r.headline??r.name}]
+    }
     const next = new Map(this.rewards.stacks)
     next.set(r.id, (next.get(r.id) ?? 0) + 1)
     const after = deriveStats(
@@ -862,6 +939,7 @@ export class CombatSession {
     for (const zone of this.waterZones) zone.destroy()
     this.voice.destroy()
     this.audio.destroy()
+    this.talentCombat.destroy()
     this.weapons.destroy()
     this.drops.destroy()
     this.feedback.destroy()

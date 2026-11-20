@@ -1,3 +1,4 @@
+import { TALENT_KINDS, type TalentDef, type TalentRules } from './TalentRun'
 import type { BalanceConfig } from '@/core/config'
 import { validateAimArt, type AimArtConfig } from './AimPose'
 import type { BossReinforcementsConfig } from './BossReinforcements'
@@ -86,6 +87,7 @@ export type WeaponTrait =
       spreadDeg?: number
       maxDepth?: number
       on?: 'hit' | 'wall' | 'both'
+      chance?: number
       radial?: boolean
     }
   | {
@@ -112,6 +114,10 @@ export type Stat =
   | 'iframeMs'
   | 'pellets'
 export interface WeaponDef {
+  talentModified?: boolean
+  talentSecondary?: boolean
+  talentSplit?: boolean
+  talentNoProcs?: boolean
   id: WeaponId
   name: string
   description: string
@@ -172,6 +178,7 @@ export interface WeaponEffectsConfig {
   glowAlpha: number
 }
 export interface CombatConfig {
+  talents?: TalentRules
   aimArt: AimArtConfig
   weaponEffects: WeaponEffectsConfig
   schemaVersion: number
@@ -386,6 +393,7 @@ export interface CombatConfig {
   }
 }
 export interface RewardDef {
+  talent?: TalentDef
   category?: 'survival' | 'firepower' | 'utility'
   icon?: 'heart' | 'icon_crosshair' | 'energy' | 'star_badge' | 'skill_orb_speed' | 'shield'
   headline?: string
@@ -536,6 +544,7 @@ function validateWeaponTraits(traits: WeaponTrait[]): void {
           throw new Error('weapon.trait.split: 散布无效')
         if (t.maxDepth !== undefined && (!Number.isInteger(t.maxDepth) || t.maxDepth < 0))
           throw new Error('weapon.trait.split: 深度无效')
+        if (t.chance !== undefined && (!Number.isFinite(t.chance) || t.chance < 0 || t.chance > 1)) throw new Error('weapon.trait.split: 概率无效')
         if (t.on !== undefined && !['hit', 'wall', 'both'].includes(t.on))
           throw new Error('weapon.trait.split: 触发无效')
         break
@@ -927,12 +936,16 @@ export function parseCombatConfig(raw: unknown): CombatConfig {
     c.player.deceleration <= 0
   )
     throw new Error('combat: 池容量/时间/加速度无效')
+  if (c.talents) {
+    const t=c.talents
+    if (!Array.isArray(t.floorChoices) || t.floorChoices.length!==c.arena.maxStages || t.floorChoices.some((n)=>!Number.isInteger(n)||n<0) || !Number.isInteger(t.maxOwned) || t.maxOwned!==1+t.floorChoices.reduce((sum,n)=>sum+n,0) || Object.entries(t).some(([key,value])=>key!=='floorChoices'&&(typeof value!=='number'||!Number.isFinite(value)||value<=0)) || t.maxCritChance>1 || t.maxCostReduction>=1 || t.maxCooldownReduction>=1 || t.baseCritChance>t.maxCritChance) throw new Error('combat: 天赋规则无效')
+  }
   validateAimArt(c.aimArt)
   return c
 }
 export function parseRewards(raw: unknown): RewardDef[] {
   const r = raw as { schemaVersion: number; rewards: RewardDef[] }
-  if (!r || r.schemaVersion !== 1 || !Array.isArray(r.rewards)) throw new Error('rewards: 格式无效')
+  if (!r || ![1, 2].includes(r.schemaVersion) || !Array.isArray(r.rewards)) throw new Error('rewards: 格式无效')
   const ids = new Set<string>()
   for (const d of r.rewards) {
     if (
@@ -946,13 +959,15 @@ export function parseRewards(raw: unknown): RewardDef[] {
       d.maxStacks < 0
     )
       throw new Error('rewards: ID/权重/上限无效')
-    if (![d.weapons, d.requires, d.excludes, d.effects].every(Array.isArray) || !d.effects.length)
+    if (![d.weapons, d.requires, d.excludes, d.effects].every(Array.isArray) || (!d.effects.length && !d.talent))
       throw new Error('rewards: 条件/效果缺失')
     if (
-      d.weapons.some((w) => !['pencil', 'pulse'].includes(w)) ||
+      d.weapons.some((w) => !(WEAPON_IDS as readonly string[]).includes(w)) ||
       d.effects.some((e) => !STATS.includes(e.stat) || !Number.isFinite(e.amount))
     )
       throw new Error('rewards: 武器/属性无效')
+    if (d.talent && (!TALENT_KINDS.includes(d.talent.kind) || !['any','projectile','ballistic','melee','shield','skill'].includes(d.talent.capability) || d.maxStacks !== 1 || !d.talent.params || Object.values(d.talent.params).some((v) => !Number.isFinite(v) || v < 0) || !Array.isArray(d.talent.synergy) || d.talent.synergy.some((kind) => !TALENT_KINDS.includes(kind)))) throw new Error('rewards: 天赋定义无效')
+    if (r.schemaVersion === 2 && !d.talent) throw new Error('rewards: v2 必须是独立天赋')
     ids.add(d.id)
   }
   for (const d of r.rewards)
