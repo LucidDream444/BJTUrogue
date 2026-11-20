@@ -20,6 +20,15 @@ export interface BossFloorSkills {
 
 export type BossBarragePattern = 'ring' | 'fan' | 'line' | 'ring_gap' | 'scatter' | 'custom' | 'formation'
 
+export interface BossBarrageFollowUp {
+  delayMs: number
+  formation: 'v' | 'cross' | 'arc' | 'wall' | 'big' | 'star' | 'rectangle' | 'spiral' | 'orbit'
+  count: number
+  speed: number
+  radius: number
+  damage: number
+}
+
 export interface BossBarrageSpec {
   id: string
   pattern: BossBarragePattern
@@ -55,7 +64,7 @@ export interface BossBarrageSpec {
   /** Rotate the spawn ring relative to the aimed direction (degrees). */
   spawnAngleDeg?: number
   /** Spatial bullet formation for `pattern: 'formation'`. */
-  formation?: 'v' | 'cross' | 'arc' | 'wall' | 'big' | 'star' | 'rectangle' | 'spiral' | 'orbit' | 'ma'
+  formation?: 'v' | 'cross' | 'arc' | 'wall' | 'big' | 'star' | 'rectangle' | 'spiral' | 'orbit' | 'ma' | 'gugugaga'
   /** Gap between adjacent formation bullets (px). */
   formationSpacing?: number
   /** Opening angle of a V/arc formation (degrees). */
@@ -66,6 +75,12 @@ export interface BossBarrageSpec {
   splitSpeedScale?: number
   splitDamageRatio?: number
   splitSpreadDeg?: number
+  /** Visual breathing radius multiplier range while the bullet flies. */
+  pulseMin?: number
+  pulseMax?: number
+  pulsePeriodMs?: number
+  /** A second formation fired after a delay (shield then sword). */
+  followUp?: BossBarrageFollowUp
 }
 
 export interface BossVolleyShot {
@@ -103,7 +118,7 @@ const REQUIRED_NUMBERS: Readonly<Record<string, readonly string[]>> = {
   water_pools: ['count', 'radius', 'warningMs', 'lifetimeMs', 'slideSpeed', 'maxActive'],
   ricochet_charge: ['warningMs', 'speed', 'bounceCount', 'maxDurationMs', 'damage', 'hitRadius', 'damageTickMs'],
   leap_slam: ['warningMs', 'flightMs', 'targetOffsetRadius', 'radius', 'damage', 'stunMs'],
-  clones: ['count', 'hpDivisor', 'spawnRadius', 'durationMs', 'bossStunMs'],
+  clones: ['count', 'hpDivisor', 'spawnRadius', 'durationMs', 'bossStunMs', 'castAnimationMs'],
   transmute: ['warningMs'],
   rally: ['durationMs', 'speedMultiplier', 'aggroRadius', 'laughPulseMs'],
   blue_barrage: ['roundsMin', 'roundsMax', 'roundIntervalMs', 'count', 'projectileSpeed', 'projectileRadius', 'damage', 'lifetimeMs', 'volleyOffsetDeg', 'color'],
@@ -230,8 +245,25 @@ export function parseBossSkillsTable(raw: unknown): BossSkillsTable {
         if (source[key] !== undefined && (typeof source[key] !== 'number' || !Number.isFinite(source[key])))
           throw new Error(`${patternPath}.${key} 必须是有限数`)
       const formation = source.formation
-      if (formation !== undefined && !['v', 'cross', 'arc', 'wall', 'big', 'star', 'rectangle', 'spiral', 'orbit', 'ma'].includes(String(formation)))
-        throw new Error(`${patternPath}.formation 必须是 v/cross/arc/wall/big/star/rectangle/spiral/orbit/ma`)
+      if (formation !== undefined && !['v', 'cross', 'arc', 'wall', 'big', 'star', 'rectangle', 'spiral', 'orbit', 'ma', 'gugugaga'].includes(String(formation)))
+        throw new Error(`${patternPath}.formation 必须是 v/cross/arc/wall/big/star/rectangle/spiral/orbit/ma/gugugaga`)
+      let followUp: BossBarrageFollowUp | undefined
+      if (source.followUp !== undefined) {
+        const f = object(source.followUp, `${patternPath}.followUp`)
+        const followFormation = text(f.formation, `${patternPath}.followUp.formation`)
+        if (!['v', 'cross', 'arc', 'wall', 'big', 'star', 'rectangle', 'spiral', 'orbit'].includes(followFormation))
+          throw new Error(`${patternPath}.followUp.formation 非法`)
+        const followCount = number(f.count, `${patternPath}.followUp.count`, true)
+        if (!Number.isInteger(followCount)) throw new Error(`${patternPath}.followUp.count 必须是整数`)
+        followUp = {
+          delayMs: number(f.delayMs, `${patternPath}.followUp.delayMs`),
+          formation: followFormation as BossBarrageFollowUp['formation'],
+          count: followCount,
+          speed: number(f.speed, `${patternPath}.followUp.speed`, true),
+          radius: number(f.radius, `${patternPath}.followUp.radius`, true),
+          damage: number(f.damage, `${patternPath}.followUp.damage`, true),
+        }
+      }
       let speedStepPct: number | undefined
       if (source.speedStepPct !== undefined) {
         if (typeof source.speedStepPct !== 'number' || !Number.isFinite(source.speedStepPct) || Math.abs(source.speedStepPct) > 1)
@@ -267,7 +299,7 @@ export function parseBossSkillsTable(raw: unknown): BossSkillsTable {
         ...(anglesDeg !== undefined ? { anglesDeg } : {}),
         ...(source.spawnRadius !== undefined ? { spawnRadius: optional('spawnRadius', true)! } : {}),
         ...(source.spawnAngleDeg !== undefined ? { spawnAngleDeg: optional('spawnAngleDeg')! } : {}),
-        ...(formation !== undefined ? { formation: formation as 'v' | 'cross' | 'arc' | 'wall' | 'big' | 'star' | 'rectangle' | 'spiral' | 'orbit' | 'ma' } : {}),
+        ...(formation !== undefined ? { formation: formation as 'v' | 'cross' | 'arc' | 'wall' | 'big' | 'star' | 'rectangle' | 'spiral' | 'orbit' | 'ma' | 'gugugaga' } : {}),
         ...(source.formationSpacing !== undefined ? { formationSpacing: optional('formationSpacing', true)! } : {}),
         ...(source.formationAngleDeg !== undefined ? { formationAngleDeg: optional('formationAngleDeg')! } : {}),
         ...(source.splitAfterMs !== undefined ? { splitAfterMs: optional('splitAfterMs')! } : {}),
@@ -275,6 +307,10 @@ export function parseBossSkillsTable(raw: unknown): BossSkillsTable {
         ...(source.splitSpeedScale !== undefined ? { splitSpeedScale: optional('splitSpeedScale', true)! } : {}),
         ...(source.splitDamageRatio !== undefined ? { splitDamageRatio: optional('splitDamageRatio')! } : {}),
         ...(source.splitSpreadDeg !== undefined ? { splitSpreadDeg: optional('splitSpreadDeg')! } : {}),
+        ...(source.pulseMin !== undefined ? { pulseMin: optional('pulseMin', true)! } : {}),
+        ...(source.pulseMax !== undefined ? { pulseMax: optional('pulseMax', true)! } : {}),
+        ...(source.pulsePeriodMs !== undefined ? { pulsePeriodMs: optional('pulsePeriodMs')! } : {}),
+        ...(followUp !== undefined ? { followUp } : {}),
       }
     })
     barrages[floor] = { intervalMs, initialDelayMs, color, patterns }
@@ -323,6 +359,16 @@ export interface BossSkillVolley {
   angleOffsetRad?: number
   spawnRadius?: number
   spawnAngleOffsetRad?: number
+  shots?: readonly BossVolleyShot[]
+  splitAfterMs?: number
+  splitCount?: number
+  splitSpeedScale?: number
+  splitDamageRatio?: number
+  splitSpreadRad?: number
+  pulseMin?: number
+  pulseMax?: number
+  pulsePeriodMs?: number
+  clearable?: boolean
   speedEnd?: number
   speedRampMs?: number
   bounceCount?: number
@@ -706,23 +752,34 @@ export class BossSkillRuntime {
       }
       case 'clones': {
         if (this.clones.some((group) => group.bossId === boss.id)) return this.busyUntil
-        const hp = Math.max(1, boss.hp / n(skill, 'hpDivisor'))
-        const ids: number[] = []
-        const count = n(skill, 'count'), phase = this.port.rng.floatBetween(0, Math.PI * 2)
-        for (let i = 0; i < count; i++) {
-          const angle = phase + i * Math.PI * 2 / count
-          const point = this.port.safeSpawn(boss.x + Math.cos(angle) * n(skill, 'spawnRadius'),
-            boss.y + Math.sin(angle) * n(skill, 'spawnRadius'), boss.radius)
-          const id = this.port.spawnBossClone(boss.id, point.x, point.y, hp)
-          if (id !== null) ids.push(id)
-        }
-        if (ids.length === 0) return nowMs
-        const until = nowMs + n(skill, 'durationMs')
-        this.appearance(boss.id, { hidden: true })
-        this.invulnerableUntil(boss.id, until)
+        // Play the cast GIF while the boss is still visible and vulnerable. Clones
+        // only appear after that windup, and their HP is taken from the then-current
+        // boss HP (the player is allowed to chip the real body during the GIF).
+        const castAnimationMs = n(skill, 'castAnimationMs')
+        const spawnAt = nowMs + castAnimationMs
+        const until = spawnAt + n(skill, 'durationMs')
         this.control(boss.id, until)
-        this.clones.push({ bossId: boss.id, ids, trueId: this.port.rng.pick(ids), expiresMs: until,
-          stunMs: n(skill, 'bossStunMs'), lastTrue: { x: boss.x, y: boss.y }, initialHp: boss.hp, cloneHp: hp })
+        this.schedule(boss.id, spawnAt, (atMs) => {
+          const current = this.unit(boss.id)
+          if (current === undefined) return
+          const hp = Math.max(1, current.hp / n(skill, 'hpDivisor'))
+          const ids: number[] = []
+          const count = n(skill, 'count'), phase = this.port.rng.floatBetween(0, Math.PI * 2)
+          for (let i = 0; i < count; i++) {
+            const angle = phase + i * Math.PI * 2 / count
+            const point = this.port.safeSpawn(current.x + Math.cos(angle) * n(skill, 'spawnRadius'),
+              current.y + Math.sin(angle) * n(skill, 'spawnRadius'), current.radius)
+            const id = this.port.spawnBossClone(boss.id, point.x, point.y, hp)
+            if (id !== null) ids.push(id)
+          }
+          if (ids.length === 0) return
+          const activeUntil = atMs + n(skill, 'durationMs')
+          this.appearance(boss.id, { hidden: true })
+          this.invulnerableUntil(boss.id, activeUntil)
+          this.control(boss.id, activeUntil)
+          this.clones.push({ bossId: boss.id, ids, trueId: this.port.rng.pick(ids), expiresMs: activeUntil,
+            stunMs: n(skill, 'bossStunMs'), lastTrue: { x: current.x, y: current.y }, initialHp: current.hp, cloneHp: hp })
+        })
         return until
       }
       case 'transmute': {
@@ -855,7 +912,7 @@ export class BossSkillRuntime {
   private volley(bossId: number, skill: BossSkillSpec, index: number): void {
     const count = n(skill, 'count'), spread = Math.PI * 2 / count
     this.port.fireBossVolley(bossId, { count, speed: n(skill, 'projectileSpeed'), radius: n(skill, 'projectileRadius'),
-      damage: this.scaled(skill), lifetimeMs: n(skill, 'lifetimeMs'),
+      damage: this.scaled(skill), lifetimeMs: n(skill, 'lifetimeMs'), clearable: false,
       color: typeof skill.color === 'number' ? skill.color : undefined,
       angleRad: index * n(skill, 'volleyOffsetDeg') * Math.PI / 180 + (count - 1) / 2 * spread, spreadRad: spread })
   }

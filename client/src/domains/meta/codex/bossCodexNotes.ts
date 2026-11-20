@@ -67,7 +67,7 @@ export function bossSkillNotes(
         text = `生成${n('count')}处酸池，存在${seconds(n('lifetimeMs'))}；池内每${seconds(n('damageTickMs'))}受${damage()}点伤害。`
         break
       case 'water_pools':
-        text = `生成${n('count')}处水圈；踩入后强制直线滑出${n('slideSpeed')}px/s，最多${seconds(n('maxSlideMs'))}。`
+        text = `生成${n('count')}处水圈，存在${seconds(n('lifetimeMs'))}；踩入后强制直线滑出${n('slideSpeed')}px/s。`
         break
       case 'ricochet_charge':
         text = `预警${seconds(n('warningMs'))}后无敌冲撞，碰墙反弹${n('bounceCount')}次，碰撞造成${damage()}点伤害。`
@@ -76,7 +76,7 @@ export function bossSkillNotes(
         text = `预警${seconds(n('warningMs'))}后跃击；落点半径${n('radius')}px内造成${damage()}点伤害并眩晕${seconds(n('stunMs'))}。`
         break
       case 'clones':
-        text = `生成${n('count')}个分身，真身藏其中；击破真身使首领眩晕${seconds(n('bossStunMs'))}。`
+        text = `生成${n('count')}个分身，各为当前生命的1/3；攻击分身不扣本体，击破真身才结束并使首领眩晕${seconds(n('bossStunMs'))}。`
         break
       case 'transmute':
         text = `预警${seconds(n('warningMs'))}后全场小怪变成同一种随机怪物。`

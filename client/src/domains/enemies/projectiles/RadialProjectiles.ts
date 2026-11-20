@@ -23,6 +23,11 @@ export interface RadialShot {
   splitSpeedScale: number
   splitDamageRatio: number
   splitSpreadRad: number
+  pulseMin: number
+  pulseMax: number
+  pulsePeriodMs: number
+  /** False for boss-skill projectiles: melee sweeps must not delete them. */
+  clearable: boolean
   lifetimeMs: number
   color?: number
 }
@@ -57,6 +62,10 @@ export interface BossVolley {
   splitSpeedScale?: number
   splitDamageRatio?: number
   splitSpreadRad?: number
+  pulseMin?: number
+  pulseMax?: number
+  pulsePeriodMs?: number
+  clearable?: boolean
   speedEnd?: number
   speedRampMs?: number
   bounceCount?: number
@@ -116,6 +125,10 @@ export class RadialProjectiles {
       splitSpeedScale: 1,
       splitDamageRatio: 0,
       splitSpreadRad: 0,
+      pulseMin: 1,
+      pulseMax: 1,
+      pulsePeriodMs: 0,
+      clearable: true,
       lifetimeMs: cfg.lifetimeMs,
     }))
   }
@@ -188,6 +201,10 @@ export class RadialProjectiles {
         splitSpeedScale: volley.splitSpeedScale ?? 1,
         splitDamageRatio: volley.splitDamageRatio ?? 0,
         splitSpreadRad: volley.splitSpreadRad ?? 0,
+        pulseMin: volley.pulseMin ?? 1,
+        pulseMax: volley.pulseMax ?? 1,
+        pulsePeriodMs: volley.pulsePeriodMs ?? 0,
+        clearable: volley.clearable ?? true,
         lifetimeMs: spec?.lifetimeMs ?? volley.lifetimeMs,
         color: volley.color,
         bornAtMs: nowMs,

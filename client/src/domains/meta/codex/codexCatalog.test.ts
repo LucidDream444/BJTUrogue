@@ -113,7 +113,7 @@ describe('怪物图鉴目录', () => {
     expect(paper.combatNotes.join('')).toContain('第1层生命900')
     expect(paper.combatNotes.join('')).toContain('每8秒')
     const final = entries.find((entry) => entry.id === 'nailong-final')!
-    expect(final.combatNotes.join('')).toContain('近身范围下砸')
+    expect(final.combatNotes.join('')).toContain('近身下砸')
     expect(final.combatNotes.join('')).toContain('第3层生命1800')
     expect(codexEncounterConfig({ encounter: { bossHp: 'oops' } })).toBeUndefined()
   })
@@ -141,7 +141,8 @@ describe('怪物图鉴目录', () => {
       expect(entry.combatNotes.join('')).not.toContain('技能记录正在整理')
     }
     expect(bossSkillNotes(table, 2, 1).join('')).toContain('8～12只')
-    expect(bossSkillNotes(table, 4, 1).join('')).toContain('强制直线滑出')
+    expect(bossSkillNotes(table, 4, 1).join('')).toContain('召集全场小怪')
+    expect(bossSkillNotes(table, 7, 1).join('')).toContain('强制直线滑出')
     expect(bossSkillNotes(table, 9, 1).join('')).toContain('3秒')
     table.bosses['3']!.skills.find((skill) => skill.id === 'radial')!.damage = 27
     const kite = buildCodexEntries(bundle(), 'normal', undefined, table).find((entry) => entry.id === 'stage2-boss')!

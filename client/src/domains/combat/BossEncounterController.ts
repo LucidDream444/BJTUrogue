@@ -6,6 +6,7 @@ import { BOSS_ROSTER_ART, NAILONG_SKILL_AUDIO } from '@/core/assetManifest'
 import { bossArt } from '@/domains/enemies/presentation/bossArt'
 import {
   BossSkillRuntime,
+  type BossBarrageConfig,
   type BossBarrageSpec,
   type BossSkillPort,
   type BossVolleyShot,
@@ -29,6 +30,15 @@ const MA_GLYPH_POINTS: readonly (readonly [number, number])[] = [
   [-0.583,0.25],[-0.417,0.25],[-0.083,0.25],[0.083,0.25],[0.25,0.25],[0.417,0.25],[0.583,0.25],
   [-0.583,0.417],[-0.417,0.417],[-0.25,0.417],[0.583,0.417],
   [-0.75,0.583],[-0.583,0.583],[-0.25,0.583],[0.25,0.583],[0.417,0.583],[0.583,0.583],
+]
+const GUGUGAGA_GLYPH_POINTS: readonly (readonly [number, number])[] = [
+  [-0.312,-0.812],[0.688,-0.812],[-0.812,-0.688],[-0.688,-0.688],[-0.562,-0.688],[-0.438,-0.688],[-0.312,-0.688],[-0.188,-0.688],[0.188,-0.688],[0.312,-0.688],[0.438,-0.688],[0.562,-0.688],[0.688,-0.688],[0.812,-0.688],
+  [-0.812,-0.562],[-0.688,-0.562],[-0.312,-0.562],[0.188,-0.562],[0.312,-0.562],[0.688,-0.562],[-0.812,-0.438],[-0.688,-0.438],[-0.438,-0.438],[-0.312,-0.438],[-0.188,-0.438],[0.188,-0.438],[0.312,-0.438],[0.562,-0.438],[0.688,-0.438],[0.812,-0.438],
+  [-0.812,-0.312],[-0.688,-0.312],[-0.188,-0.312],[0.188,-0.312],[0.312,-0.312],[0.812,-0.312],[-0.438,-0.188],[-0.312,-0.188],[-0.188,-0.188],[0.562,-0.188],[0.688,-0.188],[0.812,-0.188],
+  [-0.812,0.188],[-0.688,0.188],[-0.562,0.188],[-0.438,0.188],[-0.312,0.188],[-0.188,0.188],[0.188,0.188],[0.312,0.188],[0.438,0.188],[0.562,0.188],[0.688,0.188],[0.812,0.188],
+  [-0.812,0.312],[-0.688,0.312],[-0.562,0.312],[-0.188,0.312],[0.188,0.312],[0.312,0.312],[0.438,0.312],[0.812,0.312],[-0.812,0.438],[-0.688,0.438],[-0.562,0.438],[-0.438,0.438],[-0.312,0.438],[-0.188,0.438],[0.188,0.438],[0.312,0.438],[0.438,0.438],[0.562,0.438],[0.688,0.438],[0.812,0.438],
+  [-0.812,0.562],[-0.688,0.562],[-0.438,0.562],[-0.312,0.562],[0.188,0.562],[0.312,0.562],[0.562,0.562],[0.688,0.562],[-0.812,0.688],[-0.688,0.688],[-0.562,0.688],[-0.438,0.688],[0.188,0.688],[0.312,0.688],[0.438,0.688],[0.562,0.688],
+  [-0.562,0.812],[-0.438,0.812],[-0.312,0.812],[-0.188,0.812],[0.438,0.812],[0.562,0.812],[0.688,0.812],[0.812,0.812],
 ]
 
 export interface BossEncounterOptions {
@@ -69,6 +79,14 @@ export class BossEncounterController {
   /** Clone ids have their own slower barrage clock and rotation. */
   private readonly cloneBarrageNext = new Map<number, number>()
   private readonly cloneBarrageIndex = new Map<number, number>()
+  private readonly delayedBarrages: {
+    bossId: number
+    atMs: number
+    followUp: NonNullable<BossBarrageSpec['followUp']>
+    color: number
+  }[] = []
+  /** Final Nailong borrows one random regular boss's barrage table per sequence. */
+  private activeBorrowedBarrage: BossBarrageConfig | null = null
   private redAlpha = 0
   private rewindActive = false
   private activeStage = 0
@@ -166,7 +184,11 @@ export class BossEncounterController {
         if (u) {
           if (u.bossStage === 9) this.playNailongSkillVoice()
           else this.playBossSkillAudio(u.bossStage ?? floor)
-          e.setBossSkillAnimation(id, until)
+          const castSpec = this.config.bosses[String(floor)]?.skills.find((entry) => entry.id === skillId)
+          const castAnimationMs = skillId === 'clones'
+            ? Number(castSpec?.castAnimationMs ?? 1100)
+            : Math.max(0, until - session.clock.nowMs)
+          if (castAnimationMs > 0) e.setBossSkillAnimation(id, session.clock.nowMs + castAnimationMs)
           // Final Nailong: only rewind borrows the laugh GIF; every other cast keeps the normal art.
           if (u.bossStage === 9 && skillId === 'rewind') e.setUnitLaugh(id, until)
         }
@@ -223,6 +245,7 @@ export class BossEncounterController {
           // and suppress every barrage until rewind ends.
           e.clearBossShots()
           this.barrageBurst = null
+          this.delayedBarrages.length = 0
           this.cloneBarrageNext.clear()
           this.cloneBarrageIndex.clear()
         } else {
@@ -305,17 +328,24 @@ export class BossEncounterController {
       this.lastAt = now
       return
     }
-    const barrages = this.config.barrages[String(stage)]
+    let barrages = stage === 9 ? this.activeBorrowedBarrage : this.config.barrages[String(stage)]
     if (this.bossId !== boss.id) {
       this.bossId = boss.id
       const visualScale = this.config.bosses[String(stage)]?.visualScale
       if (visualScale !== undefined)
         this.session.enemies.skills.setBossAppearance(boss.id, { visualScale })
-      this.barrageIndex = 0
+      if (stage === 9) {
+        barrages = this.pickBorrowedBarrage()
+        this.activeBorrowedBarrage = barrages
+      }
+      this.barrageIndex = stage === 9 && barrages
+        ? this.port.rng.between(0, Math.max(0, barrages.patterns.length - 1))
+        : 0
       this.nextBarrageAtMs = now + (barrages?.initialDelayMs ?? 0)
       this.barrageBurst = null
       this.cloneBarrageNext.clear()
       this.cloneBarrageIndex.clear()
+      this.delayedBarrages.length = 0
     }
     const dt = Math.max(0, Math.min(1000 / 30, now - this.lastAt))
     this.lastAt = now
@@ -325,11 +355,39 @@ export class BossEncounterController {
     if (!elite && stage === 9) this.heart.update(now, dt, boss.id)
     const commands = elite ? [] : this.runtime.update(now, dt, boss.id, stage)
     for (const command of commands) this.apply(command)
+    // Delayed second formation (e.g. shield → sword).
+    if (!this.rewindActive && this.delayedBarrages.length) {
+      const due = this.delayedBarrages.filter((item) => item.atMs <= now)
+      for (let i = this.delayedBarrages.length - 1; i >= 0; i--)
+        if (this.delayedBarrages[i]!.atMs <= now) this.delayedBarrages.splice(i, 1)
+      for (const item of due) {
+        const target = this.port.units().find((unit) => unit.id === item.bossId)
+        if (!target) continue
+        const f = item.followUp
+        this.fireBarrage(target, {
+          id: 'follow-up',
+          pattern: 'formation',
+          formation: f.formation,
+          count: f.count,
+          spreadDeg: 0,
+          speed: f.speed,
+          radius: f.radius,
+          damage: f.damage,
+          lifetimeMs: 3600,
+          spawnRadius: 55,
+        }, 0, item.color)
+      }
+    }
     // 弹幕独立于技能冷却：技能正在释放时这里照样按自己的固定间隔开火。
     const clonePhase = this.port.units().some((unit) => unit.cloneBossStage === stage)
     if (barrages && !clonePhase && !this.rewindActive) {
       // 先开新的一串；同一帧再放第一轮，避免初始延迟被多算一帧。
       if (!this.barrageBurst && now >= this.nextBarrageAtMs) {
+        if (stage === 9) {
+          barrages = this.pickBorrowedBarrage()
+          this.activeBorrowedBarrage = barrages
+          this.barrageIndex = this.port.rng.between(0, Math.max(0, barrages.patterns.length - 1))
+        }
         const pattern = barrages.patterns[this.barrageIndex % barrages.patterns.length]!
         this.barrageBurst = {
           pattern,
@@ -361,10 +419,11 @@ export class BossEncounterController {
           this.cloneBarrageNext.delete(id)
           this.cloneBarrageIndex.delete(id)
         }
-      const interval = barrages.intervalMs * 4
+      const interval = barrages.intervalMs
       for (const clone of clones) {
         if (!this.cloneBarrageNext.has(clone.id))
-          this.cloneBarrageNext.set(clone.id, now + interval)
+          // Fire the first clone volley immediately; the 4× interval applies after it.
+          this.cloneBarrageNext.set(clone.id, now)
         if (now < (this.cloneBarrageNext.get(clone.id) ?? Infinity)) continue
         const index = this.cloneBarrageIndex.get(clone.id) ?? 0
         const pattern = barrages.patterns[index % barrages.patterns.length]!
@@ -410,6 +469,12 @@ export class BossEncounterController {
     }
   }
   /** Fire one burst; `burstIndex` rotates fan/ring/line patterns. */
+  private pickBorrowedBarrage(): BossBarrageConfig {
+    const choices = [2, 3, 4, 5, 6, 7, 8]
+    const floor = choices[this.port.rng.between(0, choices.length - 1)]!
+    return this.config.barrages[String(floor)] ?? this.config.barrages['2']!
+  }
+
   private fireBarrage(
     boss: BossSkillUnit,
     pattern: BossBarrageSpec,
@@ -476,11 +541,21 @@ export class BossEncounterController {
       ...(pattern.splitSpreadDeg !== undefined
         ? { splitSpreadRad: (pattern.splitSpreadDeg * Math.PI) / 180 }
         : {}),
+      ...(pattern.pulseMin !== undefined ? { pulseMin: pattern.pulseMin } : {}),
+      ...(pattern.pulseMax !== undefined ? { pulseMax: pattern.pulseMax } : {}),
+      ...(pattern.pulsePeriodMs !== undefined ? { pulsePeriodMs: pattern.pulsePeriodMs } : {}),
       ...(pattern.pattern === 'line' && pattern.lineSpacingPx !== undefined
         ? { lineSpacingPx: pattern.lineSpacingPx }
         : {}),
     }
     this.session.enemies.skills.fireBossVolley(boss.id, volley)
+    if (pattern.followUp)
+      this.delayedBarrages.push({
+        bossId: boss.id,
+        atMs: this.session.clock.nowMs + pattern.followUp.delayMs,
+        followUp: pattern.followUp,
+        color,
+      })
   }
 
   /** Arrange formation bullets in space; their velocity is the aimed direction. */
@@ -535,6 +610,12 @@ export class BossEncounterController {
       const centerX = fx * start
       const centerY = fy * start
       for (const [gx, gy] of MA_GLYPH_POINTS)
+        shots.push({ x: centerX + gx * scale, y: centerY + gy * scale, angleRad: aimed })
+    } else if (pattern.formation === 'gugugaga') {
+      const scale = Math.max(1, spacing * 2)
+      const centerX = fx * start
+      const centerY = fy * start
+      for (const [gx, gy] of GUGUGAGA_GLYPH_POINTS)
         shots.push({ x: centerX + gx * scale, y: centerY + gy * scale, angleRad: aimed })
     } else if (pattern.formation === 'rectangle') {
       const width = spacing * 2.4
@@ -754,6 +835,8 @@ export class BossEncounterController {
     this.barrageBurst = null
     this.cloneBarrageNext.clear()
     this.cloneBarrageIndex.clear()
+    this.delayedBarrages.length = 0
+    this.activeBorrowedBarrage = null
     this.redAlpha = 0
     this.rewindActive = false
     this.activeStage = 0

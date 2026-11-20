@@ -272,6 +272,7 @@ export class HeartDemonRuntime {
         radius: w.radius,
         damage: Math.max(1, Math.round(w.damage * number(shadow.skill, 'weaponDamageMultiplier'))),
         lifetimeMs: w.lifetimeMs,
+        clearable: false,
         color: w.color,
         angleRad: Math.atan2(dy, dx),
         spreadRad: (w.spreadDeg * Math.PI) / 180,

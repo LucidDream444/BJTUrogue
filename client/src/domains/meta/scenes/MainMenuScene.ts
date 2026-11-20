@@ -179,6 +179,12 @@ export class MainMenuScene extends Phaser.Scene {
     if (!this.textures.exists(CAMPUS_MENU_ART.map)) {
       this.load.image(CAMPUS_MENU_ART.map, imageUrl(mapAsset))
     }
+    for (const key of Object.values(CAMPUS_MENU_ART.buttons)) {
+      if (this.textures.exists(key)) continue
+      const asset = findAsset(key)
+      if (!asset) throw new Error(`资源清单缺少主菜单按钮贴图：${key}`)
+      this.load.image(key, imageUrl(asset))
+    }
 
     // 出发准备页的三张角色卡。新生是待机图集（取第 0 帧），另外两张是单图；
     // 这里按清单里的 `kind` 分流，场景代码不碰任何真实纹理 key。

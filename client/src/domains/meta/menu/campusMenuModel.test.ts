@@ -6,6 +6,7 @@ import {
   hotspotForAction,
 } from './campusMenuModel'
 import { MENU_ACTIONS } from './menuModel'
+import { CAMPUS_MENU_ART, findAsset } from '@/core/assetManifest'
 
 describe('校园地图入口表', () => {
   it('七个主菜单入口各对应且只对应一个建筑热区', () => {
@@ -45,6 +46,20 @@ describe('校园地图入口表', () => {
       expect(hotspot.y + hotspot.height).toBeLessThanOrEqual(CAMPUS_MAP_SIZE.height)
       expect(hotspot.width).toBeGreaterThan(0)
       expect(hotspot.height).toBeGreaterThan(0)
+    }
+  })
+
+  it('每个入口都有落在原地图内的独立按钮贴图', () => {
+    for (const hotspot of CAMPUS_HOTSPOTS) {
+      const art = hotspot.buttonArt
+      expect(art.width).toBeGreaterThan(0)
+      expect(art.height).toBeGreaterThan(0)
+      expect(art.x).toBeGreaterThanOrEqual(0)
+      expect(art.y).toBeGreaterThanOrEqual(0)
+      expect(art.x + art.width).toBeLessThanOrEqual(CAMPUS_MAP_SIZE.width)
+      expect(art.y + art.height).toBeLessThanOrEqual(CAMPUS_MAP_SIZE.height)
+      const key = CAMPUS_MENU_ART.buttons[hotspot.action]
+      expect(findAsset(key), key).toMatchObject({ kind: 'image', placeholder: false })
     }
   })
 

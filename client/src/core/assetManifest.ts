@@ -483,6 +483,16 @@ export const ARCHIVE_ART = {
 
 export const CAMPUS_MENU_ART = {
   map: 'ui_campus_main_menu_map',
+  /** Seven cut-out campus-map buttons; positions live in campusMenuModel.ts. */
+  buttons: {
+    achievements: 'ui_campus_button_achievements',
+    upgrade: 'ui_campus_button_upgrade',
+    help: 'ui_campus_button_help',
+    quit: 'ui_campus_button_quit',
+    settings: 'ui_campus_button_settings',
+    codex: 'ui_campus_button_codex',
+    start: 'ui_campus_button_start',
+  },
   /**
    * 出发准备页的角色卡立绘。角色 id 与 `meta/catalog.ts` 的目录一致；
    * 新生用现有待机图集的第一帧；大鹅与小红果使用各自已交付的立绘；
@@ -653,6 +663,17 @@ const BASE_ASSETS: readonly AssetEntry[] = [
     width: 1459,
     height: 821,
   },
+  ...([
+    [CAMPUS_MENU_ART.buttons.achievements, 'ui_campus_button_achievements.png', 139, 60],
+    [CAMPUS_MENU_ART.buttons.upgrade, 'ui_campus_button_upgrade.png', 155, 165],
+    [CAMPUS_MENU_ART.buttons.help, 'ui_campus_button_help.png', 88, 121],
+    [CAMPUS_MENU_ART.buttons.quit, 'ui_campus_button_quit.png', 118, 82],
+    [CAMPUS_MENU_ART.buttons.settings, 'ui_campus_button_settings.png', 156, 97],
+    [CAMPUS_MENU_ART.buttons.codex, 'ui_campus_button_codex.png', 160, 93],
+    [CAMPUS_MENU_ART.buttons.start, 'ui_campus_button_start.png', 202, 159],
+  ] as const).map(([key, file, width, height]): AssetEntry => ({
+    key, path: `ui/campus/${file}`, placeholder: false, kind: 'image', width, height,
+  })),
   {
     key: 'level_1_classroom',
     path: 'maps/level_1_classroom.png',
