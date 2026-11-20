@@ -58,8 +58,33 @@ describe('首领技能配置', () => {
     expect(Object.keys(table.bosses)).toEqual(['2', '3', '4', '5', '6', '7', '8'])
     expect(table.bosses['8']!.skills.map((skill) => skill.id)).toEqual(['mimic_chain', 'rewind', 'player_shadow'])
     expect(Object.keys(table.barrages)).toEqual(['2', '3', '4', '5', '6', '7', '8'])
-    for (const floor of Object.keys(table.barrages))
-      expect(table.barrages[floor]!.patterns, floor).toHaveLength(3)
+    for (const floor of Object.keys(table.barrages)) {
+      const patterns = table.barrages[floor]!.patterns
+      expect(patterns, floor).toHaveLength(3)
+      for (const pattern of patterns) {
+        expect(pattern.bursts ?? 1, `${floor}/${pattern.id}`).toBeGreaterThanOrEqual(1)
+        expect(pattern.bounceCount ?? 0, `${floor}/${pattern.id}`).toBeGreaterThanOrEqual(0)
+        if (pattern.pattern === 'line' && pattern.count > 1)
+          expect(pattern.lineSpacingPx, `${floor}/${pattern.id}`).toBeGreaterThan(0)
+      }
+    }
+  })
+  it('拒绝非法的连发/反弹/直线间距参数', () => {
+    for (const mutate of [
+      (raw: ReturnType<typeof rawTable>) => {
+        ;(raw.barrages as Record<string, { patterns: { bursts: number }[] }>)['7']!.patterns[0]!.bursts = 0
+      },
+      (raw: ReturnType<typeof rawTable>) => {
+        ;(raw.barrages as Record<string, { patterns: { bounceCount: number }[] }>)['7']!.patterns[0]!.bounceCount = 1.5
+      },
+      (raw: ReturnType<typeof rawTable>) => {
+        ;(raw.barrages as Record<string, { patterns: { lineSpacingPx: number }[] }>)['7']!.patterns[2]!.lineSpacingPx = -1
+      },
+    ]) {
+      const raw = rawTable()
+      mutate(raw)
+      expect(() => parseBossSkillsTable(raw)).toThrow()
+    }
   })
   it('拒绝缺失、数量不对或未知形状的弹幕', () => {
     const missing = rawTable() as unknown as { barrages: Record<string, { patterns: unknown[] }> }
