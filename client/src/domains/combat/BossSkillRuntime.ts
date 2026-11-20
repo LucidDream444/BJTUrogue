@@ -55,7 +55,7 @@ export interface BossBarrageSpec {
   /** Rotate the spawn ring relative to the aimed direction (degrees). */
   spawnAngleDeg?: number
   /** Spatial bullet formation for `pattern: 'formation'`. */
-  formation?: 'v' | 'cross' | 'arc' | 'wall' | 'big' | 'star' | 'rectangle' | 'spiral' | 'orbit'
+  formation?: 'v' | 'cross' | 'arc' | 'wall' | 'big' | 'star' | 'rectangle' | 'spiral' | 'orbit' | 'ma'
   /** Gap between adjacent formation bullets (px). */
   formationSpacing?: number
   /** Opening angle of a V/arc formation (degrees). */
@@ -230,8 +230,8 @@ export function parseBossSkillsTable(raw: unknown): BossSkillsTable {
         if (source[key] !== undefined && (typeof source[key] !== 'number' || !Number.isFinite(source[key])))
           throw new Error(`${patternPath}.${key} 必须是有限数`)
       const formation = source.formation
-      if (formation !== undefined && !['v', 'cross', 'arc', 'wall', 'big', 'star', 'rectangle', 'spiral', 'orbit'].includes(String(formation)))
-        throw new Error(`${patternPath}.formation 必须是 v/cross/arc/wall/big/star/rectangle/spiral/orbit`)
+      if (formation !== undefined && !['v', 'cross', 'arc', 'wall', 'big', 'star', 'rectangle', 'spiral', 'orbit', 'ma'].includes(String(formation)))
+        throw new Error(`${patternPath}.formation 必须是 v/cross/arc/wall/big/star/rectangle/spiral/orbit/ma`)
       let speedStepPct: number | undefined
       if (source.speedStepPct !== undefined) {
         if (typeof source.speedStepPct !== 'number' || !Number.isFinite(source.speedStepPct) || Math.abs(source.speedStepPct) > 1)
@@ -267,7 +267,7 @@ export function parseBossSkillsTable(raw: unknown): BossSkillsTable {
         ...(anglesDeg !== undefined ? { anglesDeg } : {}),
         ...(source.spawnRadius !== undefined ? { spawnRadius: optional('spawnRadius', true)! } : {}),
         ...(source.spawnAngleDeg !== undefined ? { spawnAngleDeg: optional('spawnAngleDeg')! } : {}),
-        ...(formation !== undefined ? { formation: formation as 'v' | 'cross' | 'arc' | 'wall' | 'big' | 'star' | 'rectangle' | 'spiral' | 'orbit' } : {}),
+        ...(formation !== undefined ? { formation: formation as 'v' | 'cross' | 'arc' | 'wall' | 'big' | 'star' | 'rectangle' | 'spiral' | 'orbit' | 'ma' } : {}),
         ...(source.formationSpacing !== undefined ? { formationSpacing: optional('formationSpacing', true)! } : {}),
         ...(source.formationAngleDeg !== undefined ? { formationAngleDeg: optional('formationAngleDeg')! } : {}),
         ...(source.splitAfterMs !== undefined ? { splitAfterMs: optional('splitAfterMs')! } : {}),
