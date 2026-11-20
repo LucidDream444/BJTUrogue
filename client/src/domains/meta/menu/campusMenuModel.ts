@@ -10,6 +10,13 @@ import type { MenuAction } from './menuModel'
 export const CAMPUS_MAP_SIZE = { width: 1459, height: 821 } as const
 export const CAMPUS_BUTTON_SIZE = 38
 
+export interface CampusButtonArt {
+  x: number
+  y: number
+  width: number
+  height: number
+}
+
 export interface CampusHotspotDef {
   action: MenuAction
   /** 悬停卡里展示的建筑名。 */
@@ -20,6 +27,8 @@ export interface CampusHotspotDef {
   y: number
   width: number
   height: number
+  /** Visible cut-out bounds in the 1459×821 map texture. */
+  buttonArt: CampusButtonArt
 }
 
 /**
@@ -37,6 +46,7 @@ export const CAMPUS_HOTSPOTS: readonly CampusHotspotDef[] = [
     y: 333,
     width: 119,
     height: 81,
+    buttonArt: { x: 326, y: 344, width: 139, height: 60 },
   },
   {
     action: 'upgrade',
@@ -46,6 +56,7 @@ export const CAMPUS_HOTSPOTS: readonly CampusHotspotDef[] = [
     y: 5,
     width: 160,
     height: 162,
+    buttonArt: { x: 354, y: 0, width: 155, height: 165 },
   },
   {
     action: 'help',
@@ -55,6 +66,7 @@ export const CAMPUS_HOTSPOTS: readonly CampusHotspotDef[] = [
     y: 203,
     width: 107,
     height: 128,
+    buttonArt: { x: 514, y: 205, width: 88, height: 121 },
   },
   {
     action: 'quit',
@@ -64,6 +76,7 @@ export const CAMPUS_HOTSPOTS: readonly CampusHotspotDef[] = [
     y: 740,
     width: 82,
     height: 70,
+    buttonArt: { x: 488, y: 731, width: 118, height: 82 },
   },
   {
     action: 'settings',
@@ -73,6 +86,7 @@ export const CAMPUS_HOTSPOTS: readonly CampusHotspotDef[] = [
     y: 469,
     width: 164,
     height: 106,
+    buttonArt: { x: 1069, y: 462, width: 156, height: 97 },
   },
   {
     action: 'codex',
@@ -82,6 +96,7 @@ export const CAMPUS_HOTSPOTS: readonly CampusHotspotDef[] = [
     y: 0,
     width: 210,
     height: 104,
+    buttonArt: { x: 943, y: 3, width: 160, height: 93 },
   },
   {
     action: 'start',
@@ -91,14 +106,13 @@ export const CAMPUS_HOTSPOTS: readonly CampusHotspotDef[] = [
     y: 264,
     width: 204,
     height: 139,
+    buttonArt: { x: 1007, y: 258, width: 202, height: 159 },
   },
 ]
 
 export function hotspotButtonCenter(hotspot: CampusHotspotDef): { x: number; y: number } {
-  return {
-    x: hotspot.x + hotspot.width / 2,
-    y: hotspot.y + hotspot.height / 2,
-  }
+  const art = hotspot.buttonArt
+  return { x: art.x + art.width / 2, y: art.y + art.height / 2 }
 }
 
 export function hotspotForAction(action: MenuAction): CampusHotspotDef {

@@ -241,7 +241,7 @@ export function buildCodexEntries(
   })
 
   entries.push({
-    id: 'first-boss', category: '首领', name: '牛来', variant: '第 1 层首领池',
+    id: 'first-boss', category: '首领', name: '牛来', variant: '常规首领名册',
     role: '召唤纸团与全场减速 · 预警后范围下砸', threatLevel: tank.threatLevel,
     textureKey: bossArt(2).key, visualScale: bossArt(2).scale,
     hasArt: hasDeliveredArt(bossArt(2).key),
@@ -267,7 +267,7 @@ export function buildCodexEntries(
     id: 'stage2-boss',
     category: '首领',
     name: boss.displayName,
-    variant: '第 1 层首领池',
+    variant: '常规首领名册',
     role: `远程首领 · 保持 ${boss.keepDistance}px 距离并释放环形弹幕`,
     threatLevel: 5,
     textureKey: bossArt(3).key,
@@ -290,10 +290,10 @@ export function buildCodexEntries(
   })
 
   const extraBosses = [
-    { floor: 4, id: 'acid-boss', name: '巴巴博一', role: '酸池与积水覆盖战场，持续伤害并扰乱走位' },
+    { floor: 4, id: 'acid-boss', name: '巴巴博一', role: '用笑声驱使怪群，并连续发射环形弹幕' },
     { floor: 5, id: 'sports-boss', name: '刀盾狗', role: '无敌反弹冲撞与范围跳砸，敌我都会遭殃' },
     { floor: 6, id: 'rollcall-boss', name: '圆头耄耋', role: '辨认真身的分身战，并将全场小怪统一变形' },
-    { floor: 7, id: 'banana-cat-boss', name: '香蕉猫', role: '用笑声驱使怪群，并连续发射环形弹幕' },
+    { floor: 7, id: 'banana-cat-boss', name: '香蕉猫', role: '酸池与积水覆盖战场，持续伤害并扰乱走位' },
     { floor: 8, id: 'fat-cat-boss', name: '肥嘟嘟', role: '连续弹幕与强化怪群' },
   ] as const
   for (const entry of extraBosses) entries.push({
@@ -321,7 +321,7 @@ export function buildCodexEntries(
     ],
     combatNotes: [
       ...bossSkillNotes(bossSkills, 9, modifiers.enemyDamage * (encounter?.bossDamageMultiplier ?? 1)),
-      '近身范围下砸，下砸后短暂易伤；首领挡子弹。',
+      '近身下砸后短暂易伤；首领挡子弹。',
       ...bossNotes(encounter, tank.slam.damage * modifiers.enemyDamage, 3, encounter ? (encounter.heartDemonHp ?? encounter.bossHp + 3 * encounter.bossHpPerStage) : undefined),
     ],
     lorePlaceholder: '',
@@ -378,6 +378,7 @@ function bossNotes(
   const hp = hpOverride ?? encounter.bossHp + (layer - 1) * encounter.bossHpPerStage
   return [
     `第${layer}层生命${hp}；单次攻击伤害${Math.round(baseDamage * encounter.bossDamageMultiplier)}点；每${formatSeconds(support.cooldownMs)}补充小怪，清空后开门。`,
+    '首领接触会伤人。',
   ]
 }
 

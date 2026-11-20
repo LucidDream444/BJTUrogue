@@ -37,7 +37,10 @@ export class RadialBurstFx {
     }
     for (const shot of this.enemies.radialShots.shots) {
       if (!shot.active) continue
-      const radius = shot.radius
+      const pulse = shot.pulsePeriodMs > 0
+        ? Math.sin((now / shot.pulsePeriodMs) * Math.PI * 2 + shot.id) * 0.5 + 0.5
+        : 0
+      const radius = shot.radius * (shot.pulseMin + (shot.pulseMax - shot.pulseMin) * pulse)
       const dx = shot.vx / shot.speed,
         dy = shot.vy / shot.speed
       const age = now - shot.bornAtMs

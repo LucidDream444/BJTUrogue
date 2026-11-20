@@ -455,7 +455,7 @@ export class Weapons {
 
   private applySwing(now: number, swing: Swing): void {
     const weapon = swing.weapon
-    if (this.trait(weapon, 'destroyShot'))
+    if (weapon.mode === 'melee' || this.trait(weapon, 'destroyShot'))
       this.port.destroyShotsInArc(
         swing.x,
         swing.y,

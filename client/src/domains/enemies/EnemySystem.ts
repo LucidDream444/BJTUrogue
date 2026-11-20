@@ -1864,7 +1864,7 @@ export class EnemySystem implements ActorEventSink {
 
   fireBossVolley(id: number, volley: BossVolley): number {
     const entry = this.byId.get(id)
-    if (this.disposed || !entry?.model.alive || !entry.view.body || !this.isBoss(id)) return 0
+    if (this.disposed || !entry?.model.alive || !entry.view.body || (!this.isBoss(id) && !this.cloneBossStages.has(id))) return 0
     const center = entry.view.body.center
     return this.radialShots.emitCustom(id, center.x, center.y, this.clock.nowMs, volley)
   }
@@ -1989,7 +1989,7 @@ export class EnemySystem implements ActorEventSink {
     const sin = Math.sin(angle)
     let destroyed = 0
     for (const shot of this.radialShots.shots) {
-      if (!shot.active) continue
+      if (!shot.active || !shot.clearable) continue
       const dx = shot.x - x
       const dy = shot.y - y
       const distance = Math.hypot(dx, dy)
