@@ -1,4 +1,4 @@
-import { TALENT_KINDS, type TalentDef, type TalentRules } from './TalentRun'
+import { TALENT_KINDS, type TalentDef, type TalentKind, type TalentRules } from './TalentRun'
 import type { BalanceConfig } from '@/core/config'
 import { validateAimArt, type AimArtConfig } from './AimPose'
 import type { BossReinforcementsConfig } from './BossReinforcements'
@@ -177,8 +177,53 @@ export interface WeaponEffectsConfig {
   muzzleParticles: number
   glowAlpha: number
 }
+export const TALENT_FX_GLYPHS = [
+  'dot',
+  'twin',
+  'arrow',
+  'ring',
+  'star',
+  'bolt',
+  'crescent',
+  'burst',
+  'hex',
+  'droplet',
+  'snow',
+  'clock',
+  'heart',
+  'battery',
+  'book',
+  'void',
+  'link',
+  'chevron',
+  'bell',
+  'loop',
+  'fan',
+  'flame',
+  'shard',
+] as const
+export type TalentFxGlyph = (typeof TALENT_FX_GLYPHS)[number]
+
+export interface TalentFxEntry {
+  glyph: TalentFxGlyph
+  /** 0xRRGGBB; kept away from enemy red. */
+  color: number
+}
+
+export interface TalentFxConfig {
+  orbitRadius: number
+  orbitSize: number
+  idleAlpha: number
+  activeAlpha: number
+  spinRadPerSec: number
+  burstMs: number
+  ringColor: number
+  entries: Record<TalentKind, TalentFxEntry>
+}
+
 export interface CombatConfig {
   talents?: TalentRules
+  talentFx?: TalentFxConfig
   aimArt: AimArtConfig
   weaponEffects: WeaponEffectsConfig
   schemaVersion: number
@@ -193,6 +238,10 @@ export interface CombatConfig {
     maxStamina: number
     staminaRegenPerSec: number
     maxShield: number
+    /** Passive shield recovery per second; 0 disables it. */
+    shieldRegenPerSec: number
+    /** Quiet time after the last damage before passive shield recovery resumes. */
+    shieldRegenDelayMs: number
     gunRunFirstFrame: number
     gunRunFrameCount: number
     gunRunFrameRate: number
@@ -578,6 +627,51 @@ function validateWeaponTraits(traits: WeaponTrait[]): void {
   }
 }
 
+export function validateTalentFx(raw: unknown): TalentFxConfig {
+  if (!raw || typeof raw !== 'object') throw new Error('talentFx: 缺少配置')
+  const r = raw as Record<string, unknown>
+  const number = (key: string, min = 0): number => {
+    const value = r[key]
+    if (typeof value !== 'number' || !Number.isFinite(value) || value < min)
+      throw new Error(`talentFx.${key}: 非法数值`)
+    return value
+  }
+  const orbitRadius = number('orbitRadius', 1)
+  const orbitSize = number('orbitSize', 1)
+  const idleAlpha = number('idleAlpha', 0)
+  const activeAlpha = number('activeAlpha', 0)
+  const spinRadPerSec = number('spinRadPerSec', 0)
+  const burstMs = number('burstMs', 1)
+  const ringColor = number('ringColor', 0)
+  if (idleAlpha > 1 || activeAlpha > 1 || idleAlpha > activeAlpha)
+    throw new Error('talentFx: 透明度必须在 [0,1] 且 idleAlpha ≤ activeAlpha')
+  if (!Number.isInteger(ringColor) || ringColor > 0xffffff)
+    throw new Error('talentFx.ringColor: 必须是 0xRRGGBB')
+  if (!r.entries || typeof r.entries !== 'object') throw new Error('talentFx.entries: 缺少配置')
+  const entries = r.entries as Record<string, unknown>
+  const expected = new Set<string>(TALENT_KINDS)
+  const actual = Object.keys(entries)
+  if (actual.length !== expected.size || actual.some((kind) => !expected.has(kind)))
+    throw new Error('talentFx.entries: 必须且只能覆盖全部 TALENT_KINDS')
+  const parsed = {} as Record<TalentKind, TalentFxEntry>
+  for (const kind of TALENT_KINDS) {
+    const entry = entries[kind]
+    if (!entry || typeof entry !== 'object') throw new Error(`talentFx.entries.${kind}: 缺少配置`)
+    const e = entry as Record<string, unknown>
+    if (typeof e.glyph !== 'string' || !TALENT_FX_GLYPHS.includes(e.glyph as TalentFxGlyph))
+      throw new Error(`talentFx.entries.${kind}.glyph: 未知字形`)
+    if (
+      typeof e.color !== 'number' ||
+      !Number.isInteger(e.color) ||
+      e.color < 0 ||
+      e.color > 0xffffff
+    )
+      throw new Error(`talentFx.entries.${kind}.color: 必须是 0xRRGGBB`)
+    parsed[kind] = { glyph: e.glyph as TalentFxGlyph, color: e.color }
+  }
+  return { orbitRadius, orbitSize, idleAlpha, activeAlpha, spinRadPerSec, burstMs, ringColor, entries: parsed }
+}
+
 export function parseCombatConfig(raw: unknown): CombatConfig {
   const c = raw as CombatConfig
   if (!c || c.schemaVersion !== 1 || !Array.isArray(c.weapons) || c.weapons.length < 2)
@@ -655,12 +749,16 @@ export function parseCombatConfig(raw: unknown): CombatConfig {
     'maxStamina',
     'staminaRegenPerSec',
     'maxShield',
+    'shieldRegenPerSec',
+    'shieldRegenDelayMs',
     'facingDeadzonePx',
   ] as const) {
     if (!Number.isFinite(c.player[key]) || c.player[key] < 0)
       throw new Error('player.' + key + ': 缺少或非法的资源配置')
   }
   if (c.player.maxStamina <= 0) throw new Error('player.maxStamina: 必须为正数')
+  if (!Number.isInteger(c.player.shieldRegenDelayMs))
+    throw new Error('player.shieldRegenDelayMs: 必须为整数毫秒')
   for (const key of ['shoot', 'runGun', 'pulseShoot', 'pulseRun'] as const) {
     const points = c.gunMuzzles?.[key]
     if (
@@ -938,8 +1036,9 @@ export function parseCombatConfig(raw: unknown): CombatConfig {
     throw new Error('combat: 池容量/时间/加速度无效')
   if (c.talents) {
     const t=c.talents
-    if (!Array.isArray(t.floorChoices) || t.floorChoices.length!==c.arena.maxStages || t.floorChoices.some((n)=>!Number.isInteger(n)||n<0) || !Number.isInteger(t.maxOwned) || t.maxOwned!==1+t.floorChoices.reduce((sum,n)=>sum+n,0) || Object.entries(t).some(([key,value])=>key!=='floorChoices'&&(typeof value!=='number'||!Number.isFinite(value)||value<=0)) || t.maxCritChance>1 || t.maxCostReduction>=1 || t.maxCooldownReduction>=1 || t.baseCritChance>t.maxCritChance) throw new Error('combat: 天赋规则无效')
+    if (!Array.isArray(t.floorChoices) || t.floorChoices.length!==c.arena.maxStages || t.floorChoices.some((n)=>!Number.isInteger(n)||n<0) || !Number.isInteger(t.maxOwned) || t.maxOwned!==1+t.floorChoices.reduce((sum,n)=>sum+n,0) || !Number.isInteger(t.offerCount) || t.offerCount < 2 || t.offerCount > 5 || Object.entries(t).some(([key,value])=>key!=='floorChoices'&&(typeof value!=='number'||!Number.isFinite(value)||value<=0)) || t.maxCritChance>1 || t.maxCostReduction>=1 || t.maxCooldownReduction>=1 || t.baseCritChance>t.maxCritChance) throw new Error('combat: 天赋规则无效')
   }
+  if (c.talentFx) c.talentFx = validateTalentFx(c.talentFx)
   validateAimArt(c.aimArt)
   return c
 }

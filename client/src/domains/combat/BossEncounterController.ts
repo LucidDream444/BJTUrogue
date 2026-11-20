@@ -6,7 +6,9 @@ import { NAILONG_SKILL_AUDIO } from '@/core/assetManifest'
 import { bossArt } from '@/domains/enemies/presentation/bossArt'
 import {
   BossSkillRuntime,
+  type BossBarrageSpec,
   type BossSkillPort,
+  type BossSkillUnit,
   type BossSkillVolley,
   type BossSkillsTable,
 } from './BossSkillRuntime'
@@ -16,24 +18,6 @@ import type { CombatSession } from './CombatSession'
 import { bossArenaContainsCircle, bossArenaPoint } from './BossArenaBounds'
 import type { BossHazardCommand } from './BossHazards'
 
-const LABELS: Readonly<Record<string, string>> = {
-  campus_slow: '课业重压 · 全场减速',
-  paper_summon: '作业堆积 · 纸团召唤',
-  radial: '考卷环形弹幕',
-  triangle: '三连瞬移 · 警惕连线',
-  haste: '纸鸢加速',
-  acid_pools: '酸蚀溶液 · 离开绿圈',
-  water_pools: '湿滑水面 · 直线滑行',
-  ricochet_charge: '无敌反弹冲撞',
-  leap_slam: '预警跃击 · 躲开落点',
-  clones: '分身点名 · 找出真身',
-  transmute: '全场怪物变形',
-  rally: '大笑 · 怪群加速',
-  blue_barrage: '蓝色连环弹幕',
-  mimic_chain: '心魔 · 借用梦魇',
-  rewind: '时间倒转',
-  player_shadow: '心魔 · 玩家之影',
-}
 export interface BossEncounterOptions {
   bounds(): { left: number; top: number; right: number; bottom: number }
   sfxVolume(): number
@@ -46,7 +30,6 @@ export class BossEncounterController {
   readonly port: BossSkillPort
   private readonly view: BossHazardView
   private readonly screen: Phaser.GameObjects.Graphics
-  private readonly caption: Phaser.GameObjects.Text
   private readonly weapon: Phaser.GameObjects.Image
   private readonly ghost: Phaser.GameObjects.Sprite
   private flight: {
@@ -63,8 +46,14 @@ export class BossEncounterController {
   /** 独立弹幕调度：与技能 `busyUntil` 无关，固定间隔轮换三种弹幕。 */
   private barrageIndex = 0
   private nextBarrageAtMs = 0
+  /** 当前弹幕内的连发轮次；与全局间隔分开，避免一整串被长帧吞掉。 */
+  private barrageBurst: {
+    pattern: BossBarrageSpec
+    remaining: number
+    fired: number
+    nextAt: number
+  } | null = null
   private redAlpha = 0
-  private captionUntil = 0
   private weaponOwner: number | null = null
   private disposed = false
   /** 第七层奶龙的三段技能语音；每次释放技能随机一段。 */
@@ -78,16 +67,6 @@ export class BossEncounterController {
   ) {
     const e = session.enemies.skills
     this.screen = scene.add.graphics().setDepth(9000)
-    this.caption = scene.add
-      .text(0, 0, '', {
-        fontSize: 22,
-        color: '#fff4d8',
-        backgroundColor: '#241831',
-        padding: { x: 12, y: 8 },
-      })
-      .setOrigin(0.5)
-      .setDepth(8000)
-      .setVisible(false)
     this.weapon = scene.add
       .image(0, 0, textureKeyFor(scene, session.weapon.artKey))
       .setVisible(false)
@@ -162,14 +141,11 @@ export class BossEncounterController {
         e.setUnitRally(id, until)
       },
       damage: (id, damage, sourceId, hitKey) => this.damage(id, damage, sourceId, hitKey),
-      onCast: (id, floor, skillId, until) => {
-        this.caption.setText(LABELS[skillId] ?? skillId).setVisible(true)
-        this.captionUntil = Math.max(until, session.clock.nowMs + 1200)
+      onCast: (id, floor, skillId, _until) => {
         const u = e.skillUnits().find((u) => u.id === id)
         // 只有本尊奶龙（第 7 层首领）释放技能才播；心魔借用同一技能时不误播。
         if (u?.bossStage === 7) this.playNailongSkillVoice()
         if (u) {
-          this.caption.setPosition(u.x, u.y - u.radius - 95)
           if (!this.canPlace(u.x, u.y, u.radius)) {
             const safe = this.safePoint(u.x, u.y, u.radius)
             this.placeUnit(u.id, safe.x, safe.y)
@@ -275,6 +251,7 @@ export class BossEncounterController {
         this.session.enemies.skills.setBossAppearance(boss.id, { visualScale })
       this.barrageIndex = 0
       this.nextBarrageAtMs = now + (barrages?.initialDelayMs ?? 0)
+      this.barrageBurst = null
     }
     const dt = Math.max(0, Math.min(1000 / 30, now - this.lastAt))
     this.lastAt = now
@@ -282,23 +259,28 @@ export class BossEncounterController {
     const commands = this.runtime.update(now, dt, boss.id, stage)
     for (const command of commands) this.apply(command)
     // 弹幕独立于技能冷却：技能正在释放时这里照样按自己的固定间隔开火。
-    if (barrages && now >= this.nextBarrageAtMs) {
-      const pattern = barrages.patterns[this.barrageIndex % barrages.patterns.length]!
-      const player = this.session.player
-      const aimed = Math.atan2(player.y - boss.y, player.x - boss.x)
-      const spreadRad = (pattern.spreadDeg * Math.PI) / 180
-      const volley: BossSkillVolley = {
-        count: pattern.count,
-        speed: pattern.speed,
-        radius: pattern.radius,
-        damage: Math.round(pattern.damage * this.port.damageMultiplier),
-        lifetimeMs: pattern.lifetimeMs,
-        color: barrages.color,
-        ...(pattern.pattern === 'ring' ? {} : { angleRad: aimed, spreadRad }),
+    if (barrages) {
+      // 先开新的一串；同一帧再放第一轮，避免初始延迟被多算一帧。
+      if (!this.barrageBurst && now >= this.nextBarrageAtMs) {
+        const pattern = barrages.patterns[this.barrageIndex % barrages.patterns.length]!
+        this.barrageBurst = {
+          pattern,
+          remaining: Math.max(1, pattern.bursts ?? 1),
+          fired: 0,
+          nextAt: now,
+        }
+        this.barrageIndex = (this.barrageIndex + 1) % barrages.patterns.length
+        this.nextBarrageAtMs = now + barrages.intervalMs
       }
-      this.session.enemies.skills.fireBossVolley(boss.id, volley)
-      this.barrageIndex = (this.barrageIndex + 1) % barrages.patterns.length
-      this.nextBarrageAtMs = now + barrages.intervalMs
+      // 只追一轮；长帧不补发整串，否则切标签页回来会瞬间铺满屏幕。
+      if (this.barrageBurst && now >= this.barrageBurst.nextAt) {
+        const burst = this.barrageBurst
+        this.fireBarrage(boss, burst.pattern, burst.fired, barrages.color)
+        burst.fired++
+        burst.remaining--
+        if (burst.remaining <= 0) this.barrageBurst = null
+        else burst.nextAt = now + (burst.pattern.burstIntervalMs ?? 0)
+      }
     }
     // The paper kite's basic ring is owned by the configured scheduler.
     if (stage === 3) this.session.enemies.skills.setBossManualAttacks(boss.id, true)
@@ -316,7 +298,6 @@ export class BossEncounterController {
         )
     }
     if (this.flight && now >= this.flight.end) this.flight = null
-    this.caption.setVisible(now < this.captionUntil)
     this.screen.clear()
     if (this.redAlpha > 0) {
       const camera = this.scene.cameras.main,
@@ -338,6 +319,37 @@ export class BossEncounterController {
       }
     }
   }
+  /** Fire one burst; `burstIndex` rotates fan/ring/line patterns. */
+  private fireBarrage(
+    boss: BossSkillUnit,
+    pattern: BossBarrageSpec,
+    burstIndex: number,
+    color: number,
+  ): void {
+    const player = this.session.player
+    const rotate = ((pattern.angleStepDeg ?? 0) * burstIndex * Math.PI) / 180
+    const aimed = Math.atan2(player.y - boss.y, player.x - boss.x) + rotate
+    const spreadRad = (pattern.spreadDeg * Math.PI) / 180
+    const volley: BossSkillVolley = {
+      count: pattern.count,
+      speed: pattern.speed,
+      radius: pattern.radius,
+      damage: Math.round(pattern.damage * this.port.damageMultiplier),
+      lifetimeMs: pattern.lifetimeMs,
+      color,
+      ...(pattern.pattern === 'ring'
+        ? { angleOffsetRad: rotate }
+        : { angleRad: aimed, spreadRad }),
+      ...(pattern.speedEnd !== undefined ? { speedEnd: pattern.speedEnd } : {}),
+      ...(pattern.speedRampMs !== undefined ? { speedRampMs: pattern.speedRampMs } : {}),
+      ...(pattern.bounceCount !== undefined ? { bounceCount: pattern.bounceCount } : {}),
+      ...(pattern.pattern === 'line' && pattern.lineSpacingPx !== undefined
+        ? { lineSpacingPx: pattern.lineSpacingPx }
+        : {}),
+    }
+    this.session.enemies.skills.fireBossVolley(boss.id, volley)
+  }
+
   private apply(command: BossHazardCommand): void {
     const player = this.session.player,
       now = this.session.clock.nowMs
@@ -508,9 +520,9 @@ export class BossEncounterController {
     this.bossId = null
     this.barrageIndex = 0
     this.nextBarrageAtMs = 0
+    this.barrageBurst = null
     this.redAlpha = 0
     this.screen.clear()
-    this.caption.setVisible(false)
     this.weapon.setVisible(false)
     this.weaponOwner = null
     this.flight = null
@@ -525,7 +537,6 @@ export class BossEncounterController {
     this.nailongVoices.length = 0
     this.view.destroy()
     this.screen.destroy()
-    this.caption.destroy()
     this.weapon.destroy()
     this.ghost.destroy()
   }

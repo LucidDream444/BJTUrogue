@@ -30,6 +30,20 @@ export interface BossBarrageSpec {
   radius: number
   damage: number
   lifetimeMs: number
+  /** 一次弹幕里连续放几轮；默认 1。 */
+  bursts?: number
+  /** 两轮之间的间隔毫秒；默认 0。 */
+  burstIntervalMs?: number
+  /** 每轮额外旋转的角度；默认 0。 */
+  angleStepDeg?: number
+  /** 慢速起步后加速到的速度；不填则匀速。 */
+  speedEnd?: number
+  /** 从 speed 过渡到 speedEnd 的时长；0/不填表示不加速。 */
+  speedRampMs?: number
+  /** 撞墙反弹次数；默认 0（撞墙即消失）。 */
+  bounceCount?: number
+  /** 直线弹幕的平行间距；0 表示全部从同一点射出。 */
+  lineSpacingPx?: number
 }
 
 export interface BossBarrageConfig {
@@ -163,6 +177,16 @@ export function parseBossSkillsTable(raw: unknown): BossSkillsTable {
         throw new Error(`${patternPath}.pattern 必须是 ring/fan/line`)
       const count = number(source.count, `${patternPath}.count`, true)
       if (!Number.isInteger(count)) throw new Error(`${patternPath}.count 必须是整数`)
+      const optional = (key: string, positive = false): number | undefined => {
+        if (source[key] === undefined) return undefined
+        return number(source[key], `${patternPath}.${key}`, positive)
+      }
+      const bursts = optional('bursts')
+      if (bursts !== undefined && (!Number.isInteger(bursts) || bursts < 1))
+        throw new Error(`${patternPath}.bursts 必须是正整数`)
+      const bounceCount = optional('bounceCount')
+      if (bounceCount !== undefined && (!Number.isInteger(bounceCount) || bounceCount < 0))
+        throw new Error(`${patternPath}.bounceCount 必须是非负整数`)
       return {
         id,
         pattern: pattern as BossBarragePattern,
@@ -172,6 +196,21 @@ export function parseBossSkillsTable(raw: unknown): BossSkillsTable {
         radius: number(source.radius, `${patternPath}.radius`, true),
         damage: number(source.damage, `${patternPath}.damage`, true),
         lifetimeMs: number(source.lifetimeMs, `${patternPath}.lifetimeMs`, true),
+        ...(bursts !== undefined ? { bursts } : {}),
+        ...(source.burstIntervalMs !== undefined
+          ? { burstIntervalMs: optional('burstIntervalMs')! }
+          : {}),
+        ...(source.angleStepDeg !== undefined
+          ? { angleStepDeg: optional('angleStepDeg')! }
+          : {}),
+        ...(source.speedEnd !== undefined ? { speedEnd: optional('speedEnd', true)! } : {}),
+        ...(source.speedRampMs !== undefined
+          ? { speedRampMs: optional('speedRampMs')! }
+          : {}),
+        ...(bounceCount !== undefined ? { bounceCount } : {}),
+        ...(source.lineSpacingPx !== undefined
+          ? { lineSpacingPx: optional('lineSpacingPx')! }
+          : {}),
       }
     })
     barrages[floor] = { intervalMs, initialDelayMs, color, patterns }
@@ -212,6 +251,12 @@ export interface BossSkillVolley {
   color?: number
   angleRad?: number
   spreadRad?: number
+  /** Ring-only rotation; ignored when angleRad is set. */
+  angleOffsetRad?: number
+  speedEnd?: number
+  speedRampMs?: number
+  bounceCount?: number
+  lineSpacingPx?: number
 }
 
 /** 只包含公开命令与只读快照；BattleScene 适配到 EnemyBridge 和 Player。 */
