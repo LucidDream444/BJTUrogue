@@ -31,7 +31,7 @@ export class EnemyHealthBars {
     this.visibleCount = 0
     for (const { model, view } of this.enemies.liveEnemies) {
       if (!model.alive || !view.visible || !view.body.enable) continue
-      if (this.enemies.isBoss(model.id)) continue
+      if (this.enemies.isBoss(model.id) && !this.enemies.isEliteBoss(model.id)) continue
       const width = Math.max(28, Math.min(56, model.stats.radius * 2))
       const height = 5
       const x = view.x - width / 2
@@ -96,8 +96,8 @@ export class EnemyHealthBars {
         this.bossRoot.add([label.name, label.value])
         this.bossLabels.set(boss.id, label)
       }
-      const name = boss.finalBoss ? '心魔' : bossDisplayName(boss.stage, this.stage2Name)
-      label.name.setPosition(0, y).setText(`第 ${boss.stage} 层 · ${name}`)
+      const name = boss.finalBoss ? '奶龙' : bossDisplayName(boss.stage, this.stage2Name)
+      label.name.setPosition(0, y).setText(boss.finalBoss ? `最终战 · ${name}` : `第 ${boss.stage} 层 · ${name}`)
       label.value.setPosition(width, y).setText(`${Math.ceil(boss.hp)} / ${Math.ceil(boss.maxHp)}`)
     }
   }

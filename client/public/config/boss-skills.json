@@ -1,6 +1,6 @@
 {
   "schemaVersion": 1,
-  "_comment": "七位首领档位技能表。键 \"2\"..\"8\" 是**首领档位**（不是楼层号），每条里的 id 是稳定身份（coursework / paper_kite / … / heart_demon）；伤害为基础值，运行时统一乘当前难度与首领伤害倍率。所有毫秒、速度、半径、概率与数量均由本表维护。",
+  "_comment": "七位常规首领（档位 2—8）+ 最终奶龙（档位 9）技能表。每条里的 id 是稳定身份（coursework / paper_kite / … / nailong）；伤害为基础值，运行时统一乘当前难度与首领伤害倍率。所有毫秒、速度、半径、概率与数量均由本表维护。",
   "bosses": {
     "2": {
       "id": "coursework",
@@ -56,7 +56,8 @@
           "damage": 18,
           "damageTickMs": 400,
           "lineDurationMs": 3500,
-          "warningMs": 650
+          "warningMs": 650,
+          "triangleRadius": 360
         },
         {
           "id": "haste",
@@ -153,8 +154,8 @@
       ]
     },
     "7": {
-      "id": "nailong",
-      "name": "奶龙",
+      "id": "banana_cat",
+      "name": "香蕉猫",
       "skillIntervalMs": 7500,
       "visualScale": 1.5,
       "skills": [
@@ -185,8 +186,39 @@
       ]
     },
     "8": {
-      "id": "heart_demon",
-      "name": "心魔",
+      "id": "fat_cat",
+      "name": "肥嘟嘟",
+      "skillIntervalMs": 8500,
+      "skills": [
+        {
+          "id": "rally",
+          "cooldownMs": 16000,
+          "initialDelayMs": 5000,
+          "durationMs": 5500,
+          "speedMultiplier": 1.9,
+          "aggroRadius": 5000,
+          "laughPulseMs": 550
+        },
+        {
+          "id": "blue_barrage",
+          "cooldownMs": 14000,
+          "initialDelayMs": 10000,
+          "roundsMin": 5,
+          "roundsMax": 7,
+          "roundIntervalMs": 450,
+          "count": 18,
+          "projectileSpeed": 210,
+          "projectileRadius": 7,
+          "damage": 12,
+          "lifetimeMs": 4200,
+          "volleyOffsetDeg": 10,
+          "color": 4238335
+        }
+      ]
+    },
+    "9": {
+      "id": "nailong",
+      "name": "奶龙",
       "skillIntervalMs": 8500,
       "skills": [
         {
@@ -614,6 +646,62 @@
           "angleStepDeg": 4,
           "bounceCount": 3,
           "lineSpacingPx": 24
+        }
+      ]
+    },
+    "9": {
+      "intervalMs": 4200,
+      "initialDelayMs": 2200,
+      "color": 16726843,
+      "patterns": [
+        {
+          "id": "nailong_fan",
+          "pattern": "fan",
+          "count": 15,
+          "spreadDeg": 7,
+          "speed": 210,
+          "radius": 7,
+          "damage": 5,
+          "lifetimeMs": 4600,
+          "speedEnd": 280,
+          "speedRampMs": 950,
+          "bursts": 3,
+          "burstIntervalMs": 120,
+          "angleStepDeg": 6,
+          "bounceCount": 1
+        },
+        {
+          "id": "nailong_ring",
+          "pattern": "ring",
+          "count": 34,
+          "spreadDeg": 0,
+          "speed": 170,
+          "radius": 5,
+          "damage": 4,
+          "lifetimeMs": 4800,
+          "speedEnd": 210,
+          "speedRampMs": 1200,
+          "bursts": 3,
+          "burstIntervalMs": 140,
+          "angleStepDeg": 9,
+          "bounceCount": 1
+        },
+        {
+          "id": "nailong_line",
+          "pattern": "line",
+          "count": 7,
+          "spreadDeg": 0,
+          "speed": 130,
+          "radius": 10,
+          "damage": 9,
+          "lifetimeMs": 3200,
+          "speedEnd": 540,
+          "speedRampMs": 800,
+          "bursts": 4,
+          "burstIntervalMs": 95,
+          "angleStepDeg": 4,
+          "bounceCount": 2,
+          "lineSpacingPx": 26
         }
       ]
     }

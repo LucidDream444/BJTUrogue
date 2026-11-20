@@ -1,11 +1,16 @@
 {
-  "schemaVersion": 1,
-  "_comment": "★ 2026-11-19：一局三层 + 心魔最终战的首领池。每个首领用 boss-skills.json 条目里的稳定 id；池与池互斥，所以一局内不会重复。心魔（heart_demon）固定为第 3 层池内首领之后的最终首领，不参与抽取，也不能出现在任何层池里。",
-  "_owner": "D3。字段定义归 D3，消费方是 D1（按层抽首领）与 D4（图鉴的「第 N 层首领池」文案）。",
-  "pools": {
-    "1": ["coursework", "paper_kite"],
-    "2": ["acid_sprinkler", "sports_gear"],
-    "3": ["roll_call", "nailong"]
-  },
-  "finalBoss": "heart_demon"
+  "schemaVersion": 2,
+  "_comment": "★ 2026-11-20：奶龙成为最终首领；每局开局从 7 位常规首领中抽 2 位作为两层首领，其余 5 位进入精英房精英池（不同精英房可以重复遇到同一位）。最终首领固定为奶龙（id: nailong / profile 9）。",
+  "_owner": "D3。字段定义归 D3，消费方是 D1（按局抽首领）与 D4（图鉴）。",
+  "roster": [
+    "coursework",
+    "paper_kite",
+    "acid_sprinkler",
+    "sports_gear",
+    "roll_call",
+    "banana_cat",
+    "fat_cat"
+  ],
+  "layerBossCount": 2,
+  "finalBoss": "nailong"
 }

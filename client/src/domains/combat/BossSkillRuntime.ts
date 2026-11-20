@@ -97,9 +97,9 @@ export function parseBossSkillsTable(raw: unknown): BossSkillsTable {
   const root = object(raw, 'boss-skills')
   if (root.schemaVersion !== 1) throw new Error('boss-skills.schemaVersion 必须为 1')
   const entries = object(root.bosses, 'boss-skills.bosses')
-  const expectedFloors = ['2', '3', '4', '5', '6', '7', '8']
+  const expectedFloors = ['2', '3', '4', '5', '6', '7', '8', '9']
   if (Object.keys(entries).sort().join(',') !== expectedFloors.join(','))
-    throw new Error('boss-skills.bosses 必须完整包含第 2—8 层七位首领')
+    throw new Error('boss-skills.bosses 必须完整包含第 2—9 层八位首领')
   const bosses: Record<string, BossFloorSkills> = {}
   for (const floor of expectedFloors) {
     const path = `boss-skills.bosses.${floor}`
@@ -502,7 +502,7 @@ export class BossSkillRuntime {
   }
 
   private scheduleNext(bossId: number, stage: number, nowMs: number): void {
-    if (stage === 8 || nowMs < this.busyUntil || nowMs < this.nextCastMs) return
+    if (stage === 9 || nowMs < this.busyUntil || nowMs < this.nextCastMs) return
     const config = this.config.bosses[String(stage)]
     if (config === undefined) return
     let selected = -1
@@ -548,18 +548,25 @@ export class BossSkillRuntime {
         return until
       }
       case 'triangle': {
-        const count = n(skill, 'teleportCount')
+        const count = 3
         const interval = n(skill, 'teleportIntervalMs')
         const warning = n(skill, 'warningMs')
         const until = nowMs + warning + Math.max(0, count - 1) * interval
+        const origin = this.unit(boss.id)
+        const player = this.port.player()
+        const radius = Math.max(n(skill, 'teleportDistance'), n(skill, 'triangleRadius'))
+        // Vertices are built around the player at cast time. They may sit outside the
+        // room (or outside the level); only the boss itself is clamped to a safe point.
+        const points = Array.from({ length: count }, (_, i) => {
+          const angle = -Math.PI / 2 + (i * Math.PI * 2) / count
+          return { x: player.x + Math.cos(angle) * radius, y: player.y + Math.sin(angle) * radius }
+        })
         this.control(boss.id, until)
-        const points: { x: number; y: number }[] = []
         this.repeat(boss.id, count, interval, nowMs + warning, (now, index) => {
           const current = this.unit(boss.id)
           if (current === undefined) return
-          const point = this.around(current, n(skill, 'teleportDistance'), current.radius)
-          this.port.setUnitPosition(boss.id, point.x, point.y)
-          points.push(point)
+          const safe = this.port.safeSpawn(points[index]!.x, points[index]!.y, current.radius)
+          this.port.setUnitPosition(boss.id, safe.x, safe.y)
           if (index !== count - 1) return
           for (let i = 0; i < points.length; i++) {
             const a = points[i]!, b = points[(i + 1) % points.length]!
@@ -567,6 +574,9 @@ export class BossSkillRuntime {
               damage: this.scaled(skill), tickMs: n(skill, 'damageTickMs'), activatesMs: now + warning,
               expiresMs: now + warning + n(skill, 'lineDurationMs'), sourceId: boss.id })
           }
+          // Return to the pre-cast position; this is what prevents the boss from being
+          // stranded outside the level after a wide triangle teleport.
+          if (origin) this.port.setUnitPosition(boss.id, origin.x, origin.y)
           this.control(boss.id, now)
         })
         return until + warning
