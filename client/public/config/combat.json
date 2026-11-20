@@ -1044,9 +1044,9 @@
     "initialMuscovies": 0.6,
     "initialNightmareCats": 0.4,
     "muscovyMinFloor": 2,
-    "nightmareCatMinFloor": 3,
+    "nightmareCatMinFloor": 2,
     "finale": {
-      "floor": 3,
+      "floor": 2,
       "finalRewardId": "run_clear",
       "heartDemonHp": 1800
     },
@@ -1058,7 +1058,7 @@
     "intermissionMs": 1600,
     "roomsPerFloor": 7,
     "sideRoomsPerFloor": 3,
-    "maxStages": 3
+    "maxStages": 2
   },
   "gunMuzzles": {
     "shoot": [
@@ -2001,6 +2001,9 @@
     "bossDamageMultiplier": 1.5,
     "bossVisualScaleMultiplier": 2,
     "bossHitRadiusMultiplier": 2,
+    "eliteBossVisualScale": 0.24,
+    "eliteBossHpScale": 0.5,
+    "eliteBossRadius": 20,
     "bossReinforcements": {
       "cooldownMs": 8000,
       "maxAlive": 6,
@@ -2484,9 +2487,8 @@
     "rerolls": 2,
     "offerCount": 4,
     "floorChoices": [
-      2,
       3,
-      2
+      4
     ],
     "baseCritChance": 0.1,
     "baseCritMultiplier": 1.5,
@@ -2519,40 +2521,142 @@
     "burstMs": 550,
     "ringColor": 10147536,
     "entries": {
-      "split": { "glyph": "twin", "color": 6809849 },
-      "bounce": { "glyph": "loop", "color": 8246268 },
-      "pierce": { "glyph": "arrow", "color": 9684477 },
-      "homing": { "glyph": "ring", "color": 6809849 },
-      "critical": { "glyph": "star", "color": 16436245 },
-      "scatter": { "glyph": "fan", "color": 16498468 },
-      "sword_wave": { "glyph": "crescent", "color": 10221256 },
-      "splash": { "glyph": "burst", "color": 16758653 },
-      "charged": { "glyph": "bolt", "color": 16765286 },
-      "ramp": { "glyph": "chevron", "color": 16498468 },
-      "lightning": { "glyph": "bolt", "color": 13019391 },
-      "bravery": { "glyph": "hex", "color": 16767144 },
-      "cooldown": { "glyph": "clock", "color": 9684477 },
-      "skill_haste": { "glyph": "clock", "color": 15772668 },
-      "poison": { "glyph": "droplet", "color": 8843180 },
-      "spread": { "glyph": "link", "color": 10606458 },
-      "ice": { "glyph": "snow", "color": 10216959 },
-      "kill_wave": { "glyph": "burst", "color": 16764808 },
-      "moving_shield": { "glyph": "hex", "color": 10218991 },
-      "shield_gate": { "glyph": "hex", "color": 8246268 },
-      "full_shield": { "glyph": "hex", "color": 12573694 },
-      "shield_battery": { "glyph": "battery", "color": 6809849 },
-      "kill_rush": { "glyph": "chevron", "color": 16628340 },
-      "lunch_drop": { "glyph": "heart", "color": 16361684 },
-      "efficiency": { "glyph": "battery", "color": 16639626 },
-      "room_recovery": { "glyph": "book", "color": 11006928 },
-      "glass": { "glyph": "shard", "color": 14742270 },
-      "last_stand": { "glyph": "flame", "color": 16478597 },
-      "echo": { "glyph": "twin", "color": 15772668 },
-      "opening": { "glyph": "bell", "color": 16569165 },
-      "return": { "glyph": "loop", "color": 6809849 },
-      "orbit": { "glyph": "ring", "color": 10811088 },
-      "blackhole": { "glyph": "void", "color": 12616956 },
-      "chain": { "glyph": "link", "color": 14202110 }
+      "split": {
+        "glyph": "twin",
+        "color": 6809849
+      },
+      "bounce": {
+        "glyph": "loop",
+        "color": 8246268
+      },
+      "pierce": {
+        "glyph": "arrow",
+        "color": 9684477
+      },
+      "homing": {
+        "glyph": "ring",
+        "color": 6809849
+      },
+      "critical": {
+        "glyph": "star",
+        "color": 16436245
+      },
+      "scatter": {
+        "glyph": "fan",
+        "color": 16498468
+      },
+      "sword_wave": {
+        "glyph": "crescent",
+        "color": 10221256
+      },
+      "splash": {
+        "glyph": "burst",
+        "color": 16758653
+      },
+      "charged": {
+        "glyph": "bolt",
+        "color": 16765286
+      },
+      "ramp": {
+        "glyph": "chevron",
+        "color": 16498468
+      },
+      "lightning": {
+        "glyph": "bolt",
+        "color": 13019391
+      },
+      "bravery": {
+        "glyph": "hex",
+        "color": 16767144
+      },
+      "cooldown": {
+        "glyph": "clock",
+        "color": 9684477
+      },
+      "skill_haste": {
+        "glyph": "clock",
+        "color": 15772668
+      },
+      "poison": {
+        "glyph": "droplet",
+        "color": 8843180
+      },
+      "spread": {
+        "glyph": "link",
+        "color": 10606458
+      },
+      "ice": {
+        "glyph": "snow",
+        "color": 10216959
+      },
+      "kill_wave": {
+        "glyph": "burst",
+        "color": 16764808
+      },
+      "moving_shield": {
+        "glyph": "hex",
+        "color": 10218991
+      },
+      "shield_gate": {
+        "glyph": "hex",
+        "color": 8246268
+      },
+      "full_shield": {
+        "glyph": "hex",
+        "color": 12573694
+      },
+      "shield_battery": {
+        "glyph": "battery",
+        "color": 6809849
+      },
+      "kill_rush": {
+        "glyph": "chevron",
+        "color": 16628340
+      },
+      "lunch_drop": {
+        "glyph": "heart",
+        "color": 16361684
+      },
+      "efficiency": {
+        "glyph": "battery",
+        "color": 16639626
+      },
+      "room_recovery": {
+        "glyph": "book",
+        "color": 11006928
+      },
+      "glass": {
+        "glyph": "shard",
+        "color": 14742270
+      },
+      "last_stand": {
+        "glyph": "flame",
+        "color": 16478597
+      },
+      "echo": {
+        "glyph": "twin",
+        "color": 15772668
+      },
+      "opening": {
+        "glyph": "bell",
+        "color": 16569165
+      },
+      "return": {
+        "glyph": "loop",
+        "color": 6809849
+      },
+      "orbit": {
+        "glyph": "ring",
+        "color": 10811088
+      },
+      "blackhole": {
+        "glyph": "void",
+        "color": 12616956
+      },
+      "chain": {
+        "glyph": "link",
+        "color": 14202110
+      }
     }
   }
 }

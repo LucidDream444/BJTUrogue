@@ -326,6 +326,8 @@ export class EnemyModel extends ActorModel<EnemyState> {
   skillStationary = false
   skillAnimationPaused = false
   skillLaughUntilMs = 0
+  /** Presentation-only: play the boss's skill GIF until this logical time. */
+  skillAnimationUntilMs = 0
   skillManualAttacks = false
   slowStacks = 0
   /** 整批一起到期的时刻（Arcade 风格：不逐层独立计时） */
@@ -393,6 +395,7 @@ export class EnemyModel extends ActorModel<EnemyState> {
     this.skillStationary = false
     this.skillAnimationPaused = false
     this.skillLaughUntilMs = 0
+    this.skillAnimationUntilMs = 0
     this.skillManualAttacks = false
   }
 

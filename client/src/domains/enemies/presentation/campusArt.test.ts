@@ -6,9 +6,8 @@ import {
   PAPER_DEATH_ANIMS,
   findAsset,
   resolveTextureKey,
-  BOSS_FIRST_ART,
+  BOSS_ROSTER_ART,
   NAILONG_ART,
-  STAGE2_BOSS_ART,
 } from '@/core/assetManifest'
 import { bossArt, bossDisplayName } from './bossArt'
 
@@ -42,27 +41,26 @@ describe('校园敌人资源交付', () => {
     expect(PAPER_DEATH_ANIMS).toHaveLength(3)
   })
 
-  it('第二至八层七位首领分别使用真实资源与独立名称', () => {
-    const variants = Array.from({ length: 7 }, (_, i) => bossArt(i + 2))
-    expect(new Set(variants.map((variant) => variant.key)).size).toBe(7)
-    expect(variants[0]?.key).toBe(BOSS_FIRST_ART.texture)
-    expect(variants[1]?.key).toBe(STAGE2_BOSS_ART.idle)
-    expect(variants[5]?.key).toBe(NAILONG_ART.texture)
+  it('七位常规首领与最终奶龙分别使用真实资源与独立名称', () => {
+    const variants = Array.from({ length: 8 }, (_, i) => bossArt(i + 2))
+    expect(new Set(variants.map((variant) => variant.key)).size).toBe(8)
+    for (const profile of [2, 3, 4, 5, 6, 7, 8]) {
+      expect(variants[profile - 2]?.key, String(profile)).toBe(BOSS_ROSTER_ART[profile]!.idle)
+      expect(findAsset(variants[profile - 2]!.key)?.placeholder).toBe(false)
+    }
+    expect(variants[7]?.key).toBe(NAILONG_ART.texture)
     expect(variants.every((variant) => variant.tint === 0xffffff)).toBe(true)
-    expect(variants.every((variant) => findAsset(variant.key)?.placeholder === false)).toBe(true)
-    expect(Array.from({ length: 7 }, (_, i) => bossDisplayName(i + 2))).toEqual([
-      '课业重压', '考卷纸鸢', '酸蚀喷灌设备', '失控体育器材', '分身点名册', '奶龙', '心魔',
+    expect(Array.from({ length: 8 }, (_, i) => bossDisplayName(i + 2))).toEqual([
+      '课业重压', '考卷纸鸢', '酸蚀喷灌设备', '失控体育器材', '分身点名册', '香蕉猫', '肥嘟嘟', '奶龙',
     ])
-    const delivered = ASSETS.filter((entry) =>
-      /sprites\/enemies\/(stage2_boss|final_boss)\//.test(entry.path),
-    )
-    expect(delivered).toHaveLength(6)
+    const delivered = ASSETS.filter((entry) => entry.path.startsWith('sprites/enemies/bosses/'))
+    expect(delivered.length).toBeGreaterThanOrEqual(14)
     for (const entry of delivered) {
       expect(findAsset(entry.key)?.placeholder).toBe(false)
       expect(resolveTextureKey(entry.key)).toBe(entry.key)
       const png = readFileSync(new URL(entry.path, assetRoot))
-      expect(png.readUInt32BE(16)).toBe(entry.frameWidth! * 4)
-      expect(png.readUInt32BE(20)).toBe(entry.frameHeight! * 4)
+      expect(png.readUInt32BE(16) % entry.frameWidth!).toBe(0)
+      expect(png.readUInt32BE(20)).toBe(entry.frameHeight!)
     }
   })
 })

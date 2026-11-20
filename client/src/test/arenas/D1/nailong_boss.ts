@@ -8,7 +8,7 @@ import { BossEncounterController } from '@/domains/combat/BossEncounterControlle
 import type { StageCollisionConfig } from '@/domains/combat/StageGeometry'
 
 const LAB = { width: 1344, height: 832 } as const
-const BOSS_STAGE = 7
+const BOSS_STAGE = 9
 
 /**
  * 奶龙（第七层首领）专用白箱场。
@@ -72,13 +72,12 @@ class NailongBossArena extends Phaser.Scene {
     const bossY = LAB.height * 0.45
     this.session.enemies.spawnBoss(
       BOSS_STAGE,
-      3,
+      2,
       'nailong',
       bossX,
       bossY,
-      this.cfg.encounter.bossHp +
-        (BOSS_STAGE - 1) * this.cfg.encounter.bossHpPerStage,
-      false,
+      this.cfg.arena.finale.heartDemonHp,
+      true,
       this.cfg.encounter.bossDamageMultiplier,
     )
     this.bossSkills = new BossEncounterController(
@@ -173,7 +172,7 @@ class NailongBossArena extends Phaser.Scene {
     if (this.session) {
       const model = this.session.player.model
       this.hud.setText([
-        `奶龙 · 第 ${BOSS_STAGE} 层首领弹幕测试（开放场地）`,
+        `最终奶龙 · 弹幕与心魔机制测试（开放场地）`,
         `HP ${Math.ceil(model.hp)}/${model.maxHp}  护盾 ${Math.ceil(model.shield)}/${model.maxShield}  能量 ${Math.ceil(this.session.player.stamina)}/${this.session.player.maxStamina}  保护${this.protectedMode ? '开' : '关'}`,
         `当前武器：${this.session.weapon.name}    WASD 移动 / 左键开火    , . 换武器`,
         `K 试放一次技能（技能与红色弹幕各自独立计时）    P 无敌开关    R 重置    Esc 菜单`,
@@ -199,8 +198,8 @@ class NailongBossArena extends Phaser.Scene {
 }
 
 export const arena = {
-  displayName: '奶龙 · 第七层首领弹幕测试',
+  displayName: '最终奶龙 · 弹幕与终局机制测试',
   description:
-    '开放场地（无课桌/竖墙）：奶龙自动释放技能与红/蓝弹幕；WASD 移动、左键开火、, . 换武器、K 试放技能、P 无敌、R 重置。',
+    '开放场地（无课桌/竖墙）：最终奶龙自动释放技能与红色弹幕；WASD 移动、左键开火、, . 换武器、K 试放技能、P 无敌、R 重置。',
   scene: NailongBossArena,
 }

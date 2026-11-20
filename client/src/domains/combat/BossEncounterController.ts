@@ -2,7 +2,7 @@
 import { Rng } from '@/core/rng'
 import type { EnemyKind } from '@/core/events'
 import { textureKeyFor } from '@/core/assets'
-import { NAILONG_SKILL_AUDIO } from '@/core/assetManifest'
+import { BOSS_ROSTER_ART, NAILONG_SKILL_AUDIO } from '@/core/assetManifest'
 import { bossArt } from '@/domains/enemies/presentation/bossArt'
 import {
   BossSkillRuntime,
@@ -56,8 +56,10 @@ export class BossEncounterController {
   private redAlpha = 0
   private weaponOwner: number | null = null
   private disposed = false
-  /** 第七层奶龙的三段技能语音；每次释放技能随机一段。 */
+  /** 奶龙三段技能语音；每次释放技能随机一段。 */
   private readonly nailongVoices: Phaser.Sound.BaseSound[] = []
+  /** 常规首领的技能音效，按 asset key 分组。 */
+  private readonly bossSkillAudio = new Map<string, Phaser.Sound.BaseSound[]>()
   private readonly unsubPause: () => void
   constructor(
     private readonly scene: Phaser.Scene,
@@ -141,10 +143,15 @@ export class BossEncounterController {
         e.setUnitRally(id, until)
       },
       damage: (id, damage, sourceId, hitKey) => this.damage(id, damage, sourceId, hitKey),
-      onCast: (id, floor, skillId, _until) => {
+      onCast: (id, floor, skillId, until) => {
         const u = e.skillUnits().find((u) => u.id === id)
-        // 只有本尊奶龙（第 7 层首领）释放技能才播；心魔借用同一技能时不误播。
-        if (u?.bossStage === 7) this.playNailongSkillVoice()
+        if (u) {
+          if (u.bossStage === 9) this.playNailongSkillVoice()
+          else this.playBossSkillAudio(u.bossStage ?? floor)
+          e.setBossSkillAnimation(id, until)
+          // Final Nailong: only rewind borrows the laugh GIF; every other cast keeps the normal art.
+          if (u.bossStage === 9 && skillId === 'rewind') e.setUnitLaugh(id, until)
+        }
         if (u) {
           if (!this.canPlace(u.x, u.y, u.radius)) {
             const safe = this.safePoint(u.x, u.y, u.radius)
@@ -168,11 +175,8 @@ export class BossEncounterController {
             }
             this.ghost
               .setTexture(textureKeyFor(scene, bossArt(floor).key), 0)
-              .setScale(
-                session.bundle.enemies.enemies.tank.visualScale *
-                  session.cfg.encounter.bossVisualScaleMultiplier,
-              )
-              .setTint(u.bossStage === 8 ? 0x333333 : 0xffffff)
+              .setScale(bossArt(floor).scale)
+              .setTint(0xffffff)
           }
         }
       },
@@ -180,7 +184,7 @@ export class BossEncounterController {
         e.setUnitLaugh(id, until)
         // 奶龙本尊改用三段 mp3 技能语音；其他首领/借用心魔仍用合成笑声。
         const unit = e.skillUnits().find((u) => u.id === id)
-        if (unit?.bossStage !== 7) this.tone(false)
+        if (unit?.bossStage !== 9) this.tone(false)
       },
     }
     this.runtime = new BossSkillRuntime(config, this.port)
@@ -214,7 +218,16 @@ export class BossEncounterController {
     })
     for (const key of NAILONG_SKILL_AUDIO)
       if (scene.cache.audio.exists(key)) this.nailongVoices.push(scene.sound.add(key))
-    this.unsubPause = session.bus.on('app_paused', () => this.stopNailongVoices())
+    for (const art of Object.values(BOSS_ROSTER_ART)) {
+      if (!scene.cache.audio.exists(art.audio)) continue
+      const sounds: Phaser.Sound.BaseSound[] = []
+      for (let i = 0; i < 2; i++) sounds.push(scene.sound.add(art.audio))
+      this.bossSkillAudio.set(art.audio, sounds)
+    }
+    this.unsubPause = session.bus.on('app_paused', () => {
+      this.stopNailongVoices()
+      this.stopBossSkillAudio()
+    })
   }
 
   private playNailongSkillVoice(): void {
@@ -228,6 +241,21 @@ export class BossEncounterController {
 
   private stopNailongVoices(): void {
     for (const voice of this.nailongVoices) voice.stop()
+  }
+
+  private playBossSkillAudio(stage: number): void {
+    if (this.disposed || this.scene.sound.locked || this.options.sfxVolume() <= 0) return
+    const art = bossArt(stage)
+    if (!art.audio) return
+    const sounds = this.bossSkillAudio.get(art.audio)
+    if (!sounds?.length) return
+    this.stopBossSkillAudio()
+    const sound = sounds[Math.floor(Math.random() * sounds.length)]!
+    sound.play({ volume: Math.min(1, this.options.sfxVolume() * (art.audioGain ?? 1)) })
+  }
+
+  private stopBossSkillAudio(): void {
+    for (const sounds of this.bossSkillAudio.values()) for (const sound of sounds) sound.stop()
   }
   update(stage: number): void {
     if (this.disposed) return
@@ -256,7 +284,8 @@ export class BossEncounterController {
     const dt = Math.max(0, Math.min(1000 / 30, now - this.lastAt))
     this.lastAt = now
     this.session.bossForcedVelocity = null
-    const commands = this.runtime.update(now, dt, boss.id, stage)
+    const elite = this.session.enemies.isEliteBoss(boss.id)
+    const commands = elite ? [] : this.runtime.update(now, dt, boss.id, stage)
     for (const command of commands) this.apply(command)
     // 弹幕独立于技能冷却：技能正在释放时这里照样按自己的固定间隔开火。
     if (barrages) {
@@ -283,8 +312,8 @@ export class BossEncounterController {
       }
     }
     // The paper kite's basic ring is owned by the configured scheduler.
-    if (stage === 3) this.session.enemies.skills.setBossManualAttacks(boss.id, true)
-    if (stage === 8) this.heart.update(now, dt, boss.id)
+    if (stage === 3 && !elite) this.session.enemies.skills.setBossManualAttacks(boss.id, true)
+    if (stage === 9 && !elite) this.heart.update(now, dt, boss.id)
     this.view.update(now)
     this.ghost.setVisible(false)
     if (this.flight && now >= this.flight.start && now < this.flight.end) {
@@ -515,6 +544,7 @@ export class BossEncounterController {
     this.runtime.clear()
     this.heart.clear()
     this.stopNailongVoices()
+    this.stopBossSkillAudio()
     this.session.resetBossPlayerControl()
     this.view.update(this.session.clock.nowMs)
     this.bossId = null
@@ -535,6 +565,8 @@ export class BossEncounterController {
     this.unsubPause()
     for (const voice of this.nailongVoices) voice.destroy()
     this.nailongVoices.length = 0
+    for (const sounds of this.bossSkillAudio.values()) for (const sound of sounds) sound.destroy()
+    this.bossSkillAudio.clear()
     this.view.destroy()
     this.screen.destroy()
     this.weapon.destroy()

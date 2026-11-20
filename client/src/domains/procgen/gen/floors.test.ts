@@ -57,13 +57,12 @@ const LAYER_MAPS = [
 ]
 
 describe('一局的地图计划（floors.json v2）', () => {
-  it('层数 = arena.maxStages（3）；第 2 层固定 3F', () => {
-    expect(MAX_STAGES).toBe(3)
+  it('层数 = arena.maxStages（2）；第 2 层固定 3F', () => {
+    expect(MAX_STAGES).toBe(2)
     expect(floors.layers).toHaveLength(MAX_STAGES)
     expect(floors.layers[0]!.candidates).toEqual(LAYER_MAPS)
     expect(floors.layers[1]!.candidates).toEqual([FLOOR_PLAN_YF3_NAME])
     expect(floors.layers[1]!.requireShop).toBe(true)
-    expect(floors.layers[2]!.candidates).toEqual(LAYER_MAPS)
     expect(floors.prologue.file).toBe(FLOOR_PLAN_YF1_NAME)
     expect(floors.finale.file).toBe(FLOOR_PLAN_YF8_NAME)
   })
@@ -165,9 +164,8 @@ describe('一局的地图计划（floors.json v2）', () => {
         { file: GHOST, label: '幽灵' },
       ],
       layers: [
-        { candidates: [GHOST, FLOOR_PLAN_YF4_NAME, FLOOR_PLAN_YF5_NAME, FLOOR_PLAN_NAME] },
-        { candidates: [FLOOR_PLAN_YF3_NAME], requireShop: true },
-        { candidates: [FLOOR_PLAN_YF2_NAME, FLOOR_PLAN_YF4_NAME, FLOOR_PLAN_YF5_NAME, FLOOR_PLAN_NAME] },
+        { candidates: LAYER_MAPS },
+        { candidates: [GHOST], requireShop: true },
       ],
     }
     const ghostCache = {

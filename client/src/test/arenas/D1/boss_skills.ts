@@ -21,7 +21,7 @@ class BossSkillsArena extends BattleScene {
     super.init({ ...data, skillLab: true })
     // 直达某位首领：?arena=boss_skills&floor=7 → 奶龙
     const floor = Number(new URLSearchParams(window.location.search).get('floor'))
-    if (Number.isInteger(floor) && floor >= 2 && floor <= 8) this.demoFloor = floor
+    if (Number.isInteger(floor) && floor >= 2 && floor <= 9) this.demoFloor = floor
   }
   override create(): void {
     super.create()
@@ -49,7 +49,7 @@ class BossSkillsArena extends BattleScene {
     this.events.once('shutdown', () => this.events.off('postupdate', refreshStatus))
     refreshStatus()
     const enter = (): void => {
-      const demoLayer = this.demoFloor <= 3 ? 1 : this.demoFloor <= 5 ? 2 : 3
+      const demoLayer = this.demoFloor <= 5 ? 1 : 2
       controls.goToFloor(demoLayer)
       const bossRoom = controls.dungeon.rooms.find((r) => r.room.kind === 'boss')
       // 7F 的平面图暂时没有 boss 房：退到面积最大的一间房，手动把奶龙放进去。
@@ -103,9 +103,9 @@ class BossSkillsArena extends BattleScene {
       controls.session.player.model.protectedUntilMs = this.demoProtected ? Infinity : 0
       if (!bossRoom) {
         const { cfg, enemies } = controls.session
-        const bossIds = ['coursework', 'paper_kite', 'acid_sprinkler', 'sports_gear', 'roll_call', 'nailong', 'heart_demon']
-        const demoLayer = this.demoFloor <= 3 ? 1 : this.demoFloor <= 5 ? 2 : 3
-        const finalBoss = this.demoFloor === 8
+        const bossIds = ['coursework', 'paper_kite', 'acid_sprinkler', 'sports_gear', 'roll_call', 'banana_cat', 'fat_cat', 'nailong']
+        const demoLayer = this.demoFloor <= 5 ? 1 : 2
+        const finalBoss = this.demoFloor === 9
         enemies.spawnBoss(
           this.demoFloor,
           demoLayer,
@@ -122,7 +122,7 @@ class BossSkillsArena extends BattleScene {
     }
     this.time.delayedCall(0, enter)
     this.input.keyboard?.on('keydown-N', () => {
-      this.demoFloor = this.demoFloor === 8 ? 2 : this.demoFloor + 1
+      this.demoFloor = this.demoFloor === 9 ? 2 : this.demoFloor + 1
       enter()
     })
     this.input.keyboard?.on('keydown-P', () => {
@@ -137,7 +137,7 @@ class BossSkillsArena extends BattleScene {
       if (!boss || controls.session.clock.paused) return
       const skills = controls.bossSkills.config.bosses[String(controls.floor)]!.skills
       const selected = skills[Math.floor(controls.session.clock.nowMs / 1000) % skills.length]!
-      if (controls.floor === 8)
+      if (controls.floor === 9)
         controls.bossSkills.heart.castSkill(selected.id, controls.session.clock.nowMs, boss.id)
       else
         controls.bossSkills.runtime.castSkill(
@@ -150,8 +150,8 @@ class BossSkillsArena extends BattleScene {
   }
 }
 export const arena = {
-  displayName: 'D1 七位首领技能验收（含奶龙）',
+  displayName: 'D1 八位首领技能验收（含最终奶龙）',
   description:
-    '真实首领房与独立内存存档：默认可受到伤害，N 切换下一位首领，P 切换玩家无敌，K 提前试放技能；Tab 查看本次新首领图鉴。奶龙直达：?arena=boss_skills&floor=7。',
+    '真实首领房与独立内存存档：默认可受到伤害，N 切换下一位首领，P 切换玩家无敌，K 提前试放技能；Tab 查看本次新首领图鉴。最终奶龙直达：?arena=boss_skills&floor=9。',
   scene: BossSkillsArena,
 }
