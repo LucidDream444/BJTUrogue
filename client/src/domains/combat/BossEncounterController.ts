@@ -426,6 +426,9 @@ export class BossEncounterController {
         angles.push(aimed + (i - (pattern.count - 1) / 2) * spreadRad)
     } else if (pattern.pattern === 'line') {
       for (let i = 0; i < pattern.count; i++) angles.push(aimed)
+    } else if (pattern.pattern === 'custom') {
+      for (const degree of pattern.anglesDeg ?? [])
+        angles.push(aimed + (degree * Math.PI) / 180)
     } else {
       // Scatter: independent random directions inside the declared spread.
       for (let i = 0; i < pattern.count; i++)
@@ -441,6 +444,10 @@ export class BossEncounterController {
       lifetimeMs: pattern.lifetimeMs,
       color,
       anglesRad: angles,
+      ...(pattern.spawnRadius !== undefined ? { spawnRadius: pattern.spawnRadius } : {}),
+      ...(pattern.spawnAngleDeg !== undefined
+        ? { spawnAngleOffsetRad: (pattern.spawnAngleDeg * Math.PI) / 180 }
+        : {}),
       ...(pattern.speedEnd !== undefined ? { speedEnd: pattern.speedEnd * speedScale } : {}),
       ...(pattern.speedRampMs !== undefined ? { speedRampMs: pattern.speedRampMs } : {}),
       ...(pattern.bounceCount !== undefined ? { bounceCount: pattern.bounceCount } : {}),

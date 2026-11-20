@@ -37,17 +37,17 @@ export function bossArt(stage: number): BossArt {
   return { key: 'boss_bull_idle', tint: 0xffffff, scale: 1 }
 }
 
-export function bossDisplayName(stage: number, paperName = '考卷纸鸢'): string {
+export function bossDisplayName(stage: number, paperName = '咕咕嘎嘎'): string {
   return (
     {
-      2: '课业重压',
-      3: paperName,
-      4: '酸蚀喷灌设备',
-      5: '失控体育器材',
-      6: '分身点名册',
+      2: '牛来',
+      3: paperName || '咕咕嘎嘎',
+      4: '巴巴博一',
+      5: '刀盾狗',
+      6: '圆头耄耋',
       7: '香蕉猫',
       8: '肥嘟嘟',
       9: '奶龙',
     } as Record<number, string>
-  )[stage] ?? '课业重压'
+  )[stage] ?? '牛来'
 }

@@ -51,7 +51,7 @@ describe('校园敌人资源交付', () => {
     expect(variants[7]?.key).toBe(NAILONG_ART.texture)
     expect(variants.every((variant) => variant.tint === 0xffffff)).toBe(true)
     expect(Array.from({ length: 8 }, (_, i) => bossDisplayName(i + 2))).toEqual([
-      '课业重压', '考卷纸鸢', '酸蚀喷灌设备', '失控体育器材', '分身点名册', '香蕉猫', '肥嘟嘟', '奶龙',
+      '牛来', '咕咕嘎嘎', '巴巴博一', '刀盾狗', '圆头耄耋', '香蕉猫', '肥嘟嘟', '奶龙',
     ])
     const delivered = ASSETS.filter((entry) => entry.path.startsWith('sprites/enemies/bosses/'))
     expect(delivered.length).toBeGreaterThanOrEqual(14)

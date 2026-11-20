@@ -34,6 +34,8 @@ export interface BossVolley {
   anglesRad?: readonly number[]
   /** Ring-only rotation; ignored when angleRad is set. */
   angleOffsetRad?: number
+  spawnRadius?: number
+  spawnAngleOffsetRad?: number
   speedEnd?: number
   speedRampMs?: number
   bounceCount?: number
@@ -108,12 +110,14 @@ export class RadialProjectiles {
       const lineOffset = lineSpacingPx * (emitted - (count - 1) / 2)
       const px = Math.cos(angle + Math.PI / 2) * lineOffset
       const py = Math.sin(angle + Math.PI / 2) * lineOffset
+      const spawnAngle = angle + (volley.spawnAngleOffsetRad ?? 0)
+      const spawnRadius = volley.spawnRadius ?? this.cfg.spawnRadius
       Object.assign(shot, {
         active: true,
         id: this.nextId++,
         ownerId,
-        x: x + dx * this.cfg.spawnRadius + px,
-        y: y + dy * this.cfg.spawnRadius + py,
+        x: x + Math.cos(spawnAngle) * spawnRadius + px,
+        y: y + Math.sin(spawnAngle) * spawnRadius + py,
         vx: dx * volley.speed,
         vy: dy * volley.speed,
         damage: volley.damage,
