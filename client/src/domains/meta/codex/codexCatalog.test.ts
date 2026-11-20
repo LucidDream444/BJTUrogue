@@ -39,10 +39,11 @@ describe('怪物图鉴目录', () => {
       'acid-boss',
       'sports-boss',
       'rollcall-boss',
-      'nailong-boss',
-      'heart-demon',
+      'banana-cat-boss',
+      'fat-cat-boss',
+      'nailong-final',
     ])
-    expect(entries.filter((entry) => entry.category === '首领')).toHaveLength(7)
+    expect(entries.filter((entry) => entry.category === '首领')).toHaveLength(8)
   })
 
   it('数值来自当前难度派生，不在图鉴里复制一份', () => {
@@ -72,11 +73,11 @@ describe('怪物图鉴目录', () => {
     for (const entry of entries) expect(codexAnimationKey(entry.textureKey)).toBeTruthy()
   })
 
-  it('首领展示独立正式美术，最终身份是心魔', () => {
+  it('首领展示独立正式美术，最终身份是奶龙', () => {
     const boss = buildCodexEntries(bundle(), 'normal').find((entry) => entry.id === 'stage2-boss')!
     expect(boss.hasArt).toBe(true)
-    expect(codexAnimationKey(boss.textureKey)).toBe('enemy_stage2_idle_anim')
-    expect(buildCodexEntries(bundle(), 'normal').find((entry) => entry.id === 'heart-demon')?.name).toBe('心魔')
+    expect(codexAnimationKey(boss.textureKey)).toBe('boss_pigeon_idle_loop')
+    expect(buildCodexEntries(bundle(), 'normal').find((entry) => entry.id === 'nailong-final')?.name).toBe('奶龙')
   })
 
   it('校园动物的攻击数值读取配置，文案解释互伤与猫的安全退场', () => {
@@ -111,7 +112,7 @@ describe('怪物图鉴目录', () => {
     expect(paper.combatNotes.join('')).toContain(`单次攻击伤害${Math.round(config.enemies.stage2Boss.projectile.damage * config.difficulty.difficulties.hard.enemyDamage * 1.5)}`)
     expect(paper.combatNotes.join('')).toContain('第1层生命900')
     expect(paper.combatNotes.join('')).toContain('每8秒')
-    const final = entries.find((entry) => entry.id === 'heart-demon')!
+    const final = entries.find((entry) => entry.id === 'nailong-final')!
     expect(final.combatNotes.join('')).toContain('近身范围下砸')
     expect(final.combatNotes.join('')).toContain('第3层生命1800')
     expect(codexEncounterConfig({ encounter: { bossHp: 'oops' } })).toBeUndefined()
@@ -131,7 +132,7 @@ describe('怪物图鉴目录', () => {
     const table = codexBossSkillConfig(raw)!
     expect(table).toBeTruthy()
     const entries = buildCodexEntries(bundle(), 'normal', undefined, table)
-    const ids = ['first-boss', 'stage2-boss', 'acid-boss', 'sports-boss', 'rollcall-boss', 'nailong-boss', 'heart-demon']
+    const ids = ['first-boss', 'stage2-boss', 'acid-boss', 'sports-boss', 'rollcall-boss', 'banana-cat-boss', 'fat-cat-boss', 'nailong-final']
     for (const [index, id] of ids.entries()) {
       const boss = table.bosses[String(index + 2)]!
       const entry = entries.find((candidate) => candidate.id === id)!
@@ -141,7 +142,7 @@ describe('怪物图鉴目录', () => {
     }
     expect(bossSkillNotes(table, 2, 1).join('')).toContain('8～12只')
     expect(bossSkillNotes(table, 4, 1).join('')).toContain('强制直线滑出')
-    expect(bossSkillNotes(table, 8, 1).join('')).toContain('3秒')
+    expect(bossSkillNotes(table, 9, 1).join('')).toContain('3秒')
     table.bosses['3']!.skills.find((skill) => skill.id === 'radial')!.damage = 27
     const kite = buildCodexEntries(bundle(), 'normal', undefined, table).find((entry) => entry.id === 'stage2-boss')!
     expect(kite.stats.find((stat) => stat.label === '基础单发伤害')?.value).toBe('27')

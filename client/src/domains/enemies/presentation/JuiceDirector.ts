@@ -65,7 +65,8 @@ import { CatPurificationFx } from './CatPurificationFx'
 import { AnimalAttackFx } from './AnimalAttackFx'
 import { FrameExitFx } from './FrameExitFx'
 import { DeferredHitstop } from './DeferredHitstop'
-import { ASSETS, ANIMS, GRABBER_ART, TANK_ART, SPRAYER_ART, MUSCOVY_ART, NIGHTMARE_CAT_ART, BOSS_FIRST_ART, FINAL_BOSS_ART, STAGE2_BOSS_ART, NAILONG_ART } from '@/core/assetManifest'
+import { ASSETS, ANIMS, GRABBER_ART, TANK_ART, SPRAYER_ART, MUSCOVY_ART, NIGHTMARE_CAT_ART, BOSS_FIRST_ART, NAILONG_ART } from '@/core/assetManifest'
+import { bossArt } from './bossArt'
 import { textureKeyFor } from '@/core/assets'
 
 /** 受击冲击淡出用多久。**小于肉盾的 `damageEventBatchMs` 才不会糊成一片常亮** */
@@ -537,70 +538,35 @@ export class JuiceDirector {
       const skinStage = this.enemies.bossSkinStage(model.id)
       if (skinStage !== undefined) {
         if (appearance?.hidden || appearance?.playerTextureKey) continue
-        if (skinStage === 7) {
-          if (this.clock.nowMs < model.skillLaughUntilMs) {
+        // All bosses (including the final Nailong) face the player by flipping.
+        const facing = this.enemies.playerDirectionX(model.id)
+        if (facing !== 0) view.setFlipX(facing < 0)
+        if (skinStage === 9) {
+          const laugh = this.clock.nowMs < model.skillLaughUntilMs
+          const textureKey = laugh ? NAILONG_ART.laugh : NAILONG_ART.texture
+          if (laugh) {
             const anim = ANIMS.find((item) => item.textureKey === NAILONG_ART.laugh)
             if (anim) {
-              const frame = anim.frames[Math.floor(this.clock.nowMs * anim.frameRate / 1000) % anim.frames.length]!
-              const texture = textureKeyFor(this.scene, NAILONG_ART.laugh)
-              if (view.texture.key !== texture) this.enemies.setPresentationTexture(model.id, NAILONG_ART.laugh, frame)
+              const frame = anim.frames[
+                Math.floor((this.clock.nowMs * anim.frameRate) / 1000) % anim.frames.length
+              ]!
+              const texture = textureKeyFor(this.scene, textureKey)
+              if (view.texture.key !== texture) this.enemies.setPresentationTexture(model.id, textureKey, frame)
               else view.setFrame(frame)
             }
           } else {
-            const texture = textureKeyFor(this.scene, NAILONG_ART.texture)
-            if (view.texture.key !== texture) this.enemies.setPresentationTexture(model.id, NAILONG_ART.texture)
+            const texture = textureKeyFor(this.scene, textureKey)
+            if (view.texture.key !== texture) this.enemies.setPresentationTexture(model.id, textureKey)
           }
           continue
         }
-        const age = model.stateAgeMs(this.clock.nowMs)
-        if (skinStage === 8) {
-          key = model.state === 'windup' || model.state === 'recover' ? FINAL_BOSS_ART.attack
-            : view.body.velocity.lengthSq() > 1 ? FINAL_BOSS_ART.walk : FINAL_BOSS_ART.idle
-          const anim = ANIMS.find((item) => item.textureKey === key)
-          if (anim) {
-            const half = Math.floor(anim.frames.length / 2)
-            const slam = this.bundle.enemies.enemies.tank.slam
-            const frame = model.state === 'windup' ? Math.min(half - 1, Math.floor(age / slam.windupMs * half))
-              : model.state === 'recover' ? half + Math.min(anim.frames.length - half - 1, Math.floor(age / slam.recoverMs * (anim.frames.length - half)))
-                : Math.floor(this.clock.nowMs * anim.frameRate / 1000) % anim.frames.length
-            directFrame = anim.frames[frame]!
-          }
-        } else if (skinStage === 3) {
-          key = model.state === 'windup' || model.state === 'recover' ? STAGE2_BOSS_ART.attack : STAGE2_BOSS_ART.idle
-          const anim = ANIMS.find((item) => item.textureKey === key)
-          if (anim) {
-            const half = Math.floor(anim.frames.length / 2)
-            const attack = this.bundle.enemies.stage2Boss
-            const frame = model.state === 'windup' ? Math.min(half - 1, Math.floor(age / attack.windupMs * half))
-              : model.state === 'recover' ? half + Math.min(anim.frames.length - half - 1, Math.floor(age / attack.recoverMs * (anim.frames.length - half)))
-                : Math.floor(this.clock.nowMs * anim.frameRate / 1000) % anim.frames.length
-            directFrame = anim.frames[frame]!
-          }
-        } else if (skinStage === 4) {
-          key = SPRAYER_ART.texture
-          directFrame = model.state === 'windup' ? SPRAYER_ART.windupFrame
-            : model.state === 'recover' ? SPRAYER_ART.sprayFrame : Math.floor(this.clock.nowMs * 6 / 1000) % 4
-        } else if (skinStage === 5) {
-          key = MUSCOVY_ART.texture
-          const frames = MUSCOVY_ART.states[view.body.velocity.lengthSq() > 1 ? 'walk' : 'idle']
-          const dx = model.velIntent.x, dy = model.velIntent.y
-          const direction = Math.abs(dx) >= Math.abs(dy) ? dx < 0 ? 'left' : 'right' : dy < 0 ? 'up' : 'down'
-          directFrame = frames.start + Math.floor(this.clock.nowMs * frames.frameRate / 1000) % frames.count + MUSCOVY_ART.directions[direction]
-        } else if (skinStage === 6) {
-          key = GRABBER_ART.texture
-          directFrame = view.body.velocity.lengthSq() > 1 ? GRABBER_ART.frames.walkA : GRABBER_ART.frames.idle
-        } else {
-          key = BOSS_FIRST_ART.texture
-          const state = model.state === 'windup' ? 'windup' : model.state === 'recover' ? 'recover' : view.body.velocity.lengthSq() > 1 ? 'walk' : 'idle'
-          const frames = BOSS_FIRST_ART.states[state]
-          if (state === 'windup') directFrame = frames.start + Math.min(frames.count - 1, Math.floor(age / this.bundle.enemies.enemies.tank.slam.windupMs * frames.count))
-          else if (state === 'recover') {
-            const attack = BOSS_FIRST_ART.states.attack
-            const total = attack.count + frames.count
-            const frame = Math.min(total - 1, Math.floor(age / this.bundle.enemies.enemies.tank.slam.recoverMs * total))
-            directFrame = frame < attack.count ? attack.start + frame : frames.start + frame - attack.count
-          } else directFrame = frames.start + Math.floor(this.clock.nowMs * frames.frameRate / 1000) % frames.count
-        }
+        const art = bossArt(skinStage)
+        const skill = this.clock.nowMs < model.skillAnimationUntilMs
+        const skillKey = art.skillKey ?? art.key
+        const frames = skill ? (art.skillFrames ?? 1) : (art.idleFrames ?? 1)
+        const rate = skill ? (art.skillFrameRate ?? 1) : (art.idleFrameRate ?? 1)
+        key = skill ? skillKey : art.key
+        directFrame = Math.floor((this.clock.nowMs * rate) / 1000) % Math.max(1, frames)
       } else if (model.enemyKind === 'muscovy' || model.enemyKind === 'nightmare_cat') {
         const moving = view.body.velocity.lengthSq() > 1
         const hit = this.visuals.get(model.id)

@@ -119,7 +119,7 @@ export class HeartDemonRuntime {
     return this.shadow
   }
   private get skills(): readonly BossSkillSpec[] {
-    return this.config.bosses['8']?.skills ?? []
+    return this.config.bosses['9']?.skills ?? []
   }
 
   castSkill(id: string, nowMs: number, bossId: number = this.bossId ?? -1): void {
@@ -128,7 +128,7 @@ export class HeartDemonRuntime {
     if (!spec || !boss || this.rewind || this.shadow || this.mimic) return
     this.bossId = bossId
     this.due.set(id, nowMs + spec.cooldownMs)
-    this.nextCastAt = nowMs + (this.config.bosses['8']?.skillIntervalMs ?? spec.cooldownMs)
+    this.nextCastAt = nowMs + (this.config.bosses['9']?.skillIntervalMs ?? spec.cooldownMs)
     this.port.onCast?.(bossId, 8, id, this.nextCastAt)
     if (id === 'mimic_chain') {
       this.mimic = {
@@ -235,7 +235,7 @@ export class HeartDemonRuntime {
       this.port.setBossAppearance(id, {})
       this.port.screenRewind(false, 0)
       this.releaseStuns(id)
-      this.nextCastAt = Math.max(this.nextCastAt, now + this.config.bosses['8']!.skillIntervalMs)
+      this.nextCastAt = Math.max(this.nextCastAt, now + this.config.bosses['9']!.skillIntervalMs)
     }
   }
   private updateShadow(now: number, dtMs: number, boss: BossSkillUnit): void {
@@ -244,7 +244,7 @@ export class HeartDemonRuntime {
       this.shadow = null
       this.port.setBossAppearance(boss.id, {})
       this.port.shadowWeapon(null, boss.id)
-      this.nextCastAt = Math.max(this.nextCastAt, now + this.config.bosses['8']!.skillIntervalMs)
+      this.nextCastAt = Math.max(this.nextCastAt, now + this.config.bosses['9']!.skillIntervalMs)
       return
     }
     const player = this.port.player(),

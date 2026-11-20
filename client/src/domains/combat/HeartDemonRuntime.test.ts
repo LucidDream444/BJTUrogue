@@ -26,9 +26,9 @@ function unit(id: number, extra: Partial<BossSkillUnit> = {}): BossSkillUnit {
 
 function harness() {
   const config = structuredClone(raw)
-  for (const spec of config.bosses['8']!.skills) spec.initialDelayMs = 1_000_000
+  for (const spec of config.bosses['9']!.skills) spec.initialDelayMs = 1_000_000
   const units = new Map([
-    [1, unit(1, { bossStage: 8, maxHp: 3000, hp: 3000 })],
+    [1, unit(1, { bossStage: 9, maxHp: 3000, hp: 3000 })],
     [2, unit(2)],
   ])
   const player = { id: 999, x: 500, y: 0, radius: 10, alive: true, player: true, vx: 0, vy: 0 }
