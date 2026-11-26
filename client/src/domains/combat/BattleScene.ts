@@ -1772,7 +1772,7 @@ export class BattleScene extends Phaser.Scene {
    */
   private floorBrief(): string {
     if (this.zone === 'finale') return '最终战 · 奶龙 · 对面的门里是奶龙'
-    if (this.layer === 0) return '1F · 出发层 · 楼梯间里有上第 1 层的入口'
+    if (this.layer === 0) return '第零层 · 出发层 · 楼梯间里有上第 1 层的入口'
     const stairs = this.stairHint()
     return (
       `第 ${this.layer} / ${this.floors} 层 · 站在楼梯间外的走廊上 · ` +
@@ -1985,7 +1985,7 @@ export class BattleScene extends Phaser.Scene {
   /** HUD / 小地图的区域标题。 */
   private areaTitle(): string {
     if (this.zone === 'finale') return '最终战 · 奶龙'
-    if (this.layer === 0) return '1F · 出发层'
+    if (this.layer === 0) return '第零层 · 出发层'
     return `第 ${this.layer} / ${this.floors} 层`
   }
   private refreshStairPads(): void {
@@ -2012,7 +2012,7 @@ export class BattleScene extends Phaser.Scene {
   private stairHint(): string {
     const parts: string[] = []
     if (this.exitDown.visible)
-      parts.push(`楼梯间里有下${this.layer - 1 === 0 ? '1F' : `第 ${this.layer - 1} 层`}的入口`)
+      parts.push(`楼梯间里有下${this.layer - 1 === 0 ? '第零层' : `第 ${this.layer - 1} 层`}的入口`)
     if (this.exitUp.visible) parts.push(`楼梯间里已有上第 ${this.layer + 1} 层的入口`)
     return parts.join(' · ')
   }
@@ -2031,7 +2031,7 @@ export class BattleScene extends Phaser.Scene {
   private stairHintWhenMissed(): string {
     const where = '（都在楼梯间里）'
     const up = this.layer + 1
-    const down = this.layer - 1 === 0 ? '1F' : `第 ${this.layer - 1} 层`
+    const down = this.layer - 1 === 0 ? '第零层' : `第 ${this.layer - 1} 层`
     if (this.exitUp.visible && this.exitDown.visible)
       return `要走到方框上才能换层：暖黄 = 上第 ${up} 层、青绿 = 下${down}${where}`
     if (this.exitUp.visible) return `要走到暖黄方框上才能上楼（第 ${up} 层）${where}`

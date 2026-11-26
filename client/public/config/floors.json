@@ -1,8 +1,8 @@
 {
   "schemaVersion": 2,
-  "_comment": "★ 2026-11-20：一局 = 1F 出发层 + 第 1/2 层 + 最终战奶龙。第 1 层从 2F/4F/5F/6F 抽，第 2 层固定 3F（商店）；7F 不进产品。每个候选图必须有楼梯间 + 恰好 1 间 fixed:boss；第 2 层必须有 fixed:shop，第 1 层不能有商店。首领名册/精英池见 boss-pools.json。",
+  "_comment": "★ 2026-11-26：一局 = 第 0 层（1F 出发层）+ 第 1/2/3 层 + 最终战奶龙。三层都从 2F/4F/5F/6F 随机，允许重复（第 3 层可与第 1 层相同）；3F 商店层和 7F 本轮不参与。每层必须有楼梯间 + 恰好 1 间 fixed:boss；最终战 8F。",
   "_owner": "D2。字段定义归 D2（C2 契约），消费方是 D1（BattleScene 按这张表取几何：换层时整层换掉）。",
-  "_files_comment": "⚠️ 这里写的每个文件名还必须出现在代码的 FLOOR_PLAN_FILES（client/src/domains/procgen/gen/floorPlan.ts）里。7F 只在 excluded 里，文件仍保留给测试场。",
+  "_files_comment": "⚠️ 这里写的每个文件名还必须出现在代码的 FLOOR_PLAN_FILES（client/src/domains/procgen/gen/floorPlan.ts）里。3F/7F 只在 excluded 里，文件仍保留给测试场。",
   "prologue": {
     "file": "floor-plan-yf1.json",
     "label": "1F"
@@ -11,10 +11,6 @@
     {
       "file": "floor-plan-yf2.json",
       "label": "2F"
-    },
-    {
-      "file": "floor-plan-yf3.json",
-      "label": "3F"
     },
     {
       "file": "floor-plan-yf4.json",
@@ -40,9 +36,19 @@
     },
     {
       "candidates": [
-        "floor-plan-yf3.json"
-      ],
-      "requireShop": true
+        "floor-plan-yf2.json",
+        "floor-plan-yf4.json",
+        "floor-plan-yf5.json",
+        "floor-plan.json"
+      ]
+    },
+    {
+      "candidates": [
+        "floor-plan-yf2.json",
+        "floor-plan-yf4.json",
+        "floor-plan-yf5.json",
+        "floor-plan.json"
+      ]
     }
   ],
   "finale": {
@@ -51,8 +57,12 @@
   },
   "excluded": [
     {
+      "file": "floor-plan-yf3.json",
+      "reason": "本轮三层只用 2F/4F/5F/6F，3F 商店层暂不参与（本版本因此没有商店）"
+    },
+    {
       "file": "floor-plan-yf7.json",
-      "reason": "本轮不用 7F；7F 的奶龙已并入第 3 层首领池，测试场仍可加载"
+      "reason": "本轮不用 7F；奶龙现在是 8F 最终战首领"
     }
   ]
 }

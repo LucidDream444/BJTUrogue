@@ -1,6 +1,6 @@
 {
   "schemaVersion": 2,
-  "_comment": "★ 2026-11-20：奶龙成为最终首领；每局开局从 7 位常规首领中抽 2 位作为两层首领，其余 5 位进入精英房精英池（不同精英房可以重复遇到同一位）。最终首领固定为奶龙（id: nailong / profile 9）。",
+  "_comment": "★ 2026-11-26：一局三层；每局从 7 位常规首领中抽 3 位作为第 1/2/3 层首领，其余 4 位进入精英房精英池（不同精英房可以重复遇到同一位）。最终首领固定为奶龙（id: nailong / profile 9）。",
   "_owner": "D3。字段定义归 D3，消费方是 D1（按局抽首领）与 D4（图鉴）。",
   "roster": [
     "coursework",
@@ -11,6 +11,6 @@
     "banana_cat",
     "fat_cat"
   ],
-  "layerBossCount": 2,
+  "layerBossCount": 3,
   "finalBoss": "nailong"
 }
