@@ -906,16 +906,15 @@ export function floorPlansForRun(
     throw new ConfigError('floors.excluded', `排除表里有未加载的平面图：${config.excluded.map((e) => e.file).join(' / ')}`)
 
   const rng = new Rng((runSeed ^ 0x4c415945) >>> 0)
-  const used = new Set<string>()
   const layers: RunFloorPlan[] = []
   for (const [index, layer] of config.layers.entries()) {
-    const available = layer.candidates.filter((file) => !used.has(file))
+    // 三层允许重复（用户 2026-11-26：「可与第一层相同」），所以不维护 used 集合。
+    const available = layer.candidates
     if (available.length === 0)
-      throw new ConfigError(`floors.layers[${index}].candidates`, `第 ${index + 1} 层没有可用的候选（都已用过）`)
+      throw new ConfigError(`floors.layers[${index}].candidates`, `第 ${index + 1} 层没有候选`)
     const file = available.length === 1 ? available[0]! : available[rng.between(0, available.length - 1)]!
     const entry = parsed.get(file)
     if (!entry) throw new ConfigError(`floors.layers[${index}].candidates`, `候选没有被解析：${file}`)
-    used.add(file)
     layers.push(entry)
   }
 

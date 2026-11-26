@@ -1772,7 +1772,7 @@ export class BattleScene extends Phaser.Scene {
    */
   private floorBrief(): string {
     if (this.zone === 'finale') return '最终战 · 奶龙 · 对面的门里是奶龙'
-    if (this.layer === 0) return '1F · 出发层 · 楼梯间里有上第 1 层的入口'
+    if (this.layer === 0) return '第零层 · 出发层 · 楼梯间里有上第 1 层的入口'
     const stairs = this.stairHint()
     return (
       `第 ${this.layer} / ${this.floors} 层 · 站在楼梯间外的走廊上 · ` +
@@ -1790,7 +1790,7 @@ export class BattleScene extends Phaser.Scene {
   private elevatorBrief(unit: DungeonRoom): string {
     const unlocked = this.elevatorTargets()
     const here = unlocked.length
-      ? `面板里选一层（第 ${unlocked.join(' / ')} 层），或按数字键`
+      ? `面板里选一层（${unlocked.map((n) => this.elevatorLabel(n)).join(' / ')}），或按数字键`
       : '别的层还没解锁 —— 先从楼梯间往上走，或打完这层的首领'
     return `${this.roomLabel(unit)} · 电梯 · ${here}`
   }
@@ -1882,6 +1882,8 @@ export class BattleScene extends Phaser.Scene {
   private elevatorTargets(): number[] {
     const out: number[] = []
     const current = this.zone === 'main' ? this.layer : -1
+    // 第零层 = 1F 出发层：电梯一直可以回去（电梯不列 1F 之外的设施）。
+    if (current !== 0) out.push(0)
     for (let n = 1; n <= this.floors; n++) {
       if (n === current) continue
       if (n <= this.maxLayerReached) out.push(n)
@@ -1889,14 +1891,18 @@ export class BattleScene extends Phaser.Scene {
     }
     return out
   }
-  /** 电梯面板只列第 1/2/3 层；1F 只是出发层，不占电梯选项。 */
+  /** 电梯的层名：0 = 第零层（1F 出发层），1—3 = 第 N 层。 */
+  private elevatorLabel(n: number): string {
+    return n === 0 ? '第零层' : `第 ${n} 层`
+  }
+  /** 电梯面板列第零层（1F 出发层）+ 第 1/2/3 层。 */
   private elevatorRows(): { target: number; label: string; here: boolean; unlocked: boolean }[] {
     const targets = new Set(this.elevatorTargets())
     const rows: { target: number; label: string; here: boolean; unlocked: boolean }[] = []
-    for (let n = 1; n <= this.floors; n++) {
+    for (let n = 0; n <= this.floors; n++) {
       rows.push({
         target: n,
-        label: `第 ${n} 层`,
+        label: this.elevatorLabel(n),
         here: this.zone === 'main' && this.layer === n,
         unlocked: targets.has(n),
       })
@@ -1906,8 +1912,7 @@ export class BattleScene extends Phaser.Scene {
   /** 玩家走进 / 走出电梯间时开关面板。**一处在判定，别处只读结果。** */
   private syncElevatorPanel(kind: DungeonRoom['room']['kind'] | null): void {
     if (kind === 'elevator') {
-      const current = this.layer === 0 ? '1F' : `第 ${this.layer} 层`
-      this.elevatorPanel.show(this.elevatorRows(), current)
+      this.elevatorPanel.show(this.elevatorRows(), this.elevatorLabel(this.layer))
       return
     }
     this.elevatorPanel.hide()
@@ -1980,7 +1985,7 @@ export class BattleScene extends Phaser.Scene {
   /** HUD / 小地图的区域标题。 */
   private areaTitle(): string {
     if (this.zone === 'finale') return '最终战 · 奶龙'
-    if (this.layer === 0) return '1F · 出发层'
+    if (this.layer === 0) return '第零层 · 出发层'
     return `第 ${this.layer} / ${this.floors} 层`
   }
   private refreshStairPads(): void {
@@ -2007,7 +2012,7 @@ export class BattleScene extends Phaser.Scene {
   private stairHint(): string {
     const parts: string[] = []
     if (this.exitDown.visible)
-      parts.push(`楼梯间里有下${this.layer - 1 === 0 ? '1F' : `第 ${this.layer - 1} 层`}的入口`)
+      parts.push(`楼梯间里有下${this.layer - 1 === 0 ? '第零层' : `第 ${this.layer - 1} 层`}的入口`)
     if (this.exitUp.visible) parts.push(`楼梯间里已有上第 ${this.layer + 1} 层的入口`)
     return parts.join(' · ')
   }
@@ -2026,7 +2031,7 @@ export class BattleScene extends Phaser.Scene {
   private stairHintWhenMissed(): string {
     const where = '（都在楼梯间里）'
     const up = this.layer + 1
-    const down = this.layer - 1 === 0 ? '1F' : `第 ${this.layer - 1} 层`
+    const down = this.layer - 1 === 0 ? '第零层' : `第 ${this.layer - 1} 层`
     if (this.exitUp.visible && this.exitDown.visible)
       return `要走到方框上才能换层：暖黄 = 上第 ${up} 层、青绿 = 下${down}${where}`
     if (this.exitUp.visible) return `要走到暖黄方框上才能上楼（第 ${up} 层）${where}`

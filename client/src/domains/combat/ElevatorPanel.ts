@@ -160,7 +160,7 @@ export class ElevatorPanel {
       <header class="d1-elevator-header"><div><h1 id="d1-elevator-title">楼层导览</h1><span class="d1-elevator-kicker">课后勇者 / 校园电梯</span></div><button type="button" class="d1-elevator-close">继续步行 ×</button></header>
       <div class="d1-elevator-body"><aside class="d1-elevator-guide"><p class="d1-elevator-current-label">当前楼层 / CURRENT</p><p class="d1-elevator-current">${this.currentLabel}</p><img class="d1-elevator-seal" src="${artUrl(ARCHIVE_ART.seal)}" alt="" draggable="false"><h2>下一站，去哪里？</h2><p class="d1-elevator-intro">已到达的楼层与当前可到达的下一层可乘梯前往。<br><strong>${available ? '选择一层，继续探索。' : '暂时没有其他可前往的楼层。'}</strong></p></aside>
       <div class="d1-elevator-directory"><div class="d1-elevator-directory-title"><b>楼层目录</b><span>${available} 层可前往 / 共 ${this.rows.length} 层</span></div><div class="d1-elevator-list">${list}</div></div></div>
-      <p class="d1-elevator-footer">点击楼层或按对应数字键 1–9 前往<br>WASD 继续移动 · 走出电梯自动关闭 · Esc 收起面板</p></section>`
+      <p class="d1-elevator-footer">点击楼层或按对应数字键 0–9 前往<br>WASD 继续移动 · 走出电梯自动关闭 · Esc 收起面板</p></section>`
     this.root.querySelector('.d1-elevator-close')?.addEventListener('click', () => this.dismiss())
     this.root
       .querySelectorAll<HTMLButtonElement>('button[data-floor]')
