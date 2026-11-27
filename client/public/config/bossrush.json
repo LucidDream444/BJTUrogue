@@ -1,0 +1,42 @@
+{
+  "schemaVersion": 1,
+  "_comment": "BOSSRUSH 模式配置。每层首领数由 bossesPerFloor 按难度决定（1/2/3）；前七层只用 boss-pools.json 的常规名册，优先抽没出现过的，7 位都上过场后才重复组合；第八层必定包含 boss-pools.json 的最终首领奶龙。场地是两张专用图：floor-plan-bossrush-boss.json（正方形首领房）与 floor-plan-bossrush-shop.json（商店），靠门口传送阵按 F 切换。",
+  "_owner": "D1。字段定义与消费方都是战斗场景；首领名册仍以 boss-pools.json 为唯一真值。",
+  "_scaling_comment": "每层提升：血量按 hpGrowth 指数增长，最后一层再乘 finalHpMultiplier；移速、弹幕频率、弹幕速度、技能频率、伤害按百分比线性增长。多首领时再乘 bossHpScale / bossDamageScale 做平衡。改这里不需要改代码。",
+  "totalFloors": 8,
+  "finalBoss": "nailong",
+  "finalRewardId": "bossrush_clear",
+  "bossesPerFloor": {
+    "easy": 1,
+    "normal": 2,
+    "hard": 3
+  },
+  "bossHpScale": {
+    "easy": 1,
+    "normal": 0.7,
+    "hard": 0.55
+  },
+  "bossDamageScale": {
+    "easy": 1,
+    "normal": 0.85,
+    "hard": 0.7
+  },
+  "xpPerBossBase": 120,
+  "xpPerBossGrowth": 10,
+  "xpLevelBase": 120,
+  "xpLevelGrowth": 10,
+  "talentChoicesPerLevel": 2,
+  "talentMaxOwned": 16,
+  "coinsPerBossBase": 35,
+  "coinsPerBossGrowth": 8,
+  "hpBase": 1600,
+  "hpGrowth": 1.35,
+  "finalHpMultiplier": 1.6,
+  "bossSpeedPctPerFloor": 6,
+  "barrageRatePctPerFloor": 10,
+  "barrageSpeedPctPerFloor": 5,
+  "skillRatePctPerFloor": 5,
+  "damagePctPerFloor": 4,
+  "chestCount": 3,
+  "initialMinions": 3
+}

@@ -173,6 +173,18 @@ export const FLOOR_PLAN_YF4_NAME = 'floor-plan-yf4.json'
 export const FLOOR_PLAN_YF5_NAME = 'floor-plan-yf5.json'
 
 /**
+ * BOSSRUSH 的两张专用图（★ 2026-11-28）：首领房与商店**分开**，靠门口传送阵切换。
+ *
+ * 首领图是一间 47×47 格（1880×1880px）的正方形房间（宽度与 8F 的 YF804 相同）；
+ * 商店图是一间 70×34 格（2800×1360px）的店。两张图外框都是 190×60 格，
+ * 换图时 `BattleScene.applyArena()` 不会因为物理世界大小变化而当场抛。
+ * 它们**不进 `floors.json`**（不参与常规闯关抽取），是 `FLOOR_PLAN_FILES` 里
+ * 唯一两件只给 BOSSRUSH 用的图。
+ */
+export const FLOOR_PLAN_BOSSRUSH_BOSS_NAME = 'floor-plan-bossrush-boss.json'
+export const FLOOR_PLAN_BOSSRUSH_SHOP_NAME = 'floor-plan-bossrush-shop.json'
+
+/**
  * 逸夫楼 3F —— 一局的**第 2 层**（★ 2026-11-27 固定：这一层有 `fixed:'shop'` 商店房）。
  *
  * 单独给个名字是因为它有两个身份：对 `floors.json` 它是第 2 层的唯一候选，
@@ -206,9 +218,9 @@ export const FLOOR_PLAN_YF1_NAME = 'floor-plan-yf1.json'
  * 而顺序/用哪张是配置。加一张新图 = 丢一份 JSON + 在这里加一个文件名 + 在
  * `floors.json` 里排上号；漏了这一步的报错由 `floorPlansForRun()` 给出。
  *
- * ⚠️ **这一串与 `floors.json` 里出现过的文件名必须互为子集**，两个方向都由
- * `floors.test.ts` 盯着：少了 → `floorPlansForRun()` 当场报并指回这里；
- * 多了 → 那个测试红（「加载清单里不许有谁都不用的图」）。
+ * ⚠️ **`floors.json` 里出现过的文件名必须都在这一串里**（`floors.test.ts` 盯着，
+ * 少了 → `floorPlansForRun()` 当场报并指回这里）。
+ * 反向**不要求**：BOSSRUSH 的两张专用图在这里，但不在 `floors.json`。
  *
  * ⚠️ 名字以 `.json` 结尾（和 `ROOMS_CONFIG_NAME` 一样）：Phaser 的 `cache.json`
  * 用的就是文件名当 key，`load.json(name, 'config/' + name)` 两处是同一个字符串。
@@ -222,6 +234,8 @@ export const FLOOR_PLAN_FILES: readonly string[] = [
   FLOOR_PLAN_NAME,
   FLOOR_PLAN_YF7_NAME,
   FLOOR_PLAN_YF8_NAME,
+  FLOOR_PLAN_BOSSRUSH_BOSS_NAME,
+  FLOOR_PLAN_BOSSRUSH_SHOP_NAME,
 ]
 
 // ---------------------------------------------------------------- 取值

@@ -1,0 +1,59 @@
+{
+  "schemaVersion": 7,
+  "_comment": "BOSSRUSH 专用首领房。★ 2026-11-28 用户反馈：首领房和商店不要挤在一张图上，「打BOSS时就只有BOSS首领房间，不然不够大」。所以这张图只有一间巨大的首领房 + 一小间入口（生成器要求 stairwell 才能算出出生点），中间一段短走廊。商店在另一张图 floor-plan-bossrush-shop.json，靠首领房门口的传送阵切换。",
+  "_owner": "D1。BOSSRUSH 的场地；常规闯关不读这一份。",
+  "_units": "格。1 格 = rooms.json 的 navCellSize = 40px。x / y 是矩形左上角，width / height 是格数。",
+  "_layout_comment": "★ 2026-11-28 用户第三次反馈：横向宽度够了，但竖向再长一点，做成**正方形**首领房。所以房间是 47×47 格 = 1880×1880px（宽度与 8F 的 YF804 相同，高度拉满到与外框留 1 格）。入口房在正上方中央（x92..96, y2..6），短走廊 (x93..97, y8..10)，首领房 (x71..117, y12..58)，两处各空 1 格做墙（y7 / y11），门都开在 x94..96。",
+  "_footprint_comment": "外框与其它层逐格相同（190×60 格 = 7600×2400px）。BOSSRUSH 会在首领房与商店之间换图，`BattleScene.applyArena()` 要求两张图的包围盒一致。",
+  "roomTotal": 2,
+  "footprint": {
+    "x": 0,
+    "y": 0,
+    "width": 190,
+    "height": 60
+  },
+  "stairwell": {
+    "id": "STAIR",
+    "x": 92,
+    "y": 2,
+    "width": 5,
+    "height": 5
+  },
+  "corridors": [
+    {
+      "id": "C_MAIN",
+      "x": 93,
+      "y": 8,
+      "width": 5,
+      "height": 3
+    }
+  ],
+  "rooms": [
+    {
+      "id": "BR_BOSS",
+      "x": 71,
+      "y": 12,
+      "width": 47,
+      "height": 47,
+      "fixed": "boss"
+    }
+  ],
+  "doors": [
+    {
+      "a": "C_MAIN",
+      "b": "STAIR",
+      "x": 94,
+      "y": 7,
+      "width": 3,
+      "height": 1
+    },
+    {
+      "a": "BR_BOSS",
+      "b": "C_MAIN",
+      "x": 94,
+      "y": 11,
+      "width": 3,
+      "height": 1
+    }
+  ]
+}

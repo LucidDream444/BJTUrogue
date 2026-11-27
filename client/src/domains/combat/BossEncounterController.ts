@@ -44,6 +44,13 @@ const GUGUGAGA_GLYPH_POINTS: readonly (readonly [number, number])[] = [
 export interface BossEncounterOptions {
   bounds(): { left: number; top: number; right: number; bottom: number }
   sfxVolume(): number
+  /**
+   * `clear()` 时是否顺带把玩家的首领减速 / 眩晕 / 推拉一起清掉。
+   * 默认 `true`（普通闯关只有一位首领）。BOSSRUSH 一层多首领时传 `false`：
+   * 一只首领倒下不该把另一只还给玩家的控制效果一起抹掉；
+   * 由 `BattleScene` 在本层首领全部倒下时统一调 `resetBossPlayerControl()`。
+   */
+  resetPlayerControlOnClear?: boolean
 }
 
 /** Scene adapter for boss skills. All timing and effects follow the existing game clock. */
@@ -92,6 +99,21 @@ export class BossEncounterController {
   private activeStage = 0
   private weaponOwner: number | null = null
   private disposed = false
+  /**
+   * BOSSRUSH 的逐层强度：弹幕开火间隔 ÷ `barrageRateScale`、弹幕速度 ×
+   * `projectileSpeedScale`、技能冷却 ÷ `skillRateScale`、伤害 × `damageScale`。
+   * 普通闯关三项都是 1，行为与改动前完全一致。
+   */
+  private barrageRateScale = 1
+  private projectileSpeedScale = 1
+  private skillRateScale = 1
+  private readonly baseDamageMultiplier: number
+  /**
+   * 上一帧**这台控制器**写进 `session.bossForcedVelocity` 的那个对象。
+   * 一层多首领时每台控制器都跑 `update()`；只清「还是我自己这个引用」的值，
+   * 才不会把另一只首领刚设的推拉抹掉。
+   */
+  private forcedVelocityValue: { x: number; y: number } | null = null
   /** 奶龙三段技能语音；每次释放技能随机一段。 */
   private readonly nailongVoices: Phaser.Sound.BaseSound[] = []
   /** 常规首领的技能音效，按 asset key 分组。 */
@@ -104,6 +126,9 @@ export class BossEncounterController {
     private readonly options: BossEncounterOptions,
   ) {
     const e = session.enemies.skills
+    this.baseDamageMultiplier =
+      session.bundle.difficulty.difficulties[session.difficulty].enemyDamage *
+      session.cfg.encounter.bossDamageMultiplier
     this.screen = scene.add.graphics().setDepth(9000)
     this.weapon = scene.add
       .image(0, 0, textureKeyFor(scene, session.weapon.artKey))
@@ -118,9 +143,7 @@ export class BossEncounterController {
     session.lighting.applyMask(this.weapon)
     this.port = {
       rng: new Rng(session.cfg.arena.seed),
-      damageMultiplier:
-        session.bundle.difficulty.difficulties[session.difficulty].enemyDamage *
-        session.cfg.encounter.bossDamageMultiplier,
+      damageMultiplier: this.baseDamageMultiplier,
       normalEnemyKinds: Object.keys(session.bundle.enemies.enemies) as EnemyKind[],
       units: () => e.skillUnits(),
       player: () => ({
@@ -255,7 +278,7 @@ export class BossEncounterController {
           this.cloneBarrageIndex.clear()
         } else {
           const interval = this.config.barrages[String(this.activeStage)]?.intervalMs ?? 0
-          this.nextBarrageAtMs = this.session.clock.nowMs + interval
+          this.nextBarrageAtMs = this.session.clock.nowMs + this.scaledInterval(interval)
         }
         for (const u of e.skillUnits()) e.setUnitAnimationPaused(u.id, active)
       },
@@ -319,6 +342,34 @@ export class BossEncounterController {
   private stopBossSkillAudio(): void {
     for (const sounds of this.bossSkillAudio.values()) for (const sound of sounds) sound.stop()
   }
+
+  /**
+   * 设定这一场首领的强度倍率。**在 `spawnBoss()` 之前调** —— 弹幕/技能的
+   * 「下一次什么时候放」在首领第一次进入 `update()` 时就算好了。
+   *
+   * 普通闯关不调它，四项保持 1；BOSSRUSH 每层换一首领前重设一次。
+   */
+  setScaling(scale: {
+    barrageRate: number
+    projectileSpeed: number
+    skillRate: number
+    damage: number
+  }): void {
+    const positive = (value: number, fallback = 1): number =>
+      Number.isFinite(value) && value > 0 ? Math.min(4, Math.max(0.25, value)) : fallback
+    this.barrageRateScale = positive(scale.barrageRate)
+    this.projectileSpeedScale = positive(scale.projectileSpeed)
+    this.skillRateScale = positive(scale.skillRate)
+    this.port.damageMultiplier =
+      this.baseDamageMultiplier * positive(scale.damage)
+    this.runtime.setTimeScale(this.skillRateScale)
+  }
+
+  /** 弹幕间隔按频率倍率缩短；夹一个下限，避免配置写飞后每帧铺满屏幕。 */
+  private scaledInterval(ms: number): number {
+    return Math.max(16, ms / this.barrageRateScale)
+  }
+
   update(stage: number): void {
     if (this.disposed) return
     const clock = this.session.clock,
@@ -346,7 +397,7 @@ export class BossEncounterController {
       this.barrageIndex = stage === 9 && barrages
         ? this.port.rng.between(0, Math.max(0, barrages.patterns.length - 1))
         : 0
-      this.nextBarrageAtMs = now + (barrages?.initialDelayMs ?? 0)
+      this.nextBarrageAtMs = now + this.scaledInterval(barrages?.initialDelayMs ?? 0)
       this.barrageBurst = null
       this.cloneBarrageNext.clear()
       this.cloneBarrageIndex.clear()
@@ -354,7 +405,12 @@ export class BossEncounterController {
     }
     const dt = Math.max(0, Math.min(1000 / 30, now - this.lastAt))
     this.lastAt = now
-    this.session.bossForcedVelocity = null
+    if (
+      this.forcedVelocityValue !== null &&
+      this.session.bossForcedVelocity === this.forcedVelocityValue
+    )
+      this.session.bossForcedVelocity = null
+    this.forcedVelocityValue = null
     this.activeStage = stage
     const elite = this.session.enemies.isEliteBoss(boss.id)
     if (!elite && stage === 9) this.heart.update(now, dt, boss.id)
@@ -375,7 +431,7 @@ export class BossEncounterController {
           formation: f.formation,
           count: f.count,
           spreadDeg: 0,
-          speed: f.speed,
+          speed: f.speed * this.projectileSpeedScale,
           radius: f.radius,
           damage: f.damage,
           lifetimeMs: 3600,
@@ -401,7 +457,7 @@ export class BossEncounterController {
           nextAt: now,
         }
         this.barrageIndex = (this.barrageIndex + 1) % barrages.patterns.length
-        this.nextBarrageAtMs = now + barrages.intervalMs
+        this.nextBarrageAtMs = now + this.scaledInterval(barrages.intervalMs)
       }
       // 只追一轮；长帧不补发整串，否则切标签页回来会瞬间铺满屏幕。
       if (this.barrageBurst && now >= this.barrageBurst.nextAt) {
@@ -410,7 +466,7 @@ export class BossEncounterController {
         burst.fired++
         burst.remaining--
         if (burst.remaining <= 0) this.barrageBurst = null
-        else burst.nextAt = now + (burst.pattern.burstIntervalMs ?? 0)
+        else burst.nextAt = now + this.scaledInterval(burst.pattern.burstIntervalMs ?? 0)
       }
     }
     // Clones (耄耋猫影分身) each own a slower barrage clock. The hidden boss does not
@@ -424,7 +480,7 @@ export class BossEncounterController {
           this.cloneBarrageNext.delete(id)
           this.cloneBarrageIndex.delete(id)
         }
-      const interval = barrages.intervalMs
+      const interval = this.scaledInterval(barrages.intervalMs)
       for (const clone of clones) {
         if (!this.cloneBarrageNext.has(clone.id))
           // Fire the first clone volley immediately; the 4× interval applies after it.
@@ -526,7 +582,7 @@ export class BossEncounterController {
     const speedScale = 1 + (pattern.speedStepPct ?? 0) * (burstIndex % 2 === 0 ? 1 : -1)
     const volley: BossSkillVolley = {
       count: shots?.length ?? angles.length,
-      speed: pattern.speed * speedScale,
+      speed: pattern.speed * speedScale * this.projectileSpeedScale,
       radius: pattern.radius,
       damage: Math.round(pattern.damage * this.port.damageMultiplier),
       lifetimeMs: pattern.lifetimeMs,
@@ -536,7 +592,9 @@ export class BossEncounterController {
       ...(pattern.spawnAngleDeg !== undefined
         ? { spawnAngleOffsetRad: (pattern.spawnAngleDeg * Math.PI) / 180 }
         : {}),
-      ...(pattern.speedEnd !== undefined ? { speedEnd: pattern.speedEnd * speedScale } : {}),
+      ...(pattern.speedEnd !== undefined
+        ? { speedEnd: pattern.speedEnd * speedScale * this.projectileSpeedScale }
+        : {}),
       ...(pattern.speedRampMs !== undefined ? { speedRampMs: pattern.speedRampMs } : {}),
       ...(pattern.bounceCount !== undefined ? { bounceCount: pattern.bounceCount } : {}),
       ...(pattern.splitAfterMs !== undefined ? { splitAfterMs: pattern.splitAfterMs } : {}),
@@ -677,7 +735,9 @@ export class BossEncounterController {
       else this.port.setUnitStunned(command.id, command.untilMs)
     } else if (command.id === player.model.id) {
       // Arcade integrates the velocity; never also reset to the already integrated hazard point.
-      this.session.bossForcedVelocity = { x: command.vx, y: command.vy }
+      const forced = { x: command.vx, y: command.vy }
+      this.session.bossForcedVelocity = forced
+      this.forcedVelocityValue = forced
     } else {
       this.port.setUnitStunned(command.id, now + 1000 / 30)
       const from = this.port.units().find((u) => u.id === command.id)
@@ -832,7 +892,9 @@ export class BossEncounterController {
     this.heart.clear()
     this.stopNailongVoices()
     this.stopBossSkillAudio()
-    this.session.resetBossPlayerControl()
+    if (this.options.resetPlayerControlOnClear !== false)
+      this.session.resetBossPlayerControl()
+    this.forcedVelocityValue = null
     this.view.update(this.session.clock.nowMs)
     this.bossId = null
     this.barrageIndex = 0

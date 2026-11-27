@@ -271,6 +271,7 @@ export function buildNotebookRunSetup(
   onCharacter: (id: string) => void,
   onDifficulty: (d: Difficulty) => void,
   onStart: () => void,
+  onBossRush: () => void,
   onUpgrade: () => void,
   seed: RunSetupSeedControl,
 ): NotebookRunSetupParts {
@@ -349,12 +350,14 @@ export function buildNotebookRunSetup(
   ui.label(
     1115,
     619,
-    `出战：${characterById(profile.selected.characterId)?.name ?? '—'}  ·  难度：${DIFFICULTY_LABELS[profile.selected.difficulty]}\n` +
-      '角色与难度会记住，下次出发无需重复选择。',
+    `出战：${characterById(profile.selected.characterId)?.name ?? '—'}  ·  难度：${DIFFICULTY_LABELS[profile.selected.difficulty]}`,
     A.size.micro,
     A.muted,
     300,
   )
+  // BOSSRUSH：与普通闯关并列的第二种出发方式。**放在难度面板里**，
+  // 不挤占底部的「开始闯关 / 查看角色升级」那一行（用户 2026-11-28 反馈挤压）。
+  ui.button(1264, 662, 292, 50, 'BOSSRUSH · 八层连战', onBossRush)
   ui.button(1264, 765, 366, 83, '开始闯关  →', onStart, true)
   ui.button(881, 765, 228, 52, '查看角色升级', onUpgrade)
 

@@ -470,8 +470,13 @@ export class MainMenuScene extends Phaser.Scene {
     this.rebuild()
   }
 
-  /** 出发准备页的「开始闯关」。真正进战斗前才检查场景是否注册。 */
-  private startRun(): void {
+  /**
+   * 出发准备页的「开始闯关」/「BOSSRUSH」。真正进战斗前才检查场景是否注册。
+   *
+   * `mode` 一起带进战斗：`campaign` 是原来的三层闯关，`bossrush` 是八层首领连战。
+   * 两个入口共用角色、难度与本局种子；BOSSRUSH 的首领顺序也从这颗种子派生。
+   */
+  private startRun(mode: 'campaign' | 'bossrush' = 'campaign'): void {
     if (this.pointerGuarded() || this.startingRun) return
     // ⚠️ 先确认 `battle` 真的注册过：只有产品入口会注册它（`main.ts` 的 scene
     // 列表），D4 的测试场（`test.html?arena=d4_main_menu`）里没有战斗场景 ——
@@ -489,6 +494,7 @@ export class MainMenuScene extends Phaser.Scene {
       difficulty: this.store.profile.selected.difficulty,
       characterId: this.store.profile.selected.characterId,
       seed: this.runSeed,
+      mode,
     })
   }
 
@@ -865,6 +871,7 @@ export class MainMenuScene extends Phaser.Scene {
             this.rebuild()
           },
           () => this.startRun(),
+          () => this.startRun('bossrush'),
           () => this.run('upgrade'),
           {
             value: this.runSeed,

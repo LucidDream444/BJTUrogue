@@ -10,17 +10,30 @@ interface GroundWeapon {
   image: Phaser.GameObjects.Image
   label: Phaser.GameObjects.Text
   reward: boolean
+  /** 这把武器是从哪个箱子里掉出来的；拾取后把那个箱子标成已完成。 */
+  chest?: ChestRuntime
 }
 
-/** Boss chest plus persistent room loot. Replacement drops remain until picked up or room exit. */
+type ChestState = 'closed' | 'dropped' | 'collected'
+
+interface ChestRuntime {
+  image: Phaser.GameObjects.Image
+  hint: Phaser.GameObjects.Text
+  state: ChestState
+  openedAt: number
+}
+
+/**
+ * Boss chest plus persistent room loot. Replacement drops remain until picked up or room exit.
+ *
+ * ★ 2026-11-28：从「一个箱子」扩展成「一组箱子」—— BOSSRUSH 每击败一位首领
+ * 要在场地里同时刷新三个。普通闯关仍然只 `spawn()` 一个，行为不变。
+ */
 export class FirstBossLoot {
-  private state: 'absent' | 'closed' | 'dropped' | 'collected' = 'absent'
-  private chest?: Phaser.GameObjects.Image
-  private hint?: Phaser.GameObjects.Text
+  private chests: ChestRuntime[] = []
   private readonly halo: Phaser.GameObjects.Graphics
   private readonly ground: GroundWeapon[] = []
   private choice: GroundWeapon | null = null
-  private openedAt = 0
   private readonly off: Unsubscribe
   private disposed = false
   constructor(
@@ -34,17 +47,17 @@ export class FirstBossLoot {
     return this.choice !== null
   }
   get completed(): boolean {
-    return this.state === 'collected'
+    return this.chests.length > 0 && this.chests.every((chest) => chest.state === 'collected')
   }
   /**
    * 宝箱**开过了没有**（开了 = 里面那把武器已经掉出来了）。
    *
-   * ⚠️ **`reset()` 会把答案抹掉**（它把 `state` 打回 `'absent'`），所以调用方
-   * 必须在 `reset()` **之前**问 —— `BattleScene.settleChest()` 就是干这个的。
+   * ⚠️ **`reset()` 会把答案抹掉**（它把所有箱子清掉），所以调用方必须在
+   * `reset()` **之前**问 —— `BattleScene.settleChest()` 就是干这个的。
    * 记下来的用途是「这一间的宝箱开过就不再出现」，见那一段。
    */
   get opened(): boolean {
-    return this.state === 'dropped' || this.state === 'collected'
+    return this.chests.some((chest) => chest.state !== 'closed')
   }
   reset(): void {
     this.cancelReplacement()
@@ -53,41 +66,57 @@ export class FirstBossLoot {
       item.label.destroy()
     }
     this.ground.length = 0
-    this.chest?.destroy()
-    this.hint?.destroy()
-    this.chest = undefined
-    this.hint = undefined
+    for (const chest of this.chests) {
+      chest.image.destroy()
+      chest.hint.destroy()
+    }
+    this.chests.length = 0
     this.halo.clear()
-    this.state = 'absent'
   }
   spawn(x: number, y: number): void {
-    if (this.state !== 'absent') return
-    // ⚠️ `visualSize` 是**边长**，当成净空半径用要减半 —— 见 `TerrainMap.safeSpawn()`：
-    //    直接拿 56 当半径 = 要求 112px 的空地，比门洞还宽，宝箱会被扔到走廊去（实测 200—540px）。
-    //    第四个参数是**通行半径** = 玩家：宝箱不是走过去的，是玩家走过去开它。
-    const point = this.session.terrain.safeSpawn(
-      x,
-      y,
-      this.session.cfg.chest.visualSize / 2,
-      this.session.player.model.stats.radius,
-    )
-    this.state = 'closed'
-    this.chest = this.scene.add
-      .image(point.x, point.y, textureKeyFor(this.scene, WEAPON_ART.chest))
-      .setDisplaySize(this.session.cfg.chest.visualSize, this.session.cfg.chest.visualSize)
-      .setDepth(point.y + 1)
-    this.hint = this.scene.add
-      .text(point.x, point.y - 48, '宝箱 · 靠近按 E', {
-        fontFamily: 'Microsoft YaHei',
-        fontSize: '14px',
-        color: '#fff1ac',
-        stroke: '#13182d',
-        strokeThickness: 4,
-      })
-      .setOrigin(0.5)
-      .setDepth(4000)
+    this.spawnMany([{ x, y }])
   }
-  private drop(id: WeaponId, x: number, y: number, reward: boolean): GroundWeapon {
+  /**
+   * 一次摆多个箱子。已经摆过一组时返回 `false` —— 与原来的 `spawn()` 同一条
+   * 「不重复刷」的守卫，BOSSRUSH 每层换首领前会先 `reset()`。
+   */
+  spawnMany(points: readonly { x: number; y: number }[]): boolean {
+    if (this.chests.length > 0 || points.length === 0) return false
+    for (const { x, y } of points) {
+      // ⚠️ `visualSize` 是**边长**，当成净空半径用要减半 —— 见 `TerrainMap.safeSpawn()`：
+      //    直接拿 56 当半径 = 要求 112px 的空地，比门洞还宽，宝箱会被扔到走廊去（实测 200—540px）。
+      //    第四个参数是**通行半径** = 玩家：宝箱不是走过去的，是玩家走过去开它。
+      const point = this.session.terrain.safeSpawn(
+        x,
+        y,
+        this.session.cfg.chest.visualSize / 2,
+        this.session.player.model.stats.radius,
+      )
+      const image = this.scene.add
+        .image(point.x, point.y, textureKeyFor(this.scene, WEAPON_ART.chest))
+        .setDisplaySize(this.session.cfg.chest.visualSize, this.session.cfg.chest.visualSize)
+        .setDepth(point.y + 1)
+      const hint = this.scene.add
+        .text(point.x, point.y - 48, '宝箱 · 靠近按 E', {
+          fontFamily: 'Microsoft YaHei',
+          fontSize: '14px',
+          color: '#fff1ac',
+          stroke: '#13182d',
+          strokeThickness: 4,
+        })
+        .setOrigin(0.5)
+        .setDepth(4000)
+      this.chests.push({ image, hint, state: 'closed', openedAt: 0 })
+    }
+    return true
+  }
+  private drop(
+    id: WeaponId,
+    x: number,
+    y: number,
+    reward: boolean,
+    chest?: ChestRuntime,
+  ): GroundWeapon {
     const p = this.session.terrain.safeSpawn(x, y, this.session.player.model.stats.radius)
     const def = this.session.cfg.weapons.find((w) => w.id === id)!
     const image = this.scene.add
@@ -105,7 +134,7 @@ export class FirstBossLoot {
       })
       .setOrigin(0.5)
       .setDepth(4000)
-    const item = { id, image, label, reward }
+    const item = { id, image, label, reward, chest }
     this.ground.push(item)
     return item
   }
@@ -118,24 +147,18 @@ export class FirstBossLoot {
     if (!this.canInteract()) return
     const p = this.session.player,
       cfg = this.session.cfg.chest
-    if (
-      this.state === 'closed' &&
-      this.chest &&
-      Phaser.Math.Distance.Between(p.x, p.y, this.chest.x, this.chest.y) <= cfg.interactRadius
-    ) {
-      this.state = 'dropped'
-      this.openedAt = this.session.clock.nowMs
-      this.chest.setTint(0x87cfff).setAlpha(0.6)
-      const item = this.drop(
-        this.session.chooseRandomWeaponId() ?? 'pulse',
-        this.chest.x + cfg.visualSize,
-        this.chest.y,
-        true,
-      )
-      this.hint?.setText('宝箱已开启 · 靠近武器按 E')
-      item.label.setText(
-        this.session.cfg.weapons.find((w) => w.id === item.id)!.name + ' · 靠近自动拾取 / E',
-      )
+    let nearestChest: ChestRuntime | null = null,
+      chestDistance = cfg.interactRadius
+    for (const chest of this.chests) {
+      if (chest.state !== 'closed') continue
+      const d = Phaser.Math.Distance.Between(p.x, p.y, chest.image.x, chest.image.y)
+      if (d <= chestDistance) {
+        chestDistance = d
+        nearestChest = chest
+      }
+    }
+    if (nearestChest) {
+      this.openChest(nearestChest)
       return
     }
     if (this.choice) {
@@ -152,6 +175,24 @@ export class FirstBossLoot {
       }
     }
     if (closest) this.pickup(closest)
+  }
+
+  private openChest(chest: ChestRuntime): void {
+    const cfg = this.session.cfg.chest
+    chest.state = 'dropped'
+    chest.openedAt = this.session.clock.nowMs
+    chest.image.setTint(0x87cfff).setAlpha(0.6)
+    const item = this.drop(
+      this.session.chooseRandomWeaponId() ?? 'pulse',
+      chest.image.x + cfg.visualSize,
+      chest.image.y,
+      true,
+      chest,
+    )
+    chest.hint.setText('宝箱已开启 · 靠近武器按 E')
+    item.label.setText(
+      this.session.cfg.weapons.find((w) => w.id === item.id)!.name + ' · 靠近自动拾取 / E',
+    )
   }
   private pickup(item: GroundWeapon): void {
     if (this.session.inventory.includes(item.id)) {
@@ -173,9 +214,9 @@ export class FirstBossLoot {
     this.ground.splice(index, 1)
     item.image.destroy()
     item.label.destroy()
-    if (item.reward) {
-      this.state = 'collected'
-      this.hint?.setText('已拾取武器 · 1 / 2 或 Q 切换')
+    if (item.reward && item.chest) {
+      item.chest.state = 'collected'
+      item.chest.hint.setText('已拾取武器 · 1 / 2 或 Q 切换')
     }
     if (this.choice === item) this.choice = null
   }
@@ -214,11 +255,15 @@ export class FirstBossLoot {
         cfg.interactRadius
     )
       this.cancelReplacement()
-    if (this.state === 'closed' && this.chest)
-      this.drawHalo(this.chest.x, this.chest.y, 0x58dcff, now)
-    if (this.state === 'dropped' && this.chest) {
-      const t = Math.min(1, (now - this.openedAt) / cfg.openFxMs)
-      this.halo.lineStyle(3, 0xffe1a4, 1 - t).strokeCircle(this.chest.x, this.chest.y, 20 + t * 60)
+    for (const chest of this.chests) {
+      if (chest.state === 'closed')
+        this.drawHalo(chest.image.x, chest.image.y, 0x58dcff, now)
+      if (chest.state === 'dropped') {
+        const t = Math.min(1, (now - chest.openedAt) / cfg.openFxMs)
+        this.halo
+          .lineStyle(3, 0xffe1a4, 1 - t)
+          .strokeCircle(chest.image.x, chest.image.y, 20 + t * 60)
+      }
     }
     for (const item of this.ground) {
       const def = this.session.cfg.weapons.find((w) => w.id === item.id)!

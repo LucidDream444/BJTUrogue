@@ -863,6 +863,28 @@ export class EnemySystem implements ActorEventSink {
     }
   }
 
+  /**
+   * BOSS 倒下后清掉场上剩余的小怪（召唤物 / 分裂子代 / 影分身）。
+   *
+   * ★ 2026-11-28 用户要求：「BOSS死亡后自动清空剩余小怪」。首领已经死了还让
+   * 玩家追着残血小怪跑，会把「打赢了」拖成「打扫战场」；清场判定也会一直等
+   * 那些小怪死光，门口传送阵迟迟不开。
+   *
+   * ⚠️ **只放非 BOSS**：主首领（`isBoss`）还在死亡动画里，一起释放会把尸体
+   * 和击杀反馈一起吞掉。影分身不是 `bossStages`，会被正常清掉。
+   */
+  despawnMinions(): void {
+    this.spawns.clear()
+    this.pendingGrabs.length = 0
+    if (this.grab && !this.isBoss(this.grab.entry.model.id)) this.endGrab()
+    this.pendingGrabs.length = 0
+    for (const entry of [...this.pool.activeEntries()]) {
+      if (this.isBoss(entry.model.id)) continue
+      this.pool.release(entry)
+    }
+    this.clearLiquid()
+  }
+
   /** A final victory/floor teardown is despawn, not a simulated kill. */
   despawnAll(): void {
     this.minionCap = null
@@ -1659,6 +1681,7 @@ export class EnemySystem implements ActorEventSink {
     eliteBoss = false,
     eliteRadius = 22,
     eliteVisualScale = 0.24,
+    speedMultiplier = 1,
   ): boolean {
     const spec = this.specFor('tank', 0)
     const ranged = stage === 3 && !eliteBoss ? this.bundle.enemies.stage2Boss : null
@@ -1672,11 +1695,13 @@ export class EnemySystem implements ActorEventSink {
         stats: {
           ...spec.stats,
           maxHp,
-          speed: deriveBossSpeed(
-            this.bundle.enemies,
-            bossId,
-            layer,
-            this.diffMods.enemySpeed,
+          speed: Math.round(
+            deriveBossSpeed(
+              this.bundle.enemies,
+              bossId,
+              layer,
+              this.diffMods.enemySpeed,
+            ) * (Number.isFinite(speedMultiplier) && speedMultiplier > 0 ? speedMultiplier : 1),
           ),
           radius: eliteBoss ? eliteRadius : ranged ? ranged.radius : spec.stats.radius,
         },

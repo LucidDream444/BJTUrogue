@@ -97,7 +97,10 @@ export class EnemyHealthBars {
         this.bossLabels.set(boss.id, label)
       }
       const name = boss.finalBoss ? '奶龙' : bossDisplayName(boss.stage, this.stage2Name)
-      label.name.setPosition(0, y).setText(boss.finalBoss ? `最终战 · ${name}` : `第 ${boss.stage} 层 · ${name}`)
+      // `layer` 是这一局实际打到第几层；`stage` 是首领模板档位（profile 2—9）。
+      // BOSSRUSH 里第一场可能抽到 profile 7，写成「第 7 层」会直接读错。
+      const layerLabel = `第 ${boss.layer ?? boss.stage} 层`
+      label.name.setPosition(0, y).setText(boss.finalBoss ? `最终战 · ${name}` : `${layerLabel} · ${name}`)
       label.value.setPosition(width, y).setText(`${Math.ceil(boss.hp)} / ${Math.ceil(boss.maxHp)}`)
     }
   }

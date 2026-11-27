@@ -222,11 +222,12 @@ export class EnemyBridge implements BulletContactPort {
   }
   spawnBoss(
     stage: number, layer: number, bossId: string, x: number, y: number, maxHp: number,
-    finalBoss = false, damageMultiplier = 1, eliteBoss = false,
+    finalBoss = false, damageMultiplier = 1, eliteBoss = false, speedMultiplier = 1,
   ): void {
     this.system.requestBoss(
       stage, layer, bossId, x, y, maxHp, finalBoss, damageMultiplier,
       eliteBoss, this.cfg.encounter.eliteBossRadius, this.cfg.encounter.eliteBossVisualScale,
+      speedMultiplier,
     )
   }
   bossStatus(stage: number) {
@@ -265,6 +266,8 @@ export class EnemyBridge implements BulletContactPort {
   }
   clearVortices(): void { this.system.clearVortices() }
   despawnAll(): void { this.system.despawnAll() }
+  /** BOSS 死亡时清掉剩余小怪（召唤物 / 分裂子代 / 影分身），保留首领自己的死亡动画。 */
+  despawnMinions(): void { this.system.despawnMinions() }
   collidesWithUnits(enemy: Phaser.GameObjects.GameObject): boolean {
     const model = (enemy as { model?: { id: number } }).model
     return model ? this.system.collidesWithUnits(model.id) : true

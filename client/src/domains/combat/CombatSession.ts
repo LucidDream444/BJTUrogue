@@ -105,6 +105,13 @@ export class CombatSession {
   private rewardRemaining = 0
   private rewardClaimFloor = ''
   private rewardSequence = 0
+  /**
+   * 这一轮天赋三选一是不是 BOSSRUSH 的「击败首领升级」。
+   * BOSSRUSH 不走闯关模式的 `floorChoices` 配额（那张表按三层配的），
+   * 所以选项上限要单独放开，见 `nextTalentOffer()`。
+   */
+  private rewardBossRush = false
+  private rewardBossRushFloor = 0
   private disposed = false
   private readonly vortices = new Map<number, VortexSnapshot>()
   /** 首领技能的临时移动控制，全部使用游戏时间；不会改写玩家成长数值。 */
@@ -709,6 +716,18 @@ export class CombatSession {
     this.grantWeapon(weapon.id)
     return weapon
   }
+  /**
+   * 按类别随机发一把武器。BOSSRUSH 开局要求「一把近战 + 一把远程」，
+   * 所以调用方分别传 `w.mode === 'melee'` 与 `w.mode !== 'melee'`。
+   * 随机流仍是本局 `weaponRng`，同种子可复现。
+   */
+  grantRandomWeaponMatching(match: (weapon: WeaponDef) => boolean): WeaponDef | null {
+    const available = this.cfg.weapons.filter((w) => !this.inventory.includes(w.id) && match(w))
+    if (this.inventory.length >= 2 || !available.length) return null
+    const weapon = available[this.weaponRng.between(0, available.length - 1)]!
+    this.grantWeapon(weapon.id)
+    return weapon
+  }
   private grantWeapon(id: WeaponId): boolean {
     if (!this.player.model.alive || this.inventory.length >= 2 || this.inventory.includes(id))
       return false
@@ -883,9 +902,28 @@ export class CombatSession {
   beginTalentRoom(roomId:string,boss=false):void{this.talentBoss=boss;this.talentCombat.beginRoom(this.talentLayer+':'+(this.talentFinale?'finale:':'main:')+roomId)}
   offerOpeningTalent():void{
     if(!this.cfg.talents||this.talents.claimed('opening')||this.rewards.roomId!==null)return
+    this.rewardBossRush=false
     this.rewardHost='opening';this.rewardClaimFloor='opening';this.rewardRemaining=1;this.nextTalentOffer()
   }
+  /**
+   * BOSSRUSH 击败首领后的天赋奖励。与 `offerTalentRoom()` 分开：
+   * 那边按 `floorChoices`（闯关三层）配额发，这边按「升级了几级 × 每级几次」发，
+   * 且不读那张三层表。`maxOwned` 上限仍由配置统一管。
+   */
+  offerBossRushTalents(count:number,floor:number):boolean{
+    if(!this.cfg.talents||count<=0)return false
+    const remaining=Math.min(count,Math.max(0,this.cfg.talents.maxOwned-this.talents.owned.length))
+    if(remaining<=0)return false
+    this.rewardBossRush=true
+    this.rewardBossRushFloor=floor
+    this.rewardHost='bossrush:'+floor
+    this.rewardClaimFloor='bossrush:'+floor
+    this.rewardRemaining=remaining
+    this.nextTalentOffer()
+    return true
+  }
   private offerTalentRoom(roomId:string):void{
+    this.rewardBossRush=false
     this.talentCombat.finishRoom()
     const rules=this.cfg.talents!,scope=String(this.talentLayer),quota=rules.floorChoices[this.talentLayer-1]??0,claimed=this.talents.claimed(scope)
     const count=this.talentFinale?0:this.talentBoss?Math.max(0,quota-claimed):(claimed<quota-1?1:0)
@@ -894,7 +932,7 @@ export class CombatSession {
   }
   private nextTalentOffer():void{
     const token=this.rewardClaimFloor+':talent:'+this.rewardSequence++
-    const floorPicksLeft = this.rewardClaimFloor === 'opening' ? Infinity
+    const floorPicksLeft = this.rewardClaimFloor === 'opening' || this.rewardBossRush ? Infinity
       : (this.cfg.talents!.floorChoices[this.talentLayer - 1] ?? 0) - this.talents.claimed(this.rewardClaimFloor)
     const options=this.rewards.offer(token,this.weapon.id,this.player.model.hp,this.player.model.maxHp,(reward)=>this.rewardChanges(reward).length>0,floorPicksLeft)
     if(!options?.length){while(this.rewardRemaining-->0)this.talents.claim(this.rewardClaimFloor);this.finishTalentOffer();return}
@@ -903,7 +941,7 @@ export class CombatSession {
   }
   private finishTalentOffer():void{
     const roomId=this.rewardHost
-    this.rewardHost=null;this.rewardRemaining=0
+    this.rewardHost=null;this.rewardRemaining=0;this.rewardBossRush=false
     this.resume('reward')
     if(roomId!==null)this.bus.emit('reward_finished',{runId:this.runId,roomId,reason:'selected'})
   }
@@ -914,7 +952,7 @@ export class CombatSession {
     this.bus.emit('reward_offered',{runId:this.runId,roomId,ids:options.map((reward)=>reward.id)})
     return true
   }
-  get rewardLocation():string{return this.rewardClaimFloor==='opening'?'出发准备':this.talentFinale?'最终战':('第'+this.talentLayer+'层 · 战斗完成')}
+  get rewardLocation():string{return this.rewardBossRush?('BOSSRUSH · 第 '+this.rewardBossRushFloor+' 层 · 首领已击败'):this.rewardClaimFloor==='opening'?'出发准备':this.talentFinale?'最终战':('第'+this.talentLayer+'层 · 战斗完成')}
 
   rewardChanges(r: RewardDef): { label: string; before: string; after: string }[] {
     if (r.talent) {

@@ -82,7 +82,12 @@ export class StageBackground {
      * - `drawStairs: false` —— 那间 `start` 房是传送阵的落点，不画楼梯；
      * - `arrivalRoom: true` —— 房号那行字写「落点 · 传送阵」，不再写「楼梯间 · 中转站」。
      */
-    private readonly opts: { drawStairs?: boolean; arrivalRoom?: boolean } = {},
+    private readonly opts: {
+      drawStairs?: boolean
+      arrivalRoom?: boolean
+      /** `start` 房的显示名覆盖（BOSSRUSH 把落点房当商店用）。 */
+      startLabel?: string
+    } = {},
   ) {
     const b = map.bounds
     this.floor = scene.add.graphics().setDepth(-120)
@@ -169,6 +174,7 @@ export class StageBackground {
    */
   private labelText(unit: DungeonRoom): string {
     if (this.opts.arrivalRoom && unit.room.kind === 'start') return '落点'
+    if (this.opts.startLabel && unit.room.kind === 'start') return this.opts.startLabel
     const kind = ROOM_KIND_LABELS[unit.room.kind] ?? unit.room.kind
     return unit.displayNo == null ? kind : `${unit.displayNo} 号 ${kind}`
   }

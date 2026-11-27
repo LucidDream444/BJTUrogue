@@ -214,9 +214,15 @@ export class ShopWorld {
       { x: rect.x - gapX / 2, y: rect.y + rowGap },
       { x: rect.x + gapX / 2, y: rect.y + rowGap },
     ]
+    // 小房间（BOSSRUSH 复用 8F 落点房当商店）放不下原尺寸商人：
+    // 立绘会顶穿北墙。按房间高度换一套「小商人」尺寸与位置，判定不变。
+    const compact = rect.height < 620
     this.merchant = this.makeMerchant(
       rect.x,
-      Math.max(rect.y - rect.height / 2 + 58, rect.y - rowGap - 92),
+      compact
+        ? rect.y - rect.height / 2 + 50
+        : Math.max(rect.y - rect.height / 2 + 58, rect.y - rowGap - 92),
+      compact,
     )
     stock.items.slice(0, spots.length).forEach((item, index) => {
       const spot = spots[index]!
@@ -238,17 +244,23 @@ export class ShopWorld {
    * 商店商人立绘。摆在上排 3 张商品桌正后方的中央，深度落后于商品桌；
    * 只做表现，不参与购买判定。
    */
-  private makeMerchant(x: number, y: number): Phaser.GameObjects.Container {
-    const shadow = this.scene.add.ellipse(0, 42, 62, 17, 0x000000, 0.34)
+  private makeMerchant(
+    x: number,
+    y: number,
+    compact = false,
+  ): Phaser.GameObjects.Container {
+    const width = compact ? 56 : 88
+    const height = compact ? 64 : 101
+    const shadow = this.scene.add.ellipse(0, 42, compact ? 44 : 62, compact ? 12 : 17, 0x000000, 0.34)
     const art = this.scene.add
       .image(0, 42, textureKeyFor(this.scene, SHOP_MERCHANT_ART))
       .setOrigin(0.5, 1)
-      .setDisplaySize(88, 101)
+      .setDisplaySize(width, height)
     art.texture.setFilter(Phaser.Textures.FilterMode.LINEAR)
     const label = this.scene.add
-      .text(0, -68, '商人', {
+      .text(0, 42 - height - 12, '商人', {
         fontFamily: 'Microsoft YaHei, sans-serif',
-        fontSize: '12px',
+        fontSize: compact ? '11px' : '12px',
         color: '#f7e3aa',
         backgroundColor: '#101923d9',
         padding: { x: 7, y: 3 },

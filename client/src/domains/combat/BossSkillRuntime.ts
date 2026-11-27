@@ -457,12 +457,26 @@ export class BossSkillRuntime {
   private nextCastMs = 0
   private nextSkillIndex = 0
   private lastNowMs = 0
+  /**
+   * 技能调度的时间倍率（`>1` = 冷却更短、放得更勤）。BOSSRUSH 按层调它；
+   * 普通闯关保持 1。只影响**下一次什么时候放**，不改技能本身的动画/伤害。
+   */
+  private timeScale = 1
   private readonly controlled = new Set<number>()
   private readonly invulnerable = new Set<number>()
   private readonly appearances = new Set<number>()
   private readonly boosted = new Set<number>()
 
   constructor(readonly config: BossSkillsTable, readonly port: BossSkillPort) {}
+
+  /**
+   * 调技能频率。**必须夹在 [0.25, 4]**：配置写错成 0 会让 `cooldown / scale`
+   * 变成 Infinity（技能永远不冷却），写成负数会让冷却倒退。
+   */
+  setTimeScale(scale: number): void {
+    this.timeScale =
+      Number.isFinite(scale) && scale > 0 ? Math.min(4, Math.max(0.25, scale)) : 1
+  }
 
   update(nowMs: number, dtMs: number, bossId: number, stage: number): BossHazardCommand[] {
     this.lastNowMs = nowMs
@@ -525,7 +539,7 @@ export class BossSkillRuntime {
     this.activeStage = stage
     this.nextCastMs = nowMs
     for (const skill of this.config.bosses[String(stage)]?.skills ?? [])
-      this.nextSkills.set(skill.id, nowMs + skill.initialDelayMs)
+      this.nextSkills.set(skill.id, nowMs + skill.initialDelayMs / this.timeScale)
   }
 
   private runJobs(nowMs: number): void {
@@ -627,8 +641,8 @@ export class BossSkillRuntime {
     if (selected < 0) return
     const skill = config.skills[selected]!
     this.nextSkillIndex = (selected + 1) % config.skills.length
-    this.nextSkills.set(skill.id, nowMs + skill.cooldownMs)
-    this.nextCastMs = nowMs + config.skillIntervalMs
+    this.nextSkills.set(skill.id, nowMs + skill.cooldownMs / this.timeScale)
+    this.nextCastMs = nowMs + config.skillIntervalMs / this.timeScale
     this.castSkill(bossId, stage, skill.id, nowMs)
   }
 

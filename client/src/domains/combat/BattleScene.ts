@@ -49,7 +49,10 @@ import {
   type RoomsConfig,
 } from '@/domains/procgen/config'
 import {
+  FLOOR_PLAN_BOSSRUSH_BOSS_NAME,
+  FLOOR_PLAN_BOSSRUSH_SHOP_NAME,
   FLOOR_PLAN_FILES,
+  floorPlanFromCache,
   floorPlansForRun,
   type RunFloorPlans,
 } from '@/domains/procgen/gen/floorPlan'
@@ -106,8 +109,14 @@ import { RunFlow } from './RunFlow'
 import { BossReinforcements } from './BossReinforcements'
 import { BossEncounterController } from './BossEncounterController'
 import { bossArenaBoundsFromRect } from './BossArenaBounds'
-import { parseBossSkillsTable } from './BossSkillRuntime'
+import { parseBossSkillsTable, type BossSkillsTable } from './BossSkillRuntime'
 import { parseBossPools, pickLayerBosses, type BossPicks } from './bossPools'
+import {
+  BOSS_RUSH_CONFIG_NAME,
+  BossRushRun,
+  parseBossRushConfig,
+  type BossRushConfig,
+} from './BossRushRun'
 
 /**
  * 「够得着」的距离门槛（世界像素）。**量的是到目标矩形的最短距离**，贴着它才是 0。
@@ -159,6 +168,13 @@ const SAFE_SPAWN_GAP = 160
 export interface BattleSceneData {
   difficulty?: Difficulty
   characterId?: string
+  /**
+   * `campaign` = 原来的三层闯关（默认）；`bossrush` = 八层首领连战。
+   *
+   * BOSSRUSH 的入口在「出发准备」页，和「开始闯关」并列；两者共用角色、
+   * 难度与种子，区别只在 `create()` 里走哪一条流程。
+   */
+  mode?: 'campaign' | 'bossrush'
   /**
    * 本局种子。**由「出发准备」页传入**（玩家在那里看过/改过）；
    * 不传时退回 URL 的 `?seed=`，再没有就随机。
@@ -274,6 +290,25 @@ export class BattleScene extends Phaser.Scene {
   private layer = 0
   /** `'main'` = 1F/第 1—2 层；`'finale'` = 奶龙最终战。 */
   private zone: 'main' | 'finale' = 'main'
+  /** 这一局是普通闯关还是 BOSSRUSH。整局不变，只在 `init()` 里设。 */
+  private mode: 'campaign' | 'bossrush' = 'campaign'
+  /** BOSSRUSH 的纯规则（顺序 / 成长 / 经验）；普通闯关时为 `null`。 */
+  private bossRush: BossRushRun | null = null
+  private bossRushConfig: BossRushConfig | null = null
+  /** BOSSRUSH 当前正在打（或刚打完）的层号。HUD 与首领名读它，不读 `run.currentFloor`。 */
+  private bossRushFloor = 1
+  /** 首领已倒下、三个宝箱已出，等玩家走出首领房进商店。 */
+  private bossRushWaitingForShop = false
+  /** 玩家现在在 BOSSRUSH 的商店房里。 */
+  private bossRushInShop = false
+  /** 第八层首领已倒下，等最后一批天赋选完再把通关交给 RunFlow。 */
+  private bossRushFinalPending = false
+  /** 当前加载的是 BOSSRUSH 的哪张图：只有首领房 / 只有商店。 */
+  private bossRushArea: 'boss' | 'shop' = 'boss'
+  /** 首领房门口 / 商店门口的传送阵；两段流程都靠它按 F 切换。 */
+  private bossRushPortal!: AnomalyGate
+  private bossRushHud!: Phaser.GameObjects.Container
+  private bossRushHudText!: Phaser.GameObjects.Text
   /** 哪些层的池内首领已经死了（按层号 1—2）。第 2 层死后开最终传送阵。 */
   private readonly bossCleared = new Set<number>()
   /**
@@ -440,6 +475,13 @@ export class BattleScene extends Phaser.Scene {
   private encounterCodex: EncounterCodexOverlay | null = null
   private bossReinforcements!: BossReinforcements
   private bossSkills: BossEncounterController | null = null
+  /**
+   * BOSSRUSH 同一层有 2—3 位首领时，第一位用 `bossSkills`，其余各一台独立控制器。
+   * 每台控制器只驱动自己那个 `bossStage` 的弹幕 / 技能（`BossEncounterController`
+   * 是按单个 profile 设计的，不能一台同时跑两个）。
+   */
+  private bossRushExtras: BossEncounterController[] = []
+  private bossSkillsTable: BossSkillsTable | null = null
   private reinforcementRng!: Rng
   /**
    * 这一局结算过没有。
@@ -459,8 +501,16 @@ export class BattleScene extends Phaser.Scene {
   }
   init(data: BattleSceneData = {}): void {
     this.difficulty = data.difficulty ?? 'normal'
+    this.mode = data.mode === 'bossrush' ? 'bossrush' : 'campaign'
     this.launchSeed = data.seed
     this.launchCharacterId = data.characterId
+    this.bossRush = null
+    this.bossRushConfig = null
+    this.bossRushFloor = 1
+    this.bossRushWaitingForShop = false
+    this.bossRushInShop = false
+    this.bossRushFinalPending = false
+    this.bossRushArea = 'boss'
     this.skillLab = data.skillLab === true
     this.skillLabCharacterId = data.skillLabCharacterId
     this.skillLabLevel = Phaser.Math.Clamp(data.skillLabLevel ?? 1, 1, 4)
@@ -506,6 +556,7 @@ export class BattleScene extends Phaser.Scene {
       'combat.json',
       'boss-skills.json',
       'boss-pools.json',
+      BOSS_RUSH_CONFIG_NAME,
       'rewards.json',
       // D2 的地牢生成配置：**数值 + 几何 + 楼层表**。
       // **必须走 Phaser 的 loader，不能 fetch** ——
@@ -575,17 +626,43 @@ export class BattleScene extends Phaser.Scene {
       //    这些地方的随机流原本读的是配置表里那个固定值，不写回的话它们每局一样。
       //    必须在 `new CombatSession()` 之前写 —— 它构造时就开了这几条流。
       this.cfg.arena.seed = this.runSeed
-      // **整局的地图计划一次取好**：1F 出发层 + 第 1/2/3 层 + 8F 最终战。
-      // `floorPlansForRun` 会先解析并校验**所有候选**，再按 `runSeed` 抽三张。
-      this.runPlans = floorPlansForRun(this.cache.json, this.rooms, this.floors, this.runSeed)
       const bossSkills = parseBossSkillsTable(this.cache.json.get('boss-skills.json'))
+      this.bossSkillsTable = bossSkills
       const bossPools = parseBossPools(this.cache.json.get('boss-pools.json'), bossSkills, this.floors)
-      this.bossPicks = pickLayerBosses(this.runSeed, bossPools, bossSkills, this.floors)
+      if (this.mode === 'bossrush') {
+        // BOSSRUSH 不读 `floors.json`：它固定复用 8F 的「一间首领房 + 落点房」，
+        // 前七层按名册不重复随机、第八层固定奶龙。首领名册仍然是 boss-pools.json。
+        this.bossRushConfig = parseBossRushConfig(
+          this.cache.json.get(BOSS_RUSH_CONFIG_NAME),
+          bossPools,
+          bossSkills,
+        )
+        this.bossRush = new BossRushRun(
+          this.bossRushConfig,
+          bossPools,
+          bossSkills,
+          this.runSeed,
+          this.difficulty,
+        )
+        // BOSSRUSH 的天赋上限比闯关高（默认 16 vs 12）；TalentRun 在构造时读这份 rules。
+        if (this.cfg.talents) this.cfg.talents.maxOwned = this.bossRushConfig.talentMaxOwned
+        this.layer = 1
+        this.bossRushFloor = 1
+        // `bossPicks` 在 BOSSRUSH 里不用，但它是非空字段；照常算一份，
+        // 让所有普通闯关的分支读到的是合法数据而不是 undefined。
+        this.bossPicks = pickLayerBosses(this.runSeed, bossPools, bossSkills, this.floors)
+        this.floorSeedList = []
+      } else {
+        // **整局的地图计划一次取好**：1F 出发层 + 第 1/2/3 层 + 8F 最终战。
+        // `floorPlansForRun` 会先解析并校验**所有候选**，再按 `runSeed` 抽三张。
+        this.runPlans = floorPlansForRun(this.cache.json, this.rooms, this.floors, this.runSeed)
+        this.bossPicks = pickLayerBosses(this.runSeed, bossPools, bossSkills, this.floors)
+        // **整局的每层/最终战种子先抽好**：`[1F, L1, L2, L3, 8F]`。
+        this.floorSeedList = floorSeeds(this.runSeed, this.floors + 2)
+      }
       this.shopRun = new ShopRun(this.shopPrices, new Rng((this.runSeed ^ 0x5a17) >>> 0))
       this.reinforcementRng = new Rng(this.runSeed)
       this.bossReinforcements = new BossReinforcements(this.cfg.encounter.bossReinforcements)
-      // **整局的每层/最终战种子先抽好**：`[1F, L1, L2, L3, 8F]`。
-      this.floorSeedList = floorSeeds(this.runSeed, this.floors + 2)
       this.dungeon = this.buildArea()
       // ⚠️ **竞技场 = 整层包围盒**，必须在 `new CombatSession()` **之前**写回去：
       //    物理世界边界、寻路网格的行列数、`TerrainMap` 的宽高全在构造函数里读它，
@@ -608,25 +685,20 @@ export class BattleScene extends Phaser.Scene {
       // 玩家第一次走进房间（`enterRoom`）才全亮，刚进游戏仍是黑的。
       this.applyLightingMode()
       this.applySceneryLightMask()
-      this.bossSkills = new BossEncounterController(this, this.session,
-        bossSkills, {
-          bounds: () => {
-            // The arena belongs to the floor's boss, even if the player-room tracker is
-            // temporarily unset during a floor transition or a scripted encounter.
-            const room = this.dungeon.rooms.find((unit) => unit.room.kind === 'boss')?.room.rect
-              ?? this.activeRoom?.room.rect
-            return room
-              ? bossArenaBoundsFromRect(room)
-              : { left: 0, top: 0, right: this.cfg.arena.width, bottom: this.cfg.arena.height }
-          },
-          sfxVolume: () => this.store?.profile.settings.sfxVolume ?? this.cfg.audio.shotVolume,
-        })
+      this.bossSkills = this.makeBossEncounterController()
       this.fitCamera()
       this.scale.on('resize', this.fitCamera, this)
       this.events.once(Phaser.Scenes.Events.SHUTDOWN, () =>
         this.scale.off('resize', this.fitCamera, this),
       )
-      this.minimap = new Minimap(this, this.dungeon.map, this.rooms, this.layer, this.floors, this.areaTitle())
+      this.minimap = new Minimap(
+        this,
+        this.dungeon.map,
+        this.rooms,
+        this.layer,
+        this.mode === 'bossrush' ? (this.bossRush?.totalFloors ?? this.floors) : this.floors,
+        this.areaTitle(),
+      )
       // 楼梯间里那两个入口（上楼 / 下楼）。**两个都要先建出来**，哪怕第 1 层
       // 下面没有楼 —— 「这一层有没有楼下」是 `refreshStairPads()` 每层现判的事。
       // ⚠️ `dir` 与字段名一一对应：`exitUp` 画朝上的箭头（暖黄，「上一层」），
@@ -637,6 +709,7 @@ export class BattleScene extends Phaser.Scene {
       // ⚠️ **从电梯走的人，落地要出现在那一部电梯前**（用户 2026-10-23）——
       //    所以把「现在站在哪一部电梯里」一起带进 `goToFloor()`。
       this.finalGate = new AnomalyGate(this, { reach: EXIT_REACH })
+      this.bossRushPortal = new AnomalyGate(this, { reach: EXIT_REACH })
       this.elevatorPanel = new ElevatorPanel((target) => {
         const here = this.roomOrder >= 0 ? this.dungeon.rooms[this.roomOrder] : undefined
         this.goToFloor(target, here?.room.kind === 'elevator' ? here.room.id : null)
@@ -655,6 +728,19 @@ export class BattleScene extends Phaser.Scene {
       this.session.bus.on('entity_killed', (event) => {
         // 首领也不例外：**每一间都是「清完 → 开箱 → 门开」**，首领那间不再单独掉。
         if (event.kind === 'enemy' && event.bossLayer === this.layer) {
+          // **本层首领全部倒下**才清小怪：一层多首领时，先死的那只不能把
+          // 还活着那只的召唤物 / 影分身一起清掉（否则它的技能就白放了）。
+          if (!this.anyBossAlive()) {
+            this.session.enemies.despawnMinions()
+            this.session.resetBossPlayerControl()
+          }
+          if (this.mode === 'bossrush') {
+            // 真正的结算在 `onBossRushCleared()`（要等清场判定过 settleMs）。
+            // 这里只报一句，别提前 `recordFinalBossDeath()` —— 否则第八层会在
+            // 天赋奖励面板还没关掉时就切结算。
+            if (event.finalBoss === true) this.notice.setText('奶龙已击败')
+            return
+          }
           if (event.finalBoss === true) {
             this.notice.setText('奶龙已击败')
             this.flow?.recordFinalBossDeath()
@@ -676,6 +762,24 @@ export class BattleScene extends Phaser.Scene {
           !this.session.player.model.alive
         )
           return
+        if (this.mode === 'bossrush') {
+          // BOSSRUSH 的奖励 token 是 `bossrush:<层>`（不是房号）。选完之后
+          // 通知栏要回到「宝箱 + 商店」，而不是走闯关的「门开了」。
+          if (event.roomId.startsWith('bossrush:')) {
+            if (this.bossRushFinalPending) {
+              this.bossRushFinalPending = false
+              this.notice.setText('最后一批天赋已生效 · BOSSRUSH 通关')
+              this.refreshBossRushHud()
+              this.flow?.recordFinalBossDeath()
+              return
+            }
+            this.notice.setText(
+              '天赋已生效 · 三个宝箱已出现（E 开）· 门口传送阵按 F 进随机商店',
+            )
+            this.refreshBossRushHud()
+          }
+          return
+        }
         const unit = this.roomById(event.roomId)
         if (unit === null) return
         const bonus: {name:string}|null = null
@@ -736,6 +840,13 @@ export class BattleScene extends Phaser.Scene {
         console.error('[meta] 成长配置读不出来：', err)
       }
       this.applyProfileToRun()
+      if (this.mode === 'bossrush') {
+        // 用户 2026-11-28：BOSSRUSH 开局固定为**一把近战 + 一把远程**（各自随机）。
+        // 用局内随机流抽取，所以同一个种子仍然能复现同一组开局武器。
+        this.session.inventory.splice(0, this.session.inventory.length)
+        this.session.grantRandomWeaponMatching((weapon) => weapon.mode === 'melee')
+        this.session.grantRandomWeaponMatching((weapon) => weapon.mode !== 'melee')
+      }
       this.ledger = new RunLedger(this.session.bus)
       this.shopWorld = new ShopWorld({
         scene: this,
@@ -765,8 +876,8 @@ export class BattleScene extends Phaser.Scene {
         this.resultPresented = true
         this.session.bus.emit('settlement_requested', { runId: this.session.runId })
       })
-      if (this.meta && !this.meta.finalRewards[this.cfg.arena.finale.finalRewardId])
-        throw new Error('最终收益ID不存在：' + this.cfg.arena.finale.finalRewardId)
+      if (this.meta && !this.meta.finalRewards[this.finalRewardId()])
+        throw new Error('最终收益ID不存在：' + this.finalRewardId())
       this.pauseMenu = new PauseOverlay({
         scene: this,
         store: this.store,
@@ -848,8 +959,14 @@ export class BattleScene extends Phaser.Scene {
       // 就已经亮着 —— 这正是用户要的「进去后先是 YF1，然后可以从楼梯间上一层」。
       this.refreshStairPads()
       // 电梯面板这时是关着的（玩家不在电梯间里），建出来就行 —— 走进去才弹。
-      this.notice.setText(this.floorBrief())
-      this.time.delayedCall(0,()=>this.session.offerOpeningTalent())
+      if (this.mode === 'bossrush') {
+        // BOSSRUSH 一进来就站进首领房开第一场；天赋从「击败首领」来，
+        // 不走闯关模式的出发准备三选一，所以这里不调 `offerOpeningTalent()`。
+        this.startBossRushFloor()
+      } else {
+        this.notice.setText(this.floorBrief())
+        this.time.delayedCall(0,()=>this.session.offerOpeningTalent())
+      }
     } catch (e) {
       this.showFatal(e)
     }
@@ -1029,6 +1146,67 @@ export class BattleScene extends Phaser.Scene {
     return lines
   }
 
+  /** 首领技能的合法活动范围：首领房；换图/过场时退回整层包围盒。 */
+  private bossEncounterBounds(): { left: number; top: number; right: number; bottom: number } {
+    const room = this.dungeon.rooms.find((unit) => unit.room.kind === 'boss')?.room.rect
+      ?? this.activeRoom?.room.rect
+    return room
+      ? bossArenaBoundsFromRect(room)
+      : { left: 0, top: 0, right: this.cfg.arena.width, bottom: this.cfg.arena.height }
+  }
+
+  /** 建一台首领技能控制器。BOSSRUSH 一层多首领时每只各一台。 */
+  private makeBossEncounterController(): BossEncounterController {
+    if (!this.bossSkillsTable) throw new Error('首领技能表尚未加载')
+    return new BossEncounterController(this, this.session, this.bossSkillsTable, {
+      bounds: () => this.bossEncounterBounds(),
+      sfxVolume: () => this.store?.profile.settings.sfxVolume ?? this.cfg.audio.shotVolume,
+      // BOSSRUSH 一层多首领：一只倒下时不要顺手清掉另一只给玩家的控制效果。
+      resetPlayerControlOnClear: this.mode === 'campaign',
+    })
+  }
+
+  /** 只清掉 BOSSRUSH 的额外控制器；`bossSkills` 是常驻的那一台。 */
+  private disposeBossRushExtras(): void {
+    for (const extra of this.bossRushExtras) extra.destroy()
+    this.bossRushExtras.length = 0
+  }
+
+  /**
+   * 给这一层的首领组合准备好控制器：第一位复用 `bossSkills`，其余各建一台。
+   * **必须在 `spawnBoss()` 之前调**，否则第一帧的弹幕/技能时钟会按错的倍率起步。
+   */
+  private ensureBossRushControllers(count: number): BossEncounterController[] {
+    this.disposeBossRushExtras()
+    if (!this.bossSkills) throw new Error('主首领技能控制器不存在')
+    const controllers = [this.bossSkills]
+    for (let i = 1; i < count; i++) {
+      const extra = this.makeBossEncounterController()
+      this.bossRushExtras.push(extra)
+      controllers.push(extra)
+    }
+    return controllers
+  }
+
+  /** 清空所有首领技能控制器（清层 / 换图 / 进商店）。 */
+  private clearAllBossControllers(): void {
+    this.bossSkills?.clear()
+    for (const extra of this.bossRushExtras) extra.clear()
+  }
+
+  /**
+   * 这一层还有没有活着的首领。BOSSRUSH 一层可能 1—3 位；
+   * 普通闯关还是只看当前档位的那一位。
+   */
+  private anyBossAlive(): boolean {
+    if (this.mode === 'bossrush') {
+      const group = this.bossRush?.bossesAt(this.bossRushFloor) ?? []
+      return group.some((boss) => this.session.enemies.bossStatus(boss.profile) !== null)
+    }
+    const profile = this.currentBossProfile()
+    return profile !== null && this.session.enemies.bossStatus(profile) !== null
+  }
+
   override update(_time: number, delta: number): void {
     if (!this.session) return
     if (this.flow?.phase === 'settlement') {
@@ -1057,6 +1235,15 @@ export class BattleScene extends Phaser.Scene {
       // 点一下 / 按数字键就走（`ElevatorPanel`）。`F` 只剩楼梯间那两个方框。
       if (this.shopWorld.tryPurchase()) {
         // 商品桌优先消费 F；失败也消费，避免同一下误触楼梯入口。
+      } else if (
+        this.mode === 'bossrush' &&
+        this.bossRushPortal.visible &&
+        this.bossRushPortal.near(px, py)
+      ) {
+        // BOSSRUSH 的两段流程都走门口这块传送阵：
+        // 首领房 → 只有商店的新地方；商店 → 只有下一位首领的新房间。
+        if (this.bossRushInShop) this.leaveBossRushShop()
+        else if (this.bossRushWaitingForShop) this.enterBossRushShop()
       } else if (this.exitUp.visible && this.exitUp.near(px, py)) this.goUp()
       else if (this.exitDown.visible && this.exitDown.near(px, py)) this.goDown()
       else if (this.finalGate.visible && this.finalGate.near(px, py)) this.enterFinale()
@@ -1066,6 +1253,7 @@ export class BattleScene extends Phaser.Scene {
     this.exitUp.update(this.time.now)
     this.exitDown.update(this.time.now)
     this.finalGate.update(this.time.now)
+    this.bossRushPortal?.update(this.time.now)
     this.trackChestOpened()
     this.shopWorld.update()
     // 门一开就换成亮绿 + 呼吸 —— 打完一间找不到门出不去是这一层最容易卡人的地方。
@@ -1073,7 +1261,14 @@ export class BattleScene extends Phaser.Scene {
     // 画面才是静的。
     this.scenery.update(this.time.now)
     this.session.update(delta)
-    this.bossSkills?.update(this.currentBossProfile() ?? -1)
+    if (this.mode === 'bossrush' && this.bossRushArea === 'boss') {
+      // 一层 1—3 位首领：每台控制器只驱动自己那个 profile。
+      const group = this.bossRush?.bossesAt(this.bossRushFloor) ?? []
+      const controllers = [this.bossSkills, ...this.bossRushExtras]
+      group.forEach((boss, index) => controllers[index]?.update(boss.profile))
+    } else if (this.mode !== 'bossrush') {
+      this.bossSkills?.update(this.currentBossProfile() ?? -1)
+    }
     // Scene.UPDATE在本帧物理事件和全部伤害生产者之后运行，不在单个死亡回调抢先暂停。
     const outcome = this.flow?.adjudicate(this.session.player.model.alive)
     if (outcome === 'cleared') this.finishRun()
@@ -1111,20 +1306,23 @@ export class BattleScene extends Phaser.Scene {
    * 其余楼层/房间保持暗区 + 玩家光圈。
    */
   private applyLightingMode(): void {
-    // 第零层整层全亮；商店不是整层全亮，而是把商店房本身登记为固定亮区，
-    // 这样玩家站在走廊时商店仍然亮，房间外保持正常暗区。
-    this.session.lighting.setFullBright(this.layer === 0)
+    // 第零层整层全亮；BOSSRUSH 整场取消暗区（用户 2026-11-28：「光照系统就取消掉」）。
+    // 普通闯关的商店不是整层全亮，而是把商店房本身登记为固定亮区。
+    this.session.lighting.setFullBright(this.layer === 0 || this.mode === 'bossrush')
+    const lit: { x: number; y: number; width: number; height: number }[] = []
     const shop = this.dungeon.rooms.find((unit) => unit.room.kind === 'shop')
-    this.session.lighting.setAlwaysLitRects(
-      shop
-        ? [{
-            x: shop.room.rect.x - shop.room.rect.width / 2,
-            y: shop.room.rect.y - shop.room.rect.height / 2,
-            width: shop.room.rect.width,
-            height: shop.room.rect.height,
-          }]
-        : [],
-    )
+    if (shop) lit.push(this.roomRect(shop))
+    this.session.lighting.setAlwaysLitRects(lit)
+  }
+
+  private roomRect(unit: DungeonRoom): { x: number; y: number; width: number; height: number } {
+    const rect = unit.room.rect
+    return {
+      x: rect.x - rect.width / 2,
+      y: rect.y - rect.height / 2,
+      width: rect.width,
+      height: rect.height,
+    }
   }
 
   /**
@@ -1270,7 +1468,7 @@ export class BattleScene extends Phaser.Scene {
     this.clearSince = null
     this.clearEmitted = false
     this.loot.reset()
-    this.bossSkills?.clear()
+    this.clearAllBossControllers()
     this.bossReinforcements.reset()
     this.session.enemies.setMinionCap(
       unit.room.kind === 'boss' ? this.cfg.encounter.bossReinforcements.maxAlive : null,
@@ -1419,7 +1617,7 @@ export class BattleScene extends Phaser.Scene {
     const unit = this.activeRoom
     if (unit === null || this.clearEmitted || this.gameWon) return
     if (!this.session.player.model.alive || this.session.clock.paused) return
-    if (unit.room.kind === 'boss' && this.session.enemies.bossStatus(this.currentBossProfile() ?? -1)) {
+    if (unit.room.kind === 'boss' && this.anyBossAlive()) {
       this.clearSince = null
       return
     }
@@ -1438,19 +1636,35 @@ export class BattleScene extends Phaser.Scene {
 
   /** 首领存活期间按游戏时间补怪；活怪、等待出生和分裂子代共同占用上限。 */
   private updateBossReinforcements(): void {
+    // BOSSRUSH 也保留首领房补怪：有些首领技能是**依赖小怪**的
+    // （圆头耄耋的 transmute 要把小怪变形、酸 sprinkler / 肥猫的 rally 要号令小怪）。
+    // 一个空场地上放这些技能等于没放；补怪上限走 `combat.json` 的 bossReinforcements。
     if (this.session.clock.paused || this.session.clock.frozen) return
     const unit = this.activeRoom
-    const bossAlive = unit?.room.kind === 'boss' &&
-      this.session.enemies.bossStatus(this.currentBossProfile() ?? -1) !== null
+    const bossAlive = unit?.room.kind === 'boss' && this.anyBossAlive()
     const count = this.bossReinforcements.update(
       this.session.clock.nowMs, bossAlive, this.session.enemies.minionPopulation,
     )
     if (!bossAlive) return
     if (!unit || count === 0) return
-    const kinds = (Object.keys(this.bundle.enemies.enemies) as EnemyKind[]).filter((kind) =>
+    this.spawnBossMinions(unit, count)
+  }
+
+  /** 首领房补怪能抽到的普通怪种类（按当前层解锁）。 */
+  private bossMinionKinds(): EnemyKind[] {
+    return (Object.keys(this.bundle.enemies.enemies) as EnemyKind[]).filter((kind) =>
       (kind !== 'muscovy' || this.layer >= this.cfg.arena.muscovyMinFloor) &&
       (kind !== 'nightmare_cat' || this.layer >= this.cfg.arena.nightmareCatMinFloor),
     )
+  }
+
+  /**
+   * 在首领房里排队生成 `count` 只普通怪：落点离玩家至少 `SAFE_SPAWN_GAP`，
+   * 并过 `safeSpawn()` / 房间矩形双重校验。BOSSRUSH 开局的初始小怪与
+   * 之后的 8 秒补怪共用这一条路径。
+   */
+  private spawnBossMinions(unit: DungeonRoom, count: number): void {
+    const kinds = this.bossMinionKinds()
     const player = this.session.player
     const far = unit.spawnPoints.filter((point) =>
       Math.hypot(point.x - player.x, point.y - player.y) >= SAFE_SPAWN_GAP,
@@ -1483,7 +1697,8 @@ export class BattleScene extends Phaser.Scene {
    *    键撞了的话，重进一间已清过的房会再发一次成长。
    */
   private onRoomCleared(unit: DungeonRoom): void {
-    this.bossSkills?.clear()
+    this.clearAllBossControllers()
+    this.session.resetBossPlayerControl()
     this.bossReinforcements.reset()
     // 清房判定会忽略墙外残留怪；撤场而非击杀，避免它们占用下一间首领房的名额。
     this.session.enemies.despawnAll()
@@ -1495,6 +1710,12 @@ export class BattleScene extends Phaser.Scene {
     this.cleared.add(unit.order)
     this.syncRoomState()
     this.ledger.countClearedRoom()
+    if (this.mode === 'bossrush') {
+      // BOSSRUSH 不发明「清房三选一」的 `room_cleared`：奖励按「击败第几层首领」
+      // 由 `onBossRushCleared()` 单独发。否则会同时弹两层奖励面板。
+      this.onBossRushCleared(unit)
+      return
+    }
     if (unit.room.kind === 'elite') {
       this.loot.reset()
       const spot = this.chestSpot(unit)
@@ -1520,6 +1741,43 @@ export class BattleScene extends Phaser.Scene {
    */
   private spawnRoomEnemies(unit: DungeonRoom): void {
     this.session.beginTalentRoom(unit.room.id,unit.room.kind==='boss')
+    if (this.mode === 'bossrush') {
+      // BOSSRUSH 一层 1—3 位首领（简单 1 / 普通 2 / 困难 3），外加首领房小怪：
+      // transmute / rally 这类技能需要目标，空场地上等于没放。
+      const run = this.bossRush
+      if (!run) return
+      const group = run.bossesAt(this.bossRushFloor)
+      if (!group.length) throw new Error(`BOSSRUSH 第 ${this.bossRushFloor} 层没有首领`)
+      const scaling = run.scalingFor(this.bossRushFloor)
+      const controllers = this.ensureBossRushControllers(group.length)
+      for (const controller of controllers)
+        controller.setScaling({
+          barrageRate: scaling.barrageRate,
+          projectileSpeed: scaling.projectileSpeedMultiplier,
+          skillRate: scaling.skillRate,
+          damage: scaling.damageMultiplier,
+        })
+      const spawnPoints = unit.spawnPoints.length
+        ? unit.spawnPoints
+        : [{ x: this.session.player.x, y: this.session.player.y }]
+      group.forEach((boss, index) => {
+        const spot = spawnPoints[index % spawnPoints.length]!
+        this.session.enemies.spawnBoss(
+          boss.profile,
+          this.bossRushFloor,
+          boss.id,
+          spot.x,
+          spot.y - 40,
+          scaling.hp,
+          boss.id === run.config.finalBoss,
+          this.cfg.encounter.bossDamageMultiplier * scaling.damageMultiplier,
+          false,
+          scaling.speedMultiplier,
+        )
+      })
+      this.spawnBossMinions(unit, run.config.initialMinions)
+      return
+    }
     const cx = this.session.player.x,
       cy = this.session.player.y
     // ⚠️ **离玩家进这间房时站的位置太近的刷怪点要跳过。**
@@ -1718,6 +1976,7 @@ export class BattleScene extends Phaser.Scene {
    * （0=1F，1—3=层，4=8F），所以同一 `runSeed` 能复现整局。
    */
   private buildArea(): DungeonStages {
+    if (this.mode === 'bossrush') return this.buildBossRushArea('boss')
     const entry =
       this.zone === 'finale'
         ? this.runPlans.finale
@@ -1726,6 +1985,17 @@ export class BattleScene extends Phaser.Scene {
           : this.runPlans.layers[this.layer - 1]!
     const seed = this.floorSeedList[this.areaKey()] ?? this.runSeed
     return buildDungeonStages(seed, this.rooms, entry.plan, this.cfg)
+  }
+
+  /**
+   * BOSSRUSH 的两张图：`boss` 只有一间大厅，`shop` 只有一间商店。
+   * 两张图外框都是 190×60 格，所以换图时物理世界大小不变（见 `applyArena()`）。
+   */
+  private buildBossRushArea(area: 'boss' | 'shop'): DungeonStages {
+    const file =
+      area === 'boss' ? FLOOR_PLAN_BOSSRUSH_BOSS_NAME : FLOOR_PLAN_BOSSRUSH_SHOP_NAME
+    const plan = floorPlanFromCache(this.cache.json, this.rooms, file)
+    return buildDungeonStages((this.runSeed ^ 0x42525553) >>> 0, this.rooms, plan, this.cfg)
   }
   /**
    * 把**整层的包围盒**写回 `cfg.arena`。换层/换区域时包围盒必须不变；
@@ -1768,7 +2038,7 @@ export class BattleScene extends Phaser.Scene {
    * 所有按房的记账都要按区域清空并从 `progress.restore()` 取回。
    */
   private loadFloor(fromElevator: string | null = null): void {
-    this.bossSkills?.clear()
+    this.clearAllBossControllers()
     this.bossReinforcements.reset()
     this.session.enemies.despawnAll()
     this.dungeon = this.buildArea()
@@ -1812,6 +2082,282 @@ export class BattleScene extends Phaser.Scene {
     this.refreshFinalGate()
     this.notice.setText(this.floorBrief())
   }
+
+  /* ------------------------------------------------------------ BOSSRUSH */
+
+  /**
+   * 换 BOSSRUSH 的场地：`boss` 只有一间大厅，`shop` 只有一间商店。
+   *
+   * 两张图共用 190×60 格的外框，所以换图不会改物理世界大小；`CombatSession.loadFloor()`
+   * 会把子弹 / 掉落 / 技能地面清干净，但**保留武器与天赋**（跨商店/跨层成长）。
+   */
+  private loadBossRushArea(area: 'boss' | 'shop'): void {
+    this.clearAllBossControllers()
+    this.disposeBossRushExtras()
+    this.bossReinforcements.reset()
+    this.session.enemies.despawnAll()
+    this.session.clearRoomSkillObjects()
+    this.session.rewards.forgetFloor()
+    this.shopWorld.leaveRoom()
+    this.loot.reset()
+    this.chestRoom = null
+    this.combatRooms.clear()
+    this.visited.clear()
+    this.cleared.clear()
+    this.lootedRooms.clear()
+    this.roomOrder = -1
+    this.activeRoom = null
+    this.clearSince = null
+    this.clearEmitted = false
+    this.bossRushPortal.hide()
+    this.bossRushArea = area
+    this.dungeon = this.buildBossRushArea(area)
+    this.applyArena()
+    this.stageConfig = parseStageCollisions(this.dungeon.stages, FLOOR_STAGE)
+    this.scenery.destroy()
+    this.drawWorld()
+    this.applySceneryLightMask()
+    this.session.loadFloor(this.stageConfig)
+    this.applyLightingMode()
+    this.session.enemies.setFloor(this.layer)
+    this.session.setTalentFloor(this.layer, false)
+    this.minimap.setFloor(
+      this.dungeon.map,
+      this.bossRushFloor,
+      this.bossRush?.totalFloors ?? 8,
+      false,
+      null,
+      this.areaTitle(),
+    )
+    this.syncRoomState()
+  }
+
+  /**
+   * 开 BOSSRUSH 的下一场。**层数由 `BossRushRun` 自己推进**：击败首领时
+   * `defeatCurrentBoss()` 已经把 `currentFloor` 挪到下一层，这里只读。
+   *
+   * 场地是「只有首领房」的那张图；从商店回来时先换图再摆首领。
+   */
+  private startBossRushFloor(): void {
+    const run = this.bossRush
+    if (!run) return
+
+    this.bossRushFloor = run.currentFloor
+    this.layer = this.bossRushFloor
+    this.zone = 'main'
+    this.bossRushWaitingForShop = false
+    this.bossRushInShop = false
+    this.bossRushFinalPending = false
+    this.ledger?.setDepth(this.layer)
+
+    if (this.bossRushArea !== 'boss') this.loadBossRushArea('boss')
+
+    const unit = this.dungeon.rooms.find((entry) => entry.room.kind === 'boss')
+    if (!unit) throw new Error('BOSSRUSH 场地缺少首领房（floor-plan-bossrush-boss.json 的 BR_BOSS）')
+
+    this.clearAllBossControllers()
+    this.bossReinforcements.reset()
+    this.session.enemies.despawnAll()
+    this.session.clearRoomSkillObjects()
+    this.session.rewards.forgetFloor()
+    this.shopWorld.leaveRoom()
+    this.loot.reset()
+    this.chestRoom = null
+    this.combatRooms.clear()
+    this.cleared.delete(unit.order)
+    this.activeRoom = unit
+    this.clearSince = null
+    this.clearEmitted = false
+    this.session.enemies.setMinionCap(this.cfg.encounter.bossReinforcements.maxAlive)
+    this.session.setTalentFloor(this.layer, false)
+    this.ledger?.setDepth(this.layer)
+
+    // 玩家落在首领出生点南侧 420px：一进场就能看见首领，不用先跑大半张图。
+    this.placeBossRushFightStart(unit)
+    this.roomOrder = unit.order
+    this.visited.add(unit.order)
+    this.combatRooms.add(unit.order)
+    this.bossRushPortal.hide()
+    this.applyLightingMode()
+    this.minimap.setFloor(this.dungeon.map, this.bossRushFloor, run.totalFloors, false, null, this.areaTitle())
+    this.syncRoomState()
+    this.spawnRoomEnemies(unit)
+    this.notice.setText(this.bossRushBrief())
+    this.refreshBossRushHud()
+  }
+
+  /** 首领房 / 商店房间的「门内侧」坐标；传送阵和落地都用它。 */
+  private roomDoorPoint(unit: DungeonRoom, inset: number): { x: number; y: number } {
+    const rect = unit.room.rect
+    const door = unit.doors[0]
+    if (!door) return { x: rect.x, y: rect.y }
+    const doorX = door.x + door.width / 2
+    const doorY = door.y + door.height / 2
+    const dx = rect.x - doorX
+    const dy = rect.y - doorY
+    const length = Math.hypot(dx, dy) || 1
+    return { x: doorX + (dx / length) * inset, y: doorY + (dy / length) * inset }
+  }
+
+  /** 把玩家放进 `unit` 的门内侧 `inset` 像素，并过一遍安全落点。 */
+  private placeAtRoomDoor(unit: DungeonRoom, inset = 100): void {
+    const radius = this.session.player.model.stats.radius
+    const point = this.roomDoorPoint(unit, inset)
+    const at = this.session.terrain.safeSpawn(point.x, point.y, radius, radius)
+    this.session.player.body.reset(at.x, at.y)
+  }
+
+  /** 首领房开战时的玩家落点：首领出生点正南 420px（夹在房间内）。 */
+  private placeBossRushFightStart(unit: DungeonRoom): void {
+    const radius = this.session.player.model.stats.radius
+    const rect = unit.room.rect
+    const bossSpot = unit.spawnPoints[0] ?? { x: rect.x, y: rect.y }
+    const halfHeight = rect.height / 2
+    const y = Math.min(
+      rect.y + halfHeight - radius - 8,
+      Math.max(rect.y - halfHeight + radius + 8, bossSpot.y + 420),
+    )
+    const at = this.session.terrain.safeSpawn(bossSpot.x, y, radius, radius)
+    this.session.player.body.reset(at.x, at.y)
+  }
+
+  /**
+   * 首领清完后在首领房门口亮出传送阵；按 F 切到「只有商店」的那张图。
+   *
+   * 「随机」由 `ShopRun` 按 `shopId = 层号:SHOP` 懒生成：每层第一次进店
+   * 都是一份新库存（和闯关的商店记账同一条规矩）。
+   */
+  private enterBossRushShop(): void {
+    this.bossRushWaitingForShop = false
+    this.bossRushInShop = true
+    this.loadBossRushArea('shop')
+    const shop = this.bossRushShopUnit()
+    if (!shop) throw new Error('BOSSRUSH 商店图缺少 fixed:shop 房间')
+    this.roomOrder = shop.order
+    this.visited.add(shop.order)
+    // 商店房很大：玩家落在房间中部（商品桌附近），传送阵留在门内 80px。
+    // 这样一进店就能看见商品与商人；回程要往门口走，避免误触。
+    this.placeAtRoomDoor(shop, Math.min(620, shop.room.rect.height * 0.45))
+    this.shopWorld.showRoom(this.layer, shop)
+    const portalAt = this.roomDoorPoint(shop, 80)
+    this.bossRushPortal.show(portalAt.x, portalAt.y)
+    this.bossRushPortal.setState(true, 0, '回首领房 · 走近按 F')
+    this.syncRoomState()
+    this.notice.setText('BOSSRUSH 随机商店 · 靠近商品按 F 购买 · 门口传送阵按 F 回首领房')
+    this.refreshBossRushHud()
+  }
+
+  /** 商店门口按 F：切回「只有首领房」的图，并把下一位首领摆好。 */
+  private leaveBossRushShop(): void {
+    if (!this.bossRushInShop) return
+    this.bossRushInShop = false
+    this.shopWorld.leaveRoom()
+    this.startBossRushFloor()
+  }
+
+  private bossRushShopUnit(): DungeonRoom | null {
+    return this.dungeon.rooms.find((unit) => unit.room.kind === 'shop') ?? null
+  }
+
+  /** 首领清完后，把传送阵摆在首领房门口内侧。 */
+  private showBossRushPortalAtBossDoor(unit: DungeonRoom): void {
+    const at = this.roomDoorPoint(unit, 90)
+    this.bossRushPortal.show(at.x, at.y)
+    this.bossRushPortal.setState(true, 0, '随机商店 · 走近按 F')
+  }
+
+  /** 首领倒下后的收尾：金币、经验/天赋、三个宝箱、下一层的门。 */
+  private onBossRushCleared(unit: DungeonRoom): void {
+    const run = this.bossRush
+    if (!run) return
+    const reward = run.defeatCurrentBoss()
+    this.ledger.grant(reward.coins)
+    this.bossRushWaitingForShop = !run.allDefeated
+
+    if (run.allDefeated) {
+      // 第八层是终点：不再刷箱子/开商店。最后一轮天赋仍然发，**选完再通关** ——
+      // 否则结算面板会和天赋面板抢同一帧，最后两次升级等于白给。
+      this.notice.setText(
+        `第 ${reward.floor}/${run.totalFloors} 层 · ${this.bossRushName(reward.floor)}已击败 · ` +
+          `BOSSRUSH 通关 · 获得 ${reward.coins} 金币`,
+      )
+      this.refreshBossRushHud()
+      if (reward.talentChoices > 0) {
+        this.bossRushFinalPending = true
+        const offered = this.session.offerBossRushTalents(reward.talentChoices, reward.floor)
+        if (!offered) {
+          this.bossRushFinalPending = false
+          this.flow?.recordFinalBossDeath()
+        }
+      } else {
+        this.flow?.recordFinalBossDeath()
+      }
+      return
+    }
+
+    this.spawnBossRushChests(unit)
+    this.showBossRushPortalAtBossDoor(unit)
+    if (reward.talentChoices > 0)
+      this.session.offerBossRushTalents(reward.talentChoices, reward.floor)
+    this.notice.setText(
+      `第 ${reward.floor}/${run.totalFloors} 层首领已击败 · 获得 ${reward.coins} 金币 · ` +
+        `经验 +${reward.xpGained}（Lv.${reward.level}，天赋 +${reward.talentChoices}）· ` +
+        `${this.bossRushConfig?.chestCount ?? 3} 个宝箱已出现 · 门口传送阵按 F 进随机商店`,
+    )
+    this.refreshBossRushHud()
+  }
+
+  /** BOSSRUSH 每层固定刷一组宝箱；位置按首领房宽度均分。 */
+  private spawnBossRushChests(unit: DungeonRoom): void {
+    const count = this.bossRushConfig?.chestCount ?? 3
+    const rect = unit.room.rect
+    const spacing = Math.min(240, rect.width / (count + 1))
+    const points = Array.from({ length: count }, (_, index) => ({
+      x: rect.x + (index - (count - 1) / 2) * spacing,
+      y: rect.y + 40,
+    }))
+    this.loot.reset()
+    this.loot.spawnMany(points)
+    this.chestRoom = unit.order
+  }
+
+  private bossRushName(floor: number): string {
+    const group = this.bossRush?.bossesAt(floor) ?? []
+    return group.length ? group.map((boss) => boss.name).join(' + ') : '首领'
+  }
+
+  private bossRushBrief(): string {
+    const run = this.bossRush
+    if (!run) return ''
+    return (
+      `BOSSRUSH 第 ${this.bossRushFloor} / ${run.totalFloors} 层 · ` +
+      `首领：${this.bossRushName(this.bossRushFloor)} · ` +
+      `击败后 ${this.bossRushConfig?.chestCount ?? 3} 个宝箱 · 门口传送阵按 F 进商店`
+    )
+  }
+
+  /** BOSSRUSH 专用读数：层数、首领、等级/经验、当前阶段。 */
+  private refreshBossRushHud(): void {
+    const run = this.bossRush
+    if (!run || this.mode !== 'bossrush') return
+    const phase = run.allDefeated
+      ? '已通关'
+      : this.bossRushInShop
+        ? '随机商店 · 门口按 F 回首领房'
+        : this.bossRushWaitingForShop
+          ? '首领已击败 · 门口按 F 进商店'
+          : '交战中'
+    const line1 = this.bossRushInShop
+      ? `BOSSRUSH 商店 · Lv.${run.level} EXP ${run.xpIntoLevel}/${run.xpToNext}`
+      : `BOSSRUSH ${this.bossRushFloor}/${run.totalFloors} · Lv.${run.level} ` +
+        `EXP ${run.xpIntoLevel}/${run.xpToNext}`
+    const line2 = this.bossRushInShop
+      ? '补给整备'
+      : `首领：${this.bossRushName(this.bossRushFloor)}`
+    this.bossRushHudText.setText(`${line1}\n${line2}\n${phase}`)
+    this.bossRushHud.setVisible(true)
+  }
+
   /**
    * 刚换上一层时通知栏那行字。**`create()` 与 `loadFloor()` 共用一份** ——
    * 两处各写一遍的话，改了其中一处就会出现「开局那次和下楼那次说法不一致」。
@@ -1822,6 +2368,7 @@ export class BattleScene extends Phaser.Scene {
    * 「出生」只对第一次成立，于是换成「站在」。尾上那一截说的是楼梯间里有什么。
    */
   private floorBrief(): string {
+    if (this.mode === 'bossrush') return this.bossRushBrief()
     if (this.zone === 'finale') return '最终战 · 奶龙 · 对面的门里是奶龙'
     if (this.layer === 0) return '第 0 层 · 出发层 · 楼梯间里有上第 1 层的入口'
     const stairs = this.stairHint()
@@ -1999,6 +2546,7 @@ export class BattleScene extends Phaser.Scene {
   }
   /** 坐电梯/楼梯换到第 `target` 层（0=1F，1—3=层）。 */
   private goToFloor(target: number, fromElevator: string | null = null): void {
+    if (this.mode === 'bossrush') return
     if (target < 0 || target > this.floors || target === this.layer) return
     this.leaveFloor()
     this.layer = target
@@ -2007,6 +2555,7 @@ export class BattleScene extends Phaser.Scene {
   }
   /** 第 2 层池内首领死后，进入奶龙最终战。 */
   private enterFinale(): void {
+    if (this.mode === 'bossrush') return
     if (this.zone !== 'main' || this.layer !== this.floors || !this.bossCleared.has(this.floors)) return
     this.leaveFloor()
     this.zone = 'finale'
@@ -2025,6 +2574,8 @@ export class BattleScene extends Phaser.Scene {
   }
   /** 当前区域的首领档位（1F/没有首领时为 null）。 */
   private currentBossProfile(): number | null {
+    if (this.mode === 'bossrush')
+      return this.bossRush?.bossAt(this.bossRushFloor)?.profile ?? null
     if (this.zone === 'finale') return this.bossPicks.finalBoss.profile
     if (this.layer < 1 || this.layer > this.floors) return null
     if (this.activeRoom?.room.kind === 'elite') {
@@ -2035,6 +2586,13 @@ export class BattleScene extends Phaser.Scene {
   }
   /** HUD / 小地图的区域标题。 */
   private areaTitle(): string {
+    if (this.mode === 'bossrush') {
+      if (this.bossRushArea === 'shop') return 'BOSSRUSH 商店'
+      const group = this.bossRush?.bossesAt(this.bossRushFloor) ?? []
+      const label =
+        group.length > 1 ? `${group[0]!.name} 等${group.length}位` : (group[0]?.name ?? '首领')
+      return `BOSSRUSH ${this.bossRushFloor} / ${this.bossRush?.totalFloors ?? 8} · ${label}`
+    }
     if (this.zone === 'finale') return '最终战 · 奶龙'
     if (this.layer === 0) return '第 0 层 · 出发层'
     return `第 ${this.layer} / ${this.floors} 层`
@@ -2042,6 +2600,7 @@ export class BattleScene extends Phaser.Scene {
   private refreshStairPads(): void {
     this.exitUp.hide()
     this.exitDown.hide()
+    if (this.mode === 'bossrush') return
     if (this.zone === 'finale') return
     const stair = this.stairwellUnit()
     if (stair === null) return
@@ -2108,10 +2667,22 @@ export class BattleScene extends Phaser.Scene {
     this.clearEmitted = true
     this.gameWon = true
     this.endRun('cleared')
-    this.notice.setText(`奶龙已击败 · 本局通关 · 按 R 开始新一局`)
+    this.notice.setText(
+      this.mode === 'bossrush'
+        ? '奶龙已击败 · BOSSRUSH 通关 · 按 R 开始新一局'
+        : '奶龙已击败 · 本局通关 · 按 R 开始新一局',
+    )
+  }
+
+  /** 通关奖励 id：BOSSRUSH 有自己的结算奖励（bossrush_clear），普通闯关读最终战配置。 */
+  private finalRewardId(): string {
+    return this.mode === 'bossrush'
+      ? (this.bossRushConfig?.finalRewardId ?? 'bossrush_clear')
+      : this.cfg.arena.finale.finalRewardId
   }
   /** 第 `layer` 层抽到的首领名；最终战返回奶龙。 */
   private bossName(layer = this.layer): string {
+    if (this.mode === 'bossrush') return this.bossRushName(layer)
     if (this.zone === 'finale') return this.bossPicks.finalBoss.name
     if (layer < 1) return '首领'
     return this.bossPicks.layers[layer - 1]?.name ?? '首领'
@@ -2148,8 +2719,10 @@ export class BattleScene extends Phaser.Scene {
       {
         // 「异常」层（8F）的小房间是**传送阵落点**，不是楼梯间：
         // 不画楼梯图、房号也改写成「落点 · 传送阵」（用户 2026-11-04）。
-        drawStairs: this.zone !== 'finale',
+        // BOSSRUSH 的入口房是一间小前厅（首领图 / 商店图各一间）：不画楼梯。
+        drawStairs: this.zone !== 'finale' && this.mode !== 'bossrush',
         arrivalRoom: this.zone === 'finale',
+        startLabel: this.mode === 'bossrush' ? '入口' : undefined,
       },
     )
   }
@@ -2211,6 +2784,12 @@ export class BattleScene extends Phaser.Scene {
     this.minimap.layout(camera)
     const coinAnchor = this.minimap.belowPanel(camera)
     this.runCoinHud.setPosition(coinAnchor.x, coinAnchor.y).setScale(1 / camera.zoom)
+    if (this.mode === 'bossrush' && this.bossRushHud) {
+      this.bossRushHud
+        .setPosition(coinAnchor.x, coinAnchor.y + 40 / camera.zoom)
+        .setScale(1 / camera.zoom)
+      this.refreshBossRushHud()
+    }
     // 小地图上的「你在这儿」箭头：**每帧**跟着玩家走、跟着枪口转
     // （用户 2026-11-04：「加一个小地图玩家的实时位置，小箭头，箭头方向代表指向」）。
     // 它只改标记的位置/角度，不重画面板 —— `Minimap.setPlayer()` 的设计就是这样的。
@@ -2298,6 +2877,22 @@ export class BattleScene extends Phaser.Scene {
       .container(0, 0, [hudBackground, coinIcon, this.runCoinText])
       .setScrollFactor(0)
       .setDepth(4601)
+    // BOSSRUSH 的层数 / 等级 / 经验读数。普通闯关一直隐藏。
+    const bossRushBackground = this.add
+      .rectangle(0, 0, 360, 68, 0x101923, 0.86)
+      .setOrigin(0)
+      .setStrokeStyle(1, 0x9699dc, 0.85)
+    this.bossRushHudText = this.add.text(10, 6, '', {
+      fontFamily: 'Microsoft YaHei, sans-serif',
+      fontSize: '12px',
+      color: '#e7e9ff',
+      lineSpacing: 3,
+    })
+    this.bossRushHud = this.add
+      .container(0, 0, [bossRushBackground, this.bossRushHudText])
+      .setScrollFactor(0)
+      .setDepth(4601)
+      .setVisible(this.mode === 'bossrush')
     this.deathNotice = this.add
       .text(0, 0, '', {
         fontFamily: 'Microsoft YaHei, sans-serif',
@@ -2429,11 +3024,13 @@ export class BattleScene extends Phaser.Scene {
       // 两个换层入口（`FloorExit` 自己画 Graphics、自己挂 Text，得显式收）。
       this.exitUp?.destroy()
       this.exitDown?.destroy()
+      this.bossRushPortal?.destroy()
       this.cursor?.destroy()
       this.loadout?.destroy()
       this.skillHud?.destroy()
       this.loot?.destroy()
       this.shopWorld?.destroy()
+      this.disposeBossRushExtras()
       this.bossSkills?.destroy()
       this.bossSkills = null
       this.session?.destroy()
@@ -2478,7 +3075,7 @@ export class BattleScene extends Phaser.Scene {
   private endRun(outcome: RunInput['outcome']): void {
     if (this.runEnded) return
     this.runEnded = true
-    this.bossSkills?.clear()
+    this.clearAllBossControllers()
     this.bossReinforcements.reset()
     this.ledger.setDepth(this.layer)
     const snapshot = {
@@ -2489,7 +3086,7 @@ export class BattleScene extends Phaser.Scene {
             runCoinsSpent: this.ledger.spent,
           }
         : {}),
-      ...(outcome === 'cleared' ? { finalRewardId: this.cfg.arena.finale.finalRewardId } : {}),
+      ...(outcome === 'cleared' ? { finalRewardId: this.finalRewardId() } : {}),
     }
     this.flow?.commit(snapshot)
     this.ledger.dispose()
@@ -2522,6 +3119,7 @@ export class BattleScene extends Phaser.Scene {
    * 结算只有"这一局打完了"（死亡 / 通关）才发生。
    */
   private backToMenu(): void {
+    this.disposeBossRushExtras()
     this.bossSkills?.destroy()
     this.bossSkills = null
     this.session.destroy()
@@ -2530,6 +3128,7 @@ export class BattleScene extends Phaser.Scene {
 
   /** 结算后的「去升级」：直接进入 D4 主菜单，并让升级弹层预先打开。 */
   private goToUpgrade(): void {
+    this.disposeBossRushExtras()
     this.bossSkills?.destroy()
     this.bossSkills = null
     this.session.destroy()
@@ -2542,11 +3141,13 @@ export class BattleScene extends Phaser.Scene {
   }
 
   private restartDifficulty(d: Difficulty): void {
+    this.disposeBossRushExtras()
     this.bossSkills?.destroy()
     this.bossSkills = null
     this.session.destroy()
     this.scene.restart({
       difficulty: d,
+      mode: this.mode,
       skillLab: this.skillLab,
       skillLabCharacterId: this.skillLabCharacterId,
       skillLabLevel: this.skillLabLevel,

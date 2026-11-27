@@ -14,6 +14,9 @@
     },
     "run_clear": {
       "coins": 120
+    },
+    "bossrush_clear": {
+      "coins": 300
     }
   },
   "characters": {

@@ -1,0 +1,59 @@
+{
+  "schemaVersion": 7,
+  "_comment": "BOSSRUSH 专用商店图。★ 2026-11-28 用户反馈：打完首领后「在门口按F传送到一个只有商店的新地方」。这张图只有一间大商店房 + 一小间入口，中间一段短走廊；与 floor-plan-bossrush-boss.json 共用 190×60 的外框，换图时物理世界大小不变。",
+  "_owner": "D1。BOSSRUSH 的场地；常规闯关不读这一份。",
+  "_units": "格。1 格 = rooms.json 的 navCellSize = 40px。",
+  "_layout_comment": "入口房在正上方中央（x92..96, y2..6），短走廊 (x93..97, y8..10)，商店房 (x60..129, y12..45) 是 70×34 格 = 2800×1360px，足够摆下 5 张商品桌和商人。门都开在 x94..96。",
+  "_footprint_comment": "与首领图逐格相同（190×60 格 = 7600×2400px）。换图不换包围盒。",
+  "roomTotal": 2,
+  "footprint": {
+    "x": 0,
+    "y": 0,
+    "width": 190,
+    "height": 60
+  },
+  "stairwell": {
+    "id": "STAIR",
+    "x": 92,
+    "y": 2,
+    "width": 5,
+    "height": 5
+  },
+  "corridors": [
+    {
+      "id": "C_MAIN",
+      "x": 93,
+      "y": 8,
+      "width": 5,
+      "height": 3
+    }
+  ],
+  "rooms": [
+    {
+      "id": "SHOP",
+      "x": 60,
+      "y": 12,
+      "width": 70,
+      "height": 34,
+      "fixed": "shop"
+    }
+  ],
+  "doors": [
+    {
+      "a": "C_MAIN",
+      "b": "STAIR",
+      "x": 94,
+      "y": 7,
+      "width": 3,
+      "height": 1
+    },
+    {
+      "a": "C_MAIN",
+      "b": "SHOP",
+      "x": 94,
+      "y": 11,
+      "width": 3,
+      "height": 1
+    }
+  ]
+}
