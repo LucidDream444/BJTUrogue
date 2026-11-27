@@ -604,6 +604,9 @@ export class BattleScene extends Phaser.Scene {
         this.difficulty,
         this.stageConfig,
       )
+      // 首局创建不走 `loadFloor()`，必须在这里先设定一次；否则第零层要等
+      // 玩家第一次走进房间（`enterRoom`）才全亮，刚进游戏仍是黑的。
+      this.applyLightingMode()
       this.applySceneryLightMask()
       this.bossSkills = new BossEncounterController(this, this.session,
         bossSkills, {
@@ -1104,6 +1107,27 @@ export class BattleScene extends Phaser.Scene {
   /* ------------------------------------------------------------ 整层连续：一间房的生命周期 */
 
   /**
+   * 第零层是出发层、商店是安全屋：两处都全亮。
+   * 其余楼层/房间保持暗区 + 玩家光圈。
+   */
+  private applyLightingMode(): void {
+    // 第零层整层全亮；商店不是整层全亮，而是把商店房本身登记为固定亮区，
+    // 这样玩家站在走廊时商店仍然亮，房间外保持正常暗区。
+    this.session.lighting.setFullBright(this.layer === 0)
+    const shop = this.dungeon.rooms.find((unit) => unit.room.kind === 'shop')
+    this.session.lighting.setAlwaysLitRects(
+      shop
+        ? [{
+            x: shop.room.rect.x - shop.room.rect.width / 2,
+            y: shop.room.rect.y - shop.room.rect.height / 2,
+            width: shop.room.rect.width,
+            height: shop.room.rect.height,
+          }]
+        : [],
+    )
+  }
+
+  /**
    * **每帧算一次「我站在哪一间」**，变了就转接。整层连续里这是唯一的"进度"来源。
    *
    * ⚠️ `inset` 取玩家半径，与 `roomAt()` 的文档说的同一件事：不取 inset 的话，
@@ -1119,6 +1143,7 @@ export class BattleScene extends Phaser.Scene {
     if (order === this.roomOrder) return
     this.session.clearRoomSkillObjects()
     this.roomOrder = order
+    this.applyLightingMode()
     // 走到走廊里：把「现在在哪一间」清掉（小地图上的箭头本来就在那儿，见 `setPlayer`）。
     if (unit === null) {
       this.shopWorld.leaveRoom()
@@ -1134,6 +1159,7 @@ export class BattleScene extends Phaser.Scene {
    * 也不重发成长（「能回头」不该变成惩罚，也不该变成刷怪机）。
    */
   private enterRoom(unit: DungeonRoom): void {
+    this.applyLightingMode()
     // ⚠️ **离开这一间之前先把宝箱结账**（见 `settleChest()`）：出了这道门，
     //    下面任何一条分支都可能 `loot.reset()` 把它连同「开过没有」一起抹掉。
     this.settleChest()
@@ -1773,6 +1799,7 @@ export class BattleScene extends Phaser.Scene {
     this.session.rewards.forgetFloor()
     this.shopWorld.leaveRoom()
     this.session.loadFloor(this.stageConfig)
+    this.applyLightingMode()
     this.session.enemies.setFloor(this.layer)
     this.session.setTalentFloor(this.layer, this.zone === 'finale')
     this.ledger?.setDepth(this.layer)

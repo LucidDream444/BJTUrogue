@@ -55,6 +55,10 @@ export class LightingSystem implements LightPort {
   private currentOccluders: readonly LightRect[] = []
   private rayDistances: Float32Array
   private destroyed = false
+  /** 第零层：整层不做黑暗滤镜，实体也全部可见。 */
+  private fullBright = false
+  /** 商店房等固定亮区：即使玩家在走廊，房间本身也保持照亮。 */
+  private alwaysLitRects: LightRect[] = []
 
   constructor(
     private readonly scene: Phaser.Scene,
@@ -86,10 +90,33 @@ export class LightingSystem implements LightPort {
    * 1. 重画屏幕上的黑暗滤镜（玩家 + 子弹的光洞）；
    * 2. 重画世界坐标的 GeometryMask，敌方弹幕/技能共用这张遮罩。
    */
+  /** 第零层使用全亮：不画黑暗滤镜，所有带光罩的表现也整块放行。 */
+  setFullBright(fullBright: boolean): void {
+    this.fullBright = fullBright
+  }
+
+  /** 设置固定亮区（世界坐标，左上角 + 宽高）。商店房用它保持常亮。 */
+  setAlwaysLitRects(rects: readonly LightRect[]): void {
+    this.alwaysLitRects = rects.map((rect) => ({ ...rect }))
+  }
+
   update(bullets: readonly { x: number; y: number }[]): void {
     if (this.destroyed) return
     if (!this.cfg.enabled) {
       this.rt.setVisible(false)
+      return
+    }
+    if (this.fullBright) {
+      this.rt.setVisible(false)
+      // 敌方弹幕/技能挂着共享 GeometryMask：全亮时把遮罩填满整层，
+      // 否则它们仍会被上一次 shape 裁掉。
+      const b = this.scene.physics.world.bounds
+      this.maskShape.clear().fillStyle(0xffffff, 1).fillRect(
+        b.x - 1000,
+        b.y - 1000,
+        b.width + 2000,
+        b.height + 2000,
+      )
       return
     }
     this.rt.setVisible(true)
@@ -120,6 +147,16 @@ export class LightingSystem implements LightPort {
     this.eraseGraphics.clear()
     this.maskShape.clear()
 
+    // 固定亮区（商店房）：直接按矩形擦除，不受玩家光圈半径限制。
+    for (const room of this.alwaysLitRects) {
+      this.maskShape.fillStyle(0xffffff, 1).fillRect(room.x, room.y, room.width, room.height)
+      const sx = this.screenX(camera, room.x)
+      const sy = this.screenY(camera, room.y)
+      this.eraseGraphics
+        .fillStyle(0xffffff, 1)
+        .fillRect(sx, sy, room.width * camera.zoom, room.height * camera.zoom)
+    }
+
     this.drawLight(px, py, this.cfg.playerRadius, this.cfg.rays, rects, camera, true)
     for (let i = 0; i < this.bulletSources.length; i++) {
       const bullet = this.bulletSources[i]!
@@ -131,7 +168,16 @@ export class LightingSystem implements LightPort {
 
   /** 敌我实体可见性判据：玩家光或任意玩家子弹光，且中间没有墙。 */
   isLit(x: number, y: number): boolean {
-    if (!this.cfg.enabled) return true
+    if (!this.cfg.enabled || this.fullBright) return true
+    for (const room of this.alwaysLitRects) {
+      if (
+        x >= room.x &&
+        x <= room.x + room.width &&
+        y >= room.y &&
+        y <= room.y + room.height
+      )
+        return true
+    }
     return isPointLit(x, y, this.playerSource, this.bulletSources, this.currentOccluders)
   }
 
