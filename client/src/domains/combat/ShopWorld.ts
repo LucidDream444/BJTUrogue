@@ -1,6 +1,6 @@
 import Phaser from 'phaser'
 import { textureKeyFor } from '@/core/assets'
-import { SHOP_ITEM_ART } from '@/core/assetManifest'
+import { SHOP_ITEM_ART, SHOP_MERCHANT_ART } from '@/core/assetManifest'
 import {
   ShopRun,
   type ShopItem,
@@ -235,25 +235,18 @@ export class ShopWorld {
   }
 
   /**
-   * 商人是地图内白箱占位，不参与购买判定；真美术到位后替换这个容器即可。
-   * 摆在上排 3 张商品桌正后方的中央，深度落后于商品桌。
+   * 商店商人立绘。摆在上排 3 张商品桌正后方的中央，深度落后于商品桌；
+   * 只做表现，不参与购买判定。
    */
   private makeMerchant(x: number, y: number): Phaser.GameObjects.Container {
-    const shadow = this.scene.add.ellipse(0, 42, 58, 16, 0x000000, 0.32)
-    const body = this.scene.add
-      .rectangle(0, 9, 44, 58, 0xd9c6a3)
-      .setStrokeStyle(2, 0x2a2233, 1)
-    const apron = this.scene.add
-      .rectangle(0, 24, 30, 30, 0x7a9a72)
-      .setStrokeStyle(1, 0x2a2233, 0.9)
-    const head = this.scene.add
-      .circle(0, -31, 13, 0xf0d0ab)
-      .setStrokeStyle(2, 0x2a2233, 1)
-    const cap = this.scene.add
-      .rectangle(0, -42, 30, 9, 0x6d4a35)
-      .setStrokeStyle(2, 0x2a2233, 1)
+    const shadow = this.scene.add.ellipse(0, 42, 62, 17, 0x000000, 0.34)
+    const art = this.scene.add
+      .image(0, 42, textureKeyFor(this.scene, SHOP_MERCHANT_ART))
+      .setOrigin(0.5, 1)
+      .setDisplaySize(88, 101)
+    art.texture.setFilter(Phaser.Textures.FilterMode.LINEAR)
     const label = this.scene.add
-      .text(0, -63, '商人 · 占位', {
+      .text(0, -68, '商人', {
         fontFamily: 'Microsoft YaHei, sans-serif',
         fontSize: '12px',
         color: '#f7e3aa',
@@ -262,7 +255,7 @@ export class ShopWorld {
       })
       .setOrigin(0.5)
     return this.scene.add
-      .container(x, y, [shadow, body, apron, head, cap, label])
+      .container(x, y, [shadow, art, label])
       .setDepth(Math.round(y) + 12)
   }
 
@@ -307,10 +300,10 @@ export class ShopWorld {
 
   private infoText(item: ShopItem): string {
     if (item.kind === 'health') {
-      return `血药\n恢复 ${this.session.cfg.drops.healthAmount} 生命\n${item.price} 局内货币 · F 购买`
+      return `血药\n恢复 ${this.session.cfg.shop.healthAmount} 生命\n${item.price} 局内货币 · F 购买`
     }
     if (item.kind === 'energy') {
-      return `蓝药\n恢复 ${this.session.cfg.drops.staminaAmount} 能量\n${item.price} 局内货币 · F 购买`
+      return `蓝药\n恢复 ${this.session.cfg.shop.staminaAmount} 能量\n${item.price} 局内货币 · F 购买`
     }
     if (item.kind === 'upgrade') {
       const description = item.rewardId
@@ -353,11 +346,11 @@ export class ShopWorld {
     if (item.kind === 'health') {
       return this.session.player.model.restoreFromPickup(
         'health',
-        this.session.cfg.drops.healthAmount,
+        this.session.cfg.shop.healthAmount,
       ) > 0
     }
     if (item.kind === 'energy') {
-      return this.session.player.restoreStamina(this.session.cfg.drops.staminaAmount) > 0
+      return this.session.player.restoreStamina(this.session.cfg.shop.staminaAmount) > 0
     }
     if (item.kind === 'upgrade') {
       return item.rewardId !== undefined && this.session.applyShopReward(item.rewardId)

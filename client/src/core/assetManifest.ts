@@ -110,6 +110,9 @@ export const SHOP_ITEM_ART = {
   energyPotion: 'ui_shop_energy_potion_base',
 } as const
 
+/** 3F 商店的商人立绘。独立 key，方便后续直接换图不改场景代码。 */
+export const SHOP_MERCHANT_ART = 'ui_shop_merchant' as const
+
 /** D1 主动技能表现。参考书复用校园 UI 中已交付的书本图。 */
 export const SKILL_ART = { referenceBook: 'ui_campus_book' } as const
 
@@ -1303,6 +1306,14 @@ const BASE_ASSETS: readonly AssetEntry[] = [
       kind: 'image',
       width: 32,
       height: 32,
+    },
+    {
+      key: SHOP_MERCHANT_ART,
+      path: 'ui/shop/ui_shop_merchant.png',
+      placeholder: false,
+      kind: 'image',
+      width: 196,
+      height: 226,
     },
     {
       key: 'ui_campus_icon_map',

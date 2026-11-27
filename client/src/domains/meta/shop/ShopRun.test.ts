@@ -42,7 +42,8 @@ function wallet(value: number): ShopWallet & { value: number } {
 describe('shop-prices.json', () => {
   it('四类商品有可形成取舍的基础价，具体商品覆盖价优先', () => {
     expect(priceForShopItem(prices, 'health', 'health_potion')).toBe(12)
-    expect(priceForShopItem(prices, 'weapon', 'weapon_a', 'rail')).toBe(35)
+    expect(priceForShopItem(prices, 'weapon', 'weapon_a', 'rail')).toBe(25)
+    expect(priceForShopItem(prices, 'upgrade', 'run_upgrade', 'sharp')).toBe(35)
     expect(
       priceForShopItem(
         { ...prices, itemOverrides: { 'weapon:rail': 3, weapon_a: 2 } },

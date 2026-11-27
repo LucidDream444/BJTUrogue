@@ -3,8 +3,8 @@
   "basePrices": {
     "health": 12,
     "energy": 8,
-    "upgrade": 25,
-    "weapon": 35
+    "upgrade": 35,
+    "weapon": 25
   },
   "itemOverrides": {}
 }

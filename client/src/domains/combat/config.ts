@@ -265,6 +265,11 @@ export interface CombatConfig {
     visualSize: number
     maxActive: number
   }
+  /** 商店内的消耗品恢复量；与地图掉落 `drops` 分开，避免改商店影响拾取物。 */
+  shop: {
+    healthAmount: number
+    staminaAmount: number
+  }
   gunMuzzles: {
     shoot: [number, number][]
     runGun: [number, number][]
@@ -823,6 +828,9 @@ export function parseCombatConfig(raw: unknown): CombatConfig {
     )
   numeric(c.player, 'player')
   numeric(c.drops, 'drops')
+  numeric(c.shop, 'shop')
+  if (c.shop.healthAmount <= 0 || c.shop.staminaAmount <= 0)
+    throw new Error('shop: 血药/蓝药恢复量必须为正')
   const dropFields = [
     'chance',
     'staminaChance',
