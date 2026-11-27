@@ -10,6 +10,13 @@
  *
  * 全部是 `Text`。菜单也是一个调试设施 —— 它不需要好看，
  * 它需要**在你把场子搞坏的时候还能用**。
+ *
+ * ## 为什么有滚动
+ *
+ * 场子会一直加；26 个场子时一屏放不下。**不能把后面的场子放到屏幕外**
+ * 就当作不存在 —— 那会让新增场子的人以为自己的场子没被注册。
+ * 这里用容器 + 几何遮罩固定标题和底部提示，只滚动中间的行；
+ * 鼠标滚轮、↑↓、PgUp/PgDn、Home/End 都能滚。
  */
 
 import Phaser from 'phaser'
@@ -26,8 +33,24 @@ import { ARENAS, findArena } from './registry'
 const LINE = 42
 /** 第一项从哪一行开始 */
 const FIRST_ROW_Y = 180
+/** 滚动视口的顶部：标题和说明留在视口外，不跟着滚 */
+const LIST_TOP = 150
+/** 视口底部到窗口底部的留白：底部提示固定在窗口底 */
+const LIST_BOTTOM_MARGIN = 92
 
 export class ArenaMenu extends Phaser.Scene {
+  private list: Phaser.GameObjects.Container | null = null
+  private maskShape: Phaser.GameObjects.Graphics | null = null
+  private scrollTrack: Phaser.GameObjects.Graphics | null = null
+  private scrollThumb: Phaser.GameObjects.Graphics | null = null
+  private scrollY = 0
+  private maxScroll = 0
+  private viewportHeight = 0
+  private viewportBottom = 0
+  private screenWidth = 0
+  /** 只用来处理遮罩外的行仍然可点的问题：遮罩是视觉裁剪，不会自动关输入。 */
+  private readonly rows: { label: Phaser.GameObjects.Text; description: Phaser.GameObjects.Text }[] = []
+
   constructor() {
     super(MENU_SCENE_KEY)
   }
@@ -35,6 +58,8 @@ export class ArenaMenu extends Phaser.Scene {
   create(): void {
     const width = this.scale.width
     const height = this.scale.height
+    this.screenWidth = width
+    this.viewportBottom = height - LIST_BOTTOM_MARGIN
 
     this.add
       .text(width / 2, 60, '测试场', {
@@ -87,18 +112,33 @@ export class ArenaMenu extends Phaser.Scene {
       return
     }
 
-    ARENAS.forEach((entry, i) => this.addRow(entry, i))
+    // 标题/说明固定；场子列表放进一个可滚动容器，用几何遮罩裁在视口里。
+    this.viewportHeight = Math.max(1, this.viewportBottom - LIST_TOP)
+    this.list = this.add.container(0, 0)
+    this.maskShape = this.make.graphics({ x: 0, y: 0 }, false)
+    this.maskShape.fillStyle(0xffffff, 1).fillRect(0, LIST_TOP, width, this.viewportHeight)
+    this.list.setMask(this.maskShape.createGeometryMask())
+
+    ARENAS.forEach((entry, i) => this.addRow(entry, i, this.list!))
+
+    // 内容最后一行（连同说明）到列表顶部的距离；多留 8px 给文字下沿。
+    const contentBottom = FIRST_ROW_Y + ARENAS.length * LINE + 8
+    this.maxScroll = Math.max(0, contentBottom - this.viewportBottom)
+    this.createScrollbar(width)
+    this.bindScroll()
+    this.setScroll(0)
 
     this.add
-      .text(width / 2, height - 48, '这是调试设施，不是产品的一部分。见 src/test/README.md', {
-        fontFamily: 'monospace',
-        fontSize: '12px',
-        color: '#4a4a5a',
-      })
+      .text(
+        width / 2,
+        height - 48,
+        `共 ${ARENAS.length} 个场子 · 滚轮 / ↑↓ / PgUp PgDn 滚动 · 这是调试设施，不是产品的一部分`,
+        { fontFamily: 'monospace', fontSize: '12px', color: '#4a4a5a' },
+      )
       .setOrigin(0.5, 0)
   }
 
-  private addRow(entry: ArenaEntry, index: number): void {
+  private addRow(entry: ArenaEntry, index: number, parent: Phaser.GameObjects.Container): void {
     const width = this.scale.width
     const y = FIRST_ROW_Y + index * LINE
 
@@ -110,7 +150,7 @@ export class ArenaMenu extends Phaser.Scene {
       })
       .setOrigin(0.5, 0)
 
-    this.add
+    const description = this.add
       .text(width / 2, y + 22, entry.description, {
         fontFamily: 'monospace',
         fontSize: '12px',
@@ -120,6 +160,9 @@ export class ArenaMenu extends Phaser.Scene {
       })
       .setOrigin(0.5, 0)
 
+    parent.add([label, description])
+    this.rows.push({ label, description })
+
     // 点名字进，或者按数字键。**点击范围比文字宽一点** ——
     // 一行 20px 的字很难点中，那是「功能没做」和「不好用」的差别。
     label.setInteractive({ useHandCursor: true })
@@ -127,12 +170,86 @@ export class ArenaMenu extends Phaser.Scene {
     label.on(Phaser.Input.Events.GAMEOBJECT_POINTER_OVER, () => label.setColor('#ffffff'))
     label.on(Phaser.Input.Events.GAMEOBJECT_POINTER_OUT, () => label.setColor('#9ad4ff'))
 
-    // 只有前 9 个能按数字键选中 —— 超过 9 个场子时后面的只能点。
+    // 只有前 9 个能按数字键选中 —— 超过 9 个场子时后面的只能点/滚。
     // **不假装支持更多**：静默地把第 10 个场子做成「按 0 进」比不支持更糟。
     if (index < 9) {
       const keyName = DIGIT_KEY_NAMES[index]!
       this.input.keyboard?.on(`keydown-${keyName}`, () => this.scene.start(sceneKeyOf(entry)))
     }
+  }
+
+  private createScrollbar(width: number): void {
+    const x = width - 24
+    this.scrollTrack = this.add.graphics().setDepth(20)
+    this.scrollTrack
+      .fillStyle(0x22283a, 0.9)
+      .fillRoundedRect(x, LIST_TOP, 6, this.viewportHeight, 3)
+    this.scrollThumb = this.add.graphics().setDepth(21)
+  }
+
+  private bindScroll(): void {
+    this.input.on(
+      'wheel',
+      (
+        _pointer: Phaser.Input.Pointer,
+        _over: unknown,
+        _deltaX: number,
+        deltaY: number,
+      ) => {
+        this.setScroll(this.scrollY + deltaY * 0.5)
+      },
+    )
+
+    this.input.keyboard?.addCapture([
+      Phaser.Input.Keyboard.KeyCodes.UP,
+      Phaser.Input.Keyboard.KeyCodes.DOWN,
+      Phaser.Input.Keyboard.KeyCodes.PAGE_UP,
+      Phaser.Input.Keyboard.KeyCodes.PAGE_DOWN,
+      Phaser.Input.Keyboard.KeyCodes.HOME,
+      Phaser.Input.Keyboard.KeyCodes.END,
+    ])
+    const page = Math.max(LINE, this.viewportHeight * 0.8)
+    this.input.keyboard?.on('keydown-DOWN', () => this.setScroll(this.scrollY + LINE))
+    this.input.keyboard?.on('keydown-UP', () => this.setScroll(this.scrollY - LINE))
+    this.input.keyboard?.on('keydown-PAGE_DOWN', () => this.setScroll(this.scrollY + page))
+    this.input.keyboard?.on('keydown-PAGE_UP', () => this.setScroll(this.scrollY - page))
+    this.input.keyboard?.on('keydown-HOME', () => this.setScroll(0))
+    this.input.keyboard?.on('keydown-END', () => this.setScroll(this.maxScroll))
+  }
+
+  private setScroll(value: number): void {
+    this.scrollY = Phaser.Math.Clamp(value, 0, this.maxScroll)
+    if (this.list !== null) this.list.y = -this.scrollY
+    this.updateRowVisibility()
+    this.drawScrollbar()
+  }
+
+  /** 让遮罩外的行彻底不可交互；否则点标题/底部提示可能命中看不见的行。 */
+  private updateRowVisibility(): void {
+    for (const row of this.rows) {
+      const top = row.label.y + (this.list?.y ?? 0)
+      const bottom = top + LINE
+      const visible = bottom >= LIST_TOP && top <= this.viewportBottom
+      row.label.setVisible(visible)
+      row.description.setVisible(visible)
+      if (visible) row.label.setInteractive({ useHandCursor: true })
+      else row.label.disableInteractive()
+    }
+  }
+
+  private drawScrollbar(): void {
+    const thumb = this.scrollThumb
+    if (thumb === null) return
+    const width = this.screenWidth
+    const x = width - 24
+    thumb.clear()
+    if (this.maxScroll <= 0) return
+
+    const contentHeight = this.viewportHeight + this.maxScroll
+    const thumbHeight = Math.max(24, (this.viewportHeight * this.viewportHeight) / contentHeight)
+    const travel = this.viewportHeight - thumbHeight
+    const thumbY = LIST_TOP + (this.scrollY / this.maxScroll) * travel
+    thumb.fillStyle(0x8a91a8, 1).fillRoundedRect(x, thumbY, 6, thumbHeight, 3)
   }
 }
 
