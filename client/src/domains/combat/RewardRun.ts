@@ -4,6 +4,12 @@ import type { TalentRules } from './TalentRun'
 
 /** Persistent ownership, seeded offers and a frozen pending choice. No UI/Phaser dependency. */
 export class RewardRun {
+  private linkedThisFloor = false
+  private floorPicksLeft = Infinity
+
+  private linked(a: RewardDef, b: RewardDef): boolean {
+    return !!(a.talent && b.talent && (a.talent.synergy.includes(b.talent.kind) || b.talent.synergy.includes(a.talent.kind)))
+  }
   readonly stacks = new Map<string, number>()
   readonly completedRooms = new Set<string>()
   offered: readonly RewardDef[] = []
@@ -19,27 +25,35 @@ export class RewardRun {
   }
   private draw(candidates:RewardDef[],avoid:ReadonlySet<string>=new Set()):RewardDef[]{
     const result:RewardDef[]=[]
-    const owned=new Set(this.defs.filter((r)=>(this.stacks.get(r.id)??0)>0).map((r)=>r.talent?.kind))
-    const usedCategories=new Set(result.map((r)=>r.category))
-    while(result.length<this.offerCount&&candidates.length){
-      const fresh=candidates.filter((r)=>!avoid.has(r.id))
-      let pool=fresh.length?fresh:candidates
-      // New pools offer attack and another use whenever both exist; legacy fixtures keep old draws.
-      if(this.rules&&result.length===0&&pool.some((r)=>r.category==='firepower'))pool=pool.filter((r)=>r.category==='firepower')
-      else if(this.rules&&result.length>0){
-        const diverse=pool.filter((r)=>!usedCategories.has(r.category))
-        if(diverse.length)pool=diverse
+    const owned = this.defs.filter((r) => this.stacks.has(r.id))
+    const available = [...candidates]
+    while (result.length < this.offerCount && candidates.length) {
+      const fresh = candidates.filter((r) => !avoid.has(r.id))
+      const pool = fresh.length ? fresh : candidates
+      const weight = (r: RewardDef) => this.rules && r.talent ? 1 : r.weight
+      let draw = this.rng.next() * pool.reduce((sum, r) => sum + weight(r), 0)
+      const chosen = pool.find((r) => (draw -= weight(r)) < 0) ?? pool[pool.length - 1]!
+      result.push(chosen)
+      candidates.splice(candidates.indexOf(chosen), 1)
+    }
+    if (!this.linkedThisFloor && this.floorPicksLeft <= 2 && result.length) {
+      const completes = (r: RewardDef) => owned.some((other) => this.linked(r, other))
+      let options = available.filter(completes)
+      // If none of the owned cards has a legal partner, the penultimate pick can start a pair.
+      if (!options.length && this.floorPicksLeft === 2) {
+        options = available.filter((r) => available.some((other) => r !== other && this.linked(r, other)))
       }
-      const weight=(r:RewardDef):number=>r.weight*(r.talent?.synergy.some((kind)=>owned.has(kind))?(this.rules?.synergyWeightScale??1):1)
-      let draw=this.rng.next()*pool.reduce((sum,r)=>sum+weight(r),0)
-      let chosen=pool[pool.length-1]!
-      for(const candidate of pool){draw-=weight(candidate);if(draw<0){chosen=candidate;break}}
-      result.push(chosen);usedCategories.add(chosen.category);candidates.splice(candidates.indexOf(chosen),1)
+      if (options.length && !result.some((r) => options.includes(r))) {
+        const fresh = options.filter((r) => !avoid.has(r.id))
+        const pool = fresh.length ? fresh : options
+        result[this.rng.between(0, result.length - 1)] = pool[this.rng.between(0, pool.length - 1)]!
+      }
     }
     return result
   }
-  offer(roomId:string,weapon:WeaponId,hp:number,maxHp:number,hasBenefit:(reward:RewardDef)=>boolean=()=>true):readonly RewardDef[]|null{
+  offer(roomId:string,weapon:WeaponId,hp:number,maxHp:number,hasBenefit:(reward:RewardDef)=>boolean=()=>true, floorPicksLeft=Infinity):readonly RewardDef[]|null{
     if(this.roomId!==null||this.completedRooms.has(roomId))return null
+    this.floorPicksLeft = floorPicksLeft
     this.roomId=roomId
     this.context={roomId,weapon,hp,maxHp,benefit:hasBenefit}
     this.offered=this.draw(this.legal(weapon,hp,maxHp).filter(hasBenefit))
@@ -56,10 +70,11 @@ export class RewardRun {
     return this.offered
   }
   /** Only floor-local offers are forgotten. Owned talents/rerolls survive every floor change. */
-  forgetFloor():void{this.completedRooms.clear();this.roomId=null;this.offered=[];this.context=null}
+  forgetFloor():void{this.linkedThisFloor=false;this.completedRooms.clear();this.roomId=null;this.offered=[];this.context=null}
   choose(id:string):RewardDef|null{
     const reward=this.offered.find((r)=>r.id===id)
     if(!reward||this.roomId===null)return null
+    if (Number.isFinite(this.floorPicksLeft) && this.defs.some((r) => this.stacks.has(r.id) && this.linked(reward, r))) this.linkedThisFloor = true
     this.stacks.set(id,(this.stacks.get(id)??0)+1);this.finish();return reward
   }
   private finish():void{if(this.roomId!==null)this.completedRooms.add(this.roomId);this.roomId=null;this.offered=[];this.context=null}

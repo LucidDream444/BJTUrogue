@@ -845,7 +845,9 @@ export class CombatSession {
   }
   private nextTalentOffer():void{
     const token=this.rewardClaimFloor+':talent:'+this.rewardSequence++
-    const options=this.rewards.offer(token,this.weapon.id,this.player.model.hp,this.player.model.maxHp,(reward)=>this.rewardChanges(reward).length>0)
+    const floorPicksLeft = this.rewardClaimFloor === 'opening' ? Infinity
+      : (this.cfg.talents!.floorChoices[this.talentLayer - 1] ?? 0) - this.talents.claimed(this.rewardClaimFloor)
+    const options=this.rewards.offer(token,this.weapon.id,this.player.model.hp,this.player.model.maxHp,(reward)=>this.rewardChanges(reward).length>0,floorPicksLeft)
     if(!options?.length){while(this.rewardRemaining-->0)this.talents.claim(this.rewardClaimFloor);this.finishTalentOffer();return}
     this.pause('reward')
     this.bus.emit('reward_offered',{runId:this.runId,roomId:token,ids:options.map((reward)=>reward.id)})

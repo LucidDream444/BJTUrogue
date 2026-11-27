@@ -30,7 +30,7 @@ describe('production independent talent catalog',()=>{
   })
   it('offers mechanics at full health, never duplicates owned talents, and preserves them across floors',()=>{
     const rewards=new RewardRun(defs,new Rng(123),rules)
-    for(let i=0;i<8;i++){
+    for(let i=0;i<rules.maxOwned;i++){
       const offered=rewards.offer('room-'+i,'pencil',50,50)!
       expect(offered.length).toBe(rules.offerCount)
       expect(new Set(offered.map((def)=>def.id)).size).toBe(rules.offerCount)
@@ -38,7 +38,7 @@ describe('production independent talent catalog',()=>{
       rewards.choose(offered[0]!.id)
       rewards.forgetFloor()
     }
-    expect(rewards.stacks.size).toBe(8)
+    expect(rewards.stacks.size).toBe(rules.maxOwned)
     expect(rewards.offer('full','pencil',50,50)).toEqual([])
     expect(rewards.roomId).toBeNull()
   })
@@ -116,15 +116,38 @@ describe('production independent talent catalog',()=>{
     expect(state.stats(base,player,0)).toMatchObject(base)
     expect(state.rules).toBeDefined()
     expect(deriveStats).toBeTypeOf('function')
-    expect((rules as TalentRules).maxOwned).toBe(8)
+    expect((rules as TalentRules).maxOwned).toBe(12)
   })
-  it('offers four distinct cards and keeps categories diverse',()=>{
+  it('offers four distinct cards without fixed category slots',()=>{
     const rewards=new RewardRun(defs,new Rng(321),rules)
     const offered=rewards.offer('four','pencil',50,50)!
     expect(offered).toHaveLength(4)
     expect(new Set(offered.map((r)=>r.id)).size).toBe(4)
-    expect(offered[0]!.category).toBe('firepower')
-    expect(new Set(offered.map((r)=>r.category)).size).toBeGreaterThanOrEqual(3)
+    const firstCategories = new Set(Array.from({length: 100}, (_, seed) =>
+      new RewardRun(defs, new Rng(seed), rules).offer('room','pencil',50,50)![0]!.category))
+    expect(firstCategories.size).toBeGreaterThan(1)
+  })
+  it('can complete a new link each floor over different seeds, loadouts and rerolls', () => {
+    for (const weapon of [gun, cfg.weapons.find((w) => w.mode === 'melee')!]) {
+      for (let seed = 0; seed < 100; seed++) {
+        const rewards = new RewardRun(defs, new Rng(seed), rules)
+        const usable = (r: typeof defs[number]) => talentApplicable(r, [weapon], 0, false)
+        for (const picks of rules.floorChoices) {
+          rewards.forgetFloor()
+          let completed = false
+          for (let left = picks; left; left--) {
+            const cards = rewards.offer(String(left),weapon.id,50,50,usable,left)!
+            const choices = left === 1 ? rewards.reroll() ?? cards : cards
+            const pair = choices.find((r) => defs.some((o) => rewards.stacks.has(o.id) &&
+              (r.talent!.synergy.includes(o.talent!.kind) || o.talent!.synergy.includes(r.talent!.kind))))
+            const pick = left === 1 && pair ? pair : choices[0]!
+            if (pick === pair) completed = true
+            rewards.choose(pick.id)
+          }
+          expect(completed).toBe(true)
+        }
+      }
+    }
   })
   it('rejects an offer count outside the supported range',()=>{
     const raw=read('combat.json') as {talents:{offerCount:number}}

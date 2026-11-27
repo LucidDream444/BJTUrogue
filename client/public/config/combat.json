@@ -2485,13 +2485,13 @@
     }
   },
   "talents": {
-    "maxOwned": 8,
+    "maxOwned": 12,
     "rerolls": 2,
     "offerCount": 4,
     "floorChoices": [
-      2,
       3,
-      2
+      4,
+      4
     ],
     "baseCritChance": 0.1,
     "baseCritMultiplier": 1.5,
@@ -2513,7 +2513,7 @@
     "stoppedRegenScale": 2,
     "commonProcCooldownMs": 100,
     "blackholeStepMs": 80,
-    "synergyWeightScale": 1.6
+    "synergyWeightScale": 1
   },
   "talentFx": {
     "orbitRadius": 38,
