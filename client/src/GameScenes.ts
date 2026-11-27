@@ -1,4 +1,5 @@
 import { CAMPAIGN_ART, findAsset, imageUrl } from '@/core/assetManifest'
+import { hideLoading, setLoadingProgress, showLoading } from '@/core/loadingOverlay'
 import Phaser from 'phaser'
 
 const TITLE_IMAGE = CAMPAIGN_ART.title
@@ -16,11 +17,14 @@ export class MainMenuScene extends Phaser.Scene {
   }
 
   preload(): void {
+    showLoading()
+    this.load.on('progress', setLoadingProgress)
     if (!this.textures.exists(TITLE_IMAGE))
       this.load.image(TITLE_IMAGE, imageUrl(findAsset(TITLE_IMAGE)!))
   }
 
   create(): void {
+    hideLoading()
     this.entering = false
     this.cameras.main.setBackgroundColor('#0b0b10')
     this.background = this.add.image(0, 0, TITLE_IMAGE)

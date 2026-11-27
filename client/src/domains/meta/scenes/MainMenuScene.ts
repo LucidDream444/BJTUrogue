@@ -31,6 +31,7 @@
  */
 
 import Phaser from 'phaser'
+import { hideLoading, setLoadingProgress, showLoading } from '@/core/loadingOverlay'
 import { ASSETS, ARCHIVE_ART, CAMPUS_MENU_ART, findAsset, imageUrl } from '@/core/assetManifest'
 import { textureKeyFor } from '@/core/assets'
 import {
@@ -180,6 +181,8 @@ export class MainMenuScene extends Phaser.Scene {
   }
 
   preload(): void {
+    showLoading()
+    this.load.on('progress', setLoadingProgress)
     // 配置表必须走 Phaser 的 loader，**不能 import** —— `public/` 下的文件不参与
     // 打包，Vite 遇到指向它的 import 会静默换成空模块（见 `ArenaBase.preload`）。
     this.load.json(META_CONFIG_NAME, META_CONFIG_URL)
@@ -238,6 +241,7 @@ export class MainMenuScene extends Phaser.Scene {
   }
 
   create(): void {
+    hideLoading()
     const outcome = this.store.load()
     this.state = createMenuState(initialMenuScreen(this.store.profile, this.requestedInitialScreen))
 

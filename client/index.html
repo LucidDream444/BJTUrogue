@@ -28,10 +28,83 @@
       #game-root canvas {
         display: block;
       }
+
+      /* 首次进站时 Phaser 还没启动，先由这块 DOM 遮罩显示「加载中」。 */
+      .game-loading {
+        position: fixed;
+        inset: 0;
+        z-index: 9999;
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+        gap: 18px;
+        background: #0b0b10;
+        color: #e8d6ae;
+        font-family: system-ui, -apple-system, 'Segoe UI', 'Microsoft YaHei', sans-serif;
+        user-select: none;
+      }
+
+      .game-loading.is-hidden {
+        display: none;
+      }
+
+      .game-loading-title {
+        font-size: 20px;
+        letter-spacing: 4px;
+        color: #e8d6ae;
+      }
+
+      .game-loading-bar {
+        width: min(420px, 70vw);
+        height: 8px;
+        border: 1px solid #6d5a3a;
+        background: #171d2a;
+        border-radius: 999px;
+        overflow: hidden;
+      }
+
+      .game-loading-fill {
+        width: 0%;
+        height: 100%;
+        background: linear-gradient(90deg, #b8863f, #ffd58a);
+        transition: width 0.18s ease-out;
+      }
+
+      /* 首屏 JS 还在下载时，Phaser 尚未启动，进度未知：先做不确定进度动画。 */
+      .game-loading.is-booting .game-loading-fill {
+        width: 35%;
+        animation: game-loading-indeterminate 1.2s ease-in-out infinite;
+      }
+
+      @keyframes game-loading-indeterminate {
+        0% { transform: translateX(-120%); }
+        100% { transform: translateX(320%); }
+      }
+
+      .game-loading-percent {
+        font-size: 13px;
+        color: #b9a57e;
+        font-variant-numeric: tabular-nums;
+      }
+
+      .game-loading-note {
+        max-width: min(560px, 80vw);
+        text-align: center;
+        font-size: 14px;
+        line-height: 1.8;
+        color: #9aa0b4;
+      }
     </style>
   </head>
   <body>
     <div id="game-root"></div>
+    <div id="game-loading" class="game-loading is-booting">
+      <div class="game-loading-title">课后勇者：异次元校园</div>
+      <div class="game-loading-bar"><div class="game-loading-fill"></div></div>
+      <div class="game-loading-percent">加载中…</div>
+      <div class="game-loading-note">初次加载资源较慢，请耐心等待。</div>
+    </div>
     <script type="module" src="/src/main.ts"></script>
   </body>
 </html>
