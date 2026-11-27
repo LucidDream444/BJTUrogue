@@ -222,7 +222,7 @@
         "levels": [
           {
             "name": "试音",
-            "description": "持续到魔力耗尽或 F1 停止；每首歌消耗 20 魔力",
+            "description": "持续到魔力耗尽或再按 Space 停止；每首歌消耗 20 魔力",
             "cooldownMs": 0,
             "durationMs": 0,
             "beatPeriodMs": 1000,

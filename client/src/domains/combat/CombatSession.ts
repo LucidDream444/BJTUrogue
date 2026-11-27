@@ -386,20 +386,21 @@ export class CombatSession {
   }
 
   private onDown(pointer: Phaser.Input.Pointer): void {
-    if (!pointer.leftButtonDown()) return
     // ⚠️ **抓取期间这一条必须排在暂停守卫之前。** 世界是冻结的，下面那句
     //    `!this.clock.paused` 会把按键整条吃掉 —— QTE 就永远收不到输入，
     //    表现是「连点没反应」，而且不报任何错。
     //    转的是**按下边沿**（`POINTER_DOWN` 本身就是离散事件），按住只算一次。
     if (this.reasons.has('grab')) {
-      this.enemies.grabPress()
+      if (pointer.leftButtonDown()) this.enemies.grabPress()
       return
     }
     if (this.clock.paused || !this.player.model.alive) return
     if (this.skill?.isPerforming()) {
-      this.playPerformanceSong('blue')
+      if (pointer.leftButtonDown()) this.playPerformanceSong('red')
+      else if (pointer.rightButtonDown()) this.playPerformanceSong('blue')
       return
     }
+    if (!pointer.leftButtonDown()) return
     this.weapons.firing = true
   }
   private onUp(): void {
