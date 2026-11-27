@@ -368,8 +368,22 @@ export class EnemySystem implements ActorEventSink {
   private grabberReadyAtMs = 0
   /** 正在抓的那一只（**同一时刻最多一只**）。null = 没有抓取。 */
   private grab: GrabRun | null = null
-  /** 正在飞的被甩飞者。落地那一刻做两件事：它死、以及炸一圈。 */
-  private flight: FlightRun | null = null
+  /**
+   * 已经完成前摇、但当时另一只正在抓取，没抢到的攻击。
+   *
+   * 不能让它就这么白起手：它的状态已经被 brain 写回 chase，冷却也已经起算；
+   * 旧逻辑会留在玩家身上抖几秒才重新进入前摇。这里排队，当前抓取一结束
+   * 就让排队者立刻接上（它已经完成前摇了）。
+   */
+  private readonly pendingGrabs: Entry[] = []
+  /**
+   * 正在飞的被甩飞者，**按敌人 id 各记一份**。
+   *
+   * 不能只用一个槽：A 被甩出后、还没落地时如果 B 立刻抓人并被玩家挣脱，
+   * B 会覆盖同一个 `flight` 槽，A 就永远停在 `flung`（活着、不落地、不爆炸），
+   * 关卡清不掉。两只同时飞是合法状态，必须各自结算。
+   */
+  private readonly flights = new Map<number, FlightRun>()
   private readonly byId = new Map<number, Entry>()
   private readonly brains = new Map<EnemyModel, Brain>()
   /** 每只怪一份复用的快照。**同时**喂 `ctx.self` 和空间哈希 —— 两者必须是同一份数据 */
@@ -634,8 +648,10 @@ export class EnemySystem implements ActorEventSink {
     this.pool.releaseAll() // 每只怪都走 release() → ledger.releaseTarget，不用另写一套清理
     this.spawns.clear()
     this.pendingDeaths.length = 0
+    this.pendingGrabs.length = 0
     this.contacts.clear()
     this.frameEntries.length = 0
+    this.flights.clear()
     this.ledger.clear()
     this.radialShots.clear()
     this.hash.clear()
@@ -854,6 +870,8 @@ export class EnemySystem implements ActorEventSink {
     this.radialShots.clear()
     this.spawns.clear()
     this.pendingDeaths.length = 0
+    this.pendingGrabs.length = 0
+    this.flights.clear()
     this.encountered.clear()
     this.pool.releaseAll()
     this.contacts.clear()
@@ -1181,7 +1199,12 @@ export class EnemySystem implements ActorEventSink {
    */
   private startGrab(entry: Entry): void {
     const model = entry.model
-    if (!model.alive || this.grab) return
+    if (!model.alive) return
+    if (this.grab) {
+      // 前摇已经完成，不能把这次攻击吞掉；当前抓取结束后立即接上。
+      if (!this.pendingGrabs.includes(entry)) this.pendingGrabs.push(entry)
+      return
+    }
     model.setState('grabbing', this.clock.nowMs)
     model.velIntent.x = 0
     model.velIntent.y = 0
@@ -1312,6 +1335,26 @@ export class EnemySystem implements ActorEventSink {
     // 同类冷却**从抓取结束起算** —— 异常结束同样要挡住连锁抓
     this.grabberReadyAtMs = this.clock.nowMs + this.grabberConfig().sameTypeCooldownMs
     this.grab = null
+    this.startPendingGrab()
+  }
+
+  /** 当前抓取结束后，接上已经完成前摇、但之前没抢到的抓取。 */
+  private startPendingGrab(): void {
+    while (this.pendingGrabs.length > 0) {
+      const entry = this.pendingGrabs.shift()!
+      if (!entry.model.alive) continue
+      if (this.grab) {
+        this.pendingGrabs.unshift(entry)
+        return
+      }
+      // 玩家已经死了就没有再接一抓的意义；清掉，避免下一局/下一层串场。
+      if (!this.playerOf()?.alive) {
+        this.pendingGrabs.length = 0
+        return
+      }
+      this.startGrab(entry)
+      return
+    }
   }
 
   /** 挣脱：把它甩出去。它飞出去之后才落地、才死、才炸。 */
@@ -1338,14 +1381,15 @@ export class EnemySystem implements ActorEventSink {
     model.setState('flung', this.clock.nowMs)
     this.grabberReadyAtMs = this.clock.nowMs + cfg.sameTypeCooldownMs
     this.grab = null
-    this.flight = {
+    this.flights.set(model.id, {
       entry: g.entry,
       startedAtMs: this.clock.nowMs,
       stuckMs: 0,
       lastX: g.entry.view.x,
       lastY: g.entry.view.y,
       lastAtMs: this.clock.nowMs,
-    }
+    })
+    this.startPendingGrab()
   }
 
   /**
@@ -1353,40 +1397,42 @@ export class EnemySystem implements ActorEventSink {
    * 位置由物理体走，这里只回答「这一帧算不算落地了」。
    */
   private stepFlight(nowMs: number): void {
-    const f = this.flight
-    if (!f) return
-    const model = f.entry.model
-    if (!model.alive || model.state !== 'flung') {
-      // 它在半空中就没了（被补枪、被别的爆炸卷进去、被清场……）：
-      // **爆炸照放**，摆在它最后待过的位置。甩出去那一下是挣脱的回报，
-      // 不能因为「它提前死了」就悄无声息地取消掉。
-      this.blastAt(f.lastX, f.lastY, model.id)
-      this.flight = null
-      return
-    }
-    const cfg = this.grabberConfig()
-    const x = f.entry.view.x
-    const y = f.entry.view.y
-    const r = shouldLand(
-      { flingTimeMs: cfg.flingTimeMs },
-      nowMs - f.startedAtMs,
-      Math.hypot(x - f.lastX, y - f.lastY),
-      f.stuckMs,
-      Math.max(0, nowMs - f.lastAtMs),
-    )
-    f.stuckMs = r.stuckForMs
-    f.lastX = x
-    f.lastY = y
-    f.lastAtMs = nowMs
-    if (!r.land) return
+    // 拷贝一份再遍历：落地死亡会触发 `onKilled`，可能间接改动池/映射；
+    // 而且一次爆炸可能同时结算另一只飞行怪，不能一边迭代一边删。
+    for (const [id, f] of [...this.flights]) {
+      const model = f.entry.model
+      if (!model.alive || model.state !== 'flung') {
+        // 它在半空中就没了（被补枪、被别的爆炸卷进去、被清场……）：
+        // **爆炸照放**，摆在它最后待过的位置。甩出去那一下是挣脱的回报，
+        // 不能因为「它提前死了」就悄无声息地取消掉。
+        this.flights.delete(id)
+        this.blastAt(f.lastX, f.lastY, model.id)
+        continue
+      }
+      const cfg = this.grabberConfig()
+      const x = f.entry.view.x
+      const y = f.entry.view.y
+      const r = shouldLand(
+        { flingTimeMs: cfg.flingTimeMs },
+        nowMs - f.startedAtMs,
+        Math.hypot(x - f.lastX, y - f.lastY),
+        f.stuckMs,
+        Math.max(0, nowMs - f.lastAtMs),
+      )
+      f.stuckMs = r.stuckForMs
+      f.lastX = x
+      f.lastY = y
+      f.lastAtMs = nowMs
+      if (!r.land) continue
 
-    this.flight = null
-    // 落地：**它死在这儿**（挣脱时特意留了 1 血），炸在它落下的位置
-    this.blastAt(x, y, model.id)
-    // ⚠️ 用 `dieOnLanding()` 而不是 `takeHit()`：飞行的整段免疫外来伤害
-    //（它只剩 1 血，玩家正握着枪），而落地这一下必须**一定生效** ——
-    // 走 takeHit 会被那条免伤挡掉，它就会带着 1 血永远飞下去（实测踩过）。
-    model.dieOnLanding(nowMs)
+      this.flights.delete(id)
+      // 落地：**它死在这儿**（挣脱时特意留了 1 血），炸在它落下的位置
+      this.blastAt(x, y, model.id)
+      // ⚠️ 用 `dieOnLanding()` 而不是 `takeHit()`：飞行的整段免疫外来伤害
+      //（它只剩 1 血，玩家正握着枪），而落地这一下必须**一定生效** ——
+      // 走 takeHit 会被那条免伤挡掉，它就会带着 1 血永远飞下去（实测踩过）。
+      model.dieOnLanding(nowMs)
+    }
   }
 
   /**
