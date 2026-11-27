@@ -9,6 +9,7 @@ import {
 import { parseConfigBundle, type ConfigBundle, type Difficulty } from '@/core/config'
 import type { EnemyKind } from '@/core/events'
 import { Rng } from '@/core/rng'
+import { hideLoading, setLoadingProgress, showLoading } from '@/core/loadingOverlay'
 import {
   parseCombatConfig,
   parseRewards,
@@ -490,6 +491,8 @@ export class BattleScene extends Phaser.Scene {
     this.encounterCodex = null
   }
   preload(): void {
+    showLoading()
+    this.load.on('progress', setLoadingProgress)
     preloadAssets(this)
     // ⚠️ **`stage-collisions.json` 与 `painted-rooms.json` 不在这一串里了**
     // （2026-10-21，整层连续）：关卡几何现在来自 **D2 的生成器**
@@ -541,6 +544,7 @@ export class BattleScene extends Phaser.Scene {
     return (Math.random() * 0x100000000) >>> 0
   }
   create(): void {
+    hideLoading()
     try {
       Object.defineProperty(window, '__d1', { value: this, configurable: true })
       ensurePlaceholderTextures(this)
