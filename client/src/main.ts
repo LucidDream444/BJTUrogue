@@ -7,6 +7,8 @@ const game = new Phaser.Game({
   type: Phaser.AUTO,
   parent: 'game-root',
   backgroundColor: '#0b0b10',
+  // 演奏家大鹅用右键唱蓝歌；画布内必须屏蔽浏览器原生菜单。
+  disableContextMenu: true,
   scale: {
     mode: Phaser.Scale.RESIZE,
     autoCenter: Phaser.Scale.CENTER_BOTH,
