@@ -14,7 +14,11 @@ export class EmpBlastFx {
   private readonly pool: Pulse[] = []
   private sequence = 0
 
-  constructor(private readonly scene: Phaser.Scene, private readonly capacity = 8) {}
+  constructor(
+    private readonly scene: Phaser.Scene,
+    private readonly capacity = 8,
+    private readonly applyMask?: (obj: Phaser.GameObjects.GameObject) => void,
+  ) {}
 
   play(x: number, y: number, radius: number, nowMs: number): void {
     let pulse = this.pool.find((item) => !item.gfx.active)
@@ -29,6 +33,7 @@ export class EmpBlastFx {
         seed: 0,
       }
       this.pool.push(pulse)
+      this.applyMask?.(pulse.gfx)
     }
     pulse.bornAtMs = nowMs
     pulse.x = x

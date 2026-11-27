@@ -5,6 +5,7 @@ import type { GameClock } from '@/core/time'
 import type { RngLike } from '@/core/rng'
 import type { CombatConfig } from './config'
 import type { Player } from './Player'
+import type { LightPort } from './LightingSystem'
 
 import { rollRecoveryDrop, type RecoveryKind } from './dropPolicy'
 interface Drop {
@@ -67,6 +68,11 @@ export class RecoveryDrops {
       item.image.destroy()
       this.items.splice(index, 1)
     }
+  }
+
+  /** 掉在黑暗里的资源不显示；拾取判定不受影响，走进光圈就会重新出现。 */
+  applyLightVisibility(light: LightPort): void {
+    for (const item of this.items) item.image.setVisible(light.isLit(item.image.x, item.image.y))
   }
 
   clear(): void {

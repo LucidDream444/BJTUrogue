@@ -18,6 +18,7 @@ export class PaperDeathFx {
     private readonly scene: Phaser.Scene,
     private readonly clock: GameClock,
     private readonly capacity: number,
+    private readonly applyMask?: (obj: Phaser.GameObjects.GameObject) => void,
   ) {}
 
   play(x: number, y: number, gen: number, scale: number, splitDelayMs: number): void {
@@ -36,6 +37,7 @@ export class PaperDeathFx {
         frames: [],
       }
       this.pool.push(effect)
+      this.applyMask?.(effect.sprite)
     }
     effect.bornAtMs = this.clock.nowMs
     // Match real child-spawn timing; the last generation has no children to wait for.

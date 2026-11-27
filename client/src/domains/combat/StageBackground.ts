@@ -93,6 +93,15 @@ export class StageBackground {
     this.refresh()
   }
 
+  /**
+   * 家具（桌椅）与门口房号文本挂共享光罩；墙与黑板等建筑不挂，只在暗色滤镜里变暗。
+   * 房号在深度 4000（暗色滤镜 3999 之上），不挂遮罩就会在黑暗里一直亮着。
+   */
+  applyLightMask(apply: (object: Phaser.GameObjects.GameObject) => void): void {
+    this.art.applyLightMask(apply)
+    for (const label of this.labels) apply(label)
+  }
+
   private makeLabels(): void {
     for (const unit of this.rooms) {
       const spot = this.labelSpot(unit)

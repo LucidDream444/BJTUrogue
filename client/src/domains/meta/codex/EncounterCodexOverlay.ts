@@ -26,7 +26,10 @@ export interface EncounterCodexHost {
 export interface EncounterCodexOverlayOptions {
   scene: Phaser.Scene
   bus: {
-    on(event: 'entity_spawned', handler: (event: GameEvents['entity_spawned']) => void): () => void
+    on(
+      event: 'entity_encountered',
+      handler: (event: GameEvents['entity_encountered']) => void,
+    ): () => void
   }
   store: ProfileStore
   bundle: ConfigBundle
@@ -50,7 +53,7 @@ export class EncounterCodexOverlay {
   private readonly promptHint: Phaser.GameObjects.Text
   private readonly onPreUpdate: () => void
   private readonly onResize: () => void
-  private readonly unsubscribeSpawn: () => void
+  private readonly unsubscribeEncounter: () => void
   private readonly unsubscribeStore: () => void
 
   private opened = false
@@ -89,7 +92,7 @@ export class EncounterCodexOverlay {
     ])
     this.promptLayer.attach([this.prompt])
 
-    this.unsubscribeSpawn = options.bus.on('entity_spawned', (event) => {
+    this.unsubscribeEncounter = options.bus.on('entity_encountered', (event) => {
       const encounter = this.queue.discover(event)
       if (!encounter) return
       this.store.recordEnemyEncounter(encounter.kind)
@@ -145,7 +148,7 @@ export class EncounterCodexOverlay {
 
   /** 场景销毁时仅退订和清理，绝不恢复已经被引擎销毁的物理世界。 */
   destroy(): void {
-    this.unsubscribeSpawn()
+    this.unsubscribeEncounter()
     this.unsubscribeStore()
     this.scene.events.off(Phaser.Scenes.Events.PRE_UPDATE, this.onPreUpdate)
     this.scene.scale.off(Phaser.Scale.Events.RESIZE, this.onResize)

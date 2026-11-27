@@ -61,7 +61,7 @@ import type {
   NavView,
 } from '@/core/actor/types'
 import type { GameClock } from '@/core/time'
-import type { GameEvents, EnemyKind, TypedBus } from '@/core/events'
+import type { GameEvents, EnemyKind, EnemyPresenceEvent, TypedBus } from '@/core/events'
 import { Rng } from '@/core/rng'
 import {
   deriveBossSpeed,
@@ -216,6 +216,11 @@ export interface EnemySystemNavOptions {
   solidHitTime?: SolidHitTime
 }
 
+/** 光照可见性端口。D1 的 `LightingSystem` 结构上满足它，D3 不需要反向 import D1。 */
+export interface LightPort {
+  isLit(x: number, y: number): boolean
+}
+
 export interface EnemySystemOptions {
   scene: Phaser.Scene
   bus: TypedBus<GameEvents>
@@ -223,6 +228,10 @@ export interface EnemySystemOptions {
   bundle: ConfigBundle
   difficulty: Difficulty
   player: PlayerProvider
+  /** 玩家/子弹光照；不传 = 不做黑暗裁剪（测试场与旧宿主保持原行为）。 */
+  light?: LightPort
+  /** 给敌方弹幕/技能的绘图面挂共享光罩；由 D1 的 LightingSystem 注入。 */
+  applyLightMask?: (obj: Phaser.GameObjects.GameObject) => void
   /**
    * 地图网格。**不传 = 没有墙**，全场直线追、零导航开销 ——
    * 空的测试场就该不传（建一张 BFS 场是纯粹的浪费）。
@@ -304,6 +313,10 @@ export class EnemySystem implements ActorEventSink {
   private readonly bossPresentation?: BossPresentationConfig
   private readonly bossContactDamagePerTick: number
   private readonly rng: Rng
+  private light: LightPort | null = null
+  private readonly applyLightMaskCallback?: (obj: Phaser.GameObjects.GameObject) => void
+  /** 已经真正被玩家看见过的敌人 id；`entity_encountered` 每只只发一次。 */
+  private readonly encountered = new Set<number>()
 
   readonly radialShots: RadialProjectiles
   readonly vortex: VortexField
@@ -398,20 +411,28 @@ export class EnemySystem implements ActorEventSink {
 
   constructor(opts: EnemySystemOptions) {
     this.scene = opts.scene
+    this.light = opts.light ?? null
+    this.applyLightMaskCallback = opts.applyLightMask
     this.bossPresentation = opts.bossPresentation
     this.bossContactDamagePerTick = opts.bossContactDamagePerTick ?? 0
     this.bus = opts.bus
     this.clock = opts.clock
     this.bundle = opts.bundle
     this.liquid = new LiquidField(opts.bundle.enemies.enemies.sprayer)
-    this.liquidFx = new LiquidFx(opts.scene, opts.clock, this.liquid, opts.player, () =>
-      this.liveEnemies
-        .filter((e) => e.model.enemyKind === 'sprayer' && e.model.state === 'windup')
-        .map((e) => ({
-          x: e.model.sprayX,
-          y: e.model.sprayY,
-          progress: e.model.stateAgeMs(opts.clock.nowMs) / this.liquid.cfg.spray.windupMs,
-        })),
+    this.liquidFx = new LiquidFx(
+      opts.scene,
+      opts.clock,
+      this.liquid,
+      opts.player,
+      () =>
+        this.liveEnemies
+          .filter((e) => e.model.enemyKind === 'sprayer' && e.model.state === 'windup')
+          .map((e) => ({
+            x: e.model.sprayX,
+            y: e.model.sprayY,
+            progress: e.model.stateAgeMs(opts.clock.nowMs) / this.liquid.cfg.spray.windupMs,
+          })),
+      (obj) => this.applyLightMask(obj),
     )
     this.radialShots = new RadialProjectiles(opts.bundle.enemies.stage2Boss.projectile)
     this.diffMods = opts.bundle.difficulty.difficulties[opts.difficulty]
@@ -464,6 +485,7 @@ export class EnemySystem implements ActorEventSink {
         this.eliteBosses.delete(model.id)
         this.bossDamageMultipliers.delete(model.id)
         this.patrolOrigins.delete(model.id)
+        this.encountered.delete(model.id)
       },
     })
 
@@ -832,6 +854,7 @@ export class EnemySystem implements ActorEventSink {
     this.radialShots.clear()
     this.spawns.clear()
     this.pendingDeaths.length = 0
+    this.encountered.clear()
     this.pool.releaseAll()
     this.contacts.clear()
     this.ledger.clear()
@@ -2202,19 +2225,24 @@ export class EnemySystem implements ActorEventSink {
 
     if (req.initialHpRatio !== undefined)
       model.setHealthFromSkill(model.maxHp * req.initialHpRatio, nowMs, this.clock.frameId)
-    this.bus.emit('entity_spawned', {
-      bossStage: req.bossStage,
-      bossId: req.bossId,
-      bossLayer: req.bossLayer,
-      finalBoss: req.finalBoss ?? false,
+    this.bus.emit('entity_spawned', this.presenceEvent(model, position.x, position.y))
+    return model.id
+  }
+
+  /** 出生与首次遭遇共用的负载；首领身份全部从运行时映射读，避免两处各写一遍。 */
+  private presenceEvent(model: EnemyModel, x: number, y: number): EnemyPresenceEvent {
+    return {
+      bossStage: this.bossStages.get(model.id),
+      bossId: this.bossIds.get(model.id),
+      bossLayer: this.bossLayers.get(model.id),
+      finalBoss: this.finalBosses.has(model.id),
       id: model.id,
       kind: 'enemy',
       enemyKind: model.enemyKind,
       gen: model.gen,
-      x: position.x,
-      y: position.y,
-    })
-    return model.id
+      x,
+      y,
+    }
   }
 
   /** 贴图 key。**分裂怪按代际**（每一代是一张图），其余按模板。 */
@@ -2686,6 +2714,46 @@ export class EnemySystem implements ActorEventSink {
     if (!target?.alive || !entry) return false
     const center = entry.view.body.center
     return Math.hypot(target.x - center.x, target.y - center.y) <= radius
+  }
+
+  /**
+   * 每帧按光照刷新敌人本体的可见性。
+   *
+   * - 只看**中心点**；一部分身体伸进光圈、中心还在黑暗里的怪会被整只藏掉，
+   *   这是有意的 —— 逐像素遮罩要给每只怪挂 stencil，几百只时开销不划算。
+   * - 首领的 `bossAppearances.hidden` 优先：分身/飞行阶段由 D1 显式隐藏，光照不能把它变回来。
+   * - `frameEntries` 每渲染帧由 `WORLD_STEP` 重建一次，和 AI 用的是同一份列表。
+   */
+  applyLightVisibility(light: LightPort | null): void {
+    this.light = light
+    if (this.disposed) return
+    // 用 `byId` 而不是 `frameEntries`：刚在本帧 `drainSpawns` 里出生的孩子还没进
+    // `frameEntries`，但已经进 `byId`；漏掉它们会让新生的怪在黑暗里亮一帧。
+    for (const entry of this.byId.values()) {
+      if (!entry.model.alive) continue
+      const hidden = this.bossAppearances.get(entry.model.id)?.hidden === true
+      const visible = !hidden && (light === null || light.isLit(entry.view.x, entry.view.y))
+      entry.view.setVisible(visible)
+      // 战斗笔记只认「真正被看见」：进房时一排怪已经出生在黑暗/房间另一头，
+      // 不能因为 `entity_spawned` 就提前解锁。
+      if (visible && !this.encountered.has(entry.model.id)) {
+        this.encountered.add(entry.model.id)
+        this.bus.emit(
+          'entity_encountered',
+          this.presenceEvent(entry.model, entry.view.x, entry.view.y),
+        )
+      }
+    }
+  }
+
+  /** 敌方技能表现层查询光照（避开 D1 的类，只留一个纯布尔口）。 */
+  isLit(x: number, y: number): boolean {
+    return this.light?.isLit(x, y) ?? true
+  }
+
+  /** 给敌方技能的绘图面挂共享光罩；没注入光照时是空操作。 */
+  applyLightMask(obj: Phaser.GameObjects.GameObject): void {
+    this.applyLightMaskCallback?.(obj)
   }
 
   get liveEnemies(): readonly Entry[] {

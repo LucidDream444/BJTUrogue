@@ -9,6 +9,8 @@ import { vortexPullVelocity, type VortexSnapshot } from '@/core/vortex'
 import { allocActorId } from '@/core/actor/ActorModel'
 import type { ConfigBundle, Difficulty } from '@/core/config'
 import { Player } from './Player'
+import { LightingSystem } from './LightingSystem'
+import type { LightRect } from './lighting'
 import { planReplacement } from './WeaponInventory'
 import { TerrainMap } from './TerrainMap'
 import { StageColliders } from './StageColliders'
@@ -60,6 +62,11 @@ export class CombatSession {
   readonly terrain: TerrainMap
   private readonly stageColliders: StageColliders
   readonly player: Player
+  readonly lighting: LightingSystem
+  /** 每帧复用的光照遮挡列表：墙体/家具 + 当前封着的门挡板。 */
+  private readonly lightOccluders: LightRect[] = []
+  /** 这一层固定的墙体/家具（带 `furniture` 标记）；换层时重建，不每帧 new。 */
+  private readonly lightSolids: LightRect[] = []
   readonly enemies: EnemyBridge
   readonly weapons: Weapons
   readonly drops: RecoveryDrops
@@ -115,6 +122,7 @@ export class CombatSession {
     this.terrain = new TerrainMap(cfg, stageConfig.navigationCellSize)
     const firstRoom = stageGeometry(stageConfig, 1, cfg.arena.width, cfg.arena.height)
     this.terrain.setStage(firstRoom)
+    this.rebuildLightSolids()
     const spawn = this.terrain.safeSpawn(
       firstRoom.playerSpawn.x,
       firstRoom.playerSpawn.y,
@@ -145,6 +153,10 @@ export class CombatSession {
     scene.physics.world.resume()
     scene.physics.world.setBounds(0, 0, cfg.arena.width, cfg.arena.height)
     this.player = new Player(scene, this.clock, cfg, bundle.balance, this.bus, spawn.x, spawn.y)
+    // 光照在敌人系统之前建：敌方技能的绘图面在 `JuiceDirector.create()` 里就要挂上共享光罩。
+    this.lighting = new LightingSystem(scene, cfg.lighting, this.player, () =>
+      this.lightOccludersForFrame(),
+    )
     this.previousFeet = { x: this.player.x, y: this.player.feetY }
     const largestEnemyRadius = Math.max(
       bundle.enemies.enemies.tank.radius,
@@ -189,6 +201,9 @@ export class CombatSession {
         },
       },
       cfg.encounter,
+      1,
+      this.lighting,
+      (obj) => this.lighting.applyMask(obj),
     )
     for (const rect of this.terrain.water) {
       const zone = scene.add.zone(
@@ -235,7 +250,7 @@ export class CombatSession {
       (_player, enemy) => this.player.model.collidesWithEnemies &&
         this.enemies.collidesWithUnits(enemy as Phaser.GameObjects.GameObject),
     )
-    this.audio = new CombatAudio(scene, this.bus, cfg.audio)
+    this.audio = new CombatAudio(scene, this.bus, cfg.audio, cfg.bgmWarp)
     this.voice = new CharacterVoice(scene, {
       volume: cfg.audio.shotVolume,
       hurtCooldownMs: cfg.audio.voiceHurtCooldownMs,
@@ -370,6 +385,7 @@ export class CombatSession {
       this.drops.clear()
     }
     this.terrain.setStage(layout)
+    this.rebuildLightSolids()
     // ⚠️ 挡板**只给碰撞体、不给 `terrain`**：`terrain.setStage(layout)` 只吃
     //    `solids`，而门洞必须留在寻路网格之外（进了网格整层就变成一间间孤岛，
     //    见 `StageGeometry.StageLayout.barriers`）。
@@ -459,6 +475,9 @@ export class CombatSession {
       this.pause('death')
       this.weapons.clear()
     }
+    // 先重算光域，再同步敌人可见性 —— `EnemyBridge.update()` 里的血条会读 `view.visible`。
+    this.lighting.update(this.weapons.bulletLights())
+    this.enemies.applyLightVisibility(this.lighting)
     this.enemies.update(delta)
     this.player.model.advanceShield(
       this.clock.nowMs,
@@ -471,6 +490,7 @@ export class CombatSession {
     this.talentCombat.update()
     this.talentCombat.draw()
     this.drops.update()
+    this.drops.applyLightVisibility(this.lighting)
     this.player.draw()
     this.talentAura?.update()
     this.weapons.resolveTerrain()
@@ -485,6 +505,32 @@ export class CombatSession {
       this.pause('death')
     }
     this.previousFeet = feet
+  }
+
+  /**
+   * 光照的遮挡几何 = 墙体/家具 + **当前封着的门挡板**。
+   * 每帧只重建一次；`LightingSystem` 缓存给 `isLit()`，不会按每只敌人重复分配。
+   */
+  private lightOccludersForFrame(): readonly LightRect[] {
+    this.lightOccluders.length = 0
+    for (const rect of this.lightSolids) this.lightOccluders.push(rect)
+    for (const barrier of this.stageColliders.sealedBarrierRects())
+      this.lightOccluders.push(barrier)
+    return this.lightOccluders
+  }
+
+  /** 换层时重建墙体/家具的 `LightRect` 缓存；桌椅带 `furniture` 标记。 */
+  private rebuildLightSolids(): void {
+    this.lightSolids.length = 0
+    for (const rect of this.terrain.solids) {
+      this.lightSolids.push({
+        x: rect.x,
+        y: rect.y,
+        width: rect.width,
+        height: rect.height,
+        furniture: rect.id.startsWith('desk') || rect.id.startsWith('chair'),
+      })
+    }
   }
 
   setAudioVolumes(bgm: number, sfx: number): void {
@@ -955,6 +1001,7 @@ export class CombatSession {
     for (const zone of this.waterZones) zone.destroy()
     this.voice.destroy()
     this.audio.destroy()
+    this.lighting.destroy()
     this.talentCombat.destroy()
     this.talentAura?.destroy()
     this.weapons.destroy()

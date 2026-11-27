@@ -36,9 +36,18 @@ export class CombatAudio {
   /** 基准起步，`setVolumes()` 之后就是玩家设置的那个值 */
   private sfxVolume: number
   private bgmVolume: number
+  /** 普通 BGM 的播放速率；1 = 原速，小于 1 = 更慢更沉。演奏曲不套用。 */
+  private readonly bgmRate: number
   private paused = false
   private disposed = false
   private performanceActive = false
+  /** 普通 BGM 的轻失真 + 低通摆动节点；HTML5 回退时为 null。 */
+  private warpNodes: {
+    filter: BiquadFilterNode
+    shaper: WaveShaperNode | null
+    lfo: OscillatorNode
+    lfoGain: GainNode
+  } | null = null
 
   constructor(
     private readonly scene: Phaser.Scene,
@@ -46,6 +55,7 @@ export class CombatAudio {
     // 只用来取**基准**（兜底）和枪声池容量 —— 实际音量由 `setVolumes()` 给。
     // 所以是普通参数，不再是参数属性（留个 `this.cfg` 只会让人以为它还参与算音量）。
     cfg: CombatConfig['audio'],
+    private readonly warp: CombatConfig['bgmWarp'],
   ) {
     this.baseMusic = scene.cache.audio.exists(GAME_AUDIO.bgm)
       ? scene.sound.add(GAME_AUDIO.bgm, { loop: true, volume: cfg.bgmVolume })
@@ -59,6 +69,7 @@ export class CombatAudio {
     this.synth = new WeaponSynth(scene)
     this.synth.setVolume(cfg.shotVolume)
     this.bgmVolume = cfg.bgmVolume
+    this.bgmRate = cfg.bgmRate
 
     this.unsubs = [
       bus.on('app_paused', () => {
@@ -73,12 +84,94 @@ export class CombatAudio {
         this.startMusic()
       }),
     ]
+    this.applyBgmRate(this.baseMusic)
+    this.attachWarp(this.baseMusic)
     scene.sound.on(Phaser.Sound.Events.UNLOCKED, this.startMusic, this)
     this.startMusic()
   }
 
+  /** 只改普通 BGM 的速率：演奏曲的 60 BPM 是玩法节拍，不能跟着变调。 */
+  private applyBgmRate(sound: Phaser.Sound.BaseSound | null): void {
+    if (!sound || !('setRate' in sound)) return
+    const typed = sound as Phaser.Sound.WebAudioSound | Phaser.Sound.HTML5AudioSound
+    // Phaser 的 WebAudio 改 rate 会**重建循环 source**；值没变就别碰，否则每次
+    // resume/unlock 都会在 BGM 里制造一次极短的断点。
+    if (Math.abs(typed.rate - this.bgmRate) < 1e-6) return
+    typed.setRate(this.bgmRate)
+  }
+
+  /**
+   * 普通 BGM 的轻失真 + 慢速低通摆动。
+   *
+   * ⚠️ 不碰 Phaser 的 `setRate` 来做“扭曲”：它每次都会重建循环 source。
+   * 这里直接在 `volumeNode` 后面插节点，LFO 只推滤波器的截止频率 ——
+   * 循环、音量、暂停/恢复都不受影响。
+   */
+  private attachWarp(sound: Phaser.Sound.BaseSound | null): void {
+    if (!sound || !this.warp.enabled || this.warpNodes) return
+    if (!(sound instanceof Phaser.Sound.WebAudioSound)) return
+    const manager = sound.manager as Phaser.Sound.WebAudioSoundManager
+    const ctx = manager.context
+    const filter = ctx.createBiquadFilter()
+    filter.type = 'lowpass'
+    filter.frequency.setValueAtTime(this.warp.lowpassHz, ctx.currentTime)
+    filter.Q.setValueAtTime(this.warp.resonance, ctx.currentTime)
+
+    let shaper: WaveShaperNode | null = null
+    if (this.warp.drive > 1.001) {
+      const shaperNode = ctx.createWaveShaper()
+      const points = 1024
+      const curve = new Float32Array(points)
+      const k = this.warp.drive
+      const norm = Math.tanh(k)
+      for (let i = 0; i < points; i++) {
+        const x = (i / (points - 1)) * 2 - 1
+        curve[i] = Math.tanh(k * x) / norm
+      }
+      shaperNode.curve = curve
+      shaperNode.oversample = '2x'
+      shaper = shaperNode
+    }
+
+    const lfo = ctx.createOscillator()
+    lfo.type = 'sine'
+    lfo.frequency.setValueAtTime(this.warp.sweepHz, ctx.currentTime)
+    const lfoGain = ctx.createGain()
+    lfoGain.gain.setValueAtTime(this.warp.sweepDepthHz, ctx.currentTime)
+    lfo.connect(lfoGain)
+    lfoGain.connect(filter.frequency)
+    lfo.start()
+
+    const volume = sound.volumeNode
+    volume.disconnect()
+    if (shaper) {
+      volume.connect(shaper)
+      shaper.connect(filter)
+    } else {
+      volume.connect(filter)
+    }
+    filter.connect(manager.destination)
+    this.warpNodes = { filter, shaper, lfo, lfoGain }
+  }
+
+  private detachWarp(): void {
+    const nodes = this.warpNodes
+    if (!nodes) return
+    this.warpNodes = null
+    try {
+      nodes.lfo.stop()
+    } catch {
+      // 已经停过就不要再抛，destroy 不该因为音频图收尾失败而中断
+    }
+    nodes.lfo.disconnect()
+    nodes.lfoGain.disconnect()
+    nodes.filter.disconnect()
+    nodes.shaper?.disconnect()
+  }
+
   private startMusic(): void {
     if (this.disposed || this.scene.sound.locked) return
+    this.applyBgmRate(this.baseMusic)
     if (this.performanceActive) {
       if (this.baseMusic?.isPlaying) this.baseMusic.pause()
       if (this.performanceMusic?.isPaused) this.performanceMusic.resume()
@@ -132,6 +225,7 @@ export class CombatAudio {
     this.disposed = true
     this.scene.sound.off(Phaser.Sound.Events.UNLOCKED, this.startMusic, this)
     for (const unsub of this.unsubs) unsub()
+    this.detachWarp()
     this.baseMusic?.destroy()
     this.performanceMusic?.destroy()
     for (const shot of this.shots) shot.destroy()

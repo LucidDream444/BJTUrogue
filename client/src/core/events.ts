@@ -126,6 +126,24 @@ import type { VortexSnapshot } from './vortex'
  *
  * 命名约定：`<名词>_<过去式动词>`，全小写下划线。
  */
+/** 敌人出现在场上的共同字段：出生与「首次真正被看见」共用，避免两份形状漂移。 */
+export interface EnemyPresenceEvent {
+  finalBoss?: boolean
+  /** 首领档位（技能/美术/皮肤查表用），不是层号。 */
+  bossStage?: number
+  /** 首领稳定内容身份（boss-skills 的 id）。 */
+  bossId?: string
+  /** 首领所在的本局层号（1—3）；心魔也用 3。 */
+  bossLayer?: number
+  id: number
+  kind: ActorKind
+  enemyKind?: EnemyKind
+  /** 分裂怪的代际，0/1/2；其他敌人没有 */
+  gen?: number
+  x: number
+  y: number
+}
+
 export interface GameEvents extends EventMap {
   enemy_vortex_started: VortexSnapshot
   enemy_vortex_ended: { fieldId: number; sourceId: number; ownerId: number }
@@ -151,22 +169,14 @@ export interface GameEvents extends EventMap {
     frameId: number
     nowMs: number
   }
-  entity_spawned: {
-    finalBoss?: boolean
-    /** 首领档位（技能/美术/皮肤查表用），不是层号。 */
-    bossStage?: number
-    /** 首领稳定内容身份（boss-skills 的 id）。 */
-    bossId?: string
-    /** 首领所在的本局层号（1—3）；心魔也用 3。 */
-    bossLayer?: number
-    id: number
-    kind: ActorKind
-    enemyKind?: EnemyKind
-    /** 分裂怪的代际，0/1/2；其他敌人没有 */
-    gen?: number
-    x: number
-    y: number
-  }
+  entity_spawned: EnemyPresenceEvent
+  /**
+   * 敌人**第一次真正出现在玩家视野里**（光罩/可见性成立），不是出生。
+   *
+   * 战斗笔记只认这个事件：房间里的怪会在进房时全部入刷怪队列、陆续出生，
+   * 用 `entity_spawned` 会让玩家还没看到就先解锁图鉴。
+   */
+  entity_encountered: EnemyPresenceEvent
 
   entity_damaged: {
     targetId: number

@@ -158,6 +158,9 @@ export class JuiceDirector {
     this.hitstop = new DeferredHitstop(opts.clock)
     this.bundle = opts.bundle
     this.enemies = opts.enemies
+    // 敌方技能的所有绘图面共用同一张光照遮罩；见 LightingSystem.applyMask。
+    const applyMask = (obj: Phaser.GameObjects.GameObject): void =>
+      opts.enemies.applyLightMask(obj)
     this.radialFx = new RadialBurstFx(
       opts.scene,
       opts.enemies,
@@ -174,12 +177,23 @@ export class JuiceDirector {
       opts.scene,
       opts.clock,
       opts.bundle.balance.spawn.maxAliveHard,
+      applyMask,
     )
-    this.catExits = new CatPurificationFx(opts.scene, opts.clock, opts.bundle.balance.spawn.maxAliveHard)
+    this.catExits = new CatPurificationFx(
+      opts.scene,
+      opts.clock,
+      opts.bundle.balance.spawn.maxAliveHard,
+      applyMask,
+    )
     this.animalAttacks = new AnimalAttackFx(opts.scene, opts.clock, opts.enemies, opts.bundle)
-    this.frameExits = new FrameExitFx(opts.scene, opts.clock, opts.bundle.balance.spawn.maxAliveHard)
-    this.grabImpact = new GrabImpactFx(opts.scene)
-    this.empBlast = new EmpBlastFx(opts.scene)
+    this.frameExits = new FrameExitFx(
+      opts.scene,
+      opts.clock,
+      opts.bundle.balance.spawn.maxAliveHard,
+      applyMask,
+    )
+    this.grabImpact = new GrabImpactFx(opts.scene, 24, applyMask)
+    this.empBlast = new EmpBlastFx(opts.scene, 8, applyMask)
 
     const enemies = opts.bundle.enemies.enemies
     this.policy = new JuicePolicy(

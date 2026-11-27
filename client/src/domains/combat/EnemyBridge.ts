@@ -1,6 +1,6 @@
 import type { BossPresentationConfig } from '@/domains/enemies/presentation/BossFootprint'
 import type Phaser from 'phaser'
-import { EnemySystem, type EnemySystemNavOptions } from '@/domains/enemies/EnemySystem'
+import { EnemySystem, type EnemySystemNavOptions, type LightPort } from '@/domains/enemies/EnemySystem'
 import { JuiceDirector } from '@/domains/enemies/presentation/JuiceDirector'
 import type { GameClock } from '@/core/time'
 import type { TypedBus, Unsubscribe, EnemyKind, GameEvents } from '@/core/events'
@@ -66,6 +66,8 @@ export class EnemyBridge implements BulletContactPort {
     nav?: EnemySystemNavOptions,
     bossPresentation?: BossPresentationConfig,
     private floor = 1,
+    light?: LightPort,
+    applyLightMask?: (obj: Phaser.GameObjects.GameObject) => void,
   ) {
     this.unsub = bus.on('player_hurt', (e) => {
       if (e.sourceKind === 'aoe' && e.hpDamage + e.shieldDamage > 0) this.damagedAtFrame = e.frameId
@@ -83,6 +85,8 @@ export class EnemyBridge implements BulletContactPort {
       nav,
       bossPresentation,
       bossContactDamagePerTick: this.cfg.encounter.bossContactDamagePerTick,
+      light,
+      applyLightMask,
       hooks: {
         // 咬击打到玩家身上：D3 算规则，D1 落到自己的模型上（见 PlayerPort.bite）
         onGrabBite: (amount, sourceId, nowMs) => player().bite?.(amount, sourceId, nowMs),
@@ -274,6 +278,11 @@ export class EnemyBridge implements BulletContactPort {
   get ledgerPairs(): number {
     return this.system.ledger.entryCount
   }
+  /** 每渲染帧同步敌人本体的黑暗可见性；技能绘图面共用同一张光罩。 */
+  applyLightVisibility(light: LightPort | null): void {
+    this.system.applyLightVisibility(light)
+  }
+
   update(dt: number): void {
     this.juice.update(dt)
   }

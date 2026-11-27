@@ -8,7 +8,12 @@ interface CatExit { sprite: Phaser.GameObjects.Sprite; portal: Phaser.GameObject
 /** Bounded non-physical copies; the gameplay cat is already dead and can return to its pool. */
 export class CatPurificationFx {
   private readonly pool: CatExit[] = []
-  constructor(private readonly scene: Phaser.Scene, private readonly clock: GameClock, private readonly capacity: number) {}
+  constructor(
+    private readonly scene: Phaser.Scene,
+    private readonly clock: GameClock,
+    private readonly capacity: number,
+    private readonly applyMask?: (obj: Phaser.GameObjects.GameObject) => void,
+  ) {}
 
   play(x: number, y: number, scale: number, durationMs: number): void {
     const texture = textureKeyFor(this.scene, NIGHTMARE_CAT_ART.texture)
@@ -22,6 +27,8 @@ export class CatPurificationFx {
         bornMs: 0, durationMs: 0,
       }
       this.pool.push(exit)
+      this.applyMask?.(exit.sprite)
+      this.applyMask?.(exit.portal)
     }
     exit.bornMs = this.clock.nowMs
     exit.durationMs = durationMs

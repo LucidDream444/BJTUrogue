@@ -113,6 +113,9 @@ export class BossEncounterController {
       .sprite(0, 0, textureKeyFor(scene, bossArt(5).key), 0)
       .setVisible(false)
       .setDepth(8002)
+    // 首领技能的世界表现（影子分身 / 借用武器）共用光照遮罩：黑暗里的技能不显示。
+    session.lighting.applyMask(this.ghost)
+    session.lighting.applyMask(this.weapon)
     this.port = {
       rng: new Rng(session.cfg.arena.seed),
       damageMultiplier:
@@ -229,6 +232,8 @@ export class BossEncounterController {
     }
     this.runtime = new BossSkillRuntime(config, this.port)
     this.view = new BossHazardView(scene, this.runtime.hazards)
+    // 酸性地面 / 水面 / 冲锋线 / 落地圈：同一张光照遮罩，黑暗里不画。
+    session.lighting.applyMask(this.view.graphics)
     this.heart = new HeartDemonRuntime(config, {
       ...this.port,
       weaponSnapshot: () => this.weaponSnapshot(),

@@ -72,7 +72,6 @@ import {
 import type { RoomsConfig } from '../config'
 import { isCombatKind } from '../config'
 import { doorRect, left, rectContains, rectsIntersect, right, top, bottom } from '../model/rect'
-import { chairBelongsTo } from '../model/furniture'
 import { overlapsWithArea } from '../colliders'
 import { MapValidationError, type MapErrorContext } from './errors'
 
@@ -444,18 +443,17 @@ export function validateContract(
           fail(op, `椅子恒为 1 格，拿到 ${wc}×${hc} 格`, ctx)
         }
       } else if (
-        // ⚠️ 2026-10-16 起桌**宽**是一个区间（`deskWidthCells` ~ `deskWidthCellsMax`）：
-        // 每组桌椅抽一次，同一间房里既有两格的桌也有三四格的 —— 形状不至于千篇一律。
-        // 高度仍然恒定（`deskHeightCells`），椅子仍然恒为一格：那两条是「桌椅成组」
-        // 这个形状本身的定义，改了它 `model/furniture.ts` 的配对就散了。
+        // 2026-11-27：桌宽上限从 `deskWidthCellsMax` 放宽到 `deskLongWidthCellsMax`，
+        // 给长条桌 / L 形 / 缺口形的大块桌面让路。高度仍然恒为 `deskHeightCells`：
+        // 所有形状都由 1 格高的横向桌条拼成，竖条会把横向桌贴图拉变形。
         wc < cfg.deskWidthCells ||
-        wc > cfg.deskWidthCellsMax ||
+        wc > cfg.deskLongWidthCellsMax ||
         hc !== cfg.deskHeightCells
       ) {
         fail(
           op,
-          `课桌宽 ${cfg.deskWidthCells}~${cfg.deskWidthCellsMax} 格、高恒为 ${cfg.deskHeightCells} 格，` +
-            `拿到 ${wc}×${hc} 格 —— 尺寸超出契约，桌椅就是横七竖八的`,
+          `课桌宽 ${cfg.deskWidthCells}~${cfg.deskLongWidthCellsMax} 格、高恒为 ${cfg.deskHeightCells} 格，` +
+            `拿到 ${wc}×${hc} 格 —— 尺寸超出契约，家具就是横七竖八的`,
           ctx,
         )
       }
@@ -475,38 +473,10 @@ export function validateContract(
       obstacleArea += r.width * r.height
     }
 
-    // 桌椅**成组**：每张桌正下方紧贴一把椅子，每把椅子恰好属于一张桌。
+    // ⚠️ 2026-11-27：**不再强制「桌 + 椅」成组。** 生成器现在按主题产出
+    // 「只有桌」「只有椅」「长条桌」「L 形」「缺口矩形」；画法已按单件家具渲染，
+    // 所以孤立的桌/椅是合法形状。`model/furniture.ts` 的配对读法只服务手绘关。
     //
-    // 这不是风格建议 —— 画法（`model/furniture.ts`）与 D1 那张「桌 + 椅」贴图
-    // 都建立在这条上：一张没有椅子的桌，画出来是**半件**家具；一把没有桌子的椅子，
-    // 根本没有贴图可贴。生成侧构造上满足它（`gen/obstacles.ts` 一次推两件），
-    // 这一条守的是**别处塞进来的**障碍物（D1 的宝箱落点、将来的新家具）。
-    {
-      const desks = room.obstacles.filter((o) => o.kind === 'desk')
-      const chairs = room.obstacles.filter((o) => o.kind === 'chair')
-      for (let j = 0; j < room.obstacles.length; j++) {
-        const o = room.obstacles[j]!
-        const op = `rooms[${i}].obstacles[${j}]`
-        if (o.kind === 'chair') {
-          if (!desks.some((d) => chairBelongsTo(o.rect, d.rect))) {
-            fail(
-              op,
-              `${where(op, o.rect)} 是一把**孤零零**的椅子 —— 桌椅成组（一张桌 + ` +
-                `正下方紧贴的一把椅子），它上面没有桌子`,
-              ctx,
-            )
-          }
-        } else if (!chairs.some((c) => chairBelongsTo(c.rect, o.rect))) {
-          fail(
-            op,
-            `${where(op, o.rect)} 这张课桌底下没有椅子 —— 桌椅成组，` +
-              `少了椅子画出来是半件家具（椅子贴在桌子正下方，横向落在桌子的跨度里）`,
-            ctx,
-          )
-        }
-      }
-    }
-
     // spec `dungeon-layout`「障碍物密度受配置上限约束」
     const roomArea = room.rect.width * room.rect.height
     if (obstacleArea > roomArea * cfg.obstacleDensityMax + 1e-9) {

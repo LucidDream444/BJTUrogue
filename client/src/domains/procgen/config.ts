@@ -174,6 +174,28 @@ export interface RoomsConfig {
   deskRowsMin: number
   deskRowsMax: number
   obstacleDensityMax: number
+  /**
+   * **长桌条**的最大宽度（格）。常规课桌仍受 `deskWidthCellsMax` 限制，
+   * 长条 / L 形 / 缺口形的大块桌面可以到这一档 —— 校验器按它放行。
+   */
+  deskLongWidthCellsMax: number
+  /** L 形、缺口形这类多行桌面最多占几行（格）。 */
+  deskShapeRowsMax: number
+  /**
+   * 每间战斗房抽哪种家具主题。权重越高越常见；全为 0 会被配置校验拒绝。
+   *
+   * 主题只决定**形状语言**，具体位置/尺寸仍由种子和房间大小决定：
+   * `classic` 桌+椅成组、`deskOnly` 只有桌、`chairOnly` 只有椅、
+   * `longStrip` 长条桌、`lShape` 直角形、`notched` 缺口矩形。
+   */
+  furnitureThemeWeights: {
+    classic: number
+    deskOnly: number
+    chairOnly: number
+    longStrip: number
+    lShape: number
+    notched: number
+  }
 
   // 刷怪点
   spawnPointsMin: number
@@ -496,6 +518,43 @@ export function parseRoomsConfig(raw: unknown): RoomsConfig {
     )
   }
 
+  const deskLongWidthCellsMax = needNumber(
+    need(root.deskLongWidthCellsMax, 'rooms.deskLongWidthCellsMax'),
+    'rooms.deskLongWidthCellsMax',
+    { integer: true, min: deskWidthCellsMax },
+  )
+  const deskShapeRowsMax = needNumber(
+    need(root.deskShapeRowsMax, 'rooms.deskShapeRowsMax'),
+    'rooms.deskShapeRowsMax',
+    { integer: true, min: 2, max: 6 },
+  )
+  const rawThemeWeights = need(root.furnitureThemeWeights, 'rooms.furnitureThemeWeights')
+  if (
+    typeof rawThemeWeights !== 'object' ||
+    rawThemeWeights === null ||
+    Array.isArray(rawThemeWeights)
+  ) {
+    throw new ConfigError('rooms.furnitureThemeWeights', '必须是对象')
+  }
+  const themeKeys = ['classic', 'deskOnly', 'chairOnly', 'longStrip', 'lShape', 'notched'] as const
+  const furnitureThemeWeights = {} as RoomsConfig['furnitureThemeWeights']
+  let themeTotal = 0
+  for (const key of themeKeys) {
+    const value = needNumber(
+      need(
+        (rawThemeWeights as Record<string, unknown>)[key],
+        `rooms.furnitureThemeWeights.${key}`,
+      ),
+      `rooms.furnitureThemeWeights.${key}`,
+      { integer: true, min: 0 },
+    )
+    furnitureThemeWeights[key] = value
+    themeTotal += value
+  }
+  if (themeTotal <= 0) {
+    throw new ConfigError('rooms.furnitureThemeWeights', '至少要有一个主题的权重大于 0')
+  }
+
   const obstacleDensityMax = needNumber(
     need(root.obstacleDensityMax, 'rooms.obstacleDensityMax'),
     'rooms.obstacleDensityMax',
@@ -559,6 +618,9 @@ export function parseRoomsConfig(raw: unknown): RoomsConfig {
     deskRowsMin,
     deskRowsMax,
     obstacleDensityMax,
+    deskLongWidthCellsMax,
+    deskShapeRowsMax,
+    furnitureThemeWeights,
     spawnPointsMin,
     spawnPointsMax,
     spawnPointMinGap,

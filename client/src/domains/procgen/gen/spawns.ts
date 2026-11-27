@@ -132,6 +132,21 @@ export function placeSpawnPoints(
   )
   if (candidates.length === 0) return []
 
+  // 出生点周围**再留一圈空格**：D1 的 `safeSpawn()` 要 ENEMY_CLEARANCE（26px）的净空，
+  // 紧贴课桌的格子会被它推到房间外。家具越多样，这种“挤在缝里”的格子越多，
+  // 所以先从有完整一圈空位的格子里挑；实在没有才退回所有可达格。
+  const clearOfFurniture = (c: { cx: number; cy: number }): boolean => {
+    for (let dy = -1; dy <= 1; dy++) {
+      for (let dx = -1; dx <= 1; dx++) {
+        if (dx === 0 && dy === 0) continue
+        if (isBlockedCell(grid, c.cx + dx, c.cy + dy)) return false
+      }
+    }
+    return true
+  }
+  const spacious = candidates.filter(clearOfFurniture)
+  const pool = spacious.length > 0 ? spacious : candidates
+
   const want = rngFor(seed, 'spawnCount', room.order).between(
     cfg.spawnPointsMin,
     cfg.spawnPointsMax,
@@ -141,7 +156,7 @@ export function placeSpawnPoints(
   // 贪心而不是「均匀撒开」：均匀撒开需要先知道要取几个，而"要取几个"本身是随机的，
   // 于是间距和数量会互相牵制，调一个必然动另一个。
   const rng = rngFor(seed, 'spawnPlaces', room.order)
-  const shuffled = [...candidates]
+  const shuffled = [...pool]
   for (let i = shuffled.length - 1; i > 0; i--) {
     const j = rng.between(0, i)
     const t = shuffled[i]!

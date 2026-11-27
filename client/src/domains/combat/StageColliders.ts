@@ -108,6 +108,19 @@ export class StageColliders {
     return out
   }
 
+  /**
+   * 当前封着的门挡板矩形。**关门时也挡光**，开门后光就能透过去 ——
+   * 光照系统把它并进 `solids` 一起做射线遮挡。
+   */
+  sealedBarrierRects(): StageBarrier[] {
+    const out: StageBarrier[] = []
+    for (let i = 0; i < this.doorZones.length; i++) {
+      const body = this.doorZones[i]!.body as Phaser.Physics.Arcade.StaticBody | null
+      if (body?.enable) out.push(this.barrierRects[i]!)
+    }
+    return out
+  }
+
   /** 高速攻击的预先截断必须看启用挡板，不能仅靠随后会被校正覆盖的 Arcade 分离。 */
   barrierHitTime(from: MapPoint, to: MapPoint, radius = 0): number | null {
     return sweepEnabledBarriers(from, to, radius, this.barrierRects, (index) =>

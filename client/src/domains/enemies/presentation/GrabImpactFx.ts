@@ -18,7 +18,11 @@ export class GrabImpactFx {
   private readonly pool: Impact[] = []
   private sequence = 0
 
-  constructor(private readonly scene: Phaser.Scene, private readonly capacity = 24) {}
+  constructor(
+    private readonly scene: Phaser.Scene,
+    private readonly capacity = 24,
+    private readonly applyMask?: (obj: Phaser.GameObjects.GameObject) => void,
+  ) {}
 
   play(x: number, y: number, nowMs: number): void {
     let impact = this.pool.find((item) => !item.gfx.active)
@@ -32,6 +36,7 @@ export class GrabImpactFx {
         seed: 0,
       }
       this.pool.push(impact)
+      this.applyMask?.(impact.gfx)
     }
     impact.bornAtMs = nowMs
     impact.x = x

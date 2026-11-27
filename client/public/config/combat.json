@@ -4,7 +4,27 @@
     "bgmVolume": 0.32,
     "shotVolume": 0.55,
     "shotVoices": 8,
-    "voiceHurtCooldownMs": 700
+    "voiceHurtCooldownMs": 700,
+    "bgmRate": 0.85
+  },
+  "lighting": {
+    "enabled": true,
+    "playerRadius": 400,
+    "bulletRadius": 138,
+    "darknessAlpha": 0.8,
+    "rays": 240,
+    "bulletRays": 24,
+    "maxBulletLights": 24,
+    "softness": 0.35,
+    "furnitureMarginPx": 48
+  },
+  "bgmWarp": {
+    "enabled": true,
+    "lowpassHz": 1700,
+    "sweepHz": 0.055,
+    "sweepDepthHz": 550,
+    "resonance": 1.1,
+    "drive": 1.8
   },
   "player": {
     "acceleration": 1500,

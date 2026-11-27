@@ -3,7 +3,8 @@ import type { BossHazards, BossHazardSnapshot } from '../BossHazards'
 
 /** 单个 Graphics 绘制所有地面技能；没有粒子、贴图、物理体或独立计时器。 */
 export class BossHazardView {
-  private readonly graphics: Phaser.GameObjects.Graphics
+  /** 供宿主挂共享光照遮罩；绘制面本身仍是私有的使用方式。 */
+  readonly graphics: Phaser.GameObjects.Graphics
   private destroyed = false
   private readonly onShutdown = (): void => this.destroy()
 

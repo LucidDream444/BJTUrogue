@@ -302,6 +302,52 @@ export interface CombatConfig {
     shotVoices: number
     /** 两次受击短呼之间的最小间隔；语音缺失时不影响触发。 */
     voiceHurtCooldownMs: number
+    /**
+     * 普通 BGM 的播放速率。1 = 原速；小于 1 = 更慢、更沉。
+     * 演奏家大鹅的 60 BPM 演奏曲**不套用**（那是玩法节拍，不是氛围）。
+     */
+    bgmRate: number
+  }
+  /**
+   * 普通 BGM 的轻失真 + 慢速低通摆动。
+   *
+   * 在 `volumeNode` 后面插一条「软削波 → 低通」链，再让一个很慢的 LFO 推动
+   * 低通截止频率。听感是**发闷、轻微破音、像在呼吸**，不改变节拍和音高；
+   * 演奏曲不套用（60 BPM 是玩法）。HTML5 回退时只保留 `bgmRate` 降速。
+   */
+  bgmWarp: {
+    enabled: boolean
+    /** 低通基准截止频率（Hz）。 */
+    lowpassHz: number
+    /** 截止频率摆动的频率（Hz）；0.05 左右约 20 秒一个周期。 */
+    sweepHz: number
+    /** 截止频率摆动幅度（Hz），必须小于 lowpassHz。 */
+    sweepDepthHz: number
+    /** Q 值；>1 会有一点共振峰。 */
+    resonance: number
+    /** 软削波驱动量；1 = 接近直通，越大越破。 */
+    drive: number
+  }
+  /**
+   * 暗区光照。玩家周围有光，墙/家具挡光；光外压暗并隐藏角色实体。
+   * 数值全部按世界像素 / 屏幕透明度配置，不写死在表现层。
+   */
+  lighting: {
+    enabled: boolean
+    playerRadius: number
+    bulletRadius: number
+    darknessAlpha: number
+    /** 玩家光圈的射线数；越大边缘越圆滑，开销线性增加。 */
+    rays: number
+    bulletRays: number
+    maxBulletLights: number
+    /** 光圈外缘的柔化带占半径的比例；0 = 硬边。 */
+    softness: number
+    /**
+     * 桌椅外沿的额外光照余量（px）：光扇会覆盖整块家具贴图，然后才被挡住。
+     * 墙不享受这个余量，仍然停在近面。
+     */
+    furnitureMarginPx: number
   }
   projectiles: { capacity: number; radius: number }
   feedback: {
@@ -706,6 +752,9 @@ export function parseCombatConfig(raw: unknown): CombatConfig {
   numeric(c.audio, 'audio')
   if (
     ![c.audio.bgmVolume, c.audio.shotVolume].every((v) => Number.isFinite(v) && v >= 0 && v <= 1) ||
+    !Number.isFinite(c.audio.bgmRate) ||
+    c.audio.bgmRate <= 0.25 ||
+    c.audio.bgmRate > 2 ||
     !Number.isInteger(c.audio.shotVoices) ||
     c.audio.shotVoices < 1 ||
     c.audio.shotVoices > 32 ||
@@ -713,7 +762,60 @@ export function parseCombatConfig(raw: unknown): CombatConfig {
     c.audio.voiceHurtCooldownMs < 0
   )
     throw new Error(
-      'audio: 音量必须在 0—1 之间，枪声池容量必须为 1—32 的整数，受击语音冷却必须为非负数',
+      'audio: 音量必须在 0—1 之间，BGM 速率必须在 (0.25, 2] 内，枪声池容量必须为 1—32 的整数，受击语音冷却必须为非负数',
+    )
+  const warp = c.bgmWarp
+  if (
+    !warp ||
+    typeof warp.enabled !== 'boolean' ||
+    !Number.isFinite(warp.lowpassHz) ||
+    warp.lowpassHz < 200 ||
+    warp.lowpassHz > 12000 ||
+    !Number.isFinite(warp.sweepHz) ||
+    warp.sweepHz <= 0 ||
+    warp.sweepHz > 2 ||
+    !Number.isFinite(warp.sweepDepthHz) ||
+    warp.sweepDepthHz < 0 ||
+    warp.sweepDepthHz >= warp.lowpassHz ||
+    !Number.isFinite(warp.resonance) ||
+    warp.resonance <= 0 ||
+    warp.resonance > 12 ||
+    !Number.isFinite(warp.drive) ||
+    warp.drive < 1 ||
+    warp.drive > 8
+  )
+    throw new Error(
+      'bgmWarp: lowpassHz 必须在 200—12000 之间，sweepDepthHz 必须小于 lowpassHz，drive 必须在 1—8 之间',
+    )
+  const light = c.lighting
+  if (
+    !light ||
+    typeof light.enabled !== 'boolean' ||
+    !Number.isFinite(light.playerRadius) ||
+    light.playerRadius <= 0 ||
+    !Number.isFinite(light.bulletRadius) ||
+    light.bulletRadius <= 0 ||
+    !Number.isFinite(light.darknessAlpha) ||
+    light.darknessAlpha < 0 ||
+    light.darknessAlpha > 1 ||
+    !Number.isInteger(light.rays) ||
+    light.rays < 8 ||
+    light.rays > 1024 ||
+    !Number.isInteger(light.bulletRays) ||
+    light.bulletRays < 4 ||
+    light.bulletRays > 256 ||
+    !Number.isInteger(light.maxBulletLights) ||
+    light.maxBulletLights < 0 ||
+    light.maxBulletLights > 128 ||
+    !Number.isFinite(light.softness) ||
+    light.softness < 0 ||
+    light.softness >= 1 ||
+    !Number.isFinite(light.furnitureMarginPx) ||
+    light.furnitureMarginPx < 0 ||
+    light.furnitureMarginPx > 200
+  )
+    throw new Error(
+      'lighting: 半径必须为正，darknessAlpha / softness 必须在 [0, 1) 内，rays / bulletRays / maxBulletLights 必须为合法整数，furnitureMarginPx 必须在 0—200 之间',
     )
   numeric(c.player, 'player')
   numeric(c.drops, 'drops')

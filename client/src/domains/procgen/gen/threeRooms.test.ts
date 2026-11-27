@@ -206,48 +206,29 @@ describe('D2 整层 16 间房 — 内容是种子挑的（关别 / 刷怪点 / �
     expect(combat).toBeGreaterThan(0)
   }, 30_000)
 
-  it('战斗房都摆得出桌椅 —— 空教室看不出「桌椅挡不挡路」', () => {
-    // ★ v4→v5：v4 的这条扫的是三间的全部房间（三间全是战斗关别）；
-    // v5 里非战斗房按设计就是**空场地**（不摆桌椅、不刷怪，contract 只拒绝反方向），
-    // 所以分母改成**战斗房**。
+  it('战斗房都摆得出家具 —— 空教室看不出「家具挡不挡路」', () => {
+    // 2026-11-27：家具按主题生成（classic / deskOnly / chairOnly / longStrip /
+    // lShape / notched），所以判据从「有桌子」改成「有家具」—— chairOnly 房间
+    // 只有椅子，也是正确的一间教室。
     //
-    // ★ 期望仍是 100%，但**理由换了**：首版这条抄的是 v4 的旧摆法 —— 那份实现
-    // 2026-10-16 就被换掉了（`gen/obstacles.ts` 的 ⚠️：改成「摆几组、散着摆」），
-    // 连 v4 的最后版本上都已不成立。现行事实是「摆几组、散着摆」：
-    // 组数按 `deskRowsMin`~`deskRowsMax`（今天 5~9）抽、每组位置**随处抽**，
-    // 撞上门净空圈或已摆的组就重抽，**每个位置最多试 32 次** —— 重抽是主路径，
-    // 32 次都没抽中才少摆一组，那才是兜底。
-    // ⚠️ **那条兜底真的会触发，不是"理论上存在"**：1000 个种子 × 9000 间战斗房里
-    // 实测有 **1 间只摆出 4 组**（种子 **6842029** 的 `YF602`，`want` 抽到 5、
-    // 32 个位置都没落进去）—— 也就是「组数恒在 5~9 之间」**不成立**。
-    // 那 9000 间的分布（2026-10-20 现量）：4 组 ×1、5 组 ×1769、6 组 ×1839、
-    // 7 组 ×1973、8 组 ×1826、9 组 ×1592。
-    // 所以别在这儿加一条 `组数 >= deskRowsMin` 的断言：它会红在一个**正确**的行为上。
-    // （校验器那边也没有这条判据 —— `validate/contract.ts` 对障碍物只查四件事：
-    // 非战斗房不许有、单件的尺寸形状、桌必须配椅、以及面积密度上限；
-    // **组数不是契约的一部分**，实测 `deskRows` 三个字只出现在 `config.ts` 的解析、
-    // `gen/obstacles.ts` 与这里。）
-    // 所以 100% 不是构造保证，是**量出来的**：实测 200 个种子 × 战斗房 = 1800/1800
-    // 一间不空（兄弟文件 `generate.test.ts` 拿 1000 个种子再扫一遍：9000/9000；
-    // 「结构上就摆得下」那段推理同样管这里 —— 最小的两间都是 `fixed: reward`，
-    // 能抽到战斗关别的最小一间是 `YF602` 17×18 格）。
-    // 红了先量是哪一间、多大，再决定是调 `deskRowsMin` 还是改这里 ——
-    // **不要**改成「> 95%」把回归静默掉。
+    // 100% 仍应是构造保证：每个主题至少能摆下一个形状，最小可抽战斗房是
+    // 17×18 格；真摆空时会落到 `placeObstacles` 的单桌兜底。红了先看那一间的
+    // 尺寸/门净空，别把断言放宽成「> 95%」把回归静默掉。
     const bare: string[] = []
     let combat = 0
-    let withDesk = 0
+    let withFurniture = 0
     for (const seed of SEEDS.slice(0, 200)) {
       const map = generateDungeon(seed, cfg, plan)
       for (const room of map.rooms) {
         if (!isCombatKind(cfg, room.kind)) continue
         combat++
-        if (room.obstacles.some((o) => o.kind === 'desk')) withDesk++
+        if (room.obstacles.length > 0) withFurniture++
         else bare.push(`种子 ${seed} ${room.id} ${room.rect.width}×${room.rect.height}`)
       }
     }
     expect(combat).toBeGreaterThan(0) // 战斗房一间都没有时百分比是 0/0
     console.log(
-      `[读] 200 个种子 × ${plan.roomTotal} 间：战斗房 ${combat} 间，有桌椅 ${withDesk} 间（${((withDesk / combat) * 100).toFixed(1)}%），没桌椅的样例 ${bare.slice(0, 5).join(' / ') || '（一间都没有）'}`,
+      `[读] 200 个种子 × ${plan.roomTotal} 间：战斗房 ${combat} 间，有家具 ${withFurniture} 间（${((withFurniture / combat) * 100).toFixed(1)}%），没家具的样例 ${bare.slice(0, 5).join(' / ') || '（一间都没有）'}`,
     )
     expect(bare.slice(0, 10)).toEqual([])
   }, 30_000)

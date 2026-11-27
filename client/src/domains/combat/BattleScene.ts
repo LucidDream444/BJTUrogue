@@ -576,6 +576,7 @@ export class BattleScene extends Phaser.Scene {
         this.difficulty,
         this.stageConfig,
       )
+      this.applySceneryLightMask()
       this.bossSkills = new BossEncounterController(this, this.session,
         bossSkills, {
           bounds: () => {
@@ -1726,6 +1727,7 @@ export class BattleScene extends Phaser.Scene {
     this.stageConfig = parseStageCollisions(this.dungeon.stages, FLOOR_STAGE)
     this.scenery.destroy()
     this.drawWorld()
+    this.applySceneryLightMask()
     this.minimap.setFloor(
       this.dungeon.map,
       this.areaKey(),
@@ -2077,6 +2079,11 @@ export class BattleScene extends Phaser.Scene {
    * 「看得见的墙能穿过去、看不见的地方走不动」，两边都画得出来，而玩家只会说
    * 「这游戏碰撞坏了」。
    */
+  /** 桌椅挂共享光罩；墙不挂。首层与每次换层重建世界后都要重挂。 */
+  private applySceneryLightMask(): void {
+    this.scenery.applyLightMask((object) => this.session.lighting.applyMask(object))
+  }
+
   private drawWorld(): void {
     const layout = stageGeometry(
       this.stageConfig,

@@ -188,6 +188,19 @@ export class Weapons {
     }
   }
 
+  /**
+   * 当前在飞的玩家子弹中心点。光照系统把它们当**移动的小光源**：
+   * 子弹本身也照路，命中墙后的敌人时会在墙上打出一小片光。
+   */
+  bulletLights(): readonly { x: number; y: number }[] {
+    const lights: { x: number; y: number }[] = []
+    for (const b of this.bullets) {
+      if (!b.slot.active || b.pending) continue
+      lights.push({ x: b.body.center.x, y: b.body.center.y })
+    }
+    return lights
+  }
+
   update(stats: EffectiveStats, weapon: WeaponDef): void {
     const now = this.clock.nowMs
     for (const b of this.bullets)

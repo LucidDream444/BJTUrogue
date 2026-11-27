@@ -19,8 +19,11 @@ export class LiquidFx {
     private readonly field: LiquidField,
     private readonly player: PlayerProvider,
     private readonly warnings: () => { x: number; y: number; progress: number }[],
+    applyMask?: (obj: Phaser.GameObjects.GameObject) => void,
   ) {
     this.floor = scene.add.graphics().setDepth(-5)
+    // 整块地面液滩共用一张光罩：黑暗里的酸池/预警圈不显示，走进光圈才出现。
+    applyMask?.(this.floor)
     this.sfx = new SfxPool({ scene, keys: Object.values(LIQUID_SFX) })
     this.sfx.create()
     this.coating = scene.add.graphics().setDepth(2500)

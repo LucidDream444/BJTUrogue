@@ -15,6 +15,8 @@ export class AnimalAttackFx {
   private readonly activeFields = new Set<number>()
   constructor(private readonly scene: Phaser.Scene, private readonly clock: GameClock, private readonly enemies: EnemySystem, private readonly bundle: ConfigBundle) {
     this.graphics = scene.add.graphics().setDepth(1)
+    // 蓄力线、伤害圈、漩涡共用光照遮罩：黑暗中的动物技能不显示。
+    this.enemies.applyLightMask(this.graphics)
   }
   update(): void {
     this.graphics.clear()
@@ -42,6 +44,7 @@ export class AnimalAttackFx {
       let wind = this.winds.get(field.fieldId)
       if (!wind) {
         wind = this.scene.add.sprite(field.x, field.y, textureKeyFor(this.scene, NIGHTMARE_CAT_ART.vortex))
+        this.enemies.applyLightMask(wind)
         this.winds.set(field.fieldId, wind)
       }
       // All motion follows logical time, so pause and hitstop freeze the whole field.

@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest'
-import type { EnemyKind, GameEvents } from '@/core/events'
+import type { EnemyKind, EnemyPresenceEvent } from '@/core/events'
 import { createDefaultProfile } from '../profile/defaults'
 import { migrateProfile, normalizeProfile } from '../profile/migrate'
 import { ProfileStore } from '../profile/ProfileStore'
@@ -7,7 +7,7 @@ import { MemoryProfileStorage, type ProfileStorage } from '../profile/storage'
 import { PROFILE_SCHEMA_VERSION, PROFILE_STORAGE_KEY } from '../profile/types'
 import { EnemyEncounterQueue, identifyEnemyEncounter } from './enemyEncounterQueue'
 
-function spawn(enemyKind: EnemyKind = 'tank', extra: Partial<GameEvents['entity_spawned']> = {}): GameEvents['entity_spawned'] {
+function spawn(enemyKind: EnemyKind = 'tank', extra: Partial<EnemyPresenceEvent> = {}): EnemyPresenceEvent {
   return { id: 1, kind: 'enemy', enemyKind, x: 0, y: 0, ...extra }
 }
 

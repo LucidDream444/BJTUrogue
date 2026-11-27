@@ -1,5 +1,5 @@
-/** 首次生成 → 物种去重 → 顺序待阅。纯逻辑，不依赖 Phaser 或存储。 */
-import type { EnemyKind, GameEvents } from '@/core/events'
+/** 首次真正被看见 → 物种去重 → 顺序待阅。纯逻辑，不依赖 Phaser 或存储。 */
+import type { EnemyKind, EnemyPresenceEvent } from '@/core/events'
 
 export type EncounterKind = EnemyKind | 'first-boss' | 'stage2-boss' | 'acid-boss' | 'sports-boss' | 'rollcall-boss' | 'nailong-boss' | 'heart-demon'
 
@@ -12,7 +12,7 @@ export interface EnemyEncounter {
 
 /** 首领底层沿用肉盾模板，所以必须先认首领、再认普通怪。 */
 export function identifyEnemyEncounter(
-  event: GameEvents['entity_spawned'],
+  event: EnemyPresenceEvent,
 ): EnemyEncounter | null {
   if (event.kind !== 'enemy') return null
   if (event.bossId !== undefined) {
@@ -45,8 +45,8 @@ export class EnemyEncounterQueue {
     this.seen = new Set(seen)
   }
 
-  /** 一种怪物第一次生成就标记，避免同帧其他实例和后续子代重复入队。 */
-  discover(event: GameEvents['entity_spawned']): EnemyEncounter | null {
+  /** 一种怪物第一次**被看见**就标记，避免同帧其他实例和后续子代重复入队。 */
+  discover(event: EnemyPresenceEvent): EnemyEncounter | null {
     const encounter = identifyEnemyEncounter(event)
     if (!encounter || this.seen.has(encounter.kind)) return null
     this.seen.add(encounter.kind)

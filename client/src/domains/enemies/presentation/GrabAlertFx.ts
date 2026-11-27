@@ -39,6 +39,9 @@ export class GrabAlertFx {
       .setOrigin(0.5)
       .setDepth(4651)
       .setVisible(false)
+    // 抓取提示也是敌方技能表现：抓取怪在黑暗里时，「!」与倒计时一并隐藏。
+    this.enemies.applyLightMask(this.gfx)
+    this.enemies.applyLightMask(this.countdown)
   }
 
   /**

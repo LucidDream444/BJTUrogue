@@ -29,6 +29,8 @@ export class CampusMapArt {
   private readonly trim: Phaser.GameObjects.Graphics
   private readonly walls: readonly SolidRect[]
   private readonly occupiedWallArt: SolidRect[] = []
+  /** 桌椅图；黑暗里要按光照隐藏（墙不隐藏）。 */
+  private readonly furnitureImages: Phaser.GameObjects.Image[] = []
 
   constructor(
     private readonly scene: Phaser.Scene,
@@ -156,24 +158,72 @@ export class CampusMapArt {
     let chairIndex = 0
     for (const solid of this.solids) {
       if (solid.id.startsWith('wall')) continue
-      const chair = solid.id.startsWith('chair')
-      const key = chair
-        ? chairIndex++ % 3 === 0
-          ? ART.furniture.chairDown
-          : ART.furniture.chairFolded
-        : solid.width <= this.map.navCellSize * 2
-          ? ART.furniture.deskDouble
-          : ART.furniture.deskTriple
-      const placement = furnitureArtPlacement(solid, CAMPUS_PIXEL_SPRITES[key]!.bounds)
-      this.croppedImage(key, placement.x, placement.y)
-        .setOrigin(0.5, 1)
-        .setDisplaySize(placement.width, placement.height)
-        .setDepth(placement.depth)
-        .setName(`campus-furniture-${solid.id}`)
-        .setData('solidId', solid.id)
-        .setData('solid', { ...solid })
-        .setData('placement', placement)
+      if (solid.id.startsWith('chair')) {
+        const key =
+          chairIndex++ % 3 === 0 ? ART.furniture.chairDown : ART.furniture.chairFolded
+        this.paintFurniturePiece(solid, key)
+        continue
+      }
+      this.paintDesk(solid)
     }
+  }
+
+  /**
+   * 桌条。≤3 格仍是一张完整的双人/三人桌；更长的桌面按 3 格一块铺开。
+   *
+   * ⚠️ **不能把一张三人桌拉伸到 8 格**：长条/缺口矩形会变成一张被横向拉烂的图。
+   * 铺的时候所有块共用同一个视觉高度，否则长条的顶边会一格高一格低。
+   */
+  private paintDesk(solid: SolidRect): void {
+    const cell = this.map.navCellSize
+    const cells = Math.max(1, Math.round(solid.width / cell))
+    if (cells <= 3) {
+      this.paintFurniturePiece(
+        solid,
+        cells <= 2 ? ART.furniture.deskDouble : ART.furniture.deskTriple,
+      )
+      return
+    }
+    const reference = furnitureArtPlacement(
+      { ...solid, width: 3 * cell },
+      CAMPUS_PIXEL_SPRITES[ART.furniture.deskTriple]!.bounds,
+    )
+    let offset = 0
+    while (offset < cells) {
+      const chunk = Math.min(3, cells - offset)
+      const key = chunk >= 3 ? ART.furniture.deskTriple : ART.furniture.deskDouble
+      const piece: SolidRect = { ...solid, x: solid.x + offset * cell, width: chunk * cell }
+      this.paintFurniturePiece(piece, key, piece.width, reference.height, `-${offset}`)
+      offset += chunk
+    }
+  }
+
+  private paintFurniturePiece(
+    solid: SolidRect,
+    key: string,
+    displayWidth = solid.width,
+    displayHeight?: number,
+    nameSuffix = '',
+  ): void {
+    const placement = furnitureArtPlacement(solid, CAMPUS_PIXEL_SPRITES[key]!.bounds)
+    const height = displayHeight ?? placement.height
+    const image = this.croppedImage(key, placement.x, placement.y)
+      .setOrigin(0.5, 1)
+      .setDisplaySize(displayWidth, height)
+      .setDepth(placement.depth)
+      .setName(`campus-furniture-${solid.id}${nameSuffix}`)
+      .setData('solidId', solid.id)
+      .setData('solid', { ...solid })
+      .setData('placement', { ...placement, width: displayWidth, height })
+    this.furnitureImages.push(image)
+  }
+
+  /**
+   * 只给桌椅挂共享光照遮罩：黑暗里桌椅不显示，**墙/黑板等建筑仍然只是变暗**。
+   * 用户 2026-11-27 特意区分了这两类 —— 桌椅是“室内的东西”，墙是“建筑本身”。
+   */
+  applyLightMask(apply: (object: Phaser.GameObjects.GameObject) => void): void {
+    for (const image of this.furnitureImages) apply(image)
   }
 
   /** Fit a wall-mounted object entirely into one genuine wall rectangle. */
@@ -322,5 +372,6 @@ export class CampusMapArt {
     for (const object of this.objects) object.destroy()
     this.objects.length = 0
     this.occupiedWallArt.length = 0
+    this.furnitureImages.length = 0
   }
 }

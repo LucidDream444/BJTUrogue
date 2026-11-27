@@ -16,6 +16,8 @@ export class RadialBurstFx {
     // 弹丸必须画在首领巨大的身体之上：首领贴图深度按 y（几百），32 会被完全盖住。
     // 3000 高于实体与武器特效（2500），低于 HUD（5010）。
     this.graphics = scene.add.graphics().setDepth(3000)
+    // 首领弹幕共用一张光照遮罩：黑暗里的弹丸与施法预警不显示。
+    enemies.applyLightMask(this.graphics)
   }
 
   update(): void {

@@ -8,7 +8,12 @@ interface ExitCopy { sprite: Phaser.GameObjects.Sprite; bornMs: number; duration
 /** Body-free death copies share a bounded pool but never a gameplay model. */
 export class FrameExitFx {
   private readonly copies: ExitCopy[] = []
-  constructor(private readonly scene: Phaser.Scene, private readonly clock: GameClock, private readonly capacity: number) {}
+  constructor(
+    private readonly scene: Phaser.Scene,
+    private readonly clock: GameClock,
+    private readonly capacity: number,
+    private readonly applyMask?: (obj: Phaser.GameObjects.GameObject) => void,
+  ) {}
   play(x: number, y: number, scale: number, textureKey: string, range: FrameRange, offset = 0): void {
     const texture = textureKeyFor(this.scene, textureKey)
     if (!this.scene.textures.get(texture).has(String(offset + range.start))) return
@@ -17,6 +22,7 @@ export class FrameExitFx {
       if (this.copies.length >= this.capacity) return
       copy = { sprite: this.scene.add.sprite(x, y, texture), bornMs: 0, durationMs: 0, start: 0, count: 0 }
       this.copies.push(copy)
+      this.applyMask?.(copy.sprite)
     }
     copy.bornMs = this.clock.nowMs
     copy.durationMs = range.count * 1000 / range.frameRate

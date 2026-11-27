@@ -274,6 +274,27 @@ function checkSpawnsFromDoors(
         )
       }
     }
+
+    // 家具不许把房间切成两半：房间内**所有**没被挡住的格子都要从门走得到。
+    // 刷怪点本来就从可达区里挑，所以这一条防的不是「打不到的怪」，而是
+    // 「长条桌/缺口形把房间另一半封死」那种看得见、走不过去的浪费。
+    const a = cellOf(grid, left(room.rect), top(room.rect))
+    const b = cellOf(grid, right(room.rect) - 1, bottom(room.rect) - 1)
+    let free = 0
+    let reached = 0
+    for (let cy = a.cy; cy <= b.cy; cy++) {
+      for (let cx = a.cx; cx <= b.cx; cx++) {
+        if (isBlockedCell(grid, cx, cy)) continue
+        free++
+        if (reachable.has(cy * grid.cols + cx)) reached++
+      }
+    }
+    if (free > 0 && reached < free) {
+      problems.push(
+        `层 2：房间 #${room.order}（${room.id}）有 ${free - reached}/${free} 格从门走不到 —— ` +
+          `家具把房间切成了两块。长条桌/缺口形必须留出通路，别让房间另一边永远走不到`,
+      )
+    }
   }
   return { problems, spawnsChecked }
 }
