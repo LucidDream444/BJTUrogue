@@ -2006,6 +2006,10 @@
     "staminaChance": 0.65,
     "staminaAmount": 45
   },
+  "shop": {
+    "healthAmount": 15,
+    "staminaAmount": 200
+  },
   "terrain": {
     "navigationCellSize": 32,
     "playerSpawn": {

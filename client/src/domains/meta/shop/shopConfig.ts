@@ -41,7 +41,7 @@ export function parseShopPrices(raw: unknown): ShopPricesConfig {
 /**
  * 先查具体商品覆盖价，再查槽位价，最后落到商品类型基础价。
  *
- * 当前 JSON 里所有基础价都是 1；以后要单独改一把武器或一个强化时，只加
+ * 当前基础价：血药 12 / 蓝药 8 / 天赋 35 / 武器 25；以后要单独改一把武器或一个强化时，只加
  * `itemOverrides["weapon:rail"]` / `itemOverrides["upgrade:sharp"]`，不用改代码。
  */
 export function priceForShopItem(
