@@ -978,7 +978,7 @@ export class BattleScene extends Phaser.Scene {
     }
     if (kind === 'performance') {
       return [
-        '无冷却 · 魔力耗尽或 F1 停止',
+        '无冷却 · 魔力耗尽或再按 Space 停止',
         `节拍 ${rank.beatPeriodMs}ms · 命中窗 ${rank.beatHitWindowMs}ms`,
         `红歌 ${rank.redDamage} 伤害 / max${rank.maxStacks}层`,
         `蓝歌护盾 ${rank.blueShieldRestore} · 每首 ${rank.manaCost} 魔力`,
@@ -2362,7 +2362,7 @@ export class BattleScene extends Phaser.Scene {
     if (k) {
       // 这几个键默认会让页面滚动（`Scale.RESIZE` 下画布就是整页）—— 不捕获的话
       // 按一下空格整页就跳。
-      k.addCapture(['TAB', 'SPACE', 'F1', 'ESC', 'UP', 'DOWN', 'ENTER', 'X'])
+      k.addCapture(['TAB', 'SPACE', 'ESC', 'UP', 'DOWN', 'ENTER', 'X'])
       k.on('keydown-TAB', (event: KeyboardEvent) => {
         if (!event.repeat) this.encounterCodex?.handleTab()
       })
@@ -2379,16 +2379,12 @@ export class BattleScene extends Phaser.Scene {
         if (this.grabbing || this.session.clock.paused || this.flow?.phase !== 'playing') return
         if (event.repeat) return
         if (this.session.isPerforming()) {
-          this.session.playPerformanceSong('red')
+          this.session.stopPerformance()
           return
         }
         const pointer = this.input.activePointer
         const aim = this.cameras.main.getWorldPoint(pointer.x, pointer.y)
         this.session.activateSkill({ x: aim.x, y: aim.y })
-      })
-      k.on('keydown-F1', (event: KeyboardEvent) => {
-        if (event.repeat || this.session.clock.paused || this.flow?.phase !== 'playing') return
-        this.session.stopPerformance()
       })
       k.on('keydown-UP', () => {
         if (this.encounterCodex?.isOpen) this.encounterCodex.handleMoveSelection(-1)

@@ -62,7 +62,7 @@ export class SkillHud {
       .rectangle(0, 0, width, 106, 0x101822, 0.96)
       .setOrigin(0)
       .setStrokeStyle(2, 0x7bc7e8, 0.9)
-    this.performanceTitle = scene.add.text(18, 10, '演奏', {
+    this.performanceTitle = scene.add.text(18, 10, '演奏 · Space 结束', {
       fontFamily: 'Microsoft YaHei',
       fontSize: '17px',
       color: '#edf7ff',
@@ -85,7 +85,7 @@ export class SkillHud {
       color: '#73c7ff',
     })
     this.performanceHint = scene.add
-      .text(width - 18, 35, 'Space 红歌 · 左键 蓝歌', {
+      .text(width - 18, 35, '左键红歌 · 右键蓝歌', {
         fontFamily: 'Microsoft YaHei',
         fontSize: '12px',
         color: '#d7e4ec',
@@ -193,8 +193,8 @@ export class SkillHud {
     )
     this.performanceHint.setText(
       performance.onBeat
-        ? '节拍命中 · Space 红歌 / 左键蓝歌 · F1 停止'
-        : 'Space 红歌 · 左键蓝歌 · F1 停止',
+        ? '节拍命中 · 左键红歌 / 右键蓝歌'
+        : '左键红歌 · 右键蓝歌',
     )
     this.performancePanel.setStrokeStyle(2, performance.onBeat ? 0xffffff : 0x7bc7e8, 0.9)
   }

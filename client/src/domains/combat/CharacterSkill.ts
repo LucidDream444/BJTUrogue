@@ -185,7 +185,7 @@ export class CharacterSkill {
       const performance = this.performance.snapshot(now)
       const active = performance.active
       const songState = active
-        ? 'Space 红歌 · 左键蓝歌 · F1 停止'
+        ? '左键红歌 · 右键蓝歌 · Space 停止'
         : this.deps.player.stamina > 0
           ? 'Space 开始演奏'
           : '魔力不足'
