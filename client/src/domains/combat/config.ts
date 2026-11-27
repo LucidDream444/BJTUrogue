@@ -433,6 +433,11 @@ export interface CombatConfig {
     followLerp: number
   }
   arena: {
+    /**
+     * 随机流种子。**配置里写的是测试场的固定值**；正式进战斗时 `BattleScene.create()`
+     * 每局生成一个新的 `runSeed` 并写回这里，于是天赋/奖励/敌人/首领每局都不一样。
+     * URL 上的 `?seed=` 可以指定它，用来复现一局。
+     */
     seed: number
     /**
      * 竞技场的宽高（世界像素）—— **出生点、物理世界边界、寻路网格、相机的取景框

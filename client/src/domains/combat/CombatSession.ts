@@ -83,7 +83,8 @@ export class CombatSession {
   private readonly aim = new Phaser.Math.Vector2()
   readonly inventory: WeaponId[] = ['pencil']
   private readonly pendingWeaponIds: WeaponId[] = []
-  private readonly weaponRng = new Rng((20261014 ^ (Date.now() >>> 0)) >>> 0)
+  /** 随机武器（宝箱、商店换货）的流。**从本局种子派生**，报出种子就能复现。 */
+  private readonly weaponRng: Rng
   weapon: WeaponDef
   stats: EffectiveStats
   private permanent: PermanentRunStats
@@ -119,6 +120,7 @@ export class CombatSession {
     readonly difficulty: Difficulty,
     private stageConfig: StageCollisionConfig,
   ) {
+    this.weaponRng = new Rng((cfg.arena.seed ^ 0x57454150) >>> 0)
     this.terrain = new TerrainMap(cfg, stageConfig.navigationCellSize)
     const firstRoom = stageGeometry(stageConfig, 1, cfg.arena.width, cfg.arena.height)
     this.terrain.setStage(firstRoom)

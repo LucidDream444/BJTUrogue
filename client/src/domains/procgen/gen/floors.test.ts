@@ -3,8 +3,9 @@
  *
  * 这个文件守的是新结构所依赖的几件事：
  * 1. 层数 = `combat.json` 的 `arena.maxStages`（3）；
- * 2. 第 1/2/3 层都从 2F/4F/5F/6F 随机，**允许重复**（第 3 层可与第 1 层相同）；3F/7F 不进产品；
- * 3. 每个候选（不只抽中的）都有楼梯间和恰好一间首领房；
+ * 2. 第 1、3 层从 2F/4F/5F/6F 随机，**允许重复**（第 3 层可与第 1 层相同）；
+ *    第 2 层固定 3F（商店层）；7F 不进产品；
+ * 3. 每个候选（不只抽中的）都有楼梯间和恰好一间首领房；只有 `requireShop` 的层带商店；
  * 5. 8F 是最终战，不是一个可抽取的层；
  * 6. 同一 `runSeed` 复现同一组地图。
  */
@@ -56,17 +57,21 @@ const LAYER_MAPS = [
 ]
 
 describe('一局的地图计划（floors.json v2）', () => {
-  it('层数 = arena.maxStages（3）；三层都是 2F/4F/5F/6F 候选', () => {
+  it('层数 = arena.maxStages（3）；第 1/3 层四选一，第 2 层固定 3F 商店层', () => {
     expect(MAX_STAGES).toBe(3)
     expect(floors.layers).toHaveLength(MAX_STAGES)
-    for (const layer of floors.layers) expect(layer.candidates).toEqual(LAYER_MAPS)
-    expect(floors.layers.some((layer) => layer.requireShop)).toBe(false)
+    expect(floors.layers[0]!.candidates).toEqual(LAYER_MAPS)
+    expect(floors.layers[1]!.candidates).toEqual([FLOOR_PLAN_YF3_NAME])
+    expect(floors.layers[1]!.requireShop).toBe(true)
+    expect(floors.layers[2]!.candidates).toEqual(LAYER_MAPS)
+    expect(floors.layers[0]!.requireShop).toBe(false)
+    expect(floors.layers[2]!.requireShop).toBe(false)
     expect(floors.prologue.file).toBe(FLOOR_PLAN_YF1_NAME)
     expect(floors.finale.file).toBe(FLOOR_PLAN_YF8_NAME)
   })
 
-  it('3F/7F 只在排除表里，8F 只作最终战', () => {
-    expect(floors.excluded.map((entry) => entry.file)).toEqual([FLOOR_PLAN_YF3_NAME, FLOOR_PLAN_YF7_NAME])
+  it('7F 只在排除表里，3F 是第 2 层；8F 只作最终战', () => {
+    expect(floors.excluded.map((entry) => entry.file)).toEqual([FLOOR_PLAN_YF7_NAME])
     const used = new Set([
       floors.prologue.file,
       ...floors.pool.map((entry) => entry.file),
@@ -87,7 +92,7 @@ describe('一局的地图计划（floors.json v2）', () => {
       expect(FLOOR_PLAN_FILES, `${file} 不在 FLOOR_PLAN_FILES 里`).toContain(file)
   })
 
-  it('候选必须有楼梯间 + 恰好 1 间首领房；层候选不能有商店', () => {
+  it('候选必须有楼梯间 + 恰好 1 间首领房；只有商店层能带商店', () => {
     floors.layers.forEach((layer) => {
       for (const file of layer.candidates) {
         const plan = floorPlanFromCache(cache, cfg, file)
@@ -96,29 +101,32 @@ describe('一局的地图计划（floors.json v2）', () => {
           plan.rooms.filter((room) => room.fixed === 'boss'),
           `${file} 的首领房数量`,
         ).toHaveLength(1)
-        expect(plan.rooms.filter((room) => room.fixed === 'shop'), `${file} 不能带商店`).toHaveLength(0)
+        const shops = plan.rooms.filter((room) => room.fixed === 'shop')
+        if (layer.requireShop) expect(shops.length, `${file} 是商店层，必须带商店`).toBeGreaterThanOrEqual(1)
+        else expect(shops, `${file} 不是商店层，不能带商店`).toHaveLength(0)
       }
     })
     const finale = floorPlanFromCache(cache, cfg, floors.finale.file)
     expect(finale.rooms.filter((room) => room.fixed === 'boss')).toHaveLength(1)
   })
 
-  it('同一 runSeed 复现同一组地图；三层允许重复；3F/7F 不被抽中', () => {
+  it('同一 runSeed 复现同一组地图；第 2 层恒为 3F；第 1/3 层允许重复', () => {
     const first = floorPlansForRun(cache, cfg, MAX_STAGES, 20261119)
     const second = floorPlansForRun(cache, cfg, MAX_STAGES, 20261119)
     expect(first.layers.map((layer) => layer.file)).toEqual(second.layers.map((layer) => layer.file))
     expect(first.prologue.file).toBe(FLOOR_PLAN_YF1_NAME)
     expect(first.finale.file).toBe(FLOOR_PLAN_YF8_NAME)
     expect(first.layers).toHaveLength(MAX_STAGES)
-    for (const layer of first.layers) expect(LAYER_MAPS).toContain(layer.file)
-    expect(first.layers.map((layer) => layer.file)).not.toContain(FLOOR_PLAN_YF3_NAME)
+    expect(first.layers[1]!.file).toBe(FLOOR_PLAN_YF3_NAME)
+    for (const layer of [first.layers[0]!, first.layers[2]!]) expect(LAYER_MAPS).toContain(layer.file)
     expect(first.layers.map((layer) => layer.file)).not.toContain(FLOOR_PLAN_YF7_NAME)
     let repeated = false
     for (let seed = 1; seed <= 200; seed++) {
       const files = floorPlansForRun(cache, cfg, MAX_STAGES, seed).layers.map((layer) => layer.file)
-      if (new Set(files).size < MAX_STAGES) repeated = true
+      expect(files[1], `种子 ${seed} 的第 2 层不是 3F`).toBe(FLOOR_PLAN_YF3_NAME)
+      if (files[0] === files[2]) repeated = true
     }
-    expect(repeated, '三层允许重复，但 200 个种子里一次重复都没有').toBe(true)
+    expect(repeated, '第 1/3 层允许重复，但 200 个种子里一次重复都没有').toBe(true)
   })
 
   it('第 1 层会抽到 2F / 4F / 5F / 6F 四张图', () => {
@@ -143,8 +151,8 @@ describe('一局的地图计划（floors.json v2）', () => {
         expect(() => assertReachable(map, cfg), `${layer.file} seed ${seed}`).not.toThrow()
       }
     }
-    // 覆盖到全部层候选 + 8F（1F 单独生成；它是空房教学层）。
-    expect(seen).toEqual(new Set([...LAYER_MAPS, FLOOR_PLAN_YF8_NAME]))
+    // 覆盖到全部层候选（含固定在第 2 层的 3F）+ 8F（1F 单独生成；它是空房教学层）。
+    expect(seen).toEqual(new Set([...LAYER_MAPS, FLOOR_PLAN_YF3_NAME, FLOOR_PLAN_YF8_NAME]))
   })
 
   it('8F 最终战只有 YF804 一间首领房', () => {

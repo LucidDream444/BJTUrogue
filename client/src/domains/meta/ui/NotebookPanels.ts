@@ -251,6 +251,19 @@ function volumeControl(
   return refresh
 }
 
+/** 「出发准备」页的种子控件（显示值、输入草稿、两个动作）。 */
+export interface RunSetupSeedControl {
+  readonly value: number
+  readonly draft: string | null
+  readonly onEdit: () => void
+  readonly onRandom: () => void
+}
+
+/** 种子显示要在按键时原地刷新，不能整页重建 —— 否则输入框会在手底下闪。 */
+export interface NotebookRunSetupParts {
+  refreshSeed(value: number, draft: string | null): void
+}
+
 export function buildNotebookRunSetup(
   ui: ArchiveUI,
   profile: ProfileData,
@@ -259,7 +272,8 @@ export function buildNotebookRunSetup(
   onDifficulty: (d: Difficulty) => void,
   onStart: () => void,
   onUpgrade: () => void,
-): void {
+  seed: RunSetupSeedControl,
+): NotebookRunSetupParts {
   ui.label(115, 215, '选择今天的冒险伙伴', A.size.heading, A.paper, undefined, true)
   ui.label(115, 260, '带上勇气，走进熟悉校园的另一面。', A.size.small, A.muted)
   const compactCards = CHARACTERS.length > 3
@@ -332,16 +346,36 @@ export function buildNotebookRunSetup(
       hit.on('pointerout', () => hit.setStrokeStyle(2, A.cyan))
     }
   })
-  ui.label(1115, 619, '角色与难度会记住，\n下次出发无需重复选择。', A.size.micro, A.muted, 290)
+  ui.label(
+    1115,
+    619,
+    `出战：${characterById(profile.selected.characterId)?.name ?? '—'}  ·  难度：${DIFFICULTY_LABELS[profile.selected.difficulty]}\n` +
+      '角色与难度会记住，下次出发无需重复选择。',
+    A.size.micro,
+    A.muted,
+    300,
+  )
   ui.button(1264, 765, 366, 83, '开始闯关  →', onStart, true)
   ui.button(881, 765, 228, 52, '查看角色升级', onUpgrade)
-  ui.label(
-    365,
-    753,
-    `出战：${characterById(profile.selected.characterId)?.name ?? '—'}\n难度：${DIFFICULTY_LABELS[profile.selected.difficulty]}`,
-    A.size.small,
-    A.muted,
-  )
+
+  // 本局种子：**开局之前**就能看到、能指定。放在开始按钮左侧那一行空白里，
+  // 不跟战斗 HUD 抢地方 —— 玩家在这里确认/修改完再出发。
+  ui.panel(245, 708, 430, 126, 0.62)
+  ui.label(265, 720, '本局种子', A.size.small, A.paper, undefined, true)
+  const seedBox = ui.add(ui.scene.add.rectangle(385, 772, 240, 48, A.ink, 0.55))
+  seedBox.setInteractive({ useHandCursor: true }).on('pointerup', seed.onEdit)
+  const seedValue = ui.label(385, 772, '', A.size.body, A.paper, undefined, true).setOrigin(0.5)
+  ui.button(580, 772, 120, 48, '随机', seed.onRandom)
+  const seedHint = ui.label(265, 802, '', A.size.micro, A.muted, 390)
+  const refreshSeed = (value: number, draft: string | null): void => {
+    seedValue.setText(draft !== null ? `${draft}▌` : String(value))
+    seedBox.setStrokeStyle(2, draft !== null ? A.cyan : A.brass, 0.85)
+    seedHint
+      .setColor(draft !== null ? A.energy : A.muted)
+      .setText(draft !== null ? '输入数字 · Enter 确认 · Esc 取消' : '点击数字框可指定种子')
+  }
+  refreshSeed(seed.value, seed.draft)
+  return { refreshSeed }
 }
 
 export function buildNotebookQuit(

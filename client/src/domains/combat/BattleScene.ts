@@ -163,6 +163,11 @@ document.head.append(style)
 export interface BattleSceneData {
   difficulty?: Difficulty
   characterId?: string
+  /**
+   * 本局种子。**由「出发准备」页传入**（玩家在那里看过/改过）；
+   * 不传时退回 URL 的 `?seed=`，再没有就随机。
+   */
+  seed?: number
   /** 测试场专用：使用内存档并开放角色 / 技能等级调试。 */
   skillLab?: boolean
   skillLabCharacterId?: string
@@ -186,6 +191,8 @@ export class BattleScene extends Phaser.Scene {
   private loadout!: LoadoutHud
   private skillHud!: SkillHud
   private difficulty: Difficulty = 'normal'
+  /** 「出发准备」页选好的种子。`init()` 每次重开都会重置：从菜单进来才有，场景自重启时为 `undefined`。 */
+  private launchSeed: number | undefined
   private skillLab = false
   private skillLabCharacterId: string | undefined
   private skillLabLevel = 1
@@ -459,6 +466,7 @@ export class BattleScene extends Phaser.Scene {
   }
   init(data: BattleSceneData = {}): void {
     this.difficulty = data.difficulty ?? 'normal'
+    this.launchSeed = data.seed
     this.launchCharacterId = data.characterId
     this.skillLab = data.skillLab === true
     this.skillLabCharacterId = data.skillLabCharacterId
@@ -521,6 +529,26 @@ export class BattleScene extends Phaser.Scene {
     // 文件名与路径走 D4 的常量，别在这里再写一遍字面量（`metaConfig.ts` 是唯一真值）
     this.load.json(META_CONFIG_NAME, META_CONFIG_URL)
   }
+  /**
+   * 本局种子：**出发准备页传进来的优先**，其次 URL 的 `?seed=`，最后随机。
+   *
+   * 「出发准备」页已经让玩家看过/改过种子，所以正常流程走第一条；
+   * `?seed=` 保留给直接进战斗的测试入口与旧链接。场景自己 `R` 重开时
+   * 这三条都不是（`init()` 把 `launchSeed` 清成 `undefined`），于是换一个新种子。
+   *
+   * 只认十进制非负整数：`?seed=abc` 当作没写，继续随机。
+   */
+  private resolveRunSeed(forced?: number): number {
+    if (forced !== undefined && Number.isFinite(forced)) return forced >>> 0
+    if (typeof window !== 'undefined') {
+      const raw = new URLSearchParams(window.location.search).get('seed')
+      if (raw !== null && /^\d+$/.test(raw.trim())) {
+        const value = Number.parseInt(raw, 10)
+        if (Number.isSafeInteger(value)) return value >>> 0
+      }
+    }
+    return (Math.random() * 0x100000000) >>> 0
+  }
   create(): void {
     try {
       Object.defineProperty(window, '__d1', { value: this, configurable: true })
@@ -546,7 +574,12 @@ export class BattleScene extends Phaser.Scene {
       //    「随机生成」四个字就没了。下面把 `runSeed` 留在场上，方便复现整局。
       this.rooms = roomsConfigFromCache(this.cache.json)
       // ⚠️ **种子必须每局换**，而且要先于地图/首领抽取：抽图与抽首领都从它派生。
-      this.runSeed = (Math.random() * 0x7fffffff) | 0
+      // 种子来自「出发准备」页；没有时退回 `?seed=` 或随机（见 `resolveRunSeed()`）。
+      this.runSeed = this.resolveRunSeed(this.launchSeed)
+      // ⚠️ **把本局种子写回 `cfg.arena.seed`**：天赋/奖励/敌人生成/首领技能
+      //    这些地方的随机流原本读的是配置表里那个固定值，不写回的话它们每局一样。
+      //    必须在 `new CombatSession()` 之前写 —— 它构造时就开了这几条流。
+      this.cfg.arena.seed = this.runSeed
       // **整局的地图计划一次取好**：1F 出发层 + 第 1/2/3 层 + 8F 最终战。
       // `floorPlansForRun` 会先解析并校验**所有候选**，再按 `runSeed` 抽三张。
       this.runPlans = floorPlansForRun(this.cache.json, this.rooms, this.floors, this.runSeed)
@@ -1774,7 +1807,7 @@ export class BattleScene extends Phaser.Scene {
    */
   private floorBrief(): string {
     if (this.zone === 'finale') return '最终战 · 奶龙 · 对面的门里是奶龙'
-    if (this.layer === 0) return '第零层 · 出发层 · 楼梯间里有上第 1 层的入口'
+    if (this.layer === 0) return '第 0 层 · 出发层 · 楼梯间里有上第 1 层的入口'
     const stairs = this.stairHint()
     return (
       `第 ${this.layer} / ${this.floors} 层 · 站在楼梯间外的走廊上 · ` +
@@ -1884,7 +1917,7 @@ export class BattleScene extends Phaser.Scene {
   private elevatorTargets(): number[] {
     const out: number[] = []
     const current = this.zone === 'main' ? this.layer : -1
-    // 第零层 = 1F 出发层：电梯一直可以回去（电梯不列 1F 之外的设施）。
+    // 第 0 层 = 1F 出发层：电梯一直可以回去（电梯不列 1F 之外的设施）。
     if (current !== 0) out.push(0)
     for (let n = 1; n <= this.floors; n++) {
       if (n === current) continue
@@ -1893,11 +1926,11 @@ export class BattleScene extends Phaser.Scene {
     }
     return out
   }
-  /** 电梯的层名：0 = 第零层（1F 出发层），1—3 = 第 N 层。 */
+  /** 电梯的层名：0 = 第 0 层（1F 出发层），1—3 = 第 N 层。**格式与其它层一致。** */
   private elevatorLabel(n: number): string {
-    return n === 0 ? '第零层' : `第 ${n} 层`
+    return `第 ${n} 层`
   }
-  /** 电梯面板列第零层（1F 出发层）+ 第 1/2/3 层。 */
+  /** 电梯面板列第 0 层（1F 出发层）+ 第 1/2/3 层。 */
   private elevatorRows(): { target: number; label: string; here: boolean; unlocked: boolean }[] {
     const targets = new Set(this.elevatorTargets())
     const rows: { target: number; label: string; here: boolean; unlocked: boolean }[] = []
@@ -1987,7 +2020,7 @@ export class BattleScene extends Phaser.Scene {
   /** HUD / 小地图的区域标题。 */
   private areaTitle(): string {
     if (this.zone === 'finale') return '最终战 · 奶龙'
-    if (this.layer === 0) return '第零层 · 出发层'
+    if (this.layer === 0) return '第 0 层 · 出发层'
     return `第 ${this.layer} / ${this.floors} 层`
   }
   private refreshStairPads(): void {
@@ -2014,7 +2047,7 @@ export class BattleScene extends Phaser.Scene {
   private stairHint(): string {
     const parts: string[] = []
     if (this.exitDown.visible)
-      parts.push(`楼梯间里有下${this.layer - 1 === 0 ? '第零层' : `第 ${this.layer - 1} 层`}的入口`)
+      parts.push(`楼梯间里有下${this.layer - 1 === 0 ? '第 0 层' : `第 ${this.layer - 1} 层`}的入口`)
     if (this.exitUp.visible) parts.push(`楼梯间里已有上第 ${this.layer + 1} 层的入口`)
     return parts.join(' · ')
   }
@@ -2033,7 +2066,7 @@ export class BattleScene extends Phaser.Scene {
   private stairHintWhenMissed(): string {
     const where = '（都在楼梯间里）'
     const up = this.layer + 1
-    const down = this.layer - 1 === 0 ? '第零层' : `第 ${this.layer - 1} 层`
+    const down = this.layer - 1 === 0 ? '第 0 层' : `第 ${this.layer - 1} 层`
     if (this.exitUp.visible && this.exitDown.visible)
       return `要走到方框上才能换层：暖黄 = 上第 ${up} 层、青绿 = 下${down}${where}`
     if (this.exitUp.visible) return `要走到暖黄方框上才能上楼（第 ${up} 层）${where}`

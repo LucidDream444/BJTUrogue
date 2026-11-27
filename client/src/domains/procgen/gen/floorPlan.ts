@@ -145,28 +145,15 @@ export const FLOOR_PLAN_NAME = 'floor-plan.json'
 export const FLOOR_PLAN_URL = `config/${FLOOR_PLAN_NAME}`
 
 /**
- * 逸夫楼 3F —— 一局的**第 2 层**。
+ * 逸夫楼 2F —— 第 1、3 层的随机候选之一。
  *
- * 单独给个名字是因为它有两个身份：对 `floors.json` 它是第二项，对测试场
- * `?arena=d2_seeds` 它是 `C` 键切过去的那一层（那场 2026-10-22 由 `yf` 并进来，
- * 默认就是它）。写死字符串的地方只有这里一处。
- *
- * ⚠️ ★ 改了（2026-10-22 晚）：它原先是**第 1 层**（用户当时说「进入游戏先是 YF3」），
- * 用户第二次看图之后改成「进去后先是 YF1，然后可以从楼梯间上一层，进入 YF3
- * （YF2 还没做，先这样上 3 过渡）」—— 3F 因此退到第 2 层，第 1 层是
- * `FLOOR_PLAN_YF1_NAME`。**平面图本身一格没动**，变的只是它排在第几层。
- */
-/**
- * 逸夫楼 2F —— 一局的**第 2 层**（1F → **2F** → 3F → 6F，★ 2026-10-23 加进来）。
- *
- * 用户：「按照照片做 YF2 的地图」「YF1 上去是 YF2」。
- * ⚠️ 它排进来之后**一局从三层变成四层**：`floors.json` 多一项、
- * `combat.json` 的 `arena.maxStages` 3 → 4（一局几层是 D1 的旋钮，见那份文件）。
+ * 用户：「按照照片做 YF2 的地图」。它有 12 间房，是层候选里唯一不和 4F/5F/6F
+ * 共用一份几何的图，所以抽到它时整层看起来明显不同。
  */
 export const FLOOR_PLAN_YF2_NAME = 'floor-plan-yf2.json'
 
 /**
- * 逸夫楼 4F / 5F —— 一局的**第 4 / 第 5 层**（10-30 加）。
+ * 逸夫楼 4F / 5F —— 第 1、3 层的随机候选（10-30 加）。
  *
  * 用户：「添加 YF4 和 5，构造和 YF6 一样，只是房间标号第一位改一下就行」——
  * 所以那两份 JSON 是 `floor-plan.json`（6F）的**逐格副本**，只换了房号前缀。
@@ -185,6 +172,12 @@ export const FLOOR_PLAN_YF8_NAME = 'floor-plan-yf8.json'
 export const FLOOR_PLAN_YF4_NAME = 'floor-plan-yf4.json'
 export const FLOOR_PLAN_YF5_NAME = 'floor-plan-yf5.json'
 
+/**
+ * 逸夫楼 3F —— 一局的**第 2 层**（★ 2026-11-27 固定：这一层有 `fixed:'shop'` 商店房）。
+ *
+ * 单独给个名字是因为它有两个身份：对 `floors.json` 它是第 2 层的唯一候选，
+ * 对测试场 `?arena=d2_seeds` 它是 `C` 键切过去的那一层。
+ */
 export const FLOOR_PLAN_YF3_NAME = 'floor-plan-yf3.json'
 
 /**
@@ -846,7 +839,8 @@ function validateRunCandidate(plan: FloorPlan, file: string, role: string): void
 }
 
 /**
- * **整局**的地图计划：先解析并校验所有候选，再按 `runSeed` 抽三张层图。
+ * **整局**的地图计划：先解析并校验所有候选，再按 `runSeed` 逐层抽图
+ * （第 1、3 层四选一，第 2 层固定 3F 商店层）。
  *
  * 校验叠在一起，缺一层就会变成别的症状：
  * 1. `floors.json` 的层数 == `combat.json` 的 `arena.maxStages`（`parseFloorsConfig`）
@@ -908,7 +902,8 @@ export function floorPlansForRun(
   const rng = new Rng((runSeed ^ 0x4c415945) >>> 0)
   const layers: RunFloorPlan[] = []
   for (const [index, layer] of config.layers.entries()) {
-    // 三层允许重复（用户 2026-11-26：「可与第一层相同」），所以不维护 used 集合。
+    // 第 1/3 层允许重复（用户 2026-11-26：「可与第一层相同」），所以不维护 used 集合；
+    // 第 2 层只有一个候选（3F 商店层），`available.length === 1` 时根本不摇随机数。
     const available = layer.candidates
     if (available.length === 0)
       throw new ConfigError(`floors.layers[${index}].candidates`, `第 ${index + 1} 层没有候选`)
