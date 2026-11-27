@@ -27,7 +27,7 @@ export class GameCursor {
       hand = cursor(GAME_CURSOR_ART.hand, 'pointer')
     this.style.textContent = `
 html.d1-cursors{--d1-arrow:${arrow};--d1-hand:${hand};cursor:var(--d1-arrow)}
-html.d1-cursors body,html.d1-cursors #game-root,html.d1-cursors canvas,html.d1-cursors .d1-reward,html.d1-cursors .d1-gallery{cursor:var(--d1-arrow)!important}
+html.d1-cursors body,html.d1-cursors #game-root,html.d1-cursors canvas,html.d1-cursors .d1-reward{cursor:var(--d1-arrow)!important}
 html.d1-cursors button:not(:disabled),html.d1-cursors button:not(:disabled) *,html.d1-cursors a,html.d1-cursors input[type=range]{cursor:var(--d1-hand)!important}
 html.d1-cursors button:disabled{cursor:var(--d1-arrow)!important}
 `

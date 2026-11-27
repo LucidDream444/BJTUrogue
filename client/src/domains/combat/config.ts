@@ -499,7 +499,6 @@ export interface CombatConfig {
     roomsPerFloor: number
     /** 其中几间是侧室（支线）。主干数 = `roomsPerFloor − sideRoomsPerFloor`，至少要有首末两间。 */
     sideRoomsPerFloor: number
-    demoDamage: number
   }
 }
 export interface RewardDef {

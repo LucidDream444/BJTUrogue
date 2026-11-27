@@ -18,7 +18,6 @@ import {
 import { CombatSession } from '@/domains/combat/CombatSession'
 import { RewardPanel } from '@/domains/combat/RewardPanel'
 import { roomPlan } from '@/domains/combat/balance'
-import { AssetGallery } from './AssetGallery'
 import { StatusHud } from '@/domains/combat/StatusHud'
 import { GameCursor } from '@/domains/combat/GameCursor'
 import { campusKey } from '@/domains/combat/uiSkin'
@@ -134,10 +133,6 @@ const ENEMY_CLEARANCE = 26
  */
 const SAFE_SPAWN_GAP = 160
 
-const style = document.createElement('style')
-style.textContent =
-  '.d1-gallery{font-family:system-ui,sans-serif;color:#e9f2ff}.d1-gallery{position:fixed;inset:0;z-index:95;background:#091323f5;padding:22px;overflow:auto}.d1-gallery header{display:flex;justify-content:space-between}.d1-preview-canvas{display:block;max-width:100%;border:1px solid #376276}.d1-asset-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:8px;margin-top:14px}.d1-asset-card{display:flex;align-items:center;gap:8px;text-align:left;background:#13233a;color:#dcecff;border:1px solid #31516c;border-radius:8px;padding:6px;cursor:pointer;white-space:pre-line}.d1-asset-card img{width:56px;height:56px;object-fit:contain;background:#0a111d}.d1-asset-card span{font-size:11px}'
-document.head.append(style)
 /**
  * ## ★ 2026-10-21：从「一间房 = 一关」改成「**整层连续**」
  *
@@ -199,7 +194,6 @@ export class BattleScene extends Phaser.Scene {
   private session!: CombatSession
   private rewardPanel!: RewardPanel
   private cursor!: GameCursor
-  private gallery!: AssetGallery
   private stageConfig!: StageCollisionConfig
   private cfg!: CombatConfig
   private bundle!: ConfigBundle
@@ -426,8 +420,6 @@ export class BattleScene extends Phaser.Scene {
   private clearSince: number | null = null
   /** 这一间的清空**已经宣告过**了。同一间只发一次成长、只掉一次宝箱。 */
   private clearEmitted = false
-  /** 调试键 `C` 请求过清房。见 `requestClear()`。 */
-  private clearRequested = false
   /** 过「下一层」的键。**和暂停的 `ESC`、拾取的 `E` 错开**，别让人捡东西时误按。 */
   private passKey!: Phaser.Input.Keyboard.Key
   /** 抓取冻结已经持续了多久（毫秒，渲染时间）。**兜底用**：一直解不开就强制放人 */
@@ -481,7 +473,6 @@ export class BattleScene extends Phaser.Scene {
     this.combatRooms.clear()
     this.clearSince = null
     this.clearEmitted = false
-    this.clearRequested = false
     this.gameWon = false
     this.visited.clear()
     this.cleared.clear()
@@ -646,7 +637,6 @@ export class BattleScene extends Phaser.Scene {
       this.rewardPanel = new RewardPanel(this.session)
       const talentHud = new TalentHud(this.session)
       this.events.once(Phaser.Scenes.Events.SHUTDOWN,()=>talentHud.destroy())
-      this.gallery = new AssetGallery(this, () => this.toggleGallery())
       this.makeHud()
       this.cursor = new GameCursor(this)
       // 换层键（上 / 下都用它，按下去往哪边走看脚下踩着哪个方框）。
@@ -1087,7 +1077,6 @@ export class BattleScene extends Phaser.Scene {
     this.skillHud.update()
     this.updateBossReinforcements()
     this.checkRoomCleared()
-    if (this.clearRequested && !this.session.clock.paused) this.session.enemies.simulateClear()
     this.layoutHud()
     this.updateHud()
     const ended = !this.session.player.model.alive
@@ -1106,7 +1095,6 @@ export class BattleScene extends Phaser.Scene {
       const camera = this.cameras.main
       this.deathNotice.setPosition(camera.width / 2, camera.height / 2)
     }
-    this.gallery?.update(delta)
   }
 
   /* ------------------------------------------------------------ 整层连续：一间房的生命周期 */
@@ -1251,7 +1239,6 @@ export class BattleScene extends Phaser.Scene {
     this.activeRoom = unit
     this.clearSince = null
     this.clearEmitted = false
-    this.clearRequested = false
     this.loot.reset()
     this.bossSkills?.clear()
     this.bossReinforcements.reset()
@@ -1471,7 +1458,6 @@ export class BattleScene extends Phaser.Scene {
     // 清房判定会忽略墙外残留怪；撤场而非击杀，避免它们占用下一间首领房的名额。
     this.session.enemies.despawnAll()
     this.clearEmitted = true
-    this.clearRequested = false
     this.activeRoom = null
     this.combatRooms.delete(unit.order)
     // ⚠️ **写在 `syncRoomState()` 之前** —— 房号那行字和门的绿都读 `cleared`，
@@ -1779,7 +1765,6 @@ export class BattleScene extends Phaser.Scene {
     this.roomOrder = -1
     this.clearSince = null
     this.clearEmitted = false
-    this.clearRequested = false
     this.loot.reset()
     this.session.rewards.forgetFloor()
     this.shopWorld.leaveRoom()
@@ -2089,7 +2074,6 @@ export class BattleScene extends Phaser.Scene {
       this.ledger.countClearedRoom()
     }
     this.activeRoom = null
-    this.clearRequested = false
     this.clearEmitted = true
     this.gameWon = true
     this.endRun('cleared')
@@ -2334,42 +2318,8 @@ export class BattleScene extends Phaser.Scene {
     if (!skill || !this.meta) return undefined
     return `${skill.name} Lv.${skillLevelOf(this.store.profile, this.meta, characterId)}`
   }
-  private toggleGallery(): void {
-    if (this.gallery.root.hidden) {
-      this.session.pause('preview')
-      this.gallery.show()
-    } else {
-      this.gallery.hide()
-      this.session.resume('preview')
-    }
-  }
-  /**
-   * 调试键 `C`：**请求清房**（把这一间剩下的怪全杀掉）。
-   *
-   * 标志位而不是直接调一次 `simulateClear()`：击杀是**异步回收**的（分裂链要等
-   * `splitDelayMs`、尸体还占着池槽位），调一下走不完，得每帧推一把直到清房判定成立。
-   * `clearRequested` 在 `onRoomCleared()` 里落回 false。
-   */
-  private requestClear(): void {
-    if (this.session.clock.paused) return
-    if (this.activeRoom === null || this.clearEmitted) return
-    this.clearRequested = true
-    this.notice.setText('已请求清房：等待死亡/分裂链回收')
-  }
   private bindKeys(): void {
     const k = this.input.keyboard
-    k?.on('keydown-H', () => {
-      if (this.encounterCodex?.isOpen || this.grabbing || this.flow?.phase !== 'playing') return
-      this.demoHit()
-    })
-    k?.on('keydown-C', () => {
-      if (this.encounterCodex?.isOpen || this.grabbing || this.flow?.phase !== 'playing') return
-      this.requestClear()
-    })
-    k?.on('keydown-V', () => {
-      if (this.encounterCodex?.isOpen || this.grabbing || this.flow?.phase !== 'playing') return
-      this.toggleGallery()
-    })
     // `R` = **先结算、再重开**（见 `restartRun`）—— 不再是"把这一局白扔"的调试键
     k?.on('keydown-R', () => {
       if (this.encounterCodex?.isOpen || this.grabbing) return
@@ -2453,7 +2403,6 @@ export class BattleScene extends Phaser.Scene {
       this.skillHud?.destroy()
       this.loot?.destroy()
       this.shopWorld?.destroy()
-      this.gallery?.destroy()
       this.bossSkills?.destroy()
       this.bossSkills = null
       this.session?.destroy()
@@ -2561,18 +2510,6 @@ export class BattleScene extends Phaser.Scene {
     }
   }
 
-  private demoHit(): void {
-    const c = this.session.clock
-    this.session.player.model.takeHit({
-      sourceId: -2,
-      hitKey: 'd1-hurt',
-      mode: 'instant',
-      sourceKind: 'aoe',
-      amount: this.cfg.arena.demoDamage,
-      frameId: c.frameId,
-      nowMs: c.nowMs,
-    })
-  }
   private restartDifficulty(d: Difficulty): void {
     this.bossSkills?.destroy()
     this.bossSkills = null
