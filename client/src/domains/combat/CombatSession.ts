@@ -798,7 +798,7 @@ export class CombatSession {
     if (this.bossMovementLocked()) return false
     const activated = this.skill?.activate(aim) ?? false
     if (activated) {
-      this.weapons.stopFiring()
+      // 不要停火：按住左键放技能时，普通攻击应继续（用户 2026-11-27）。
       this.audio.setPerformanceActive(this.skill?.isPerforming() === true)
       this.voice.play('skill')
       this.talentCombat.skill(aim)
