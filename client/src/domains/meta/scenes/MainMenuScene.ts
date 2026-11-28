@@ -61,6 +61,8 @@ import {
 } from '../menu/menuModel'
 import { ProfileStore } from '../profile/ProfileStore'
 import { LocalStorageProfileStorage } from '../profile/storage'
+import { CloudSyncService } from '../cloud/cloudSyncService'
+import { mountCloudAuthOverlay } from '../cloud/cloudAuthOverlay'
 import { isUnlocked } from '../progress/progress'
 import { META_CONFIG_NAME, META_CONFIG_URL, parseMetaConfig, type MetaConfig } from '../metaConfig'
 import { buildUpgradePanel } from '../upgrade/UpgradePanel'
@@ -100,6 +102,7 @@ export interface MainMenuData {
 
 export class MainMenuScene extends Phaser.Scene {
   private store!: ProfileStore
+  private disposeCloudAuth: (() => void) | null = null
   private state: MenuState = createMenuState()
   private onExit: (() => void) | undefined
   private requestedInitialScreen: 'main' | 'upgrade' = 'main'
@@ -253,6 +256,18 @@ export class MainMenuScene extends Phaser.Scene {
 
     this.bindInput()
     this.rebuild()
+    this.mountCloudAuth()
+  }
+
+  /** 账号云同步的简陋 UI(正式版由 D4 接替)。 */
+  private mountCloudAuth(): void {
+    const cloud = new CloudSyncService(this.store)
+    this.disposeCloudAuth = mountCloudAuthOverlay(cloud)
+  }
+
+  shutdown(): void {
+    this.disposeCloudAuth?.()
+    this.disposeCloudAuth = null
   }
 
   // ------------------------------------------------------------------ 输入
@@ -447,6 +462,7 @@ export class MainMenuScene extends Phaser.Scene {
     this.scene.start('battle', {
       difficulty: this.store.profile.selected.difficulty,
       characterId: this.store.profile.selected.characterId,
+      store: this.store,
     })
   }
 

@@ -167,6 +167,8 @@ export interface BattleSceneData {
   skillLab?: boolean
   skillLabCharacterId?: string
   skillLabLevel?: number
+  /** 主菜单传入的共享档;测试场不传,战斗自己新建。 */
+  store?: ProfileStore
 }
 
 export interface SkillLabState {
@@ -189,6 +191,7 @@ export class BattleScene extends Phaser.Scene {
   private skillLab = false
   private skillLabCharacterId: string | undefined
   private skillLabLevel = 1
+  private sharedStore: ProfileStore | undefined
   private session!: CombatSession
   private rewardPanel!: RewardPanel
   private cursor!: GameCursor
@@ -463,6 +466,7 @@ export class BattleScene extends Phaser.Scene {
     this.skillLab = data.skillLab === true
     this.skillLabCharacterId = data.skillLabCharacterId
     this.skillLabLevel = Phaser.Math.Clamp(data.skillLabLevel ?? 1, 1, 4)
+    this.sharedStore = data.store
     this.layer = 0
     this.zone = 'main'
     this.maxLayerReached = 1
@@ -667,11 +671,14 @@ export class BattleScene extends Phaser.Scene {
       //
       // 战斗场景需要一份档（结算要发币），但**不是**在战斗里读它改它 ——
       // 结算、设置和首次怪物生成事件经 ProfileStore 更新档案；重复生成不再写盘。
-      this.store = new ProfileStore({
-        storage: this.skillLab
-          ? new MemoryProfileStorage()
-          : new LocalStorageProfileStorage(),
-      })
+      this.store =
+        !this.skillLab && this.sharedStore
+          ? this.sharedStore
+          : new ProfileStore({
+              storage: this.skillLab
+                ? new MemoryProfileStorage()
+                : new LocalStorageProfileStorage(),
+            })
       this.store.load()
       if (this.skillLab) {
         this.store.update((draft) => {

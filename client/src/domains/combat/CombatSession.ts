@@ -408,6 +408,7 @@ export class CombatSession {
   private readonly onBlur = (): void => this.pause('hidden')
   private readonly onVisibility = (): void => {
     if (document.hidden) this.pause('hidden')
+    else this.resume('hidden')
   }
   private beforePhysics(_time: number, delta: number): void {
     if (!this.clock.paused) this.checkWater()

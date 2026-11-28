@@ -1,14 +1,12 @@
 from django.contrib.auth import get_user_model
-from django.contrib.auth.password_validation import validate_password
 from rest_framework import serializers
 
 User = get_user_model()
 
 
 class RegisterSerializer(serializers.ModelSerializer):
-    password = serializers.CharField(
-        write_only=True, min_length=8, validators=[validate_password]
-    )
+    # 课程演示:密码只要求最短 8 位,不做"太常见/纯数字"等严格校验,避免注册莫名失败。
+    password = serializers.CharField(write_only=True, min_length=8)
 
     class Meta:
         model = User

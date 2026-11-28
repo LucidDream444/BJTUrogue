@@ -27,3 +27,7 @@ export type {
   CloudSyncTransport,
   CloudUploadResponse,
 } from './types'
+export { apiBase, apiUrl, errorMessage, HttpError, jsonRequest, type FetchLike } from './api'
+export { AuthSession, type AuthStorage, type AuthTokens } from './auth'
+export { createHttpCloudSyncTransport } from './httpTransport'
+export { CloudSyncService } from './cloudSyncService'
