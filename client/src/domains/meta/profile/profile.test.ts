@@ -78,7 +78,7 @@ describe('默认档', () => {
     // 默认值写全屏 = 设置界面第一帧就在说假话。理由见 `defaults.ts` 文件头。
     expect(p.settings.displayMode).toBe('windowed')
     expect(p.selected.difficulty).toBe('normal')
-    expect(p.selected.characterId).toBe(STARTER_CHARACTER_ID)
+    expect(p.selected.characterId).toBe('')
     expect(p.unlocks.characters).toContain(STARTER_CHARACTER_ID)
     expect(p.onboarding.tutorialSeen).toBe(false)
     // 计数值一起归零，否则"新档"和"老档"的区别只剩一个字段
@@ -433,7 +433,7 @@ describe('形状收敛', () => {
     expect(p.settings.displayMode).toBe('windowed')
     expect(p.currency.coins).toBe(0)
     expect(p.stats).toEqual({ runs: 0, wins: 3, deaths: 0, bestDepth: 0 })
-    expect(p.selected.characterId).toBe(STARTER_CHARACTER_ID)
+    expect(p.selected.characterId).toBe('')
     expect(p.selected.difficulty).toBe('normal')
     expect(p.onboarding.tutorialSeen).toBe(false)
   })

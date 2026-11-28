@@ -31,6 +31,7 @@
  */
 
 import Phaser from 'phaser'
+import { hideLoading, setLoadingProgress, showLoading } from '@/core/loadingOverlay'
 import { ASSETS, ARCHIVE_ART, CAMPUS_MENU_ART, findAsset, imageUrl } from '@/core/assetManifest'
 import { textureKeyFor } from '@/core/assets'
 import {
@@ -77,6 +78,7 @@ import {
   buildNotebookRunSetup,
   buildNotebookSettings,
   buildNotebookQuit,
+  type NotebookRunSetupParts,
   type NotebookSettingsParts,
 } from '../ui/NotebookPanels'
 import { SaveStatusBanner } from '../ui/SaveStatusBanner'
@@ -145,6 +147,23 @@ export class MainMenuScene extends Phaser.Scene {
 
   private readonly disposers: (() => void)[] = []
   private startingRun = false
+  /**
+   * 「出发准备」页的本局种子。
+   *
+   * ★ 2026-11-27：种子从战斗 HUD 搬到这一页 —— 进去之前就能看到、能改，
+   * 而不是开打之后才在角落里发现一行字。每次打开这一页都重新抽一个（除非
+   * URL 带了 `?seed=`）；点开始闯关时随场景数据一起传给 `BattleScene`。
+   */
+  private runSeed = 0
+  /** 正在输入的种子草稿。`null` = 没在输入；数字键只在这时被当成种子。 */
+  private seedDraft: string | null = null
+  /**
+   * 草稿还是「刚点开时的原样」—— 这时**第一个数字替换整串**，而不是往后追加。
+   * 不这样做的话，一个 10 位的种子把输入框占满，玩家直接打字会一个字都打不进去。
+   */
+  private seedDraftReplaces = false
+  /** 种子控件的刷新入口（`buildNotebookRunSetup` 每次重绘后给一份新的）。 */
+  private seedParts: NotebookRunSetupParts | null = null
 
   constructor() {
     super(MAIN_MENU_SCENE_KEY)
@@ -165,6 +184,8 @@ export class MainMenuScene extends Phaser.Scene {
   }
 
   preload(): void {
+    showLoading()
+    this.load.on('progress', setLoadingProgress)
     // 配置表必须走 Phaser 的 loader，**不能 import** —— `public/` 下的文件不参与
     // 打包，Vite 遇到指向它的 import 会静默换成空模块（见 `ArenaBase.preload`）。
     this.load.json(META_CONFIG_NAME, META_CONFIG_URL)
@@ -181,6 +202,12 @@ export class MainMenuScene extends Phaser.Scene {
     if (!mapAsset) throw new Error(`资源清单缺少校园主菜单底图：${CAMPUS_MENU_ART.map}`)
     if (!this.textures.exists(CAMPUS_MENU_ART.map)) {
       this.load.image(CAMPUS_MENU_ART.map, imageUrl(mapAsset))
+    }
+    for (const key of Object.values(CAMPUS_MENU_ART.buttons)) {
+      if (this.textures.exists(key)) continue
+      const asset = findAsset(key)
+      if (!asset) throw new Error(`资源清单缺少主菜单按钮贴图：${key}`)
+      this.load.image(key, imageUrl(asset))
     }
 
     // 出发准备页的三张角色卡。新生是待机图集（取第 0 帧），另外两张是单图；
@@ -217,6 +244,7 @@ export class MainMenuScene extends Phaser.Scene {
   }
 
   create(): void {
+    hideLoading()
     const outcome = this.store.load()
     this.state = createMenuState(initialMenuScreen(this.store.profile, this.requestedInitialScreen))
 
@@ -276,7 +304,7 @@ export class MainMenuScene extends Phaser.Scene {
     const kb = this.input.keyboard
     if (kb) {
       // 空格默认会滚动页面；不捕获的话按一下整页就跳。
-      kb.addCapture(['SPACE', 'UP', 'DOWN', 'LEFT', 'RIGHT', 'ENTER', 'ESC'])
+      kb.addCapture(['SPACE', 'UP', 'DOWN', 'LEFT', 'RIGHT', 'ENTER', 'ESC', 'BACKSPACE'])
       kb.on('keydown-UP', () => this.moveSelection(-1))
       kb.on('keydown-DOWN', () => this.moveSelection(1))
       kb.on('keydown-LEFT', () => this.moveSelection(-1))
@@ -284,6 +312,10 @@ export class MainMenuScene extends Phaser.Scene {
       kb.on('keydown-ENTER', () => this.activateFocused())
       kb.on('keydown-SPACE', () => this.activateFocused())
       kb.on('keydown-ESC', () => this.escape())
+      // 出发准备页的种子输入。**数字键只在 `seedDraft !== null` 时有用**，
+      // 平时打数字不会触发任何菜单动作。Enter / Esc 由这里收尾；
+      // 上面那两条 ENTER / ESC 监听在非 main 屏本来就不做事（`escape()` 里另有守卫）。
+      kb.on('keydown', (event: KeyboardEvent) => this.editSeedKey(event))
       this.events.once(Phaser.Scenes.Events.SHUTDOWN, () => kb.removeAllListeners())
     }
 
@@ -372,6 +404,11 @@ export class MainMenuScene extends Phaser.Scene {
   }
 
   private escape(): void {
+    // 正在输入种子时，Esc 只取消输入，不关掉「出发准备」页。
+    if (this.state.screen === 'run-setup' && this.seedDraft !== null) {
+      this.cancelSeedEdit()
+      return
+    }
     if (this.state.screen === 'first-run') {
       this.finishFirstRunTutorial(false)
       return
@@ -395,6 +432,7 @@ export class MainMenuScene extends Phaser.Scene {
         // 会顺手「点」到下面那张角色卡，冒出一条莫名其妙的未解锁提示；换个窗口尺寸
         // 就可能直接点到「开始闯关」）。开屏后短暂忽略指针输入，键盘不受影响。
         this.inputGuardUntil = this.game.loop.time + 250
+        this.beginRunSetup()
         this.state = openScreen(this.state, 'run-setup')
         this.rebuild()
         break
@@ -437,6 +475,7 @@ export class MainMenuScene extends Phaser.Scene {
     this.store.markTutorialSeen()
     if (startImmediately) {
       this.inputGuardUntil = this.game.loop.time + 250
+      this.beginRunSetup()
       this.state = openScreen(createMenuState(), 'run-setup')
       this.rebuild()
       return
@@ -446,8 +485,13 @@ export class MainMenuScene extends Phaser.Scene {
     this.rebuild()
   }
 
-  /** 出发准备页的「开始闯关」。真正进战斗前才检查场景是否注册。 */
-  private startRun(): void {
+  /**
+   * 出发准备页的「开始闯关」/「BOSSRUSH」。真正进战斗前才检查场景是否注册。
+   *
+   * `mode` 一起带进战斗：`campaign` 是原来的三层闯关，`bossrush` 是八层首领连战。
+   * 两个入口共用角色、难度与本局种子；BOSSRUSH 的首领顺序也从这颗种子派生。
+   */
+  private startRun(mode: 'campaign' | 'bossrush' = 'campaign'): void {
     if (this.pointerGuarded() || this.startingRun) return
     // ⚠️ 先确认 `battle` 真的注册过：只有产品入口会注册它（`main.ts` 的 scene
     // 列表），D4 的测试场（`test.html?arena=d4_main_menu`）里没有战斗场景 ——
@@ -457,13 +501,123 @@ export class MainMenuScene extends Phaser.Scene {
       this.refresh()
       return
     }
+    // 强制手动选角色：新档角色为空，必须先选。
+    if (!this.store.profile.selected.characterId) {
+      this.state = withNotice(this.state, '请先选择角色')
+      this.refresh()
+      return
+    }
     // 难度一起带上：出发准备页摆着难度三选一，不传的话那个选择只是个摆设。
+    // 种子的输入框可能还没按 Enter（玩家直接点了「开始闯关」），先收下再进战斗。
+    this.commitSeedDraft()
     this.startingRun = true
     this.scene.start('battle', {
       difficulty: this.store.profile.selected.difficulty,
       characterId: this.store.profile.selected.characterId,
+      seed: this.runSeed,
+      mode,
       store: this.store,
     })
+  }
+
+  /* ------------------------------------------------------- 出发准备：种子 */
+
+  /**
+   * 打开「出发准备」页时准备本局种子：URL 带 `?seed=` 就用它（分享/复现），
+   * 否则抽一个新的。玩家之后还可以在页面上改。
+   */
+  private beginRunSetup(): void {
+    this.seedDraft = null
+    this.seedDraftReplaces = false
+    const raw =
+      typeof window === 'undefined'
+        ? null
+        : new URLSearchParams(window.location.search).get('seed')
+    if (raw !== null && /^\d+$/.test(raw.trim())) {
+      const value = Number.parseInt(raw, 10)
+      if (Number.isSafeInteger(value)) {
+        this.runSeed = value >>> 0
+        return
+      }
+    }
+    this.randomizeSeed()
+  }
+
+  /** 「随机」按钮：换一个种子并退出输入状态。 */
+  private randomizeSeed(): void {
+    this.seedDraft = null
+    this.seedDraftReplaces = false
+    this.runSeed = (Math.random() * 0x100000000) >>> 0
+    this.syncSeedDisplay()
+  }
+
+  /** 点种子框：进入输入状态。**第一个数字会替换整串**，不用先删掉原来的十位数。 */
+  private beginSeedEdit(): void {
+    if (this.seedDraft === null) {
+      this.seedDraft = String(this.runSeed)
+      this.seedDraftReplaces = true
+    }
+    this.syncSeedDisplay()
+  }
+
+  /** Esc / 放弃输入：回到当前种子。 */
+  private cancelSeedEdit(): void {
+    this.seedDraft = null
+    this.seedDraftReplaces = false
+    this.syncSeedDisplay()
+  }
+
+  /** 收下输入框里的数字。空串 = 重新随机（输入删光了再确认也是这个意思）。 */
+  private commitSeedDraft(): void {
+    if (this.seedDraft === null) return
+    const digits = this.seedDraft.trim()
+    this.runSeed =
+      digits === ''
+        ? (Math.random() * 0x100000000) >>> 0
+        : Math.min(Number.parseInt(digits, 10), 0xffffffff) >>> 0
+    this.seedDraft = null
+    this.seedDraftReplaces = false
+    this.syncSeedDisplay()
+  }
+
+  /**
+   * 种子输入框的按键。**只看数字、退格、Enter、Esc** —— 其它键原样留给菜单
+   * （方向键在出发准备页本来就不移动焦点）。
+   *
+   * ⚠️ Phaser 先发 `keydown-ENTER` / `keydown-ESC`、再发通用 `keydown`（见
+   * `KeyboardPlugin.onKeyDown` 的发射顺序），所以 Esc 的守卫写在 `escape()` 里，
+   * 这里只管取消草稿；Enter 的菜单动作在非 main 屏本来就是空操作。
+   */
+  private editSeedKey(event: KeyboardEvent): void {
+    if (this.state.screen !== 'run-setup' || this.seedDraft === null) return
+    if (/^\d$/.test(event.key)) {
+      if (this.seedDraftReplaces) {
+        this.seedDraft = event.key
+        this.seedDraftReplaces = false
+      } else if (this.seedDraft.length < 10) {
+        this.seedDraft += event.key
+      }
+      event.preventDefault()
+      this.syncSeedDisplay()
+      return
+    }
+    if (event.key === 'Backspace') {
+      this.seedDraftReplaces = false
+      this.seedDraft = this.seedDraft.slice(0, -1)
+      event.preventDefault()
+      this.syncSeedDisplay()
+      return
+    }
+    if (event.key === 'Enter') {
+      event.preventDefault()
+      this.commitSeedDraft()
+      return
+    }
+    if (event.key === 'Escape') this.cancelSeedEdit()
+  }
+
+  private syncSeedDisplay(): void {
+    this.seedParts?.refreshSeed(this.runSeed, this.seedDraft)
   }
 
   /** 刚开屏的 250ms 内忽略指针点击，挡掉穿透过来的 pointerdown。 */
@@ -500,6 +654,7 @@ export class MainMenuScene extends Phaser.Scene {
     for (const o of this.objects) o.destroy()
     this.objects = []
     this.settingsParts = null
+    this.seedParts = null
     this.noticeText = null
     this.codexPanel = null
   }
@@ -725,7 +880,7 @@ export class MainMenuScene extends Phaser.Scene {
         )
         break
       case 'run-setup':
-        buildNotebookRunSetup(
+        this.seedParts = buildNotebookRunSetup(
           ui,
           this.store.profile,
           this.meta,
@@ -738,7 +893,14 @@ export class MainMenuScene extends Phaser.Scene {
             this.rebuild()
           },
           () => this.startRun(),
+          () => this.startRun('bossrush'),
           () => this.run('upgrade'),
+          {
+            value: this.runSeed,
+            draft: this.seedDraft,
+            onEdit: () => this.beginSeedEdit(),
+            onRandom: () => this.randomizeSeed(),
+          },
         )
         break
       case 'confirm-quit':
